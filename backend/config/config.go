@@ -235,6 +235,13 @@ func GetPluginDir() string {
 	return dir
 }
 
+// GetHomeTemplateDir 获取已安装首页模板的存放目录。
+func GetHomeTemplateDir() string {
+	dir := filepath.Join(getDataDir(), "home-templates")
+	_ = os.MkdirAll(dir, 0755)
+	return dir
+}
+
 func GetPort() string {
 	port := os.Getenv("PORT")
 	if port == "" {

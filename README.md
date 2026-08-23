@@ -1,10 +1,8 @@
 # auth_pro
 
-
 ## 核心功能
 
 - 公益开源交流群：169484041。
-
 
 `auth_pro` 是一个授权管理与反盗版后台系统，包含后台管理端、代理端、用户端和授权校验 API。项目采用前后端分离开发，生产环境可将前端产物内嵌到 Go 后端统一部署。
 
@@ -101,6 +99,78 @@ pnpm dev
 3. 创建管理员账号。
 4. 进入后台管理系统。
 
+## 首页模板与软件源
+
+管理后台的“应用商店”提供“首页模板”分区。管理员可以在“软件源管理”中添加以下两类 HTTP(S) 地址：
+
+- JSON 清单 URL，例如 `https://example.com/auth-pro/index.json`。
+- Git 仓库 URL，例如 `https://git.example.com/team/auth-pro-templates.git`。服务端需要在 `PATH` 中安装 `git`，仓库根目录必须包含 `index.json`。
+
+软件源允许使用内网地址。请仅添加可信仓库：服务端会拉取清单和模板文件，但声明式模板不会执行仓库中的 JavaScript。清单缓存 5 分钟；可在软件源管理中手动刷新，源暂时不可用时会保留已有缓存并显示错误状态。
+
+现有 `plugins` 字段保持兼容，首页模板通过 `homeTemplates` 声明：
+
+```json
+{
+  "name": "示例软件源",
+  "plugins": [],
+  "homeTemplates": [
+    {
+      "id": "clean-home",
+      "name": "清新首页",
+      "description": "简洁的授权服务首页",
+      "version": "1.0.0",
+      "schemaVersion": 1,
+      "sha256": "模板 JSON 文件的 64 位 SHA256",
+      "templateUrl": "templates/clean-home.json"
+    }
+  ]
+}
+```
+
+JSON 清单可使用绝对或相对 `templateUrl`。Git 仓库应将 `templateUrl` 替换为仓库内相对路径，例如 `"templatePath": "templates/clean-home.json"`。路径越界和指向仓库外部的符号链接会被拒绝。
+
+模板文件采用声明式 schema v1：
+
+```json
+{
+  "schemaVersion": 1,
+  "theme": {
+    "primaryColor": "#16a085",
+    "backgroundColor": "#f2fbf8",
+    "textColor": "#17352d"
+  },
+  "hero": {
+    "badge": "LICENSE SERVICE",
+    "title": "专业授权服务",
+    "highlight": "安全、稳定、易管理",
+    "description": "为用户提供授权查询与账户服务",
+    "imageUrl": "https://example.com/assets/hero.png",
+    "primaryAction": { "label": "登录用户中心", "type": "login" }
+  },
+  "features": [
+    {
+      "icon": "ri:shield-check-line",
+      "title": "安全验证",
+      "description": "授权状态实时同步"
+    }
+  ],
+  "footer": { "text": "© 示例授权服务" }
+}
+```
+
+模板启用前会校验文件大小、SHA256 和 schema。系统只保存一个活动模板 ID，因此同一时间最多启用一个首页模板。模板拉取、校验、文件读取或渲染失败时，`/user/login` 自动使用内置默认模板，浏览器 URL 不会改变。
+
+圆趣蓝白红与黑金金融科技 demo 的目录、配置、远程发布和完整验证说明见 [`docs/home-template-ui-demo.md`](docs/home-template-ui-demo.md)。
+
+前端端到端测试命令：
+
+```bash
+cd frontend
+pnpm exec playwright install chromium
+pnpm test:e2e
+```
+
 ## 生产构建
 
 ### 1. 构建前端
@@ -163,12 +233,12 @@ releases.json
 
 ## 重要配置
 
-| 配置项               | 说明                                             | 默认值                                                                                      |
-| -------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `PORT`               | 后端服务端口                                     | `19127`                                                                                     |
-| `AUTO_PRO_DATA_DIR`  | 后端运行数据目录，用于保存配置、更新包和运行数据 | 当前运行目录                                                                                |
-| `AUTO_PRO_UPDATE_URL` | 在线更新 `latest.json` 地址                      | `https://github.com/cy70923167/auth_pro/releases/latest/download/latest.json`                |
-| `VITE_API_PROXY_URL` | 前端开发代理目标地址                             | `http://localhost:19127`                                                                    |
+| 配置项                | 说明                                             | 默认值                                                                        |
+| --------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------- |
+| `PORT`                | 后端服务端口                                     | `19127`                                                                       |
+| `AUTO_PRO_DATA_DIR`   | 后端运行数据目录，用于保存配置、更新包和运行数据 | 当前运行目录                                                                  |
+| `AUTO_PRO_UPDATE_URL` | 在线更新 `latest.json` 地址                      | `https://github.com/cy70923167/auth_pro/releases/latest/download/latest.json` |
+| `VITE_API_PROXY_URL`  | 前端开发代理目标地址                             | `http://localhost:19127`                                                      |
 
 ## API 入口
 

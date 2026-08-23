@@ -54,8 +54,9 @@ type pluginSourceRecord struct {
 
 // remotePluginIndex 仓库清单（仓库 URL 指向的 JSON）。
 type remotePluginIndex struct {
-	Name    string `json:"name"`
-	Plugins []struct {
+	Name          string               `json:"name"`
+	HomeTemplates []remoteHomeTemplate `json:"homeTemplates"`
+	Plugins       []struct {
 		ID          string `json:"id"`
 		Category    string `json:"category"`
 		Name        string `json:"name"`
@@ -172,7 +173,10 @@ func ensurePluginStorage(db *sql.DB) error {
 	if err := ensureSystemConfigStorage(db); err != nil {
 		return err
 	}
-	return ensureDefaultPluginState(db)
+	if err := ensureDefaultPluginState(db); err != nil {
+		return err
+	}
+	return ensureHomeTemplateStorage(db)
 }
 
 // ensureDefaultPluginState 只在腾讯实名插件尚无状态记录时执行一次默认迁移。
@@ -312,12 +316,12 @@ func AdminPluginList(c *gin.Context) {
 			if sourceFilter != "" && sourceFilter != fmt.Sprintf("%d", src.ID) {
 				continue
 			}
-			idx, err := fetchPluginSourceIndex(src.URL)
-			if err != nil {
+			idx, err := loadPluginSourceIndex(c.Request.Context(), db, src, false)
+			if idx == nil {
 				sourceOK[src.ID] = false
 				continue
 			}
-			sourceOK[src.ID] = true
+			sourceOK[src.ID] = err == nil
 			srcName := src.Name
 			if srcName == "" {
 				srcName = idx.Name
@@ -469,28 +473,6 @@ func validatePluginSourceURL(raw string) (string, error) {
 	return raw, nil
 }
 
-// fetchPluginSourceIndex 拉取远程仓库清单。
-func fetchPluginSourceIndex(rawURL string) (*remotePluginIndex, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(rawURL)
-	if err != nil {
-		return nil, fmt.Errorf("仓库连接失败：%w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("仓库返回状态码 %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	if err != nil {
-		return nil, errors.New("读取仓库清单失败")
-	}
-	var idx remotePluginIndex
-	if err := json.Unmarshal(body, &idx); err != nil {
-		return nil, errors.New("仓库清单不是有效的 JSON")
-	}
-	return &idx, nil
-}
-
 // AdminPluginSourceAdd 添加软件源；会立即拉取一次仓库清单做校验。
 func AdminPluginSourceAdd(c *gin.Context) {
 	var req struct {
@@ -508,7 +490,7 @@ func AdminPluginSourceAdd(c *gin.Context) {
 	}
 	req.Name = strings.TrimSpace(req.Name)
 
-	idx, err := fetchPluginSourceIndex(repoURL)
+	idx, rawManifest, sourceType, err := fetchPluginSourceManifest(c.Request.Context(), repoURL)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "仓库校验失败：" + err.Error()})
 		return
@@ -534,11 +516,25 @@ func AdminPluginSourceAdd(c *gin.Context) {
 		return
 	}
 
-	if _, err := db.Exec("INSERT INTO plugin_sources (name, url, created_at) VALUES (?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name)", req.Name, repoURL); err != nil {
+	result, err := db.Exec("INSERT INTO plugin_sources (name, url, created_at) VALUES (?, ?, NOW()) ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), name = VALUES(name)", req.Name, repoURL)
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存软件源失败"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": fmt.Sprintf("软件源已添加，发现 %d 个插件", len(idx.Plugins))})
+	sourceID, err := result.LastInsertId()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取软件源标识失败"})
+		return
+	}
+	if err := cachePluginSourceManifest(db, sourceID, sourceType, rawManifest, ""); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "缓存软件源失败"})
+		return
+	}
+	if err := syncHomeTemplates(db, sourceID, repoURL, sourceType, idx.HomeTemplates); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "首页模板清单校验失败：" + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": fmt.Sprintf("软件源已添加，发现 %d 个插件、%d 个首页模板", len(idx.Plugins), len(idx.HomeTemplates))})
 }
 
 // AdminPluginSourceDelete 删除软件源（不影响已下载到本地的插件）。
@@ -558,6 +554,8 @@ func AdminPluginSourceDelete(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "删除软件源失败"})
 		return
 	}
+	_, _ = db.Exec("DELETE FROM plugin_source_cache WHERE source_id = ?", id)
+	_, _ = db.Exec("UPDATE home_templates SET available = 0, updated_at = NOW() WHERE source_id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "软件源已删除"})
 }
 
@@ -598,8 +596,8 @@ func AdminPluginDownload(c *gin.Context) {
 	}
 	downloadURL := ""
 	for _, src := range sources {
-		idx, err := fetchPluginSourceIndex(src.URL)
-		if err != nil {
+		idx, _ := loadPluginSourceIndex(c.Request.Context(), db, src, false)
+		if idx == nil {
 			continue
 		}
 		for _, rp := range idx.Plugins {

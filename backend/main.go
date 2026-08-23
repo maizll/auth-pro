@@ -124,6 +124,7 @@ func main() {
 			userAuth.POST("/forgot-password", handler.UserForgotPassword)
 			userAuth.POST("/reset-password", handler.UserResetPassword)
 		}
+		api.GET("/home-template/active", handler.PublicActiveHomeTemplate)
 
 		// 用户端（需鉴权）
 		userSecured := api.Group("/user-panel")
@@ -188,6 +189,9 @@ func main() {
 			secured.POST("/system/plugins/:id/download", handler.AdminPluginDownload)
 			secured.POST("/system/plugin-sources", handler.AdminPluginSourceAdd)
 			secured.DELETE("/system/plugin-sources/:id", handler.AdminPluginSourceDelete)
+			secured.POST("/system/plugin-sources/:id/refresh", handler.AdminPluginSourceRefresh)
+			secured.GET("/system/home-templates", handler.AdminHomeTemplateList)
+			secured.POST("/system/home-templates/:id/enable", handler.AdminHomeTemplateEnable)
 			secured.GET("/system/realname-config", handler.AdminRealnameConfig)
 			secured.PUT("/system/realname-config", handler.AdminRealnameConfigUpdate)
 			secured.POST("/system/realname-products", handler.AdminRealnameProducts)

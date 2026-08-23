@@ -569,3 +569,43 @@ export function fetchTogglePlugin(id: string, enabled: boolean) {
     data: { enabled }
   })
 }
+
+export interface HomeTemplateInfo {
+  id: number | 'default'
+  templateId: string
+  name: string
+  description: string
+  version: string
+  source: string
+  sourceUrl?: string
+  sourceType?: 'json' | 'git'
+  previewUrl?: string
+  sha256?: string
+  schemaVersion?: number
+  enabled: boolean
+  installed: boolean
+  available: boolean
+  updatedAt?: string
+}
+
+export interface HomeTemplateListData {
+  list: HomeTemplateInfo[]
+}
+
+export function fetchHomeTemplateList() {
+  return request.get<HomeTemplateListData>({
+    url: '/api/system/home-templates'
+  })
+}
+
+export function fetchRefreshPluginSource(id: number) {
+  return request.post<{ plugins: number; homeTemplates: number }>({
+    url: `/api/system/plugin-sources/${id}/refresh`
+  })
+}
+
+export function fetchEnableHomeTemplate(id: number | 'default') {
+  return request.post<null>({
+    url: `/api/system/home-templates/${id}/enable`
+  })
+}

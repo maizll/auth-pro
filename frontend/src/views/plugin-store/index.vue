@@ -8,7 +8,7 @@
         </div>
         <div class="store-header-actions">
           <ElButton :icon="FolderAdd" @click="sourceDialogVisible = true">软件源管理</ElButton>
-          <ElButton :icon="Refresh" circle :loading="loading" @click="loadPlugins" />
+          <ElButton :icon="Refresh" circle :loading="loading" @click="handleRefresh" />
         </div>
       </div>
 
@@ -17,6 +17,7 @@
           <ElTabPane label="全部插件" name="all" />
           <ElTabPane label="支付插件" name="payment" />
           <ElTabPane label="实名认证服务商" name="realname" />
+          <ElTabPane label="首页模板" name="home-template" />
           <ElTabPane label="其他插件" name="other" />
         </ElTabs>
         <ElInput
@@ -31,7 +32,74 @@
       </div>
 
       <div v-loading="loading" class="store-body">
-        <ElEmpty v-if="!visibleGroups.length" description="没有匹配的插件" />
+        <ElAlert
+          v-if="loadError"
+          :title="loadError"
+          type="error"
+          show-icon
+          :closable="false"
+          class="store-error"
+        />
+
+        <section v-if="showHomeTemplates && filteredHomeTemplates.length" class="plugin-section">
+          <div class="section-header">
+            <strong>首页模板</strong>
+            <ElText type="info" size="small">{{ filteredHomeTemplates.length }} 个模板</ElText>
+          </div>
+          <div class="plugin-grid">
+            <div
+              v-for="template in filteredHomeTemplates"
+              :key="template.id"
+              class="plugin-card template-card"
+              :class="{ 'is-enabled': template.enabled }"
+            >
+              <div class="plugin-card-top">
+                <div class="plugin-icon"><ArtSvgIcon icon="ri:layout-4-line" /></div>
+                <div class="plugin-meta">
+                  <div class="plugin-name">
+                    <strong>{{ template.name }}</strong>
+                    <ElTag
+                      v-if="template.id === 'default'"
+                      type="primary"
+                      size="small"
+                      effect="plain"
+                      >内置</ElTag
+                    >
+                    <ElTag type="info" size="small" effect="plain">v{{ template.version }}</ElTag>
+                  </div>
+                  <p class="plugin-desc">{{ template.description || '暂无模板描述' }}</p>
+                  <div class="template-source" :title="template.sourceUrl || template.source">
+                    来源：{{ template.source }}
+                  </div>
+                </div>
+              </div>
+              <div class="plugin-card-bottom">
+                <div class="plugin-status">
+                  <ElTag v-if="template.enabled" type="success" size="small">已启用</ElTag>
+                  <ElTag v-else-if="!template.available" type="danger" size="small"
+                    >源中已移除</ElTag
+                  >
+                  <ElTag v-else-if="template.installed" type="info" size="small">已安装</ElTag>
+                  <ElTag v-else type="warning" size="small">启用时安装</ElTag>
+                  <ElText v-if="template.sourceType" type="info" size="small">
+                    {{ template.sourceType === 'git' ? 'Git 仓库' : 'JSON 清单' }}
+                  </ElText>
+                </div>
+                <ElButton
+                  type="primary"
+                  size="small"
+                  :disabled="template.enabled || (!template.available && !template.installed)"
+                  :loading="togglingTemplateId === String(template.id)"
+                  @click="handleEnableTemplate(template)"
+                >
+                  {{ template.enabled ? '当前模板' : '启用' }}
+                </ElButton>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <ElEmpty v-if="!loadError && !hasVisibleContent" description="没有匹配的应用或首页模板" />
         <section v-for="group in visibleGroups" :key="group.category" class="plugin-section">
           <div class="section-header">
             <strong>{{ group.title }}</strong>
@@ -137,10 +205,7 @@
 
     <ElDialog v-model="sourceDialogVisible" title="软件源管理" width="560px">
       <div class="source-add">
-        <ElInput
-          v-model="newSourceUrl"
-          placeholder="软件源清单地址，如 https://example.com/index.json"
-        />
+        <ElInput v-model="newSourceUrl" placeholder="JSON 清单或 Git 仓库地址" />
         <ElInput
           v-model="newSourceName"
           placeholder="名称（可选，留空自动获取）"
@@ -156,8 +221,16 @@
         </ElTableColumn>
         <ElTableColumn prop="name" label="名称" width="130" show-overflow-tooltip />
         <ElTableColumn prop="url" label="地址" show-overflow-tooltip />
-        <ElTableColumn label="操作" width="90" align="center">
+        <ElTableColumn label="操作" width="140" align="center">
           <template #default="{ row }">
+            <ElButton
+              link
+              type="primary"
+              size="small"
+              :loading="refreshingSourceId === row.id"
+              @click="handleRefreshSource(row)"
+              >刷新</ElButton
+            >
             <ElButton link type="danger" size="small" @click="handleDeleteSource(row)"
               >删除</ElButton
             >
@@ -167,9 +240,9 @@
           <ElEmpty description="暂无软件源" :image-size="60" />
         </template>
       </ElTable>
-      <div class="source-tip"
-        >软件源是一个远程插件仓库清单（JSON），添加后可浏览并下载其中的插件。</div
-      >
+      <div class="source-tip">
+        支持 JSON 清单 URL 或 HTTP(S) Git 仓库地址；Git 仓库根目录需包含 index.json。
+      </div>
     </ElDialog>
 
     <ElBacktop target="#app-main" :right="32" :bottom="32" />
@@ -185,8 +258,12 @@
     fetchAddPluginSource,
     fetchDeletePluginSource,
     fetchDownloadPlugin,
+    fetchEnableHomeTemplate,
+    fetchHomeTemplateList,
     fetchPluginList,
+    fetchRefreshPluginSource,
     fetchTogglePlugin,
+    HomeTemplateInfo,
     PluginCategoryGroup,
     PluginInfo,
     PluginSource
@@ -198,8 +275,12 @@
   const loading = ref(false)
   const togglingId = ref('')
   const downloadingId = ref('')
+  const togglingTemplateId = ref('')
+  const refreshingSourceId = ref<number | null>(null)
+  const loadError = ref('')
   const categories = ref<PluginCategoryGroup[]>([])
   const sources = ref<PluginSource[]>([])
+  const homeTemplates = ref<HomeTemplateInfo[]>([])
 
   const activeTab = ref('all')
   const searchText = ref('')
@@ -214,6 +295,25 @@
     if (activeTab.value === 'all') return categories.value.filter((g) => g.plugins.length)
     return categories.value.filter((g) => g.category === activeTab.value && g.plugins.length)
   })
+
+  const showHomeTemplates = computed(
+    () => activeTab.value === 'all' || activeTab.value === 'home-template'
+  )
+  const filteredHomeTemplates = computed(() => {
+    if (!showHomeTemplates.value) return []
+    const keyword = searchText.value.trim().toLowerCase()
+    if (!keyword) return homeTemplates.value
+    return homeTemplates.value.filter((item) =>
+      [item.name, item.description, item.templateId, item.source].some((value) =>
+        String(value || '')
+          .toLowerCase()
+          .includes(keyword)
+      )
+    )
+  })
+  const hasVisibleContent = computed(
+    () => visibleGroups.value.length > 0 || filteredHomeTemplates.value.length > 0
+  )
 
   const pluginDescriptionPrefix = (plugin: PluginInfo): string => {
     if (!plugin.homepage) return plugin.description
@@ -237,14 +337,68 @@
 
   const loadPlugins = async () => {
     loading.value = true
+    loadError.value = ''
     try {
-      const data = await fetchPluginList({ q: searchText.value || undefined })
-      categories.value = data.categories || []
-      sources.value = data.sources || []
-    } catch {
-      ElMessage.error('插件列表加载失败')
+      const [pluginData, templateData] = await Promise.all([
+        fetchPluginList({ q: searchText.value || undefined }),
+        fetchHomeTemplateList()
+      ])
+      categories.value = pluginData.categories || []
+      sources.value = pluginData.sources || []
+      homeTemplates.value = templateData.list || []
+    } catch (error: any) {
+      loadError.value = error?.message || '应用商店加载失败，请稍后重试'
+      ElMessage.error(loadError.value)
     } finally {
       loading.value = false
+    }
+  }
+
+  const handleRefresh = async () => {
+    loading.value = true
+    try {
+      await Promise.all(sources.value.map((source) => fetchRefreshPluginSource(source.id)))
+      ElMessage.success('软件源已刷新')
+    } catch (error: any) {
+      ElMessage.error(error?.message || '部分软件源刷新失败')
+    } finally {
+      loading.value = false
+      await loadPlugins()
+    }
+  }
+
+  const handleRefreshSource = async (source: PluginSource) => {
+    refreshingSourceId.value = source.id
+    try {
+      await fetchRefreshPluginSource(source.id)
+      ElMessage.success(`「${source.name}」刷新成功`)
+      await loadPlugins()
+    } catch (error: any) {
+      ElMessage.error(error?.message || '软件源刷新失败')
+    } finally {
+      refreshingSourceId.value = null
+    }
+  }
+
+  const handleEnableTemplate = async (template: HomeTemplateInfo) => {
+    try {
+      await ElMessageBox.confirm(
+        `确认启用首页模板「${template.name}」？用户访问 /user/login 时将展示该模板。`,
+        '启用首页模板',
+        { confirmButtonText: '启用', cancelButtonText: '取消', type: 'warning' }
+      )
+    } catch {
+      return
+    }
+    togglingTemplateId.value = String(template.id)
+    try {
+      await fetchEnableHomeTemplate(template.id)
+      ElMessage.success(`已启用「${template.name}」`)
+      await loadPlugins()
+    } catch (error: any) {
+      ElMessage.error(error?.message || '首页模板启用失败')
+    } finally {
+      togglingTemplateId.value = ''
     }
   }
 
@@ -343,6 +497,19 @@
 
 <style lang="scss" scoped>
   .plugin-store {
+    .store-error {
+      margin-bottom: 18px;
+    }
+
+    .template-source {
+      margin-top: 8px;
+      overflow: hidden;
+      font-size: 12px;
+      color: var(--art-gray-500);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .store-header {
       display: flex;
       align-items: flex-start;

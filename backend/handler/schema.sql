@@ -597,6 +597,62 @@ CREATE TABLE `mail_send_logs` (
   KEY `idx_license_event` (`license_id`, `event_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='邮件发送日志表';
 
+DROP TABLE IF EXISTS `home_templates`;
+CREATE TABLE `home_templates` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `template_key` VARCHAR(60) NOT NULL COMMENT '仓库内模板标识',
+  `source_id` BIGINT NOT NULL COMMENT '软件源ID',
+  `name` VARCHAR(100) NOT NULL,
+  `description` VARCHAR(500) NOT NULL DEFAULT '',
+  `version` VARCHAR(40) NOT NULL,
+  `source_url` VARCHAR(500) NOT NULL,
+  `source_type` VARCHAR(20) NOT NULL DEFAULT 'json',
+  `preview_url` VARCHAR(500) NOT NULL DEFAULT '',
+  `template_url` VARCHAR(500) NOT NULL DEFAULT '',
+  `template_path` VARCHAR(500) NOT NULL DEFAULT '',
+  `sha256` CHAR(64) NOT NULL,
+  `schema_version` INT NOT NULL DEFAULT 1,
+  `available` TINYINT(1) NOT NULL DEFAULT 1,
+  `installed_path` VARCHAR(1000) NOT NULL DEFAULT '',
+  `installed_at` DATETIME DEFAULT NULL,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_source_template` (`source_id`, `template_key`),
+  KEY `idx_available` (`available`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='首页模板';
+
+DROP TABLE IF EXISTS `plugin_source_cache`;
+CREATE TABLE `plugin_source_cache` (
+  `source_id` BIGINT NOT NULL,
+  `source_type` VARCHAR(20) NOT NULL DEFAULT 'json' COMMENT 'json/git',
+  `manifest_json` MEDIUMTEXT NOT NULL,
+  `fetched_at` DATETIME NOT NULL,
+  `expires_at` DATETIME NOT NULL,
+  `last_error` VARCHAR(500) NOT NULL DEFAULT '',
+  PRIMARY KEY (`source_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源清单缓存';
+
+DROP TABLE IF EXISTS `plugin_sources`;
+CREATE TABLE `plugin_sources` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(60) NOT NULL DEFAULT '' COMMENT '软件源名称',
+  `url` VARCHAR(500) NOT NULL COMMENT '仓库清单或Git仓库地址',
+  `created_at` DATETIME DEFAULT NULL COMMENT '添加时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_url` (`url`(191))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='插件软件源';
+
+DROP TABLE IF EXISTS `plugins`;
+CREATE TABLE `plugins` (
+  `id` VARCHAR(60) NOT NULL COMMENT '插件标识',
+  `category` VARCHAR(30) NOT NULL DEFAULT '' COMMENT '能力分类',
+  `enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否启用',
+  `updated_at` DATETIME DEFAULT NULL COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_category` (`category`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='应用商店插件';
+
+
 DROP TABLE IF EXISTS `system_configs`;
 CREATE TABLE `system_configs` (
   `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
