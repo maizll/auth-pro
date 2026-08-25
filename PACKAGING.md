@@ -66,44 +66,36 @@ release/packages/latest.json
 release/packages/releases.json
 ```
 
-构建脚本只生成 `Linux amd64` 后端，版本参数必须匹配 `X.Y.Z`。`latest.json` 中记录平台、文件名、GitHub Release 下载地址、文件大小和 SHA256；`releases.json` 合并保留已有历史版本，并将上一版本标签到当前版本之间的 Git 提交标题自动记录到对应版本的 `notes`。首次发布会记录当前 Git 历史；无 Git 历史时才使用兜底说明。可通过 `AUTO_PRO_RELEASE_NOTES` 显式覆盖本次更新内容（JSON 字符串数组或按行分隔文本）。
+构建脚本只生成 `Linux amd64` 后端，版本参数必须匹配 `X.Y.Z`。`latest.json` 中记录平台、文件名、Gitee Release 下载地址、文件大小和 SHA256；`releases.json` 合并保留已有历史版本，并将上一版本标签到当前版本之间的 Git 提交标题自动记录到对应版本的 `notes`。首次发布会记录当前 Git 历史；无 Git 历史时才使用兜底说明。可通过 `AUTO_PRO_RELEASE_NOTES` 显式覆盖本次更新内容（JSON 字符串数组或按行分隔文本）。
 
-## 独立软件源发布包
+## Gitee Release 发布
 
-软件源系统不再放入授权网站根目录，使用独立制品：
+先创建具有仓库写入权限的 Gitee 私人令牌，再推送 `vX.Y.Z` tag 并执行发布脚本：
 
-```bash
-./software-source-system/scripts/build.sh 1.0.0
-```
-
-输出 `software-source-system/release/software-source-system-v<版本号>.tar.gz`，包含 `backend/software-source-system`、`backend/migrate-auth-data`、`.env.example` 和 `docs/`。两套服务必须解压到不同目录，使用不同数据库账号与数据目录。
-
-## GitHub 自动发布
-
-公开仓库 `cy70923167/auth_pro` 的 Release 工作流由 `vX.Y.Z` tag 触发：
-
-```bash
+```powershell
 git tag v1.2.3
 git push origin v1.2.3
+$env:GITEE_ACCESS_TOKEN = '<Gitee 私人令牌>'
+pwsh -NoProfile -File .\scripts\publish-gitee-release.ps1 -Version 1.2.3
+Remove-Item Env:GITEE_ACCESS_TOKEN
 ```
 
-每个 GitHub Release 必须包含：
+发布脚本会校验工作区、远程仓库和 tag，下载上一版本的 `releases.json`，执行构建与后端测试，然后创建 Gitee Release。每个 Release 必须包含：
 
 ```text
 auth_pro-full-v1.2.3.tar.gz
-software-source-system-v1.2.3.tar.gz
 latest.json
 releases.json
 ```
 
-在线更新默认读取：
+Gitee 不支持 GitHub 风格的 `/releases/latest/download/...` 地址，因此在线更新默认先读取最新 Release API，再定位 `latest.json` 附件：
 
 ```text
-https://github.com/cy70923167/auth_pro/releases/latest/download/latest.json
+https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest
 ```
 
-服务端可通过 `AUTO_PRO_UPDATE_URL` 指向自建 HTTPS 镜像清单。GitHub 默认源只信任指定仓库的 Release 路径及 GitHub 官方 Release Asset 重定向目标。
+服务端可通过 `AUTO_PRO_UPDATE_URL` 指向自建 HTTPS 镜像清单。Gitee 默认源只信任指定仓库的 API、Release 路径及 Gitee 官方附件重定向目标。
 
 ## 完整性边界
 
-当前更新链路校验压缩包大小和 SHA256，不校验离线数字签名。SHA256 可以发现下载损坏，但仓库、Actions 或 Release 发布权限一旦被攻破，攻击者仍可同时替换更新包和校验值。建议在仓库设置中启用 Immutable Releases，并严格控制仓库管理员和 Actions 权限。
+当前更新链路校验压缩包大小和 SHA256，不校验离线数字签名。SHA256 可以发现下载损坏，但仓库或 Release 发布权限一旦被攻破，攻击者仍可同时替换更新包和校验值。请严格控制仓库管理员、私人令牌和 Release 发布权限。

@@ -36,7 +36,7 @@ var AppVersion = "1.0.0"
 var BuildTime = ""
 
 // DefaultUpdateManifestURL 是默认的在线更新清单地址，可用 AUTO_PRO_UPDATE_URL 覆盖。
-const DefaultUpdateManifestURL = "https://github.com/cy70923167/auth_pro/releases/latest/download/latest.json"
+const DefaultUpdateManifestURL = "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest"
 
 // GetDataDir 获取运行数据目录。
 func GetDataDir() string {

@@ -32,6 +32,9 @@ import (
 const (
 	maxOnlineUpdatePackageSize = int64(512 << 20)
 	githubUpdateRepositoryPath = "/cy70923167/auth_pro/releases/"
+	giteeUpdateRepositoryPath  = "/zcy-sa/auth-pro/releases/"
+	giteeUpdateAttachmentPath  = "/zcy-sa/auth-pro/attach_files/"
+	giteeUpdateAPIReleasesPath = "/api/v5/repos/zcy-sa/auth-pro/releases/"
 )
 
 var onlineUpdateVersionPattern = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
@@ -267,6 +270,14 @@ func parseOnlineUpdateURL(rawURL string) (*url.URL, error) {
 			return nil, errors.New("GitHub 更新地址不属于受信任的发布仓库")
 		}
 	}
+	if strings.EqualFold(parsed.Hostname(), "gitee.com") {
+		if parsed.Port() != "" && parsed.Port() != "443" {
+			return nil, errors.New("Gitee 更新地址只能使用 HTTPS 默认端口")
+		}
+		if !isGiteeRepositoryUpdateURL(parsed) {
+			return nil, errors.New("Gitee 更新地址不属于受信任的发布仓库")
+		}
+	}
 	return parsed, nil
 }
 
@@ -279,12 +290,41 @@ func isGitHubReleaseAssetHost(hostname string) bool {
 	return strings.EqualFold(hostname, "release-assets.githubusercontent.com")
 }
 
+func isGiteeRepositoryReleaseURL(parsed *url.URL) bool {
+	return parsed != nil && strings.EqualFold(parsed.Hostname(), "gitee.com") &&
+		strings.HasPrefix(strings.ToLower(parsed.EscapedPath()), giteeUpdateRepositoryPath)
+}
+
+func isGiteeRepositoryAttachmentURL(parsed *url.URL) bool {
+	return parsed != nil && strings.EqualFold(parsed.Hostname(), "gitee.com") &&
+		strings.HasPrefix(strings.ToLower(parsed.EscapedPath()), giteeUpdateAttachmentPath)
+}
+
+func isGiteeRepositoryAPIURL(parsed *url.URL) bool {
+	return parsed != nil && strings.EqualFold(parsed.Hostname(), "gitee.com") &&
+		strings.HasPrefix(strings.ToLower(parsed.EscapedPath()), giteeUpdateAPIReleasesPath)
+}
+
+func isGiteeLatestReleaseAPIURL(parsed *url.URL) bool {
+	return isGiteeRepositoryAPIURL(parsed) &&
+		strings.TrimSuffix(strings.ToLower(parsed.EscapedPath()), "/") == strings.TrimSuffix(giteeUpdateAPIReleasesPath, "/")+"/latest"
+}
+
+func isGiteeRepositoryUpdateURL(parsed *url.URL) bool {
+	return isGiteeRepositoryReleaseURL(parsed) || isGiteeRepositoryAttachmentURL(parsed) || isGiteeRepositoryAPIURL(parsed)
+}
+
+func isGiteeReleaseAssetHost(hostname string) bool {
+	return strings.EqualFold(hostname, "foruda.gitee.com")
+}
+
 func newOnlineUpdateHTTPClient(rawURL string, timeout time.Duration) (*http.Client, error) {
 	initialURL, err := parseOnlineUpdateURL(rawURL)
 	if err != nil {
 		return nil, err
 	}
 	githubRelease := isGitHubRepositoryReleaseURL(initialURL)
+	giteeRelease := isGiteeRepositoryUpdateURL(initialURL)
 	client := &http.Client{
 		Timeout: timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -303,6 +343,15 @@ func newOnlineUpdateHTTPClient(rawURL string, timeout time.Duration) (*http.Clie
 				}
 				return errors.New("GitHub 更新地址重定向到非受信任域名")
 			}
+			if giteeRelease {
+				if req.URL.Port() != "" && req.URL.Port() != "443" {
+					return errors.New("Gitee 更新地址重定向到非 HTTPS 默认端口")
+				}
+				if isGiteeRepositoryUpdateURL(req.URL) || isGiteeReleaseAssetHost(req.URL.Hostname()) {
+					return nil
+				}
+				return errors.New("Gitee 更新地址重定向到非受信任域名")
+			}
 			if !strings.EqualFold(req.URL.Host, initialURL.Host) {
 				return errors.New("更新地址重定向到非同源地址")
 			}
@@ -314,8 +363,15 @@ func newOnlineUpdateHTTPClient(rawURL string, timeout time.Duration) (*http.Clie
 
 func fetchOnlineUpdateManifest() (*onlineUpdateManifest, error) {
 	manifestURL := strings.TrimSpace(config.GetUpdateManifestURL())
-	if _, err := parseOnlineUpdateURL(manifestURL); err != nil {
+	parsedManifestURL, err := parseOnlineUpdateURL(manifestURL)
+	if err != nil {
 		return nil, errors.New("更新清单地址格式不正确：" + err.Error())
+	}
+	if isGiteeLatestReleaseAPIURL(parsedManifestURL) {
+		manifestURL, err = fetchGiteeLatestManifestURL(manifestURL)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	client, err := newOnlineUpdateHTTPClient(manifestURL, 15*time.Second)
@@ -348,6 +404,73 @@ func fetchOnlineUpdateManifest() (*onlineUpdateManifest, error) {
 	}
 	normalizeOnlineUpdateManifest(&manifest)
 	return &manifest, nil
+}
+
+func fetchGiteeLatestManifestURL(releaseURL string) (string, error) {
+	client, err := newOnlineUpdateHTTPClient(releaseURL, 15*time.Second)
+	if err != nil {
+		return "", err
+	}
+	request, err := http.NewRequest(http.MethodGet, releaseURL, nil)
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Cache-Control", "no-cache")
+	request.Header.Set("User-Agent", "auth_pro-updater/"+config.AppVersion)
+
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("连接 Gitee 更新服务器失败：%w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Gitee 最新发行版接口返回状态码 %d", response.StatusCode)
+	}
+	var release struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&release); err != nil || release.ID <= 0 {
+		return "", errors.New("Gitee 最新发行版数据格式不正确")
+	}
+
+	parsedReleaseURL, _ := url.Parse(releaseURL)
+	attachmentsURL := fmt.Sprintf("%s://%s/api/v5/repos/Zcy-sa/auth-pro/releases/%d/attach_files", parsedReleaseURL.Scheme, parsedReleaseURL.Host, release.ID)
+	attachmentsClient, err := newOnlineUpdateHTTPClient(attachmentsURL, 15*time.Second)
+	if err != nil {
+		return "", err
+	}
+	attachmentsRequest, err := http.NewRequest(http.MethodGet, attachmentsURL, nil)
+	if err != nil {
+		return "", err
+	}
+	attachmentsRequest.Header.Set("Cache-Control", "no-cache")
+	attachmentsRequest.Header.Set("User-Agent", "auth_pro-updater/"+config.AppVersion)
+	attachmentsResponse, err := attachmentsClient.Do(attachmentsRequest)
+	if err != nil {
+		return "", fmt.Errorf("读取 Gitee 发行版附件失败：%w", err)
+	}
+	defer attachmentsResponse.Body.Close()
+	if attachmentsResponse.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Gitee 发行版附件接口返回状态码 %d", attachmentsResponse.StatusCode)
+	}
+	var attachments []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+	}
+	if err := json.NewDecoder(io.LimitReader(attachmentsResponse.Body, 1<<20)).Decode(&attachments); err != nil {
+		return "", errors.New("Gitee 发行版附件数据格式不正确")
+	}
+	for _, attachment := range attachments {
+		if attachment.Name != "latest.json" {
+			continue
+		}
+		parsedAttachmentURL, err := parseOnlineUpdateURL(attachment.BrowserDownloadURL)
+		if err != nil || !isGiteeRepositoryReleaseURL(parsedAttachmentURL) {
+			return "", errors.New("Gitee latest.json 附件地址不受信任")
+		}
+		return attachment.BrowserDownloadURL, nil
+	}
+	return "", errors.New("Gitee 最新发行版缺少 latest.json 附件")
 }
 
 func fetchOnlineUpdateReleases(manifest *onlineUpdateManifest, forceRefresh bool) ([]onlineUpdateRelease, string, error) {
@@ -541,6 +664,9 @@ func validateOnlineUpdateManifest(manifest *onlineUpdateManifest) error {
 	manifestSource, sourceErr := parseOnlineUpdateURL(config.GetUpdateManifestURL())
 	if sourceErr == nil && isGitHubRepositoryReleaseURL(manifestSource) && !isGitHubRepositoryReleaseURL(parsed) {
 		return errors.New("GitHub 更新包地址不属于受信任的发布仓库")
+	}
+	if sourceErr == nil && isGiteeRepositoryUpdateURL(manifestSource) && !isGiteeRepositoryReleaseURL(parsed) {
+		return errors.New("Gitee 更新包地址不属于受信任的发布仓库")
 	}
 	if strings.Contains(strings.ToLower(parsed.Host), "your-domain.com") {
 		return errors.New("更新包下载地址仍是示例地址")

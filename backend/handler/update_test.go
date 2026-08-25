@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,6 +16,12 @@ import (
 	"auto_pro/config"
 )
 
+type onlineUpdateRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (roundTrip onlineUpdateRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return roundTrip(request)
+}
+
 func validOnlineUpdateManifestForTest() *onlineUpdateManifest {
 	return &onlineUpdateManifest{
 		Version:    "1.0.1",
@@ -24,7 +31,7 @@ func validOnlineUpdateManifestForTest() *onlineUpdateManifest {
 			OS:       runtime.GOOS,
 			Arch:     runtime.GOARCH,
 			FileName: "auth_pro-full-v1.0.1.tar.gz",
-			URL:      "https://github.com/cy70923167/auth_pro/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz",
+			URL:      "https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz",
 			SHA256:   strings.Repeat("a", 64),
 			Size:     1024,
 		},
@@ -60,11 +67,11 @@ func TestValidateOnlineUpdateManifest(t *testing.T) {
 		}
 	})
 
-	t.Run("untrusted GitHub repository", func(t *testing.T) {
+	t.Run("untrusted Gitee repository", func(t *testing.T) {
 		manifest := validOnlineUpdateManifestForTest()
-		manifest.Package.URL = "https://github.com/another/repository/releases/download/v1.0.1/update.tar.gz"
+		manifest.Package.URL = "https://gitee.com/another/repository/releases/download/v1.0.1/update.tar.gz"
 		if err := validateOnlineUpdateManifest(manifest); err == nil {
-			t.Fatal("package from another GitHub repository was accepted")
+			t.Fatal("package from another Gitee repository was accepted")
 		}
 	})
 
@@ -78,7 +85,7 @@ func TestValidateOnlineUpdateManifest(t *testing.T) {
 
 	t.Run("non-standard HTTPS port", func(t *testing.T) {
 		manifest := validOnlineUpdateManifestForTest()
-		manifest.Package.URL = "https://github.com:8443/cy70923167/auth_pro/releases/download/v1.0.1/update.tar.gz"
+		manifest.Package.URL = "https://gitee.com:8443/Zcy-sa/auth-pro/releases/download/v1.0.1/update.tar.gz"
 		if err := validateOnlineUpdateManifest(manifest); err == nil {
 			t.Fatal("non-standard HTTPS port was accepted")
 		}
@@ -86,7 +93,7 @@ func TestValidateOnlineUpdateManifest(t *testing.T) {
 
 	t.Run("insecure URL", func(t *testing.T) {
 		manifest := validOnlineUpdateManifestForTest()
-		manifest.Package.URL = "http://github.com/cy70923167/auth_pro/releases/download/v1.0.1/update.tar.gz"
+		manifest.Package.URL = "http://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/update.tar.gz"
 		if err := validateOnlineUpdateManifest(manifest); err == nil {
 			t.Fatal("HTTP package URL was accepted")
 		}
@@ -105,8 +112,8 @@ func TestValidateOnlineUpdateManifest(t *testing.T) {
 	})
 }
 
-func TestOnlineUpdateGitHubRedirectPolicy(t *testing.T) {
-	initialURL := "https://github.com/cy70923167/auth_pro/releases/latest/download/latest.json"
+func TestOnlineUpdateGiteeRedirectPolicy(t *testing.T) {
+	initialURL := "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest"
 	client, err := newOnlineUpdateHTTPClient(initialURL, time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -114,8 +121,9 @@ func TestOnlineUpdateGitHubRedirectPolicy(t *testing.T) {
 	via := []*http.Request{{URL: mustParseOnlineUpdateTestURL(t, initialURL)}}
 
 	for name, target := range map[string]string{
-		"GitHub release path":  "https://github.com/cy70923167/auth_pro/releases/download/v1.0.1/latest.json",
-		"GitHub asset storage": "https://release-assets.githubusercontent.com/github-production-release-asset/file?token=test",
+		"Gitee release path":    "https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/latest.json",
+		"Gitee attachment path": "https://gitee.com/Zcy-sa/auth-pro/attach_files/123/download/latest.json",
+		"Gitee asset storage":   "https://foruda.gitee.com/attach_file/123/latest.json?token=test",
 	} {
 		t.Run("allows "+name, func(t *testing.T) {
 			if err := client.CheckRedirect(&http.Request{URL: mustParseOnlineUpdateTestURL(t, target)}, via); err != nil {
@@ -125,9 +133,9 @@ func TestOnlineUpdateGitHubRedirectPolicy(t *testing.T) {
 	}
 
 	for name, target := range map[string]string{
-		"HTTP downgrade":          "http://github.com/cy70923167/auth_pro/releases/download/v1.0.1/latest.json",
-		"non-standard HTTPS port": "https://release-assets.githubusercontent.com:8443/github-production-release-asset/file",
-		"another repository":      "https://github.com/another/repository/releases/download/v1.0.1/latest.json",
+		"HTTP downgrade":          "http://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/latest.json",
+		"non-standard HTTPS port": "https://foruda.gitee.com:8443/attach_file/123/latest.json",
+		"another repository":      "https://gitee.com/another/repository/releases/download/v1.0.1/latest.json",
 		"untrusted storage host":  "https://example.com/update.tar.gz",
 	} {
 		t.Run("rejects "+name, func(t *testing.T) {
@@ -135,6 +143,37 @@ func TestOnlineUpdateGitHubRedirectPolicy(t *testing.T) {
 				t.Fatal("untrusted redirect was accepted")
 			}
 		})
+	}
+}
+
+func TestFetchGiteeLatestManifestURL(t *testing.T) {
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = onlineUpdateRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var payload string
+		switch request.URL.Path {
+		case "/api/v5/repos/Zcy-sa/auth-pro/releases/latest":
+			payload = `{"id":123}`
+		case "/api/v5/repos/Zcy-sa/auth-pro/releases/123/attach_files":
+			payload = `[{"name":"latest.json","browser_download_url":"https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.2.3/latest.json"}]`
+		default:
+			return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Header: make(http.Header), Request: request}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(payload)),
+			Header:     make(http.Header),
+			Request:    request,
+		}, nil
+	})
+	defer func() { http.DefaultTransport = originalTransport }()
+
+	got, err := fetchGiteeLatestManifestURL("https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.2.3/latest.json"
+	if got != want {
+		t.Fatalf("manifest URL = %q, want %q", got, want)
 	}
 }
 
@@ -154,6 +193,18 @@ func TestParseOnlineUpdateVersionRejectsUnsafeValues(t *testing.T) {
 func TestParseOnlineUpdateURLAllowsCustomHTTPSMirrorPort(t *testing.T) {
 	if _, err := parseOnlineUpdateURL("https://mirror.example.com:8443/latest.json"); err != nil {
 		t.Fatalf("custom HTTPS mirror port was rejected: %v", err)
+	}
+}
+
+func TestParseOnlineUpdateURLRejectsUntrustedGiteePaths(t *testing.T) {
+	for _, value := range []string{
+		"https://gitee.com/another/repository/releases/download/v1.0.1/latest.json",
+		"https://gitee.com/Zcy-sa/auth-pro/raw/master/latest.json",
+		"https://gitee.com:8443/Zcy-sa/auth-pro/releases/download/v1.0.1/latest.json",
+	} {
+		if _, err := parseOnlineUpdateURL(value); err == nil {
+			t.Fatalf("untrusted Gitee URL %q was accepted", value)
+		}
 	}
 }
 
@@ -239,7 +290,7 @@ func TestOnlineUpdateHistory(t *testing.T) {
 }
 
 func TestOnlineUpdateHistoryRejectsCrossOriginURL(t *testing.T) {
-	t.Setenv("AUTO_PRO_UPDATE_URL", "https://github.com/cy70923167/auth_pro/releases/latest/download/latest.json")
+	t.Setenv("AUTO_PRO_UPDATE_URL", "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest")
 	manifest := validOnlineUpdateManifestForTest()
 	manifest.ReleasesURL = "https://mirror.example.com/releases.json"
 	if _, err := resolveOnlineUpdateReleasesURL(manifest); err == nil {
@@ -289,6 +340,11 @@ func TestOnlineUpdateJobResultSurvivesRestart(t *testing.T) {
 }
 
 func TestWriteOnlineUpdateScriptSupportsWebsiteRoot(t *testing.T) {
+	shell, err := exec.LookPath("/bin/sh")
+	if err != nil {
+		t.Skip("/bin/sh is not available")
+	}
+
 	root := t.TempDir()
 	dataDir := filepath.Join(root, "backend")
 	frontendSource := filepath.Join(root, "staging-frontend")
@@ -338,7 +394,7 @@ func TestWriteOnlineUpdateScriptSupportsWebsiteRoot(t *testing.T) {
 			t.Fatalf("generated script missing %q", expected)
 		}
 	}
-	if output, err := exec.Command("/bin/sh", "-n", scriptPath).CombinedOutput(); err != nil {
+	if output, err := exec.Command(shell, "-n", scriptPath).CombinedOutput(); err != nil {
 		t.Fatalf("generated script syntax error: %v\n%s", err, output)
 	}
 

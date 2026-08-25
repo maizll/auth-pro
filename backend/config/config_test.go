@@ -68,7 +68,7 @@ func TestLoadDBConfigFromEnv(t *testing.T) {
 
 func TestDefaultUpdateManifestURL(t *testing.T) {
 	t.Setenv("AUTO_PRO_UPDATE_URL", "")
-	if got := GetUpdateManifestURL(); got != "https://github.com/cy70923167/auth_pro/releases/latest/download/latest.json" {
+	if got := GetUpdateManifestURL(); got != "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest" {
 		t.Fatalf("GetUpdateManifestURL() = %q", got)
 	}
 }
@@ -91,7 +91,7 @@ func TestResolveFrontendDirForWebsiteRoot(t *testing.T) {
 
 func TestGetUpdateManifestURL(t *testing.T) {
 	t.Setenv("AUTO_PRO_UPDATE_URL", "")
-	if got := GetUpdateManifestURL(); got != "https://github.com/cy70923167/auth_pro/releases/latest/download/latest.json" {
+	if got := GetUpdateManifestURL(); got != "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest" {
 		t.Fatalf("GetUpdateManifestURL() = %q", got)
 	}
 

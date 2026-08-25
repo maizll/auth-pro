@@ -226,22 +226,25 @@ PORT=19127 ./auth_pro
 ./scripts/restart-backend.sh
 ```
 
-## GitHub Release 发布与在线更新
+## Gitee Release 发布与在线更新
 
-项目默认从公开仓库 `cy70923167/auth_pro` 的 GitHub Releases 获取在线更新清单：
+项目默认通过 Gitee API 查询公开仓库 `Zcy-sa/auth-pro` 的最新 Release，并从附件列表读取 `latest.json`：
 
 ```text
-https://github.com/cy70923167/auth_pro/releases/latest/download/latest.json
+https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest
 ```
 
-当前自动发布和一键整包更新仅支持 `Linux amd64`。发布正式版本时推送严格语义版本 tag：
+当前发布和一键整包更新仅支持 `Linux amd64`。创建具有仓库写入权限的 Gitee 私人令牌后，发布严格语义版本 tag：
 
-```bash
+```powershell
 git tag v1.2.3
 git push origin v1.2.3
+$env:GITEE_ACCESS_TOKEN = '<Gitee 私人令牌>'
+pwsh -NoProfile -File .\scripts\publish-gitee-release.ps1 -Version 1.2.3
+Remove-Item Env:GITEE_ACCESS_TOKEN
 ```
 
-GitHub Actions 会构建前端和 Linux amd64 后端，创建 GitHub Release，并上传以下三个资产：
+发布脚本要求工作区干净、版本 tag 指向当前提交且已经推送到 `origin`。脚本会构建前端和 Linux amd64 后端、运行后端测试、创建 Gitee Release，并上传以下三个附件：
 
 ```text
 auth_pro-full-v1.2.3.tar.gz
@@ -251,9 +254,9 @@ releases.json
 
 `releases.json` 会保留历史版本，并自动把上一版本标签到当前标签之间的 Git 提交标题写入本次版本的 `notes`，作为在线更新页面展示的更新内容。需要人工整理发布说明时，可在构建环境中通过 `AUTO_PRO_RELEASE_NOTES` 提供 JSON 字符串数组或按行分隔文本覆盖自动内容。
 
-服务器可通过 `AUTO_PRO_UPDATE_URL` 改用自建 HTTPS 镜像清单。GitHub 默认源会限制清单、更新包和下载重定向只能使用指定仓库及 GitHub 官方 Release Asset 存储。
+服务器可通过 `AUTO_PRO_UPDATE_URL` 改用自建 HTTPS 镜像清单。Gitee 默认源会限制 API、清单、更新包和下载重定向只能使用指定仓库及 Gitee 官方附件存储。
 
-发布前建议在 GitHub 仓库设置中启用 Immutable Releases。当前更新包只校验文件大小和 SHA256；该机制可发现下载损坏，但如果仓库、Actions 或 Release 发布权限被攻破，攻击者仍可同时替换更新包和 SHA256，不能替代离线数字签名。
+当前更新包只校验文件大小和 SHA256；该机制可发现下载损坏，但如果仓库或 Release 发布权限被攻破，攻击者仍可同时替换更新包和 SHA256，不能替代离线数字签名。
 
 ## 重要配置
 
@@ -261,7 +264,7 @@ releases.json
 | --------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------- |
 | `PORT`                | 后端服务端口                                     | `19127`                                                                       |
 | `AUTO_PRO_DATA_DIR`   | 后端运行数据目录，用于保存配置、更新包和运行数据 | 当前运行目录                                                                  |
-| `AUTO_PRO_UPDATE_URL` | 在线更新 `latest.json` 地址                      | `https://github.com/cy70923167/auth_pro/releases/latest/download/latest.json` |
+| `AUTO_PRO_UPDATE_URL` | 在线更新清单地址；默认值为 Gitee 最新 Release API | `https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest`              |
 | `AUTO_PRO_SOFTWARE_SOURCE_URL` | 独立软件源服务地址 | `http://127.0.0.1:19128` |
 | `AUTO_PRO_SOFTWARE_SOURCE_API_KEY` | 授权后端读取目录、模板和制品的只读 Key | 无，部署时必填 |
 | `AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL` | 旧 `/admin/app-store/*` 跳转目标 | `<软件源地址>/admin/` |
