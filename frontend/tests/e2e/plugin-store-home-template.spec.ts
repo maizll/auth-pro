@@ -1,5 +1,8 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
+test.describe.configure({ mode: 'serial' })
+test.setTimeout(60_000)
+
 const publicSystemConfig = {
   code: 200,
   msg: '',
@@ -42,11 +45,11 @@ const templateDocuments = {
   }
 } as const
 
-async function mockAdminAndTemplateAPIs(page: Page) {
+async function mockAdminAndTemplateAPIs(page: Page, templateFailure = false) {
   let activeTemplate: 'default' | keyof typeof templateDocuments = 'cartoon-blue'
   const enableRequests: string[] = []
 
-  await page.route('**/api/**', async (route: Route) => {
+  await page.route(/^https?:\/\/[^/]+\/api\//, async (route: Route) => {
     const requestURL = new URL(route.request().url())
     const path = requestURL.pathname
 
@@ -93,7 +96,30 @@ async function mockAdminAndTemplateAPIs(page: Page) {
           code: 200,
           msg: '',
           data: {
-            categories: [],
+            categories: [
+              {
+                category: 'payment',
+                title: '支付插件',
+                plugins: [
+                  {
+                    id: 'epay',
+                    category: 'payment',
+                    name: '易支付 V1',
+                    description: '授权系统本地支付插件',
+                    homepage: '',
+                    icon: 'ri:bank-card-line',
+                    version: '1.0.0',
+                    official: true,
+                    enabled: true,
+                    configured: true,
+                    local: true,
+                    remote: false,
+                    source: 'builtin',
+                    downloadUrl: ''
+                  }
+                ]
+              }
+            ],
             sources: [
               {
                 id: 1,
@@ -108,6 +134,13 @@ async function mockAdminAndTemplateAPIs(page: Page) {
       return
     }
     if (path === '/api/system/home-templates') {
+      if (templateFailure) {
+        await route.fulfill({
+          status: 200,
+          json: { code: 503, msg: '软件源目录 API Key 未配置' }
+        })
+        return
+      }
       await route.fulfill({
         status: 200,
         json: {
@@ -213,9 +246,7 @@ async function mockAdminAndTemplateAPIs(page: Page) {
   return enableRequests
 }
 
-async function loginAsAdmin(page: Page) {
-  await page.goto('/plugin-store')
-  await expect(page).toHaveURL(/\/admin/)
+async function submitAdminLogin(page: Page) {
   await page.getByPlaceholder('请输入账号').fill('preview-admin')
   await page.getByPlaceholder('请输入密码').fill('preview-password')
 
@@ -231,11 +262,50 @@ async function loginAsAdmin(page: Page) {
   await page.mouse.up()
   await expect(page.getByText('验证成功', { exact: true })).toBeVisible()
 
+  const loginResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === '/api/auth/login' && response.status() === 200
+  )
   await page.getByRole('button', { name: '登录', exact: true }).click()
-  await expect(page).toHaveURL(/\/plugin-store$/)
+  await loginResponse
+}
+
+async function loginAsAdmin(page: Page) {
+  await page.goto('/plugin-store')
+  await expect(page).toHaveURL(/\/admin/)
+  await submitAdminLogin(page)
+  await expect(page).toHaveURL(/\/plugin-store$/, { timeout: 15_000 })
   await expect(page.getByRole('heading', { name: '应用商店', exact: true })).toBeVisible()
   await page.waitForTimeout(300)
 }
+
+test('后台登录忽略根路径回跳并进入管理控制台', async ({ page }) => {
+  await mockAdminAndTemplateAPIs(page)
+  await page.goto('/admin?redirect=%2F')
+  await submitAdminLogin(page)
+  await expect(page).toHaveURL(/\/dashboard\/console$/, { timeout: 15_000 })
+})
+
+test('后台登录允许返回独立应用商店子路由', async ({ page }) => {
+  await mockAdminAndTemplateAPIs(page)
+  await page.route('**/admin/app-store/templates', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: '<!doctype html><title>App Store</title><main>独立应用商店入口</main>'
+    })
+  })
+  await page.goto('/admin?redirect=%2Fadmin%2Fapp-store%2Ftemplates')
+  await submitAdminLogin(page)
+  await expect(page).toHaveURL(/\/admin\/app-store\/templates$/, { timeout: 15_000 })
+})
+
+test('模板 API Key 缺失不影响原插件商店', async ({ page }) => {
+  await mockAdminAndTemplateAPIs(page, true)
+  await loginAsAdmin(page)
+  await expect(page.getByText('易支付 V1', { exact: true })).toBeVisible()
+  await expect(page.getByText(/首页模板加载失败：软件源目录 API Key 未配置。插件商店不受影响/)).toBeVisible()
+})
 
 test('应用商店可启用远程模板并切回默认首页', async ({ page }) => {
   const enableRequests = await mockAdminAndTemplateAPIs(page)

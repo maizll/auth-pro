@@ -137,16 +137,21 @@
 
   const loading = ref(false)
 
+  const isAppStorePath = (path: string) =>
+    path === '/admin/app-store' || path.startsWith('/admin/app-store/')
+
   const resolveLoginRedirect = () => {
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect.trim() : ''
     if (!redirect.startsWith('/') || redirect.startsWith('//')) return '/dashboard/console'
 
     const targetPath = redirect.split(/[?#]/, 1)[0]
+    const isAppStoreRedirect = isAppStorePath(targetPath)
     if (
+      targetPath === '/' ||
       targetPath === '/install' ||
       targetPath.startsWith('/install/') ||
       targetPath === '/admin' ||
-      targetPath.startsWith('/admin/') ||
+      (targetPath.startsWith('/admin/') && !isAppStoreRedirect) ||
       targetPath === '/user' ||
       targetPath.startsWith('/user/') ||
       targetPath === '/agent-panel' ||
@@ -196,8 +201,16 @@
       userStore.setToken(token, refreshToken)
       userStore.setLoginStatus(true)
 
+      // 独立应用商店需要重新请求 Go 静态入口，不能交给主后台 Router 接管。
+      const redirectTarget = resolveLoginRedirect()
+      if (isAppStorePath(redirectTarget.split(/[?#]/, 1)[0])) {
+        loginCompleted = true
+        window.location.replace(redirectTarget)
+        return
+      }
+
       // 登录页不接受安装向导或外部地址作为回跳目标
-      const navigationFailure = await router.replace(resolveLoginRedirect())
+      const navigationFailure = await router.replace(redirectTarget)
       if (navigationFailure) {
         throw navigationFailure
       }

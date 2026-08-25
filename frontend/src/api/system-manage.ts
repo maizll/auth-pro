@@ -497,6 +497,13 @@ export function fetchMailLogDetail(id: number) {
 
 // ========== 应用商店（插件中心） ==========
 
+/** 插件 / 首页模板作者信息 */
+export interface TemplateAuthor {
+  name: string
+  url: string
+  email: string
+}
+
 export interface PluginInfo {
   id: string
   category: string
@@ -506,6 +513,7 @@ export interface PluginInfo {
   icon: string
   version: string
   official: boolean
+  author?: TemplateAuthor
   enabled: boolean
   configured: boolean
   local: boolean
@@ -572,14 +580,16 @@ export function fetchTogglePlugin(id: string, enabled: boolean) {
 
 export interface HomeTemplateInfo {
   id: number | 'default'
+  catalogId?: string
   templateId: string
   name: string
   description: string
   version: string
   source: string
   sourceUrl?: string
-  sourceType?: 'json' | 'git'
+  sourceType?: 'json' | 'git' | 'builtin'
   previewUrl?: string
+  author?: TemplateAuthor
   sha256?: string
   schemaVersion?: number
   enabled: boolean
@@ -595,6 +605,50 @@ export interface HomeTemplateListData {
 export function fetchHomeTemplateList() {
   return request.get<HomeTemplateListData>({
     url: '/api/system/home-templates'
+  })
+}
+
+// ========== 内置软件源（内嵌远程仓库） ==========
+
+/** 内置源提供的首页模板目录条目 */
+export interface SoftwareSourceTemplate {
+  id: string
+  name: string
+  description: string
+  version: string
+  previewUrl: string
+  author: TemplateAuthor
+  schemaVersion: number
+  sha256: string
+  templateUrl: string
+  templatePath: string
+}
+
+/** 内置源提供的插件目录条目 */
+export interface SoftwareSourcePlugin {
+  id: string
+  category: string
+  name: string
+  description: string
+  homepage: string
+  icon: string
+  version: string
+  official: boolean
+  author: TemplateAuthor
+}
+
+export interface SoftwareSourceData {
+  name: string
+  sourceType: string
+  schemaVersion: number
+  homeTemplates: SoftwareSourceTemplate[]
+  plugins: SoftwareSourcePlugin[]
+}
+
+/** 读取 Go 后端内置软件源的目录清单（公开接口，无需鉴权） */
+export function fetchSoftwareSourcePlugins() {
+  return request.get<SoftwareSourceData>({
+    url: '/api/software-source/plugins'
   })
 }
 

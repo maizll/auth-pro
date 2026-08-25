@@ -13,6 +13,7 @@
 - 代理体系：代理登录、代理余额、授权购买、代理等级和额度管理。
 - 反盗版：盗版追踪、告警、黑名单和数据报表。
 - 系统管理：菜单、角色、用户、系统配置、邮件配置和邮件日志。
+- 应用商店管理：独立 Dashboard、首页模板目录、启用/停用和可扩展模块框架。
 - 安装向导：首次运行时配置数据库并创建管理员账号。
 
 ## 技术栈
@@ -39,6 +40,7 @@
 ```text
 auth_pro/
 ├── backend/              # Go 后端服务
+│   ├── appstore/          # 应用商店兼容 BFF 模块
 │   ├── config/           # 配置读取与数据库配置持久化
 │   ├── handler/          # API 处理器与业务入口
 │   ├── middleware/       # CORS、JWT 等中间件
@@ -46,6 +48,7 @@ auth_pro/
 │   ├── service/          # 服务层
 │   ├── static/           # 前端构建产物，供后端内嵌部署
 │   └── main.go           # 后端入口
+├── software-source-system/ # 独立软件源 Go + Vue 系统
 ├── database/             # 数据库结构文件
 ├── frontend/             # Vue 前端项目
 │   ├── src/api/          # API 请求封装
@@ -59,7 +62,7 @@ auth_pro/
 
 - Go >= 1.22
 - Node.js >= 20.19.0
-- pnpm >= 8.8.0
+- pnpm >= 11.15.1
 - MySQL 5.7+ 或 MySQL 8.x
 
 ## 本地开发
@@ -89,6 +92,18 @@ pnpm dev
 ```
 
 开发环境下，前端通过 Vite 代理将 `/api` 请求转发到 `http://localhost:19127`。
+
+软件源管理后台已独立到 `software-source-system/`：
+
+```bash
+cd software-source-system/frontend
+pnpm install --frozen-lockfile
+pnpm run build
+cd ../backend
+go run ./cmd/server
+```
+
+访问软件源服务 `/admin/` 使用独立管理员登录。授权侧旧 `/admin/app-store` 会跳转到该入口。详见 [`docs/app-store-management.md`](docs/app-store-management.md)。
 
 ### 3. 首次安装
 
@@ -173,7 +188,7 @@ pnpm test:e2e
 
 ## 生产构建
 
-### 1. 构建前端
+### 1. 构建主前端
 
 ```bash
 cd frontend
@@ -181,14 +196,23 @@ pnpm install
 pnpm build
 ```
 
-### 2. 同步前端产物到后端
+### 2. 同步主前端产物到后端
 
 ```bash
 rm -rf ../backend/static/*
 cp -R dist/* ../backend/static/
 ```
 
-### 3. 构建并运行后端
+### 3. 构建独立软件源系统
+
+```bash
+cd ../software-source-system
+./scripts/build.sh 1.0.0
+```
+
+产物为独立 tar.gz，不进入授权发布包。
+
+### 4. 构建并运行后端
 
 ```bash
 cd ../backend
@@ -238,6 +262,11 @@ releases.json
 | `PORT`                | 后端服务端口                                     | `19127`                                                                       |
 | `AUTO_PRO_DATA_DIR`   | 后端运行数据目录，用于保存配置、更新包和运行数据 | 当前运行目录                                                                  |
 | `AUTO_PRO_UPDATE_URL` | 在线更新 `latest.json` 地址                      | `https://github.com/cy70923167/auth_pro/releases/latest/download/latest.json` |
+| `AUTO_PRO_SOFTWARE_SOURCE_URL` | 独立软件源服务地址 | `http://127.0.0.1:19128` |
+| `AUTO_PRO_SOFTWARE_SOURCE_API_KEY` | 授权后端读取目录、模板和制品的只读 Key | 无，部署时必填 |
+| `AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL` | 旧 `/admin/app-store/*` 跳转目标 | `<软件源地址>/admin/` |
+| `AUTO_PRO_SOFTWARE_SOURCE_TIMEOUT` | 目录 HTTP 请求超时 | `5s` |
+| `AUTO_PRO_SOFTWARE_SOURCE_STALE_TTL` | 最后成功目录快照最大降级时间 | `24h` |
 | `VITE_API_PROXY_URL`  | 前端开发代理目标地址                             | `http://localhost:19127`                                                      |
 
 ## API 入口
@@ -249,6 +278,8 @@ releases.json
 - `/api/app/version/download?token=...`：使用版本检查或管理员接口签发的短期令牌下载本地更新包。
 - `/api/agent-panel/*`：代理端接口。
 - `/api/user-panel/*`：用户端接口。
+- `/api/app-store/*`：独立应用商店管理接口，要求管理员 JWT。
+- `/api/home-template/active`：当前首页模板公开读取接口。
 - `/api/*`：后台管理接口，除公开接口外默认需要 JWT 鉴权。
 
 ## 部署说明

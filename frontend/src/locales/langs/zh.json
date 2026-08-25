@@ -271,6 +271,7 @@
       "mailLogs": "邮件日志"
     },
     "pluginStore": "应用商店",
+    "homeTemplate": "首页模板",
     "promotionCampaigns": "活动管理",
     "onlineUpdate": "在线更新"
   },

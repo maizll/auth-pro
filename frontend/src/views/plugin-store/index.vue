@@ -41,6 +41,15 @@
           class="store-error"
         />
 
+        <ElAlert
+          v-if="templateLoadError && showHomeTemplates"
+          :title="templateLoadError"
+          type="warning"
+          show-icon
+          :closable="false"
+          class="store-error"
+        />
+
         <section v-if="showHomeTemplates && filteredHomeTemplates.length" class="plugin-section">
           <div class="section-header">
             <strong>首页模板</strong>
@@ -54,12 +63,21 @@
               :class="{ 'is-enabled': template.enabled }"
             >
               <div class="plugin-card-top">
-                <div class="plugin-icon"><ArtSvgIcon icon="ri:layout-4-line" /></div>
+                <div class="plugin-icon template-thumb">
+                  <img
+                    v-if="templatePreviewSrc(template)"
+                    :src="templatePreviewSrc(template)"
+                    :alt="`${template.name} 示例图片`"
+                    loading="lazy"
+                    @error="markTemplatePreviewFailed(template)"
+                  />
+                  <ArtSvgIcon v-else icon="ri:layout-4-line" />
+                </div>
                 <div class="plugin-meta">
                   <div class="plugin-name">
                     <strong>{{ template.name }}</strong>
                     <ElTag
-                      v-if="template.id === 'default'"
+                      v-if="template.id === 'default' || template.sourceType === 'builtin'"
                       type="primary"
                       size="small"
                       effect="plain"
@@ -69,7 +87,7 @@
                   </div>
                   <p class="plugin-desc">{{ template.description || '暂无模板描述' }}</p>
                   <div class="template-source" :title="template.sourceUrl || template.source">
-                    来源：{{ template.source }}
+                    来源：{{ template.source }} · 作者：{{ template.author?.name || '未提供' }}
                   </div>
                 </div>
               </div>
@@ -99,7 +117,10 @@
           </div>
         </section>
 
-        <ElEmpty v-if="!loadError && !hasVisibleContent" description="没有匹配的应用或首页模板" />
+        <ElEmpty
+          v-if="!loadError && !templateLoadError && !hasVisibleContent"
+          description="没有匹配的应用或首页模板"
+        />
         <section v-for="group in visibleGroups" :key="group.category" class="plugin-section">
           <div class="section-header">
             <strong>{{ group.title }}</strong>
@@ -278,6 +299,7 @@
   const togglingTemplateId = ref('')
   const refreshingSourceId = ref<number | null>(null)
   const loadError = ref('')
+  const templateLoadError = ref('')
   const categories = ref<PluginCategoryGroup[]>([])
   const sources = ref<PluginSource[]>([])
   const homeTemplates = ref<HomeTemplateInfo[]>([])
@@ -315,6 +337,14 @@
     () => visibleGroups.value.length > 0 || filteredHomeTemplates.value.length > 0
   )
 
+  // 示例图片加载失败的模板改用图标占位，避免出现破图
+  const failedTemplatePreviews = ref(new Set<string>())
+  const templatePreviewSrc = (template: HomeTemplateInfo): string =>
+    failedTemplatePreviews.value.has(String(template.id)) ? '' : template.previewUrl || ''
+  const markTemplatePreviewFailed = (template: HomeTemplateInfo) => {
+    failedTemplatePreviews.value = new Set(failedTemplatePreviews.value).add(String(template.id))
+  }
+
   const pluginDescriptionPrefix = (plugin: PluginInfo): string => {
     if (!plugin.homepage) return plugin.description
     return plugin.description.replace(plugin.homepage, '')
@@ -338,17 +368,31 @@
   const loadPlugins = async () => {
     loading.value = true
     loadError.value = ''
+    templateLoadError.value = ''
     try {
-      const [pluginData, templateData] = await Promise.all([
+      const [pluginResult, templateResult] = await Promise.allSettled([
         fetchPluginList({ q: searchText.value || undefined }),
         fetchHomeTemplateList()
       ])
-      categories.value = pluginData.categories || []
-      sources.value = pluginData.sources || []
-      homeTemplates.value = templateData.list || []
-    } catch (error: any) {
-      loadError.value = error?.message || '应用商店加载失败，请稍后重试'
-      ElMessage.error(loadError.value)
+
+      if (pluginResult.status === 'fulfilled') {
+        categories.value = pluginResult.value.categories || []
+        sources.value = pluginResult.value.sources || []
+      } else {
+        categories.value = []
+        sources.value = []
+        loadError.value = pluginResult.reason?.message || '插件商店加载失败，请稍后重试'
+        ElMessage.error(loadError.value)
+      }
+
+      if (templateResult.status === 'fulfilled') {
+        homeTemplates.value = templateResult.value.list || []
+        failedTemplatePreviews.value = new Set()
+      } else {
+        homeTemplates.value = []
+        const reason = templateResult.reason?.message || '模板服务暂时不可用'
+        templateLoadError.value = `首页模板加载失败：${reason}。插件商店不受影响`
+      }
     } finally {
       loading.value = false
     }
@@ -508,6 +552,18 @@
       color: var(--art-gray-500);
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .template-thumb {
+      overflow: hidden;
+      background: var(--el-fill-color-lighter);
+
+      img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
     }
 
     .store-header {

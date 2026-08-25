@@ -70,6 +70,7 @@ func GetMenuList(c *gin.Context) {
 	ensurePaymentOrdersMenu(db)
 	ensurePromotionCampaignMenu(db)
 	ensurePluginStoreMenu(db)
+	removeHomeTemplateMenu(db)
 	ensureOnlineUpdateMenu(db)
 	ensureMailConfigMenu(db)
 	ensureMailLogMenu(db)
@@ -502,6 +503,15 @@ func ensurePluginStoreMenu(db *sql.DB) {
 		return
 	}
 	_, _ = db.Exec("INSERT IGNORE INTO role_menus (role_id, menu_id) VALUES (1, ?)", menuID)
+}
+
+func removeHomeTemplateMenu(db *sql.DB) {
+	_, _ = db.Exec(`
+		DELETE rm FROM role_menus rm
+		INNER JOIN menus m ON m.id = rm.menu_id
+		WHERE m.name = 'HomeTemplate' OR m.path = '/home-template'
+	`)
+	_, _ = db.Exec("DELETE FROM menus WHERE name = 'HomeTemplate' OR path = '/home-template'")
 }
 
 func ensureOnlineUpdateMenu(db *sql.DB) {

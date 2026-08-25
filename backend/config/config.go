@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // DBConfig 数据库配置
@@ -240,6 +241,54 @@ func GetHomeTemplateDir() string {
 	dir := filepath.Join(getDataDir(), "home-templates")
 	_ = os.MkdirAll(dir, 0755)
 	return dir
+}
+
+func GetSoftwareSourceURL() string {
+	return strings.TrimRight(strings.TrimSpace(envOrDefault("AUTO_PRO_SOFTWARE_SOURCE_URL", "http://127.0.0.1:19128")), "/")
+}
+
+func GetSoftwareSourceAPIKey() string {
+	return os.Getenv("AUTO_PRO_SOFTWARE_SOURCE_API_KEY")
+}
+
+func GetSoftwareSourceAdminURL() string {
+	if value := strings.TrimSpace(os.Getenv("AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL")); value != "" {
+		return strings.TrimRight(value, "/") + "/"
+	}
+	return GetSoftwareSourceURL() + "/admin/"
+}
+
+func GetSoftwareSourceTimeout() time.Duration {
+	return durationEnv("AUTO_PRO_SOFTWARE_SOURCE_TIMEOUT", 5*time.Second)
+}
+
+func GetSoftwareSourceStaleTTL() time.Duration {
+	return durationEnv("AUTO_PRO_SOFTWARE_SOURCE_STALE_TTL", 24*time.Hour)
+}
+
+func GetSoftwareSourceCacheDir() string {
+	dir := filepath.Join(getDataDir(), "software-source-cache")
+	_ = os.MkdirAll(dir, 0750)
+	return dir
+}
+
+func envOrDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func durationEnv(key string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 func GetPort() string {

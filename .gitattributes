@@ -1,0 +1,2 @@
+/scripts/build-release.sh text eol=lf
+/scripts/restart-backend.sh text eol=lf

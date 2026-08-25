@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"auto_pro/appstore"
 	"auto_pro/config"
 	"auto_pro/handler"
 	"auto_pro/middleware"
@@ -23,6 +24,7 @@ var staticFS embed.FS
 
 func main() {
 	r := gin.Default()
+	appStoreServer := appstore.NewServer(handler.NewAppStoreTemplateRepository())
 
 	// CORS
 	r.Use(middleware.Cors())
@@ -30,6 +32,8 @@ func main() {
 	// API 路由
 	api := r.Group("/api")
 	{
+		appStoreServer.RegisterAdminRoutes(api)
+
 		// 安装状态检查保持公开（前端路由守卫依赖）
 		install := api.Group("/install")
 		{
@@ -125,6 +129,11 @@ func main() {
 			userAuth.POST("/reset-password", handler.UserResetPassword)
 		}
 		api.GET("/home-template/active", handler.PublicActiveHomeTemplate)
+		// 内置软件源（内嵌远程仓库）：目录清单与模板示例图片
+		api.GET("/software-source/plugins", handler.PublicSoftwareSourcePlugins)
+		api.GET("/software-source/previews/:file", handler.PublicSoftwareSourcePreview)
+		api.GET("/software-source/templates/:id/preview", handler.PublicSoftwareSourceTemplatePreview)
+		api.POST("/internal/software-source/cache/invalidate", handler.InternalSoftwareSourceCacheInvalidate)
 
 		// 用户端（需鉴权）
 		userSecured := api.Group("/user-panel")
@@ -337,6 +346,18 @@ func main() {
 		diskServer = http.FileServer(http.Dir(frontendDir))
 		log.Printf("Serving frontend from disk: %s", frontendDir)
 	}
+	softwareSourceAdminURL := config.GetSoftwareSourceAdminURL()
+	r.GET(appstore.PagePrefix, func(c *gin.Context) {
+		c.Redirect(http.StatusFound, softwareSourceAdminURL)
+	})
+	r.GET(appstore.PagePrefix+"/*filepath", func(c *gin.Context) {
+		target := softwareSourceAdminURL
+		requestedPath := strings.Trim(strings.TrimSpace(c.Param("filepath")), "/")
+		if requestedPath == "dashboard" || requestedPath == "templates" || requestedPath == "apps" || requestedPath == "sources" {
+			target += requestedPath
+		}
+		c.Redirect(http.StatusFound, target)
+	})
 	r.NoRoute(func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
 			c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "请求的资源不存在"})

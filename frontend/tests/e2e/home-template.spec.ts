@@ -12,7 +12,7 @@ const publicSystemConfig = {
 }
 
 async function mockPublicAPIs(page: Page, activeTemplate: Record<string, unknown>) {
-  await page.route('**/api/**', async (route: Route) => {
+  await page.route(/^https?:\/\/[^/]+\/api\//, async (route: Route) => {
     const requestURL = new URL(route.request().url())
     if (requestURL.pathname === '/api/install/status') {
       await route.fulfill({ status: 200, json: { installed: true } })
@@ -203,7 +203,10 @@ test('远程模板登录沿用原请求契约与本地存储键', async ({ page 
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await page.getByPlaceholder('手机号 / 邮箱 / 用户ID').fill('user@example.com')
   await page.getByPlaceholder('登录密码').fill('test-password')
-  await page.getByRole('button', { name: '登录用户中心', exact: true }).click()
+  await page
+    .locator('.remote-login-dialog')
+    .getByRole('button', { name: '登录用户中心', exact: true })
+    .click()
 
   await expect
     .poll(() => loginPayload)

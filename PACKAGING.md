@@ -68,6 +68,16 @@ release/packages/releases.json
 
 构建脚本只生成 `Linux amd64` 后端，版本参数必须匹配 `X.Y.Z`。`latest.json` 中记录平台、文件名、GitHub Release 下载地址、文件大小和 SHA256；`releases.json` 合并保留已有历史版本，并将上一版本标签到当前版本之间的 Git 提交标题自动记录到对应版本的 `notes`。首次发布会记录当前 Git 历史；无 Git 历史时才使用兜底说明。可通过 `AUTO_PRO_RELEASE_NOTES` 显式覆盖本次更新内容（JSON 字符串数组或按行分隔文本）。
 
+## 独立软件源发布包
+
+软件源系统不再放入授权网站根目录，使用独立制品：
+
+```bash
+./software-source-system/scripts/build.sh 1.0.0
+```
+
+输出 `software-source-system/release/software-source-system-v<版本号>.tar.gz`，包含 `backend/software-source-system`、`backend/migrate-auth-data`、`.env.example` 和 `docs/`。两套服务必须解压到不同目录，使用不同数据库账号与数据目录。
+
 ## GitHub 自动发布
 
 公开仓库 `cy70923167/auth_pro` 的 Release 工作流由 `vX.Y.Z` tag 触发：
@@ -81,6 +91,7 @@ git push origin v1.2.3
 
 ```text
 auth_pro-full-v1.2.3.tar.gz
+software-source-system-v1.2.3.tar.gz
 latest.json
 releases.json
 ```

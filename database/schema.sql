@@ -668,6 +668,8 @@ CREATE TABLE `operation_logs` (
 DROP TABLE IF EXISTS `home_templates`;
 CREATE TABLE `home_templates` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `catalog_id` CHAR(36) DEFAULT NULL COMMENT '独立软件源模板ID',
+  `catalog_snapshot` JSON DEFAULT NULL COMMENT '最后成功目录元数据快照',
   `template_key` VARCHAR(60) NOT NULL COMMENT '仓库内模板标识',
   `source_id` BIGINT NOT NULL COMMENT '软件源ID',
   `name` VARCHAR(100) NOT NULL,
@@ -685,6 +687,7 @@ CREATE TABLE `home_templates` (
   `installed_at` DATETIME DEFAULT NULL,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_home_template_catalog_id` (`catalog_id`),
   UNIQUE KEY `uk_source_template` (`source_id`, `template_key`),
   KEY `idx_available` (`available`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='首页模板';
@@ -692,23 +695,23 @@ CREATE TABLE `home_templates` (
 DROP TABLE IF EXISTS `plugin_source_cache`;
 CREATE TABLE `plugin_source_cache` (
   `source_id` BIGINT NOT NULL,
-  `source_type` VARCHAR(20) NOT NULL DEFAULT 'json' COMMENT 'json/git',
+  `source_type` VARCHAR(20) NOT NULL DEFAULT 'json',
   `manifest_json` MEDIUMTEXT NOT NULL,
   `fetched_at` DATETIME NOT NULL,
   `expires_at` DATETIME NOT NULL,
   `last_error` VARCHAR(500) NOT NULL DEFAULT '',
   PRIMARY KEY (`source_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源清单缓存';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权系统插件清单缓存';
 
 DROP TABLE IF EXISTS `plugin_sources`;
 CREATE TABLE `plugin_sources` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
-  `name` VARCHAR(60) NOT NULL DEFAULT '' COMMENT '软件源名称',
-  `url` VARCHAR(500) NOT NULL COMMENT '仓库清单或Git仓库地址',
-  `created_at` DATETIME DEFAULT NULL COMMENT '添加时间',
+  `name` VARCHAR(60) NOT NULL DEFAULT '',
+  `url` VARCHAR(500) NOT NULL,
+  `created_at` DATETIME DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_url` (`url`(191))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='插件软件源';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权系统插件软件源';
 
 DROP TABLE IF EXISTS `plugins`;
 CREATE TABLE `plugins` (

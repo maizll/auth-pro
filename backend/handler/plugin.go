@@ -4,15 +4,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"auto_pro/config"
 
@@ -27,44 +23,22 @@ import (
 // 同一 category 下同时只允许一个插件处于启用状态（启用一个会自动停用同类其他插件）。
 
 type pluginInfo struct {
-	ID          string `json:"id"`
-	Category    string `json:"category"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Homepage    string `json:"homepage"`
-	Icon        string `json:"icon"`
-	Version     string `json:"version"`
-	Official    bool   `json:"official"`
-	Enabled     bool   `json:"enabled"`
-	Configured  bool   `json:"configured"`
-	Local       bool   `json:"local"`       // 本地已有（内置或已下载）
-	Source      string `json:"source"`      // 内置: builtin；远程插件: 来源仓库名
-	Remote      bool   `json:"remote"`      // 仅存在于远程仓库、本地未下载
-	DownloadURL string `json:"downloadUrl"` // 远程插件包地址（未下载时用于下载）
-	Hidden      bool   `json:"-"`           // 暂时从应用商店隐藏，底层能力与历史状态保留
-}
-
-// pluginSourceRecord 软件源（远程插件仓库）。
-type pluginSourceRecord struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	URL       string    `json:"url"`
-	CreatedAt time.Time `json:"createdAt"`
-}
-
-// remotePluginIndex 仓库清单（仓库 URL 指向的 JSON）。
-type remotePluginIndex struct {
-	Name          string               `json:"name"`
-	HomeTemplates []remoteHomeTemplate `json:"homeTemplates"`
-	Plugins       []struct {
-		ID          string `json:"id"`
-		Category    string `json:"category"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Icon        string `json:"icon"`
-		Version     string `json:"version"`
-		DownloadURL string `json:"downloadUrl"`
-	} `json:"plugins"`
+	ID          string         `json:"id"`
+	Category    string         `json:"category"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Homepage    string         `json:"homepage"`
+	Icon        string         `json:"icon"`
+	Version     string         `json:"version"`
+	Official    bool           `json:"official"`
+	Author      templateAuthor `json:"author"`
+	Enabled     bool           `json:"enabled"`
+	Configured  bool           `json:"configured"`
+	Local       bool           `json:"local"`       // 本地已有（内置或已下载）
+	Source      string         `json:"source"`      // 内置: builtin；远程插件: 来源仓库名
+	Remote      bool           `json:"remote"`      // 仅存在于远程仓库、本地未下载
+	DownloadURL string         `json:"downloadUrl"` // 远程插件包地址（未下载时用于下载）
+	Hidden      bool           `json:"-"`           // 暂时从应用商店隐藏，底层能力与历史状态保留
 }
 
 // pluginCatalog 内置插件清单（代码注册，数据库只持久化启用状态）。
@@ -139,9 +113,14 @@ func findCatalogPlugin(id string) (pluginInfo, bool) {
 func listedCatalogPlugins() []pluginInfo {
 	plugins := make([]pluginInfo, 0, len(pluginCatalog))
 	for _, plugin := range pluginCatalog {
-		if !plugin.Hidden {
-			plugins = append(plugins, plugin)
+		if plugin.Hidden {
+			continue
 		}
+		// 官方插件统一署名内置作者，保证目录信息字段完整。
+		if plugin.Official && plugin.Author.Name == "" {
+			plugin.Author = builtinAuthor
+		}
+		plugins = append(plugins, plugin)
 	}
 	return plugins
 }
@@ -159,15 +138,7 @@ func ensurePluginStorage(db *sql.DB) error {
 	`); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS plugin_sources (
-			id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-			name VARCHAR(60) NOT NULL DEFAULT '' COMMENT '软件源名称',
-			url VARCHAR(500) NOT NULL COMMENT '仓库清单地址',
-			created_at DATETIME DEFAULT NULL COMMENT '添加时间',
-			UNIQUE KEY uk_url (url(191))
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='插件软件源'
-	`); err != nil {
+	if err := ensurePluginSourceStorage(db); err != nil {
 		return err
 	}
 	if err := ensureSystemConfigStorage(db); err != nil {
@@ -264,152 +235,6 @@ func pluginConfigured(db *sql.DB, id string) bool {
 
 // AdminPluginList 插件列表，按分类分组返回；合并本地插件与各软件源的远程插件。
 // 支持 ?source=<id> 只看某个软件源、?source=local 只看本地、?q= 关键词过滤。
-func AdminPluginList(c *gin.Context) {
-	db, err := openSystemConfigDB()
-	if err != nil {
-		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
-		return
-	}
-	defer db.Close()
-
-	if err := ensurePluginStorage(db); err != nil {
-		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})
-		return
-	}
-
-	enabledMap, err := loadPluginEnabledMap(db)
-	if err != nil {
-		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "读取插件状态失败"})
-		return
-	}
-	localIDs, err := loadLocalPluginIDs()
-	if err != nil {
-		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "读取本地插件失败"})
-		return
-	}
-	sources, err := listPluginSources(db)
-	if err != nil {
-		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "读取软件源失败"})
-		return
-	}
-
-	sourceFilter := strings.TrimSpace(c.Query("source"))
-	keyword := strings.ToLower(strings.TrimSpace(c.Query("q")))
-
-	// 本地插件（内置 + 已下载）
-	local := make([]pluginInfo, 0, len(pluginCatalog))
-	if sourceFilter == "" || sourceFilter == "local" {
-		for _, p := range listedCatalogPlugins() {
-			p.Enabled = enabledMap[p.ID]
-			p.Configured = pluginConfigured(db, p.ID)
-			p.Local = true
-			p.Source = "builtin"
-			local = append(local, p)
-		}
-	}
-
-	// 远程插件：本地已有的按本地处理，只补充本地没有的
-	remote := make([]pluginInfo, 0)
-	sourceOK := map[int64]bool{}
-	if sourceFilter != "local" {
-		for _, src := range sources {
-			if sourceFilter != "" && sourceFilter != fmt.Sprintf("%d", src.ID) {
-				continue
-			}
-			idx, err := loadPluginSourceIndex(c.Request.Context(), db, src, false)
-			if idx == nil {
-				sourceOK[src.ID] = false
-				continue
-			}
-			sourceOK[src.ID] = err == nil
-			srcName := src.Name
-			if srcName == "" {
-				srcName = idx.Name
-			}
-			for _, rp := range idx.Plugins {
-				if rp.ID == "" || localIDs[rp.ID] {
-					continue // 本地已有，按本地插件展示
-				}
-				icon := rp.Icon
-				if icon == "" {
-					icon = "ri:puzzle-line"
-				}
-				remote = append(remote, pluginInfo{
-					ID:          rp.ID,
-					Category:    normalizePluginCategory(rp.Category),
-					Name:        rp.Name,
-					Description: rp.Description,
-					Icon:        icon,
-					Version:     rp.Version,
-					Local:       false,
-					Remote:      true,
-					Source:      srcName,
-					DownloadURL: rp.DownloadURL,
-				})
-			}
-		}
-	}
-
-	matchKeyword := func(p pluginInfo) bool {
-		if keyword == "" {
-			return true
-		}
-		return strings.Contains(strings.ToLower(p.Name), keyword) ||
-			strings.Contains(strings.ToLower(p.Description), keyword) ||
-			strings.Contains(strings.ToLower(p.ID), keyword)
-	}
-
-	type categoryGroup struct {
-		Category string       `json:"category"`
-		Title    string       `json:"title"`
-		Plugins  []pluginInfo `json:"plugins"`
-	}
-	categories := []struct {
-		key   string
-		title string
-	}{
-		{"payment", "支付插件"},
-		{"realname", "实名认证服务商"},
-		{"other", "其他插件"},
-	}
-
-	groups := make([]categoryGroup, 0, len(categories))
-	for _, cat := range categories {
-		group := categoryGroup{Category: cat.key, Title: cat.title, Plugins: []pluginInfo{}}
-		for _, p := range local {
-			if normalizePluginCategory(p.Category) == cat.key && matchKeyword(p) {
-				group.Plugins = append(group.Plugins, p)
-			}
-		}
-		for _, p := range remote {
-			if normalizePluginCategory(p.Category) == cat.key && matchKeyword(p) {
-				group.Plugins = append(group.Plugins, p)
-			}
-		}
-		groups = append(groups, group)
-	}
-
-	// 源可用性输出给前端提示
-	sourceStates := make([]gin.H, 0, len(sources))
-	for _, src := range sources {
-		ok, checked := sourceOK[src.ID]
-		state := "unknown"
-		if checked {
-			if ok {
-				state = "ok"
-			} else {
-				state = "error"
-			}
-		}
-		sourceStates = append(sourceStates, gin.H{"id": src.ID, "name": src.Name, "url": src.URL, "state": state})
-	}
-
-	writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
-		"categories": groups,
-		"sources":    sourceStates,
-	}})
-}
-
 func normalizePluginCategory(category string) string {
 	switch category {
 	case "payment", "realname":
@@ -436,30 +261,12 @@ func loadLocalPluginIDs() (map[string]bool, error) {
 	return ids, nil
 }
 
-// ========== 软件源管理 ==========
-
-func listPluginSources(db *sql.DB) ([]pluginSourceRecord, error) {
-	rows, err := db.Query("SELECT id, name, url, created_at FROM plugin_sources ORDER BY id ASC")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	sources := make([]pluginSourceRecord, 0)
-	for rows.Next() {
-		var src pluginSourceRecord
-		var createdAt sql.NullTime
-		if err := rows.Scan(&src.ID, &src.Name, &src.URL, &createdAt); err != nil {
-			return nil, err
-		}
-		if createdAt.Valid {
-			src.CreatedAt = createdAt.Time
-		}
-		sources = append(sources, src)
-	}
-	return sources, rows.Err()
-}
-
 var pluginSourceURLPattern = regexp.MustCompile(`^https?://`)
+
+func looksLikeGitRepositoryURL(rawURL string) bool {
+	value := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(rawURL)), "/")
+	return strings.HasSuffix(value, ".git") || strings.Contains(value, "github.com/") && !strings.HasSuffix(value, ".json")
+}
 
 func validatePluginSourceURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
@@ -474,191 +281,12 @@ func validatePluginSourceURL(raw string) (string, error) {
 }
 
 // AdminPluginSourceAdd 添加软件源；会立即拉取一次仓库清单做校验。
-func AdminPluginSourceAdd(c *gin.Context) {
-	var req struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
-		return
-	}
-	repoURL, err := validatePluginSourceURL(req.URL)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
-		return
-	}
-	req.Name = strings.TrimSpace(req.Name)
-
-	idx, rawManifest, sourceType, err := fetchPluginSourceManifest(c.Request.Context(), repoURL)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "仓库校验失败：" + err.Error()})
-		return
-	}
-	if req.Name == "" {
-		req.Name = idx.Name
-	}
-	if req.Name == "" {
-		req.Name = "未命名仓库"
-	}
-	if len([]rune(req.Name)) > 60 {
-		req.Name = string([]rune(req.Name)[:60])
-	}
-
-	db, err := openSystemConfigDB()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
-		return
-	}
-	defer db.Close()
-	if err := ensurePluginStorage(db); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})
-		return
-	}
-
-	result, err := db.Exec("INSERT INTO plugin_sources (name, url, created_at) VALUES (?, ?, NOW()) ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), name = VALUES(name)", req.Name, repoURL)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存软件源失败"})
-		return
-	}
-	sourceID, err := result.LastInsertId()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取软件源标识失败"})
-		return
-	}
-	if err := cachePluginSourceManifest(db, sourceID, sourceType, rawManifest, ""); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "缓存软件源失败"})
-		return
-	}
-	if err := syncHomeTemplates(db, sourceID, repoURL, sourceType, idx.HomeTemplates); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "首页模板清单校验失败：" + err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": fmt.Sprintf("软件源已添加，发现 %d 个插件、%d 个首页模板", len(idx.Plugins), len(idx.HomeTemplates))})
-}
-
 // AdminPluginSourceDelete 删除软件源（不影响已下载到本地的插件）。
-func AdminPluginSourceDelete(c *gin.Context) {
-	id := strings.TrimSpace(c.Param("id"))
-	db, err := openSystemConfigDB()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
-		return
-	}
-	defer db.Close()
-	if err := ensurePluginStorage(db); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})
-		return
-	}
-	if _, err := db.Exec("DELETE FROM plugin_sources WHERE id = ?", id); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "删除软件源失败"})
-		return
-	}
-	_, _ = db.Exec("DELETE FROM plugin_source_cache WHERE source_id = ?", id)
-	_, _ = db.Exec("UPDATE home_templates SET available = 0, updated_at = NOW() WHERE source_id = ?", id)
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "软件源已删除"})
-}
-
 // ========== 插件下载 ==========
 
 var pluginIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,58}$`)
 
 // AdminPluginDownload 从软件源下载插件包到本地 plugins 目录。
-func AdminPluginDownload(c *gin.Context) {
-	pluginID := strings.TrimSpace(c.Param("id"))
-	if !pluginIDPattern.MatchString(pluginID) {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "插件标识不合法"})
-		return
-	}
-
-	db, err := openSystemConfigDB()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
-		return
-	}
-	defer db.Close()
-	if err := ensurePluginStorage(db); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})
-		return
-	}
-
-	localIDs, _ := loadLocalPluginIDs()
-	if localIDs[pluginID] {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "插件已在本地，无需下载"})
-		return
-	}
-
-	// 在所有软件源中定位该插件
-	sources, err := listPluginSources(db)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取软件源失败"})
-		return
-	}
-	downloadURL := ""
-	for _, src := range sources {
-		idx, _ := loadPluginSourceIndex(c.Request.Context(), db, src, false)
-		if idx == nil {
-			continue
-		}
-		for _, rp := range idx.Plugins {
-			if rp.ID == pluginID {
-				downloadURL = strings.TrimSpace(rp.DownloadURL)
-				break
-			}
-		}
-		if downloadURL != "" {
-			break
-		}
-	}
-	if downloadURL == "" {
-		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "未在任何软件源中找到该插件或插件未提供下载地址"})
-		return
-	}
-	if _, err := validatePluginSourceURL(downloadURL); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "插件下载地址不合法"})
-		return
-	}
-
-	payload, err := downloadPluginPackage(downloadURL)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "下载失败：" + err.Error()})
-		return
-	}
-
-	pluginDir := filepath.Join(config.GetPluginDir(), pluginID)
-	if err := os.MkdirAll(pluginDir, 0755); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建插件目录失败"})
-		return
-	}
-	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.pkg"), payload, 0644); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存插件包失败"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "插件已下载到本地"})
-}
-
-func downloadPluginPackage(rawURL string) ([]byte, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(rawURL)
-	if err != nil {
-		return nil, fmt.Errorf("连接失败：%w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("下载地址返回状态码 %d", resp.StatusCode)
-	}
-	// 单插件包限制 20MB
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20))
-	if err != nil {
-		return nil, errors.New("读取插件包失败")
-	}
-	if len(payload) == 0 {
-		return nil, errors.New("插件包为空")
-	}
-	return payload, nil
-}
-
 // AdminPluginToggle 启用/停用插件；启用时自动停用同分类其他插件。
 func AdminPluginToggle(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))

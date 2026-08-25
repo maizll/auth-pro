@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "stylePreset": "cartoon-blue",
+  "theme": {
+    "primaryColor": "#168fe5",
+    "backgroundColor": "#f1faff",
+    "textColor": "#15334a"
+  },
+  "hero": {
+    "badge": "轻松管理 · 安心授权",
+    "title": "授权服务，也可以",
+    "highlight": "简单又亲切",
+    "description": "清晰查看授权状态、有效期与服务记录，让每一次使用都安心顺畅。",
+    "primaryAction": {
+      "label": "进入用户中心",
+      "type": "login"
+    },
+    "secondaryAction": {
+      "label": "用户登录",
+      "type": "login"
+    }
+  },
+  "features": [
+    {
+      "icon": "ri:shield-check-line",
+      "title": "安全验证",
+      "description": "授权状态经过可信校验，账户与服务信息清晰可查。"
+    },
+    {
+      "icon": "ri:refresh-line",
+      "title": "实时同步",
+      "description": "授权期限和使用状态及时更新，减少等待与重复操作。"
+    },
+    {
+      "icon": "ri:customer-service-2-line",
+      "title": "贴心支持",
+      "description": "以简单直观的方式连接用户中心与授权服务。"
+    }
+  ],
+  "footer": {
+    "text": "安全、稳定的软件授权服务"
+  }
+}

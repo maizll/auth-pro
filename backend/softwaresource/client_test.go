@@ -1,0 +1,154 @@
+package softwaresource
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestCatalogFetchAndStaleFallback(t *testing.T) {
+	var requests atomic.Int32
+	cacheDir := t.TempDir()
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
+		if request.Header.Get("X-Software-Source-Key") != "catalog-key" {
+			response.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/api/v1/catalog/sources":
+			writeEnvelope(response, map[string]any{"list": []Source{{ID: "builtin", Name: "内置软件源", Type: "builtin", State: "ok"}}, "revision": 3})
+		case "/api/v1/catalog/templates":
+			writeEnvelope(response, map[string]any{"list": []Template{{ID: "tpl-1", TemplateKey: "home", Name: "首页", Version: "1.0.0", SchemaVersion: 1, SHA256: strings.Repeat("a", 64), Source: Source{ID: "builtin"}}}, "total": 1, "revision": 3})
+		default:
+			response.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	client, err := NewClient(ClientConfig{BaseURL: server.URL, CatalogKey: "catalog-key", Timeout: time.Second, StaleTTL: time.Hour, CacheDir: cacheDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := client.Catalog(context.Background())
+	if err != nil || len(catalog.Templates) != 1 || catalog.Revision != 3 {
+		t.Fatalf("catalog=%+v err=%v", catalog, err)
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("requests=%d", requests.Load())
+	}
+	server.Close()
+	client.mutex.Lock()
+	client.cached.FetchedAt = time.Now().Add(-catalogCacheTTL - time.Second)
+	client.mutex.Unlock()
+	stale, err := client.Catalog(context.Background())
+	if err != nil || len(stale.Templates) != 1 {
+		t.Fatalf("stale catalog=%+v err=%v", stale, err)
+	}
+	restarted, err := NewClient(ClientConfig{BaseURL: server.URL, CatalogKey: "catalog-key", Timeout: 20 * time.Millisecond, StaleTTL: time.Hour, CacheDir: cacheDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	diskStale, err := restarted.Catalog(context.Background())
+	if err != nil || len(diskStale.Templates) != 1 {
+		t.Fatalf("disk stale catalog=%+v err=%v", diskStale, err)
+	}
+}
+
+func TestClientTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		writeEnvelope(response, map[string]any{"list": []any{}, "revision": 1})
+	}))
+	defer server.Close()
+	client, err := NewClient(ClientConfig{BaseURL: server.URL, CatalogKey: "catalog-key", Timeout: 20 * time.Millisecond, StaleTTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Catalog(context.Background()); err == nil || !strings.Contains(err.Error(), ErrUnavailable.Error()) {
+		t.Fatalf("timeout error=%v", err)
+	}
+}
+
+func TestRefreshBypassesFreshCache(t *testing.T) {
+	var revision atomic.Int32
+	revision.Store(1)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		current := revision.Load()
+		switch request.URL.Path {
+		case "/api/v1/catalog/sources":
+			writeEnvelope(response, map[string]any{"list": []Source{{ID: "builtin", Name: "内置软件源", Type: "builtin", State: "ok"}}, "revision": current})
+		case "/api/v1/catalog/templates":
+			items := []Template{}
+			if current == 1 {
+				items = append(items, Template{ID: "tpl-1", TemplateKey: "home", Name: "首页", Version: "1.0.0", SchemaVersion: 1, SHA256: strings.Repeat("a", 64), Source: Source{ID: "builtin"}})
+			}
+			writeEnvelope(response, map[string]any{"list": items, "total": len(items), "revision": current})
+		}
+	}))
+	defer server.Close()
+	client, err := NewClient(ClientConfig{BaseURL: server.URL, CatalogKey: "key", Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial, err := client.Catalog(context.Background())
+	if err != nil || len(initial.Templates) != 1 {
+		t.Fatalf("initial catalog=%+v err=%v", initial, err)
+	}
+	revision.Store(2)
+	cached, err := client.Catalog(context.Background())
+	if err != nil || cached.Revision != 1 {
+		t.Fatalf("cached catalog=%+v err=%v", cached, err)
+	}
+	refreshed, err := client.Refresh(context.Background())
+	if err != nil || refreshed.Revision != 2 || len(refreshed.Templates) != 0 {
+		t.Fatalf("refreshed catalog=%+v err=%v", refreshed, err)
+	}
+}
+
+func TestCatalogFormatChangeUsesLastSuccessfulSnapshot(t *testing.T) {
+	var invalid atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if invalid.Load() {
+			writeEnvelope(response, map[string]any{"list": []map[string]any{{"id": "broken"}}, "total": 1, "revision": 2})
+			return
+		}
+		switch request.URL.Path {
+		case "/api/v1/catalog/sources":
+			writeEnvelope(response, map[string]any{"list": []Source{{ID: "builtin", Name: "内置软件源", Type: "builtin", State: "ok"}}, "revision": 1})
+		case "/api/v1/catalog/templates":
+			writeEnvelope(response, map[string]any{"list": []Template{}, "total": 0, "revision": 1})
+		}
+	}))
+	defer server.Close()
+	client, err := NewClient(ClientConfig{BaseURL: server.URL, CatalogKey: "key", Timeout: time.Second, StaleTTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Catalog(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	invalid.Store(true)
+	client.mutex.Lock()
+	client.cached.FetchedAt = time.Now().Add(-catalogCacheTTL - time.Second)
+	client.mutex.Unlock()
+	stale, err := client.Catalog(context.Background())
+	if err != nil || stale.Revision != 1 {
+		t.Fatalf("format-change fallback=%+v err=%v", stale, err)
+	}
+	emptyClient, err := NewClient(ClientConfig{BaseURL: server.URL, CatalogKey: "key", Timeout: time.Second, StaleTTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := emptyClient.Catalog(context.Background()); err == nil || !strings.Contains(err.Error(), ErrUnavailable.Error()) {
+		t.Fatalf("invalid initial catalog error=%v", err)
+	}
+}
+
+func writeEnvelope(response http.ResponseWriter, data any) {
+	_ = json.NewEncoder(response).Encode(map[string]any{"code": 200, "msg": "", "data": data})
+}

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "stylePreset": "fintech-gold",
+  "theme": {
+    "primaryColor": "#f3ba2f",
+    "backgroundColor": "#090b10",
+    "textColor": "#f4f6fa"
+  },
+  "hero": {
+    "badge": "SECURE LICENSE INFRASTRUCTURE",
+    "title": "让授权管理保持",
+    "highlight": "清晰、快速、可信",
+    "description": "统一掌握授权状态、有效周期与关键记录，为数字业务提供稳定可靠的访问基础。",
+    "primaryAction": {
+      "label": "登录控制台",
+      "type": "login"
+    },
+    "secondaryAction": {
+      "label": "用户登录",
+      "type": "login"
+    }
+  },
+  "features": [
+    {
+      "icon": "ri:verified-badge-line",
+      "title": "可信验证",
+      "description": "通过统一授权状态为业务访问提供可靠依据。"
+    },
+    {
+      "icon": "ri:pulse-line",
+      "title": "状态同步",
+      "description": "关键授权信息持续更新，保持管理视图清晰一致。"
+    },
+    {
+      "icon": "ri:shield-keyhole-line",
+      "title": "持续可用",
+      "description": "简洁稳定的登录入口连接用户与授权控制台。"
+    }
+  ],
+  "footer": {
+    "text": "Secure · Stable · Verifiable"
+  }
+}

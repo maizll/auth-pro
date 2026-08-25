@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
@@ -45,18 +45,22 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache-dependency-path: |
+            frontend/pnpm-lock.yaml
+            software-source-system/frontend/pnpm-lock.yaml
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22.x'
+          go-version: "1.22.x"
           cache-dependency-path: backend/go.sum
 
       - name: Install frontend dependencies
-        run: pnpm -C frontend install --frozen-lockfile
+        run: |
+          pnpm -C frontend install --frozen-lockfile
+          pnpm -C software-source-system/frontend install --frozen-lockfile
 
       - name: Restore release history
         shell: bash
@@ -72,12 +76,20 @@ jobs:
         shell: bash
         env:
           AUTO_PRO_GITHUB_REPOSITORY: cy70923167/auth_pro
-          AUTO_PRO_REQUIRE_GIT_RELEASE_NOTES: '1'
+          AUTO_PRO_REQUIRE_GIT_RELEASE_NOTES: "1"
         run: ./scripts/build-release.sh '${{ steps.version.outputs.value }}'
 
       - name: Run backend tests
         working-directory: backend
-        run: go test ./...
+        run: go test -race ./...
+
+      - name: Build independent software source package
+        run: ./software-source-system/scripts/build.sh '${{ steps.version.outputs.value }}'
+
+      - name: Run software source tests
+        run: |
+          go -C software-source-system/backend test -race ./...
+          pnpm -C software-source-system/frontend run test:e2e
 
       - name: Verify release assets
         shell: bash
@@ -130,6 +142,7 @@ jobs:
           set -euo pipefail
           gh release create "$GITHUB_REF_NAME" \
             "release/packages/auth_pro-full-v${VERSION}.tar.gz" \
+            "software-source-system/release/software-source-system-v${VERSION}.tar.gz" \
             release/packages/latest.json \
             release/packages/releases.json \
             --verify-tag \

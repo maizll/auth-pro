@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestGetDSN(t *testing.T) {
@@ -30,6 +31,22 @@ func TestGetDSN(t *testing.T) {
 				t.Fatalf("GetDSN() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSoftwareSourceConfig(t *testing.T) {
+	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_URL", "http://127.0.0.1:19128/")
+	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL", "https://source.example.com/admin")
+	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_TIMEOUT", "3s")
+	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_STALE_TTL", "12h")
+	if got := GetSoftwareSourceURL(); got != "http://127.0.0.1:19128" {
+		t.Fatalf("software source URL = %q", got)
+	}
+	if got := GetSoftwareSourceAdminURL(); got != "https://source.example.com/admin/" {
+		t.Fatalf("software source admin URL = %q", got)
+	}
+	if GetSoftwareSourceTimeout() != 3*time.Second || GetSoftwareSourceStaleTTL() != 12*time.Hour {
+		t.Fatal("software source durations were not parsed")
 	}
 }
 
