@@ -70,7 +70,19 @@ release/packages/releases.json
 
 ## Gitee Release 发布
 
-先创建具有仓库写入权限的 Gitee 私人令牌，再推送 `vX.Y.Z` tag 并执行发布脚本：
+先创建具有仓库写入权限的 Gitee 私人令牌，再推送 `vX.Y.Z` tag 并执行发布脚本。
+
+macOS / Linux：
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+read -rs GITEE_ACCESS_TOKEN && export GITEE_ACCESS_TOKEN
+./scripts/publish-gitee-release.sh 1.2.3
+unset GITEE_ACCESS_TOKEN
+```
+
+Windows PowerShell：
 
 ```powershell
 git tag v1.2.3
@@ -79,6 +91,8 @@ $env:GITEE_ACCESS_TOKEN = '<Gitee 私人令牌>'
 pwsh -NoProfile -File .\scripts\publish-gitee-release.ps1 -Version 1.2.3
 Remove-Item Env:GITEE_ACCESS_TOKEN
 ```
+
+两个脚本行为等价，均支持 `--repository` / `-Repository`、`--remote` / `-Remote` 和 `--skip-tests` / `-SkipTests`。
 
 发布脚本会校验工作区、远程仓库和 tag，下载上一版本的 `releases.json`，执行构建与后端测试，然后创建 Gitee Release。每个 Release 必须包含：
 
