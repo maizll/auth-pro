@@ -57,18 +57,11 @@ func UserLogin(c *gin.Context) {
 		return
 	}
 
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
-		return
-	}
-
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := EnsureAccountUpgradeSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化失败"})
@@ -185,17 +178,11 @@ func UserRegister(c *gin.Context) {
 		return
 	}
 
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
-		return
-	}
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureUserAuthStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化失败"})
@@ -291,13 +278,11 @@ func UserLicenseList(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureLicensePriceSnapshotSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化授权价格快照失败"})
 		return
@@ -479,13 +464,11 @@ func UserLicenseUpdateTarget(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var licenseType string
 	err = db.QueryRow(`
@@ -556,13 +539,11 @@ func UserLicenseRefreshKey(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -622,13 +603,11 @@ func UserLicenseRefreshKey(c *gin.Context) {
 
 // UserAppList 用户可见的应用列表（用于筛选下拉）
 func UserAppList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	rows, err := db.Query("SELECT id, app_name FROM apps WHERE enabled = 1 ORDER BY id ASC")
 	if err != nil {
@@ -666,7 +645,6 @@ func UserAppListForPurchase(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureAppPurchaseLicenseTypes(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用授权方式失败"})
 		return
@@ -798,13 +776,11 @@ func UserAppListForPurchase(c *gin.Context) {
 func UserGetBalance(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var balance float64
 	db.QueryRow("SELECT balance FROM users WHERE id = ?", userID).Scan(&balance)
@@ -862,7 +838,6 @@ func UserPurchase(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureAppPurchaseLicenseTypes(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用授权方式失败"})
 		return
@@ -1046,13 +1021,11 @@ func UserDashboard(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	// 统计数据
 	var total, active, expiring, expired int
@@ -1153,13 +1126,11 @@ func UserDashboard(c *gin.Context) {
 func UserProfile(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureUserAuthStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化失败"})
@@ -1243,13 +1214,11 @@ func UserUpdateProfile(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureUserAuthStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化失败"})
@@ -1331,13 +1300,11 @@ func UserChangePassword(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var passwordHash string
 	err = db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&passwordHash)
@@ -1352,11 +1319,16 @@ func UserChangePassword(c *gin.Context) {
 	}
 
 	newHash, _ := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
-	_, err = db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", string(newHash), userID)
+	if err := middleware.EnsurePasswordChangedAtColumn(db, "users"); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "修改失败"})
+		return
+	}
+	_, err = db.Exec("UPDATE users SET password_hash = ?, password_changed_at = ? WHERE id = ?",
+		string(newHash), middleware.NewPasswordChangeStamp(), userID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "修改失败"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "密码修改成功"})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "密码修改成功，请重新登录"})
 }

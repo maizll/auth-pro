@@ -22,7 +22,6 @@ func AgentPanelFinanceOverview(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var balance float64
 	err := db.QueryRow("SELECT balance FROM agents WHERE id = ? AND enabled = 1", agentID).Scan(&balance)
@@ -65,7 +64,6 @@ func AgentPanelFinanceQuotas(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureAgentQuotaSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "配额表初始化失败"})
 		return
@@ -120,7 +118,6 @@ func AgentPanelFinanceTransactions(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	txType := strings.TrimSpace(c.Query("type"))
 	startDate := strings.TrimSpace(c.Query("startDate"))
@@ -237,7 +234,6 @@ func AgentPanelRechargeOptions(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	payTypes := []string{}
 	defaultType := ""
@@ -303,7 +299,6 @@ func AgentPanelRechargeCreate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureRechargeOrderSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化充值订单表失败"})
 		return
@@ -382,7 +377,6 @@ func AgentPanelRechargeStatus(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureRechargeOrderSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化充值订单表失败"})
 		return

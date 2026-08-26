@@ -74,7 +74,6 @@ func UserRechargeCreate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureRechargeOrderSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化充值订单表失败"})
@@ -148,7 +147,6 @@ func UserRechargeStatus(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureRechargeOrderSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化充值订单表失败"})
@@ -243,7 +241,6 @@ func EpayNotify(c *gin.Context) {
 		c.String(http.StatusOK, "fail")
 		return
 	}
-	defer db.Close()
 
 	if err := settleEpayCallback(db, params); err != nil {
 		c.String(http.StatusOK, "fail")
@@ -427,7 +424,6 @@ func UserRechargeOptions(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	payConfig, err := loadEpayConfig(db)
 	if err != nil {
@@ -492,7 +488,6 @@ func AdminPaymentTestCreate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureRechargeOrderSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化充值订单表失败"})
@@ -566,7 +561,6 @@ func AdminPaymentTestStatus(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureRechargeOrderSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化充值订单表失败"})
@@ -619,7 +613,6 @@ func AdminPaymentOrderList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureRechargeOrderSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化充值订单表失败"})
@@ -1275,7 +1268,6 @@ func loadRechargeReturnURL(orderNo string) string {
 	if err != nil {
 		return ""
 	}
-	defer db.Close()
 
 	if err := ensureRechargeOrderSchema(db); err != nil {
 		return ""

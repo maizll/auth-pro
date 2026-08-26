@@ -35,13 +35,11 @@ func AgentPanelLogin(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var id uint
 	var passwordHash, email, name string
@@ -109,7 +107,6 @@ func AgentPanelPurchaseApps(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureAppPurchaseLicenseTypes(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用授权方式失败"})
 		return
@@ -254,7 +251,6 @@ func AgentPanelUserOptions(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var enabled int
 	if err := db.QueryRow("SELECT enabled FROM agents WHERE id = ?", agentID).Scan(&enabled); err != nil || enabled == 0 {
@@ -318,13 +314,11 @@ func AgentPanelBalance(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var balance float64
 	err = db.QueryRow("SELECT balance FROM agents WHERE id = ? AND enabled = 1", agentID).Scan(&balance)
@@ -343,13 +337,11 @@ func AgentPanelAppList(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	rows, err := db.Query(`
 		SELECT DISTINCT a.id, a.app_name
@@ -388,13 +380,11 @@ func AgentPanelLicenseList(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	keyword := strings.TrimSpace(c.Query("keyword"))
 	appID := strings.TrimSpace(c.Query("appId"))
@@ -556,7 +546,6 @@ func AgentPanelLicenseUpdate(c *gin.Context) {
 	if db == nil {
 		return
 	}
-	defer db.Close()
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -640,7 +629,6 @@ func AgentPanelLicenseRefreshKey(c *gin.Context) {
 	if db == nil {
 		return
 	}
-	defer db.Close()
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -700,8 +688,7 @@ func AgentPanelLicenseRefreshKey(c *gin.Context) {
 
 // agentPanelDB 打开数据库连接，失败时直接响应 500。
 func agentPanelDB(c *gin.Context) *sql.DB {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return nil
@@ -719,7 +706,6 @@ func AgentPanelStats(c *gin.Context) {
 	if db == nil {
 		return
 	}
-	defer db.Close()
 
 	now := time.Now()
 	weekAgo := now.AddDate(0, 0, -7)
@@ -783,7 +769,6 @@ func AgentPanelInfo(c *gin.Context) {
 	if db == nil {
 		return
 	}
-	defer db.Close()
 
 	var name, level, levelName, contact string
 	var discount float64
@@ -827,7 +812,6 @@ func AgentPanelTrend(c *gin.Context) {
 	if db == nil {
 		return
 	}
-	defer db.Close()
 
 	type monthCount struct {
 		Month string `json:"month"`
@@ -877,7 +861,6 @@ func AgentPanelAppDist(c *gin.Context) {
 	if db == nil {
 		return
 	}
-	defer db.Close()
 
 	type appDist struct {
 		Name  string `json:"name"`
@@ -918,7 +901,6 @@ func AgentPanelRecentLicenses(c *gin.Context) {
 	if db == nil {
 		return
 	}
-	defer db.Close()
 
 	type recentItem struct {
 		Domain    string `json:"domain"`
@@ -1030,7 +1012,6 @@ func AgentPanelPurchase(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureAppPurchaseLicenseTypes(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用授权方式失败"})
 		return

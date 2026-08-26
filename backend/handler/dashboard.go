@@ -78,7 +78,6 @@ func AdminDashboardOverview(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 
 	now := time.Now()
 	today := now.Format("2006-01-02")
@@ -109,7 +108,6 @@ func AdminDashboardCards(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 	dashboardOK(c, dashboardCards(db, time.Now()))
 }
 
@@ -118,7 +116,6 @@ func AdminDashboardTrend(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 	dashboardOK(c, dashboardTrendList(db, time.Now()))
 }
 
@@ -127,7 +124,6 @@ func AdminDashboardLicenseStatus(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 	dashboardOK(c, dashboardLicenseStatus(db))
 }
 
@@ -136,7 +132,6 @@ func AdminDashboardPaymentMethods(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 	dashboardOK(c, dashboardPaymentMethods(db, time.Now().Format("2006-01-02")))
 }
 
@@ -145,7 +140,6 @@ func AdminDashboardAgentMetrics(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 	dashboardOK(c, dashboardAgentMetrics(db, time.Now().Format("2006-01-02")))
 }
 
@@ -154,7 +148,6 @@ func AdminDashboardUserMetrics(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 	dashboardOK(c, dashboardUserMetrics(db, time.Now().Format("2006-01-02")))
 }
 
@@ -163,7 +156,6 @@ func AdminDashboardAppMetrics(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 	dashboardOK(c, dashboardAppMetrics(db, time.Now().Format("2006-01-02")))
 }
 
@@ -172,7 +164,6 @@ func AdminDashboardAppRanking(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 	dashboardOK(c, dashboardAppRanking(db))
 }
 
@@ -181,7 +172,6 @@ func AdminDashboardAgentRanking(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 	dashboardOK(c, dashboardAgentRanking(db))
 }
 
@@ -190,7 +180,6 @@ func AdminDashboardActivities(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 	dashboardOK(c, dashboardActivities(db))
 }
 
@@ -199,13 +188,7 @@ func AdminDashboardQuickEntries(c *gin.Context) {
 }
 
 func openDashboardDB(c *gin.Context) (*sql.DB, bool) {
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
-		return nil, false
-	}
-
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return nil, false

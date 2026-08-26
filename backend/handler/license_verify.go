@@ -95,18 +95,11 @@ func LicenseVerify(c *gin.Context) {
 	req.LicenseKey = rawLicenseKey
 	req.Sign = strings.ToLower(strings.TrimSpace(req.Sign))
 
-	cfg, err := config.LoadDBConfig()
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置", "data": gin.H{"result": "fail", "reason": "system_not_configured"}})
 		return
 	}
-
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败", "data": gin.H{"result": "fail", "reason": "db_connect_failed"}})
-		return
-	}
-	defer db.Close()
 	if err := ensureAppLicenseRequiredColumn(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用授权开关失败", "data": gin.H{"result": "fail", "reason": "schema_init_failed"}})
 		return

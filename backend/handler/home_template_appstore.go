@@ -53,7 +53,6 @@ func listAppStoreTemplates(ctx context.Context) ([]appstore.Template, error) {
 	if err != nil {
 		return nil, appstore.ServerError("数据库连接失败", err)
 	}
-	defer db.Close()
 	if err := ensurePluginStorage(db); err != nil {
 		return nil, appstore.ServerError("初始化模板存储失败", err)
 	}
@@ -250,7 +249,6 @@ func enableAppStoreTemplate(ctx context.Context, rawID string) error {
 	if err != nil {
 		return appstore.ServerError("数据库连接失败", err)
 	}
-	defer db.Close()
 	if err := ensurePluginStorage(db); err != nil {
 		return appstore.ServerError("初始化模板存储失败", err)
 	}
@@ -299,7 +297,6 @@ func disableAppStoreTemplate(ctx context.Context, rawID string) error {
 	if err != nil {
 		return appstore.ServerError("数据库连接失败", err)
 	}
-	defer db.Close()
 	if err := ensurePluginStorage(db); err != nil {
 		return appstore.ServerError("初始化模板存储失败", err)
 	}

@@ -17,13 +17,11 @@ import (
 
 // PiracyTrackingStats 追踪统计
 func PiracyTrackingStats(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var total, pending, blocked, todayNew int
 	db.QueryRow("SELECT COUNT(*) FROM piracy_records").Scan(&total)
@@ -44,13 +42,11 @@ func PiracyTrackingStats(c *gin.Context) {
 
 // PiracyTrackingList 追踪列表
 func PiracyTrackingList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	keyword := c.Query("keyword")
 	appId := c.Query("appId")
@@ -149,13 +145,11 @@ func PiracyTrackingList(c *gin.Context) {
 
 // PiracyTrackingCreate 手动入库
 func PiracyTrackingCreate(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var req struct {
 		Domain   string `json:"domain"`
@@ -186,13 +180,11 @@ func PiracyTrackingCreate(c *gin.Context) {
 
 // PiracyTrackingDetail 详情
 func PiracyTrackingDetail(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	id := c.Param("id")
 
@@ -259,13 +251,11 @@ func PiracyTrackingDetail(c *gin.Context) {
 
 // PiracyTrackingBlock 拉黑
 func PiracyTrackingBlock(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	id := c.Param("id")
 	_, err = db.Exec("UPDATE piracy_records SET status='blocked' WHERE id=?", id)
@@ -292,13 +282,11 @@ func PiracyTrackingBlock(c *gin.Context) {
 
 // PiracyTrackingUnblock 解黑
 func PiracyTrackingUnblock(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	id := c.Param("id")
 	_, err = db.Exec("UPDATE piracy_records SET status='discovered' WHERE id=?", id)
@@ -320,13 +308,11 @@ func PiracyTrackingUnblock(c *gin.Context) {
 
 // PiracyTrackingBatchBlock 批量拉黑
 func PiracyTrackingBatchBlock(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var req struct {
 		IDs []int `json:"ids"`
@@ -358,13 +344,11 @@ func PiracyTrackingBatchBlock(c *gin.Context) {
 
 // PiracyAlertStats 告警统计
 func PiracyAlertStats(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var unhandled, today, week, handled int
 	db.QueryRow("SELECT COUNT(*) FROM piracy_alerts WHERE status='pending'").Scan(&unhandled)
@@ -385,13 +369,11 @@ func PiracyAlertStats(c *gin.Context) {
 
 // PiracyAlertList 告警列表
 func PiracyAlertList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	alertType := c.Query("type")
 	level := c.Query("level")
@@ -489,13 +471,11 @@ func PiracyAlertList(c *gin.Context) {
 
 // PiracyAlertMark 标记告警状态
 func PiracyAlertMark(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	id := c.Param("id")
 	var req struct {
@@ -523,13 +503,11 @@ func PiracyAlertMark(c *gin.Context) {
 
 // PiracyAlertBatchMark 批量标记
 func PiracyAlertBatchMark(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var req struct {
 		IDs    []int  `json:"ids"`
@@ -563,13 +541,11 @@ func PiracyAlertBatchMark(c *gin.Context) {
 
 // PiracyBlacklistList 黑名单列表
 func PiracyBlacklistList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	keyword := c.Query("keyword")
 	typ := c.Query("type")
@@ -672,13 +648,11 @@ func PiracyBlacklistList(c *gin.Context) {
 
 // PiracyBlacklistCreate 添加黑名单
 func PiracyBlacklistCreate(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var req struct {
 		Type   string `json:"type"`
@@ -716,13 +690,11 @@ func PiracyBlacklistCreate(c *gin.Context) {
 
 // PiracyBlacklistUpdate 编辑黑名单
 func PiracyBlacklistUpdate(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	id := c.Param("id")
 	var req struct {
@@ -747,13 +719,11 @@ func PiracyBlacklistUpdate(c *gin.Context) {
 
 // PiracyBlacklistDelete 删除黑名单
 func PiracyBlacklistDelete(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	id := c.Param("id")
 	_, err = db.Exec("DELETE FROM piracy_blacklist WHERE id=?", id)
@@ -767,13 +737,11 @@ func PiracyBlacklistDelete(c *gin.Context) {
 
 // PiracyBlacklistBatchDelete 批量移除
 func PiracyBlacklistBatchDelete(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var req struct {
 		IDs []int `json:"ids"`

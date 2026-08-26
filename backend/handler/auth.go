@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 	"time"
@@ -33,18 +32,11 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "message": "系统未配置"})
-		return
-	}
-
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "message": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var id uint
 	var passwordHash string

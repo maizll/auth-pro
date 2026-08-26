@@ -50,18 +50,11 @@ type menuMeta struct {
 func GetMenuList(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
-		return
-	}
-
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	ensureUserManageMenu(db)
 	ensureAgentLevelMenu(db)
 	ensureAgentUpgradeMenu(db)
@@ -177,13 +170,11 @@ type menuManageItem struct {
 
 // MenuManageList 菜单管理列表（全量树形）
 func MenuManageList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	rows, err := db.Query(`SELECT id, parent_id, name, path, component, redirect, title, icon, sort,
 		is_hide, is_hide_tab, is_full_page, keep_alive, fixed_tab, enabled
@@ -227,13 +218,11 @@ func buildManageTree(menus []menuManageItem, parentID int64) []*menuManageItem {
 
 // MenuManageCreate 创建菜单
 func MenuManageCreate(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var req struct {
 		ParentID   int64  `json:"parentId"`
@@ -278,13 +267,11 @@ func MenuManageCreate(c *gin.Context) {
 
 // MenuManageUpdate 更新菜单
 func MenuManageUpdate(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	id := c.Param("id")
 	var req struct {
@@ -327,13 +314,11 @@ func MenuManageUpdate(c *gin.Context) {
 
 // MenuManageDelete 删除菜单
 func MenuManageDelete(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	id := c.Param("id")
 

@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"auto_pro/config"
+	"auto_pro/middleware"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -14,13 +15,11 @@ import (
 
 // AdminUserList 管理端-用户列表
 func AdminUserList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	keyword := c.Query("keyword")
 	status := c.Query("status")
@@ -134,13 +133,11 @@ func AdminUserCreate(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var exists int
 	db.QueryRow("SELECT COUNT(*) FROM users WHERE email = ?", req.Email).Scan(&exists)
@@ -182,13 +179,11 @@ func AdminUserUpdate(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	sets := ""
 	args := []interface{}{}
@@ -223,11 +218,15 @@ func AdminUserUpdate(c *gin.Context) {
 			return
 		}
 		hash, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err := middleware.EnsurePasswordChangedAtColumn(db, "users"); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更新失败"})
+			return
+		}
 		if sets != "" {
 			sets += ", "
 		}
-		sets += "password_hash = ?"
-		args = append(args, string(hash))
+		sets += "password_hash = ?, password_changed_at = ?"
+		args = append(args, string(hash), middleware.NewPasswordChangeStamp())
 	}
 
 	if sets == "" {
@@ -249,13 +248,11 @@ func AdminUserUpdate(c *gin.Context) {
 func AdminUserToggle(c *gin.Context) {
 	id := c.Param("id")
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	_, err = db.Exec("UPDATE users SET enabled = 1 - enabled WHERE id = ?", id)
 	if err != nil {
@@ -270,13 +267,11 @@ func AdminUserToggle(c *gin.Context) {
 func AdminUserDelete(c *gin.Context) {
 	id := c.Param("id")
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	_, err = db.Exec("DELETE FROM users WHERE id = ?", id)
 	if err != nil {

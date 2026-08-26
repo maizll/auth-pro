@@ -419,7 +419,6 @@ func AdminMailConfig(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureMailStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化邮件配置失败"})
 		return
@@ -443,7 +442,6 @@ func AdminMailConfigUpdate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureMailStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化邮件配置失败"})
 		return
@@ -485,7 +483,6 @@ func AdminMailContentTypeUpdate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureMailStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化邮件配置失败"})
 		return
@@ -512,7 +509,6 @@ func AdminMailConfigTest(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureMailStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化邮件配置失败"})
 		return
@@ -541,7 +537,6 @@ func QueuePurchaseSuccessMail(ownerType string, ownerID, licenseID int64) {
 		if err != nil {
 			return
 		}
-		defer db.Close()
 		if err := ensureMailStorage(db); err != nil {
 			return
 		}
@@ -567,7 +562,6 @@ func QueueLicenseOpenedMail(licenseID int64) {
 		if err != nil {
 			return
 		}
-		defer db.Close()
 		if err := ensureMailStorage(db); err != nil {
 			return
 		}
@@ -589,7 +583,6 @@ func AdminMailLogList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureMailStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化邮件日志失败"})
 		return
@@ -680,7 +673,6 @@ func AdminMailLogDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureMailStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化邮件日志失败"})
 		return
@@ -743,7 +735,6 @@ func runExpireReminderScan() {
 	if err != nil {
 		return
 	}
-	defer db.Close()
 	if err := ensureMailStorage(db); err != nil {
 		return
 	}

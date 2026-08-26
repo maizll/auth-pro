@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -16,13 +15,11 @@ import (
 
 // QuotaList 开码配额列表
 func QuotaList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	agentId := c.Query("agentId")
 	appId := c.Query("appId")
@@ -146,13 +143,11 @@ func QuotaCreate(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	total := clampQuotaTotal(req.TotalQuota)
 	price := clampQuotaPrice(req.Price)
@@ -183,13 +178,11 @@ func QuotaUpdate(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	_, err = db.Exec("UPDATE agent_quotas SET total = ?, price = ? WHERE id = ?", clampQuotaTotal(req.TotalQuota), clampQuotaPrice(req.Price), id)
 	if err != nil {
@@ -204,13 +197,11 @@ func QuotaUpdate(c *gin.Context) {
 func QuotaDelete(c *gin.Context) {
 	id := c.Param("id")
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	_, err = db.Exec("DELETE FROM agent_quotas WHERE id = ?", id)
 	if err != nil {

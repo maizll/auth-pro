@@ -14,13 +14,11 @@ import (
 
 // RoleList 角色列表
 func RoleList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	keyword := c.Query("roleName")
 	roleCode := c.Query("roleCode")
@@ -109,13 +107,11 @@ func RoleList(c *gin.Context) {
 
 // RoleCreate 创建角色
 func RoleCreate(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var req struct {
 		RoleName       string   `json:"roleName"`
@@ -175,13 +171,11 @@ func RoleCreate(c *gin.Context) {
 
 // RoleUpdate 更新角色
 func RoleUpdate(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	id := c.Param("id")
 	var req struct {
@@ -216,13 +210,11 @@ func RoleUpdate(c *gin.Context) {
 
 // RoleDelete 删除角色
 func RoleDelete(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	id := c.Param("id")
 
@@ -250,13 +242,11 @@ func RoleDelete(c *gin.Context) {
 
 // RoleMenus 获取角色的菜单权限
 func RoleMenus(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	id := c.Param("id")
 
@@ -279,13 +269,11 @@ func RoleMenus(c *gin.Context) {
 
 // RoleUpdateMenus 更新角色菜单权限
 func RoleUpdateMenus(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	id := c.Param("id")
 	var req struct {

@@ -32,15 +32,10 @@ var (
 	appPurchaseLicenseTypesOK bool
 	errPurchaseTypeNotAllowed = errors.New("应用不支持该购买授权类型")
 	openAppPurchaseDB         = func() (*sql.DB, error) {
-		cfg, _ := config.LoadDBConfig()
-		return sql.Open("mysql", config.GetDSN(cfg))
+		return config.DB()
 	}
 	openAdminLicenseDB = func() (*sql.DB, error) {
-		cfg, err := config.LoadDBConfig()
-		if err != nil {
-			return nil, err
-		}
-		return sql.Open("mysql", config.GetDSN(cfg))
+		return config.DB()
 	}
 	ensureAppPurchaseLicenseTypes    = EnsureAppPurchaseLicenseTypesColumn
 	ensurePlanLicenseType            = ensurePlanLicenseTypeColumn

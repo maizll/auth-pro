@@ -207,11 +207,14 @@
 
 <script setup lang="ts">
   import { reactive, ref, computed, onMounted, onBeforeUnmount } from 'vue'
+  import { useRouter } from 'vue-router'
   import { ElMessage } from 'element-plus'
   import { Loading } from '@element-plus/icons-vue'
   import { Icon as IconifyIcon } from '@iconify/vue'
   import QRCode from 'qrcode'
   import axios from 'axios'
+
+  const router = useRouter()
 
   function getToken() {
     return localStorage.getItem('user_panel_token') || ''
@@ -330,8 +333,13 @@
         { headers: headers() }
       )
       if (data.code === 200) {
-        ElMessage.success('密码修改成功')
+        ElMessage.success('密码已修改，请重新登录')
         Object.assign(passwordForm, { oldPassword: '', newPassword: '', confirmPassword: '' })
+        setTimeout(() => {
+          localStorage.removeItem('user_panel_token')
+          localStorage.removeItem('user_panel_info')
+          router.push('/user/login')
+        }, 800)
       } else {
         ElMessage.error(data.msg || '修改失败')
       }

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"database/sql"
 	"net/http"
 	"strconv"
 	"time"
@@ -37,13 +36,11 @@ func AdminImpersonateUser(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var email, nickname string
 	var enabled bool
@@ -85,13 +82,11 @@ func AdminImpersonateAgent(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var email, name string
 	var balance float64

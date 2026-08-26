@@ -121,7 +121,6 @@ func PublicActiveHomeTemplate(c *gin.Context) {
 		writeDefaultHomeTemplate(c)
 		return
 	}
-	defer db.Close()
 	if err := ensurePluginStorage(db); err != nil {
 		writeDefaultHomeTemplate(c)
 		return

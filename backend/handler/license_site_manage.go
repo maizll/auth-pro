@@ -62,11 +62,7 @@ func contextUserID(c *gin.Context) int64 {
 }
 
 func openLicenseSiteDB() (*sql.DB, error) {
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		return nil, err
-	}
-	return sql.Open("mysql", config.GetDSN(cfg))
+	return config.DB()
 }
 
 func parseLicenseSiteIDs(c *gin.Context, includeSite bool) (int64, int64, bool) {
@@ -103,7 +99,6 @@ func licenseSiteList(c *gin.Context, actor licenseSiteActor) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	condition, ownerArgs := licenseSiteOwnerCondition(actor)
 	args := append([]any{licenseID}, ownerArgs...)
@@ -165,7 +160,6 @@ func licenseSiteUnbind(c *gin.Context, actor licenseSiteActor) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	tx, err := db.BeginTx(c.Request.Context(), nil)
 	if err != nil {

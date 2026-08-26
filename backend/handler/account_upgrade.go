@@ -647,11 +647,7 @@ func loadCompletedAccountConversion(tx *sql.Tx, order accountUpgradeOrder) (acco
 }
 
 func openAccountUpgradeConnection() (*sql.DB, error) {
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		return nil, err
-	}
-	return sql.Open("mysql", config.GetDSN(cfg))
+	return config.DB()
 }
 
 func openAccountUpgradeDB() (*sql.DB, error) {
@@ -660,17 +656,14 @@ func openAccountUpgradeDB() (*sql.DB, error) {
 		return nil, err
 	}
 	if err := EnsureAccountUpgradeSchema(db); err != nil {
-		db.Close()
 		log.Printf("[openAccountUpgradeDB] EnsureAccountUpgradeSchema 失败: %v", err)
 		return nil, err
 	}
 	if err := ensureLicensePurchaseOrderSchema(db); err != nil {
-		db.Close()
 		log.Printf("[openAccountUpgradeDB] ensureLicensePurchaseOrderSchema 失败: %v", err)
 		return nil, err
 	}
 	if err := ensureRechargeOrderSchema(db); err != nil {
-		db.Close()
 		log.Printf("[openAccountUpgradeDB] ensureRechargeOrderSchema 失败: %v", err)
 		return nil, err
 	}
@@ -688,7 +681,6 @@ func UserAgentUpgradeLevels(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "代理升级服务初始化失败"})
 		return
 	}
-	defer db.Close()
 
 	var balanceText, accountStatus string
 	var enabled bool
@@ -809,7 +801,6 @@ func UserAgentUpgradeCreate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "代理升级服务初始化失败"})
 		return
 	}
-	defer db.Close()
 
 	payMethod := strings.TrimSpace(req.PayMethod)
 	if payMethod == "" {
@@ -1000,7 +991,6 @@ func UserAgentUpgradeCancel(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "代理升级服务初始化失败"})
 		return
 	}
-	defer db.Close()
 
 	cancelled, err := cancelPendingAgentUpgradeOrder(db, uint64(userID), orderNo)
 	if err != nil {
@@ -1220,7 +1210,6 @@ func UserAgentUpgradeOrderStatus(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "代理升级服务初始化失败"})
 		return
 	}
-	defer db.Close()
 
 	var status, levelCode, levelName, amountText, openingBonusText, payChannel, payMethod, returnURL, errorMessage string
 	var agentID sql.NullInt64

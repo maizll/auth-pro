@@ -90,6 +90,9 @@ func JWTAuth() gin.HandlerFunc {
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)
 		c.Set("role", claims.Role)
+		if claims.IssuedAt != nil {
+			c.Set("token_issued_at", claims.IssuedAt.Time)
+		}
 		c.Next()
 	}
 }
@@ -113,19 +116,12 @@ func RequireActiveUser() gin.HandlerFunc {
 			return
 		}
 
-		cfg, err := config.LoadDBConfig()
+		db, err := config.DB()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "用户状态校验失败"})
 			c.Abort()
 			return
 		}
-		db, err := sql.Open("mysql", config.GetDSN(cfg))
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "用户状态校验失败"})
-			c.Abort()
-			return
-		}
-		defer db.Close()
 
 		var enabled bool
 		var accountStatus string

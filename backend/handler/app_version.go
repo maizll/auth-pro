@@ -269,7 +269,6 @@ func AppVersionList(c *gin.Context) {
 		apiError(c, 500, "数据库连接失败")
 		return
 	}
-	defer db.Close()
 	if err := EnsureAppVersionsTable(db); err != nil {
 		apiError(c, 500, "初始化版本数据失败")
 		return
@@ -409,7 +408,6 @@ func saveAppVersion(c *gin.Context, editing bool) {
 		apiError(c, 500, "数据库连接失败")
 		return
 	}
-	defer db.Close()
 	if err := EnsureAppVersionsTable(db); err != nil {
 		apiError(c, 500, "初始化版本数据失败")
 		return
@@ -608,7 +606,6 @@ func AppVersionDelete(c *gin.Context) {
 		apiError(c, 500, "数据库连接失败")
 		return
 	}
-	defer db.Close()
 	if err := EnsureAppVersionsTable(db); err != nil {
 		apiError(c, 500, "初始化版本数据失败")
 		return
@@ -689,7 +686,6 @@ func AppVersionCheck(c *gin.Context) {
 		apiError(c, 500, "数据库连接失败")
 		return
 	}
-	defer db.Close()
 	if err := EnsureAppVersionsTable(db); err != nil {
 		apiError(c, 500, "初始化版本数据失败")
 		return
@@ -806,7 +802,6 @@ func AppVersionAdminDownloadURL(c *gin.Context) {
 		apiError(c, 500, "数据库连接失败")
 		return
 	}
-	defer db.Close()
 	if err := EnsureAppVersionsTable(db); err != nil {
 		apiError(c, 500, "初始化版本数据失败")
 		return
@@ -842,7 +837,6 @@ func AppVersionDownload(c *gin.Context) {
 		c.Status(http.StatusServiceUnavailable)
 		return
 	}
-	defer db.Close()
 	if err := EnsureAppVersionsTable(db); err != nil {
 		c.Status(http.StatusServiceUnavailable)
 		return
@@ -951,11 +945,7 @@ func appVersionClientJSON(record appVersionRecord) gin.H {
 }
 
 func openAppVersionDB() (*sql.DB, error) {
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		return nil, err
-	}
-	return sql.Open("mysql", config.GetDSN(cfg))
+	return config.DB()
 }
 
 func apiError(c *gin.Context, code int, message string) {

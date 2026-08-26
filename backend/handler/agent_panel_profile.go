@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 
+	"auto_pro/middleware"
+
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -21,7 +23,6 @@ func AgentPanelProfile(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var (
 		email, name, level, levelName string
@@ -130,7 +131,6 @@ func AgentPanelUpdateProfile(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if _, err := db.Exec(`UPDATE agents SET name = ?, contact = ? WHERE id = ?`, req.Name, strings.TrimSpace(req.Contact), agentID); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存失败"})
@@ -163,7 +163,6 @@ func AgentPanelChangePassword(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var hash string
 	if err := db.QueryRow(`SELECT password_hash FROM agents WHERE id = ?`, agentID).Scan(&hash); err != nil {
@@ -180,9 +179,14 @@ func AgentPanelChangePassword(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "密码加密失败"})
 		return
 	}
-	if _, err := db.Exec(`UPDATE agents SET password_hash = ? WHERE id = ?`, string(newHash), agentID); err != nil {
+	if err := middleware.EnsurePasswordChangedAtColumn(db, "agents"); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "修改失败"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "密码修改成功"})
+	if _, err := db.Exec(`UPDATE agents SET password_hash = ?, password_changed_at = ? WHERE id = ?`,
+		string(newHash), middleware.NewPasswordChangeStamp(), agentID); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "修改失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "密码修改成功，请重新登录"})
 }

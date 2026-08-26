@@ -184,7 +184,6 @@ func AdminPluginList(c *gin.Context) {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensurePluginStorage(db); err != nil {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})
 		return
@@ -316,7 +315,6 @@ func AdminPluginSourceAdd(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensurePluginStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})
 		return
@@ -341,7 +339,6 @@ func AdminPluginSourceDelete(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensurePluginStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})
 		return
@@ -365,7 +362,6 @@ func AdminPluginDownload(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensurePluginStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})
 		return
@@ -424,7 +420,6 @@ func AdminPluginSourceRefresh(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensurePluginStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})
 		return

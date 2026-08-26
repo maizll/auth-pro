@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"auto_pro/config"
+	"auto_pro/middleware"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
@@ -17,13 +18,11 @@ import (
 
 // AgentList 代理商列表
 func AgentList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := EnsureAccountUpgradeSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "代理商账户结构初始化失败: " + err.Error()})
 		return
@@ -197,13 +196,11 @@ func AgentCreate(c *gin.Context) {
 		req.Level = "bronze"
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureAgentLevelSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "代理商等级表初始化失败: " + err.Error()})
 		return
@@ -256,13 +253,11 @@ func AgentUpdate(c *gin.Context) {
 		req.Level = "bronze"
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureAgentLevelSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "代理商等级表初始化失败: " + err.Error()})
 		return
@@ -280,8 +275,12 @@ func AgentUpdate(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "密码加密失败"})
 			return
 		}
-		_, err = db.Exec(`UPDATE agents SET name = ?, contact = ?, password_hash = ?, level = ?, discount = ?, remark = ? WHERE id = ?`,
-			req.Name, req.Contact, string(hash), req.Level, req.Discount, req.Remark, id)
+		if err := middleware.EnsurePasswordChangedAtColumn(db, "agents"); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更新失败"})
+			return
+		}
+		_, err = db.Exec(`UPDATE agents SET name = ?, contact = ?, password_hash = ?, password_changed_at = ?, level = ?, discount = ?, remark = ? WHERE id = ?`,
+			req.Name, req.Contact, string(hash), middleware.NewPasswordChangeStamp(), req.Level, req.Discount, req.Remark, id)
 	} else {
 		_, err = db.Exec(`UPDATE agents SET name = ?, contact = ?, level = ?, discount = ?, remark = ? WHERE id = ?`,
 			req.Name, req.Contact, req.Level, req.Discount, req.Remark, id)
@@ -305,13 +304,11 @@ func AgentToggle(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	enabled := 1
 	if req.Status == "frozen" {
@@ -348,13 +345,11 @@ func AgentRecharge(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	operatorID, _ := c.Get("user_id")
 	if err := rechargeAgentManually(db, agentID, amountCents, strings.TrimSpace(req.Remark), operatorID); err != nil {
@@ -402,13 +397,11 @@ func agentDeletionProtected(source string, originalUserID sql.NullInt64) bool {
 func AgentDelete(c *gin.Context) {
 	id := c.Param("id")
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var source string
 	var originalUserID sql.NullInt64

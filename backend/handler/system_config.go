@@ -93,20 +93,7 @@ type systemFeatureSwitchDefinition struct {
 }
 
 func openSystemConfigDB() (*sql.DB, error) {
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
-	if err != nil {
-		return nil, err
-	}
-	if err := db.Ping(); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return db, nil
+	return config.DB()
 }
 
 func ensureSystemConfigStorage(db *sql.DB) error {
@@ -260,7 +247,6 @@ func PublicSystemConfig(c *gin.Context) {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": fallback})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureSystemConfigStorage(db); err != nil {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": fallback})
@@ -280,7 +266,6 @@ func AdminSystemConfig(c *gin.Context) {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureSystemConfigStorage(db); err != nil {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "初始化系统配置失败"})
@@ -346,7 +331,6 @@ func AdminSystemConfigUpdate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureSystemConfigStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化系统配置失败"})
@@ -426,7 +410,6 @@ func AdminPaymentConfig(c *gin.Context) {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureSystemConfigStorage(db); err != nil {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "初始化系统配置失败"})
@@ -493,7 +476,6 @@ func AdminPaymentConfigUpdate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureSystemConfigStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化系统配置失败"})
@@ -599,7 +581,6 @@ func AdminSystemFeatureSwitchUpdate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureSystemConfigStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化系统配置失败"})
@@ -651,7 +632,6 @@ func loadSystemFeatureSwitch(key string, defaultValue bool) bool {
 	if err != nil {
 		return defaultValue
 	}
-	defer db.Close()
 
 	if err := ensureSystemConfigStorage(db); err != nil {
 		return defaultValue

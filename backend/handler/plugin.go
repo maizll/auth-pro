@@ -309,7 +309,6 @@ func AdminPluginToggle(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensurePluginStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})

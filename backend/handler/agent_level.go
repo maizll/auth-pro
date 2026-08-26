@@ -87,14 +87,12 @@ func ensureAgentLevelSchema(db *sql.DB) error {
 }
 
 func openAgentLevelDB(c *gin.Context) (*sql.DB, bool) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return nil, false
 	}
 	if err := ensureAgentLevelSchema(db); err != nil {
-		db.Close()
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "代理商等级表初始化失败: " + err.Error()})
 		return nil, false
 	}
@@ -201,7 +199,6 @@ func AgentLevelList(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 
 	keyword := strings.TrimSpace(c.Query("keyword"))
 	status := c.Query("status")
@@ -290,7 +287,6 @@ func AgentLevelSelectList(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 
 	rows, err := db.Query("SELECT code, name, discount FROM agent_levels WHERE enabled = 1 ORDER BY sort ASC, id ASC")
 	if err != nil {
@@ -346,7 +342,6 @@ func AgentLevelCreate(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 
 	for attempt := 0; attempt < 3; attempt++ {
 		code, err := generateAgentLevelCode()
@@ -409,7 +404,6 @@ func AgentLevelUpdate(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 
 	var code string
 	var name string
@@ -453,7 +447,6 @@ func AgentLevelDelete(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 
 	var code string
 	var name string

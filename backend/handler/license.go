@@ -33,13 +33,11 @@ func generateRandomLicenseKey() (string, error) {
 
 // LicenseList 授权列表（分页+筛选）
 func LicenseList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	keyword := c.Query("keyword")
 	lType := c.Query("type")
@@ -209,17 +207,11 @@ func UserLicenseQuery(c *gin.Context) {
 		pageSize = 20
 	}
 
-	cfg, err := config.LoadDBConfig()
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
 		return
 	}
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
-		return
-	}
-	defer db.Close()
 
 	const userCondition = "l.owner_type = 'user' AND (u.nickname = ? OR u.email = ?)"
 	queryArgs := []any{account, strings.ToLower(account)}
@@ -348,17 +340,11 @@ func PublicUserLicenseQuery(c *gin.Context) {
 		pageSize = 10
 	}
 
-	cfg, err := config.LoadDBConfig()
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
 		return
 	}
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
-		return
-	}
-	defer db.Close()
 
 	const userCondition = "l.owner_type = 'user' AND (u.nickname = ? OR u.email = ?)"
 	queryArgs := []any{account, strings.ToLower(account)}
@@ -468,17 +454,11 @@ func PublicAgentQuery(c *gin.Context) {
 		return
 	}
 
-	cfg, err := config.LoadDBConfig()
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
 		return
 	}
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
-		return
-	}
-	defer db.Close()
 
 	var email, name, levelName string
 	err = db.QueryRowContext(c.Request.Context(), `
@@ -514,6 +494,161 @@ func PublicAgentQuery(c *gin.Context) {
 	})
 }
 
+// PublicTargetQuery 首页按域名或 IP 反查授权覆盖情况。
+// 匹配语义与 license_verify 的校验逻辑保持一致：单域名/IP/密钥按绑定目标精确命中，
+// 泛域名按后缀覆盖子域且不覆盖根域本身，避免查询结果与真实校验结果不一致。
+func PublicTargetQuery(c *gin.Context) {
+	raw := strings.TrimSpace(c.Query("target"))
+	if raw == "" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请输入域名或 IP 地址"})
+		return
+	}
+
+	target := normalizeLicenseTarget(raw)
+	isIP := net.ParseIP(target) != nil
+	if target == "" || (!isIP && !isValidSingleDomainTarget(target)) {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "域名或 IP 格式不正确"})
+		return
+	}
+
+	candidates := []string{target}
+	if !isIP {
+		candidates = append(candidates, wildcardPatternCandidates(target)...)
+	}
+
+	db, err := config.DB()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
+		return
+	}
+
+	placeholders := make([]string, 0, len(candidates))
+	queryArgs := make([]any, 0, len(candidates))
+	for _, candidate := range candidates {
+		placeholders = append(placeholders, "?")
+		queryArgs = append(queryArgs, candidate)
+	}
+
+	rows, err := db.QueryContext(c.Request.Context(), `
+		SELECT COALESCE(a.app_name, ''), l.type,
+		       CASE
+		         WHEN l.status = 'active' AND l.expired_at IS NOT NULL AND l.expired_at <= NOW() THEN 'expired'
+		         ELSE l.status
+		       END,
+		       l.expired_at, ld.domain, COALESCE(ld.is_wildcard, 0)
+		FROM license_domains ld
+		JOIN licenses l ON l.id = ld.license_id
+		LEFT JOIN apps a ON a.id = l.app_id
+		WHERE ld.domain IN (`+strings.Join(placeholders, ",")+`)
+		ORDER BY l.started_at DESC, l.id DESC
+		LIMIT 50
+	`, queryArgs...)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "查询授权失败"})
+		return
+	}
+	defer rows.Close()
+
+	type publicTargetItem struct {
+		AppName    string  `json:"appName"`
+		Status     string  `json:"status"`
+		StatusName string  `json:"statusName"`
+		MatchType  string  `json:"matchType"`
+		MatchedBy  string  `json:"matchedBy"`
+		ExpiredAt  *string `json:"expiredAt"`
+		Permanent  bool    `json:"permanent"`
+	}
+
+	statusLabels := map[string]string{
+		"active":  "正常",
+		"expired": "已过期",
+		"revoked": "已吊销",
+	}
+
+	list := make([]publicTargetItem, 0)
+	for rows.Next() {
+		var item publicTargetItem
+		var licenseType, storedTarget string
+		var isWildcard int
+		var expiredAt sql.NullTime
+		if err := rows.Scan(
+			&item.AppName, &licenseType, &item.Status, &expiredAt, &storedTarget, &isWildcard,
+		); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取授权信息失败"})
+			return
+		}
+
+		matchType, matched := matchPublicTarget(licenseType, normalizeLicenseTarget(storedTarget), isWildcard == 1, target, isIP)
+		if !matched {
+			continue
+		}
+
+		item.MatchType = matchType
+		item.MatchedBy = normalizeLicenseTarget(storedTarget)
+		item.StatusName = statusLabels[item.Status]
+		item.Permanent = !expiredAt.Valid
+		if expiredAt.Valid {
+			value := expiredAt.Time.Format("2006-01-02 15:04:05")
+			item.ExpiredAt = &value
+		}
+		list = append(list, item)
+	}
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取授权信息失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"msg":  "",
+		"data": gin.H{
+			"found":  len(list) > 0,
+			"target": target,
+			"isIP":   isIP,
+			"list":   list,
+			"total":  len(list),
+		},
+	})
+}
+
+// wildcardPatternCandidates 按域名层级生成所有可能覆盖它的泛域名写法，
+// 用于把反查收敛成可命中 idx_domain 索引的等值查询。
+// 泛域名保存时要求根域至少两段，因此枚举到倒数第二级为止。
+func wildcardPatternCandidates(domain string) []string {
+	labels := strings.Split(domain, ".")
+	if len(labels) < 3 {
+		return nil
+	}
+
+	patterns := make([]string, 0, len(labels)-2)
+	for i := 1; i <= len(labels)-2; i++ {
+		patterns = append(patterns, "*."+strings.Join(labels[i:], "."))
+	}
+	return patterns
+}
+
+// matchPublicTarget 复核候选绑定是否真正覆盖查询目标，返回命中方式。
+func matchPublicTarget(licenseType, storedTarget string, isWildcard bool, target string, isIP bool) (string, bool) {
+	if storedTarget == "" {
+		return "", false
+	}
+
+	if licenseType == "wildcard" {
+		if isIP || !isWildcard {
+			return "", false
+		}
+		if wildcardDomainMatch(storedTarget, target) {
+			return "wildcard", true
+		}
+		return "", false
+	}
+
+	if storedTarget == target {
+		return "exact", true
+	}
+	return "", false
+}
+
 // LicenseOwnerOptions 返回新增授权可选择的用户或代理账号。
 func LicenseOwnerOptions(c *gin.Context) {
 	ownerType := strings.TrimSpace(c.Query("ownerType"))
@@ -547,17 +682,11 @@ func LicenseOwnerOptions(c *gin.Context) {
 	}
 	query += " ORDER BY id DESC LIMIT ?"
 
-	cfg, err := config.LoadDBConfig()
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
 		return
 	}
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
-		return
-	}
-	defer db.Close()
 
 	args := make([]any, 0, 4)
 	if keyword != "" {
@@ -629,7 +758,6 @@ func LicenseCreate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
 		return
 	}
-	defer db.Close()
 
 	// 生成授权编号
 	licenseNo := fmt.Sprintf("LIC-%d", time.Now().UnixNano()/1e6)
@@ -811,13 +939,11 @@ func LicenseUpdate(c *gin.Context) {
 	}
 	req.Domain = validatedTarget
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var expiredAt sql.NullTime
 	if req.ExpireAt != "" {
@@ -865,13 +991,11 @@ func LicenseToggle(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	dbStatus := req.Status
 	if dbStatus == "disabled" {
@@ -891,13 +1015,11 @@ func LicenseToggle(c *gin.Context) {
 func LicenseDelete(c *gin.Context) {
 	id := c.Param("id")
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	db.Exec("DELETE FROM license_domains WHERE license_id = ?", id)
 	db.Exec("DELETE FROM verify_logs WHERE license_id = ?", id)

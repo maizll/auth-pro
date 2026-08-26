@@ -27,3 +27,24 @@ export function fetchGetUserInfo() {
     // }
   })
 }
+
+/**
+ * 更新当前管理员资料
+ * @param params 昵称 / 邮箱 / 头像，只传需要修改的字段
+ */
+export function fetchUpdateUserInfo(params: Api.Auth.UpdateUserInfoParams) {
+  return request.put<null>({
+    url: '/api/user/info',
+    params
+  })
+}
+
+/**
+ * 修改当前管理员密码
+ */
+export function fetchChangePassword(params: Api.Auth.ChangePasswordParams) {
+  return request.post<null>({
+    url: '/api/user/change-password',
+    params
+  })
+}

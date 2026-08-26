@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"auto_pro/config"
+	"auto_pro/middleware"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -168,17 +169,11 @@ func UserSendRegisterEmailCode(c *gin.Context) {
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
-		return
-	}
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureUserAuthStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化失败"})
@@ -340,17 +335,11 @@ func UserForgotPassword(c *gin.Context) {
 		return
 	}
 
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
-		return
-	}
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureUserAuthStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化失败"})
@@ -453,19 +442,19 @@ func UserResetPassword(c *gin.Context) {
 	}
 	tokenHash := sha256.Sum256([]byte(token))
 
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
-		return
-	}
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := EnsureAccountUpgradeSchema(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化失败"})
+		return
+	}
+
+	// DDL 会隐式提交事务，必须在开启事务前补列
+	if err := middleware.EnsurePasswordChangedAtColumn(db, "users"); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化失败"})
 		return
 	}
@@ -498,9 +487,9 @@ func UserResetPassword(c *gin.Context) {
 		return
 	}
 	result, err := tx.Exec(`
-		UPDATE users SET password_hash = ?
+		UPDATE users SET password_hash = ?, password_changed_at = ?
 		WHERE id = ? AND account_status = 'active' AND enabled = 1
-	`, string(hash), userID)
+	`, string(hash), middleware.NewPasswordChangeStamp(), userID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "重置失败"})
 		return

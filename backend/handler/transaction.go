@@ -16,13 +16,11 @@ import (
 
 // TransactionList 财务流水列表
 func TransactionList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	agentId := c.Query("agentId")
 	txType := c.Query("type")
@@ -128,13 +126,11 @@ func TransactionList(c *gin.Context) {
 
 // TransactionStats 财务统计
 func TransactionStats(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	now := time.Now()
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02 00:00:00")
@@ -160,13 +156,11 @@ func TransactionStats(c *gin.Context) {
 
 // AgentSelectList 代理商下拉列表（用于筛选）
 func AgentSelectList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	rows, err := db.Query("SELECT id, name FROM agents ORDER BY id ASC")
 	if err != nil {

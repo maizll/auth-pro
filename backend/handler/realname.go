@@ -362,7 +362,6 @@ func AdminRealnameConfig(c *gin.Context) {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureSystemConfigStorage(db); err != nil {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "初始化系统配置失败"})
@@ -451,7 +450,6 @@ func AdminRealnameConfigUpdate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureSystemConfigStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化系统配置失败"})
@@ -758,17 +756,11 @@ func realnameInit(c *gin.Context, ownerType string, ownerID uint) {
 		return
 	}
 
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
-		return
-	}
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureSystemConfigStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化配置失败"})
@@ -952,17 +944,11 @@ func realnameQuery(c *gin.Context, ownerType string, ownerID uint) {
 		return
 	}
 
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
-		return
-	}
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	if err := ensureSystemConfigStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化配置失败"})
@@ -1922,7 +1908,6 @@ func AdminRealnameProducts(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureSystemConfigStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化系统配置失败"})
 		return
@@ -2279,7 +2264,6 @@ func AdminRealnameRecordList(c *gin.Context) {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureRealnameStorage(db); err != nil {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "初始化实名存储失败"})
 		return
@@ -3005,17 +2989,11 @@ func RealnameFacePage(c *gin.Context) {
 		return
 	}
 
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		c.Data(http.StatusInternalServerError, "text/html; charset=utf-8", []byte(realnameFaceErrorHTML("系统未配置")))
-		return
-	}
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.Data(http.StatusInternalServerError, "text/html; charset=utf-8", []byte(realnameFaceErrorHTML("数据库连接失败")))
 		return
 	}
-	defer db.Close()
 	if err := ensureSystemConfigStorage(db); err != nil {
 		c.Data(http.StatusInternalServerError, "text/html; charset=utf-8", []byte(realnameFaceErrorHTML("初始化配置失败")))
 		return
@@ -3089,17 +3067,11 @@ func RealnameFaceSubmit(c *gin.Context) {
 		return
 	}
 
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
-		return
-	}
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureSystemConfigStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化配置失败"})
 		return

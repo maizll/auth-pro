@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"database/sql"
 	"net/http"
 	"time"
 
@@ -13,18 +12,11 @@ import (
 
 // LicenseDashboard 授权概览数据
 func LicenseDashboard(c *gin.Context) {
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
-		return
-	}
-
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	now := time.Now()
 	today := now.Format("2006-01-02")

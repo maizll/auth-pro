@@ -135,31 +135,24 @@
           <div class="section-heading centered-heading">
             <span class="section-kicker">QUICK LOOKUP</span>
             <h2>快速查询服务</h2>
-            <p>查询授权状态或验证代理商身份，一键切换查询类型。</p>
+            <p>查询授权状态、验证代理商身份，或反查域名/IP 的授权覆盖情况。</p>
             <div class="flip-toggle-buttons">
               <button
+                v-for="tab in queryModeTabs"
+                :key="tab.key"
                 type="button"
-                :class="['flip-toggle-btn', { active: !isFlipped }]"
-                @click="isFlipped = false"
+                :class="['flip-toggle-btn', { active: queryMode === tab.key }]"
+                @click="queryMode = tab.key"
               >
-                <IconifyIcon icon="ri:shield-check-line" />
-                授权查询
-              </button>
-              <button
-                type="button"
-                :class="['flip-toggle-btn', { active: isFlipped }]"
-                @click="isFlipped = true"
-              >
-                <IconifyIcon icon="ri:user-star-line" />
-                代理商查询
+                <IconifyIcon :icon="tab.icon" />
+                {{ tab.label }}
               </button>
             </div>
           </div>
 
-          <div class="flip-card-container" :class="{ 'is-flipped': isFlipped }">
-            <div class="flip-card">
-              <!-- 正面：授权查询 -->
-              <div class="flip-card-face flip-card-front">
+          <div class="query-switch">
+            <Transition name="query-fade" mode="out-in">
+              <div v-if="queryMode === 'license'" key="license" class="query-switch-face">
                 <div class="query-panel">
                   <div class="query-input-row">
                     <el-input
@@ -253,8 +246,7 @@
                 </div>
               </div>
 
-              <!-- 反面：代理商查询 -->
-              <div class="flip-card-face flip-card-back">
+              <div v-else-if="queryMode === 'agent'" key="agent" class="query-switch-face">
                 <div class="query-panel">
                   <div class="query-input-row">
                     <el-input
@@ -317,7 +309,89 @@
                   </div>
                 </div>
               </div>
-            </div>
+
+              <div v-else key="target" class="query-switch-face">
+                <div class="query-panel">
+                  <div class="query-input-row">
+                    <el-input
+                      v-model="targetQueryValue"
+                      size="large"
+                      clearable
+                      placeholder="请输入域名或 IP 地址，例如 example.com"
+                      @keyup.enter="handleTargetQuery"
+                    >
+                      <template #prefix>
+                        <IconifyIcon icon="ri:global-line" />
+                      </template>
+                    </el-input>
+                    <el-button
+                      type="primary"
+                      size="large"
+                      :loading="targetQueryLoading"
+                      @click="handleTargetQuery"
+                    >
+                      <IconifyIcon icon="ri:search-line" />
+                      立即查询
+                    </el-button>
+                  </div>
+                  <div class="query-security-tip">
+                    <IconifyIcon icon="ri:information-line" />
+                    泛域名授权会自动向上匹配；查询结果仅展示授权状态与到期时间，不展示持有者、套餐与授权密钥。
+                  </div>
+
+                  <div v-if="targetQuerySearched" class="query-results">
+                    <div v-if="targetQueryList.length" class="result-summary">
+                      <div>
+                        <span class="result-icon"
+                          ><IconifyIcon icon="ri:checkbox-circle-fill"
+                        /></span>
+                        <div>
+                          <strong>{{ targetQueryEcho }} 已被授权覆盖</strong>
+                          <small>共找到 {{ targetQueryList.length }} 条授权记录</small>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div v-if="targetQueryList.length" class="license-result-grid">
+                      <article
+                        v-for="(item, index) in targetQueryList"
+                        :key="`${item.appName}-${item.matchedBy}-${index}`"
+                        class="license-result-card"
+                      >
+                        <div class="result-card-head">
+                          <div class="result-app-icon"><IconifyIcon icon="ri:global-line" /></div>
+                          <div class="result-app-name">
+                            <strong>{{ item.appName || '未命名应用' }}</strong>
+                            <span>{{
+                              item.matchType === 'wildcard' ? '泛域名覆盖' : '精确绑定'
+                            }}</span>
+                          </div>
+                          <span class="status-badge" :class="`is-${item.status}`">
+                            {{ item.statusName || item.status }}
+                          </span>
+                        </div>
+                        <div class="result-meta-grid">
+                          <div>
+                            <small>命中绑定</small>
+                            <strong>{{ item.matchedBy }}</strong>
+                          </div>
+                          <div>
+                            <small>到期时间</small>
+                            <strong>{{ item.permanent ? '永久有效' : item.expiredAt }}</strong>
+                          </div>
+                        </div>
+                      </article>
+                    </div>
+
+                    <div v-else class="query-empty">
+                      <span><IconifyIcon icon="ri:inbox-2-line" /></span>
+                      <strong>该域名/IP 暂无授权记录</strong>
+                      <p>请确认输入是否正确；若由泛域名授权覆盖，请确认该子域在授权范围内。</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Transition>
           </div>
         </div>
       </section>
@@ -688,6 +762,18 @@
     levelName: string
   }
 
+  interface PublicTargetItem {
+    appName: string
+    status: string
+    statusName: string
+    matchType: 'exact' | 'wildcard'
+    matchedBy: string
+    expiredAt: string | null
+    permanent: boolean
+  }
+
+  type QueryMode = 'license' | 'agent' | 'target'
+
   const featureItems = [
     {
       icon: 'ri:shield-check-line',
@@ -780,7 +866,19 @@
   const agentQuerySearched = ref(false)
   const agentQueryResult = ref<PublicAgentItem | null>(null)
 
-  const isFlipped = ref(false)
+  const targetQueryValue = ref('')
+  const targetQueryLoading = ref(false)
+  const targetQuerySearched = ref(false)
+  const targetQueryList = ref<PublicTargetItem[]>([])
+  const targetQueryEcho = ref('')
+
+  const queryMode = ref<QueryMode>('license')
+
+  const queryModeTabs: { key: QueryMode; label: string; icon: string }[] = [
+    { key: 'license', label: '授权查询', icon: 'ri:shield-check-line' },
+    { key: 'agent', label: '代理商查询', icon: 'ri:user-star-line' },
+    { key: 'target', label: '域名/IP查询', icon: 'ri:global-line' }
+  ]
 
   function scrollToSection(id: string) {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -853,6 +951,35 @@
       ElMessage.error('网络错误，请稍后重试')
     } finally {
       agentQueryLoading.value = false
+    }
+  }
+
+  async function handleTargetQuery() {
+    const target = targetQueryValue.value.trim()
+    if (!target) {
+      ElMessage.warning('请输入域名或 IP 地址')
+      return
+    }
+
+    targetQueryLoading.value = true
+    try {
+      const { data } = await axios.get('/api/user-panel/target-query', {
+        params: { target }
+      })
+      if (data.code === 200) {
+        targetQueryList.value = Array.isArray(data.data?.list) ? data.data.list : []
+        targetQueryEcho.value = String(data.data?.target || target)
+        targetQuerySearched.value = true
+      } else {
+        targetQueryList.value = []
+        targetQueryEcho.value = ''
+        targetQuerySearched.value = false
+        ElMessage.error(data.msg || '域名/IP 查询失败')
+      }
+    } catch {
+      ElMessage.error('网络错误，请稍后重试')
+    } finally {
+      targetQueryLoading.value = false
     }
   }
 
@@ -1772,45 +1899,35 @@
     }
   }
 
-  .flip-card-container {
-    max-width: 920px;
+  .query-switch {
+    max-width: 760px;
     margin: 0 auto;
-    perspective: 2000px;
   }
 
-  .flip-card {
-    position: relative;
+  .query-switch-face {
     width: 100%;
-    transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
-    transform-style: preserve-3d;
   }
 
-  .flip-card-container.is-flipped .flip-card {
-    transform: rotateY(180deg);
+  .query-fade-enter-active,
+  .query-fade-leave-active {
+    transition:
+      opacity 0.28s ease,
+      transform 0.28s ease;
   }
 
-  .flip-card-face {
-    width: 100%;
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
+  .query-fade-enter-from {
+    opacity: 0;
+    transform: translateY(10px);
   }
 
-  .flip-card-front {
-    position: relative;
-    z-index: 2;
-  }
-
-  .flip-card-back {
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 1;
-    transform: rotateY(180deg);
+  .query-fade-leave-to {
+    opacity: 0;
+    transform: translateY(-10px);
   }
 
   .query-panel {
-    max-width: 920px;
-    padding: 30px;
+    max-width: 760px;
+    padding: 26px;
     margin: 0 auto;
     background: var(--el-bg-color);
     border: 1px solid var(--el-border-color);
@@ -1821,9 +1938,11 @@
   .query-input-row {
     display: flex;
     gap: 12px;
+    max-width: 620px;
+    margin: 0 auto;
 
     :deep(.el-input__wrapper) {
-      min-height: 52px;
+      min-height: 48px;
       padding: 1px 17px;
       background: var(--el-fill-color-lighter);
       border-radius: 12px;
@@ -1836,8 +1955,8 @@
     }
 
     :deep(.el-button) {
-      flex: 0 0 138px;
-      height: 52px;
+      flex: 0 0 120px;
+      height: 48px;
       border-radius: 12px;
     }
   }
@@ -1846,7 +1965,8 @@
     display: flex;
     gap: 7px;
     align-items: center;
-    margin-top: 13px;
+    max-width: 620px;
+    margin: 13px auto 0;
     font-size: 12px;
     color: var(--el-text-color-placeholder);
 
@@ -1915,7 +2035,7 @@
   }
 
   .license-result-card {
-    padding: 19px;
+    padding: 16px;
     background: var(--el-fill-color-extra-light);
     border: 1px solid var(--el-border-color-extra-light);
     border-radius: 15px;
@@ -2665,7 +2785,8 @@
     }
     .flip-toggle-btn {
       flex: 1;
-      min-width: 140px;
+      min-width: 96px;
+      padding: 10px 12px;
       justify-content: center;
     }
     .query-panel {

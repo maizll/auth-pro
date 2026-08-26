@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"embed"
 	"io/fs"
 	"log"
@@ -84,7 +83,7 @@ func main() {
 
 		// 代理端（需鉴权）
 		agentSecured := api.Group("/agent-panel")
-		agentSecured.Use(middleware.JWTAuth())
+		agentSecured.Use(middleware.JWTAuth(), middleware.RequireFreshPassword("agents"))
 		{
 			agentSecured.GET("/apps", handler.AgentPanelAppList)
 			agentSecured.GET("/apps/purchase", handler.AgentPanelPurchaseApps)
@@ -123,6 +122,7 @@ func main() {
 			userAuth.POST("/login", handler.UserLogin)
 			userAuth.GET("/license-query", handler.PublicUserLicenseQuery)
 			userAuth.GET("/agent-query", handler.PublicAgentQuery)
+			userAuth.GET("/target-query", handler.PublicTargetQuery)
 			userAuth.POST("/register/email-code", handler.UserSendRegisterEmailCode)
 			userAuth.POST("/register", handler.UserRegister)
 			userAuth.POST("/forgot-password", handler.UserForgotPassword)
@@ -137,7 +137,7 @@ func main() {
 
 		// 用户端（需鉴权）
 		userSecured := api.Group("/user-panel")
-		userSecured.Use(middleware.JWTAuth(), middleware.RequireActiveUser())
+		userSecured.Use(middleware.JWTAuth(), middleware.RequireActiveUser(), middleware.RequireFreshPassword("users"))
 		{
 			userSecured.GET("/dashboard", handler.UserDashboard)
 			userSecured.GET("/licenses", handler.UserLicenseList)
@@ -170,9 +170,10 @@ func main() {
 
 		// 需要鉴权的路由（仅管理员角色）
 		secured := api.Group("/")
-		secured.Use(middleware.JWTAuth(), middleware.RequireAdmin())
+		secured.Use(middleware.JWTAuth(), middleware.RequireAdmin(), middleware.RequireFreshPassword("admins"))
 		{
 			secured.GET("/user/info", handler.GetUserInfo)
+			secured.PUT("/user/info", handler.UpdateUserInfo)
 			secured.POST("/user/change-password", handler.ChangePassword)
 			secured.GET("/user/list", handler.AdminUserList)
 			secured.POST("/user/create", handler.AdminUserCreate)
@@ -397,15 +398,10 @@ func main() {
 
 	// 兜底迁移：补齐购买订单字段，修正历史线上购买流水与价格快照
 	func() {
-		cfg, err := config.LoadDBConfig()
+		db, err := config.DB()
 		if err != nil {
 			return
 		}
-		db, err := sql.Open("mysql", config.GetDSN(cfg))
-		if err != nil {
-			return
-		}
-		defer db.Close()
 		if err := handler.EnsureAppVersionsTable(db); err != nil {
 			log.Printf("ensure app_versions table failed: %v", err)
 		}

@@ -17,13 +17,11 @@ import (
 
 // PlanList 套餐列表
 func PlanList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensurePlanLicenseType(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化套餐授权方式失败: " + err.Error()})
 		return
@@ -154,13 +152,11 @@ func PlanCreate(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensurePlanLicenseType(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化套餐授权方式失败: " + err.Error()})
 		return
@@ -223,13 +219,11 @@ func PlanUpdate(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensurePlanLicenseType(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化套餐授权方式失败: " + err.Error()})
 		return
@@ -263,13 +257,11 @@ func PlanUpdate(c *gin.Context) {
 func PlanToggle(c *gin.Context) {
 	id := c.Param("id")
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	_, err = db.Exec("UPDATE license_plans SET enabled = 1 - enabled WHERE id = ?", id)
 	if err != nil {
@@ -284,13 +276,11 @@ func PlanToggle(c *gin.Context) {
 func PlanDelete(c *gin.Context) {
 	id := c.Param("id")
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	planID, err := strconv.ParseInt(id, 10, 64)
 	if err != nil || planID <= 0 {

@@ -13,13 +13,11 @@ import (
 
 // ReportOverview 数据报表综合接口
 func ReportOverview(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	days := c.DefaultQuery("days", "30")
 	daysInt := 30

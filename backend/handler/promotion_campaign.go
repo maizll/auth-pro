@@ -22,11 +22,7 @@ var (
 	errPromotionCampaignNotFound = errors.New("活动不存在")
 	errPromotionCampaignApp      = errors.New("应用不存在")
 	openPromotionCampaignDB      = func() (*sql.DB, error) {
-		cfg, err := config.LoadDBConfig()
-		if err != nil {
-			return nil, err
-		}
-		return sql.Open("mysql", config.GetDSN(cfg))
+		return config.DB()
 	}
 )
 
@@ -711,7 +707,6 @@ func AdminPromotionCampaignList(c *gin.Context) {
 		promotionCampaignError(c, err)
 		return
 	}
-	defer db.Close()
 	if err := ensurePromotionCampaignSchema(db); err != nil {
 		promotionCampaignError(c, err)
 		return
@@ -760,7 +755,6 @@ func AdminPromotionCampaignCreate(c *gin.Context) {
 		promotionCampaignError(c, err)
 		return
 	}
-	defer db.Close()
 	if err := ensurePromotionCampaignSchema(db); err != nil {
 		promotionCampaignError(c, err)
 		return
@@ -794,7 +788,6 @@ func AdminPromotionCampaignUpdate(c *gin.Context) {
 		promotionCampaignError(c, err)
 		return
 	}
-	defer db.Close()
 	if err := ensurePromotionCampaignSchema(db); err != nil {
 		promotionCampaignError(c, err)
 		return
@@ -824,7 +817,6 @@ func AdminPromotionCampaignToggle(c *gin.Context) {
 		promotionCampaignError(c, err)
 		return
 	}
-	defer db.Close()
 	if err := ensurePromotionCampaignSchema(db); err != nil {
 		promotionCampaignError(c, err)
 		return
@@ -847,7 +839,6 @@ func AdminPromotionCampaignDelete(c *gin.Context) {
 		promotionCampaignError(c, err)
 		return
 	}
-	defer db.Close()
 	if err := ensurePromotionCampaignSchema(db); err != nil {
 		promotionCampaignError(c, err)
 		return

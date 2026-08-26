@@ -121,7 +121,6 @@ func AdminAgentUpgradeStats(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 
 	var totalOrders, pendingOrders, completedOrders, failedOrders int64
 	var completedAmount, transferredBalance, openingBonus sql.NullString
@@ -166,7 +165,6 @@ func AdminAgentUpgradeOrderList(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 
 	page, pageSize, offset := adminUpgradePagination(c)
 	where := []string{"1=1"}
@@ -261,7 +259,6 @@ func AdminAccountConversionList(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 
 	page, pageSize, offset := adminUpgradePagination(c)
 	where := []string{"1=1"}
@@ -352,7 +349,6 @@ func AdminAccountConversionDetail(c *gin.Context) {
 	if !ok {
 		return
 	}
-	defer db.Close()
 
 	var conversionNo, orderNo, status, errorMessage string
 	var sourceSnapshot, resultSnapshot sql.NullString

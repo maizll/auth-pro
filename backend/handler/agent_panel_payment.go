@@ -77,7 +77,6 @@ func AgentPanelPurchasePayOptions(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	options := []payOption{{Code: "balance", Label: "余额支付", Icon: "ri:wallet-3-line", Color: "#2e7d32"}}
 
@@ -186,7 +185,6 @@ func UserPurchasePayOptions(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	options := []payOption{{Code: "balance", Label: "余额支付", Icon: "ri:wallet-3-line", Color: "#2e7d32"}}
 	options = append(options, configuredOnlinePayOptions(db)...)
@@ -216,7 +214,6 @@ func UserPurchaseOrderStatus(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureLicensePurchaseOrderSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化购买订单表失败"})
 		return
@@ -284,7 +281,6 @@ func AgentPanelPurchaseOrderStatus(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureLicensePurchaseOrderSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化购买订单表失败"})
 		return
@@ -342,7 +338,6 @@ func userPurchaseOnline(c *gin.Context, appID int64, planID int64, licenseType s
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureAppPurchaseLicenseTypes(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用授权方式失败"})
 		return
@@ -450,7 +445,6 @@ func agentPanelPurchaseOnline(c *gin.Context, appID int64, planID int64, userID 
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureAppPurchaseLicenseTypes(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用授权方式失败"})
 		return

@@ -16,13 +16,11 @@ import (
 
 // VerifyLogList 验证日志列表
 func VerifyLogList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	keyword := c.Query("keyword")
 	appId := c.Query("appId")
@@ -134,13 +132,11 @@ func VerifyLogList(c *gin.Context) {
 
 // VerifyLogClear 清空验证日志
 func VerifyLogClear(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	_, err = db.Exec("TRUNCATE TABLE verify_logs")
 	if err != nil {

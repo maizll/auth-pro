@@ -448,7 +448,6 @@ func EpayV2Notify(c *gin.Context) {
 		c.String(http.StatusOK, "fail")
 		return
 	}
-	defer db.Close()
 
 	if err := settleEpayV2Callback(db, params); err != nil {
 		c.String(http.StatusOK, "fail")

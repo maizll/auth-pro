@@ -148,16 +148,11 @@ func ensureLicenseCardSchema(db *sql.DB) error {
 }
 
 func openLicenseCardDB() (*sql.DB, error) {
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		return nil, err
-	}
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		return nil, err
 	}
 	if err := ensureLicenseCardSchema(db); err != nil {
-		db.Close()
 		return nil, err
 	}
 	return db, nil
@@ -240,7 +235,6 @@ func AdminLicenseCardBatchList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化卡密模块失败: " + err.Error()})
 		return
 	}
-	defer db.Close()
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
@@ -339,7 +333,6 @@ func AdminLicenseCardBatchCreate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化卡密模块失败: " + err.Error()})
 		return
 	}
-	defer db.Close()
 	if err := EnsureAppPurchaseLicenseTypesColumn(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用授权类型失败"})
 		return
@@ -433,7 +426,6 @@ func AdminLicenseCardBatchToggle(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化卡密模块失败"})
 		return
 	}
-	defer db.Close()
 	result, err := db.Exec("UPDATE license_card_batches SET status = ? WHERE id = ?", req.Status, batchID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更新批次失败"})
@@ -457,7 +449,6 @@ func AdminLicenseCardBatchDelete(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化卡密模块失败"})
 		return
 	}
-	defer db.Close()
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -501,7 +492,6 @@ func AdminLicenseCardList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化卡密模块失败"})
 		return
 	}
-	defer db.Close()
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	if page < 1 {
 		page = 1
@@ -604,7 +594,6 @@ func AdminLicenseCardToggle(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化卡密模块失败"})
 		return
 	}
-	defer db.Close()
 	result, err := db.Exec("UPDATE license_cards SET status = ? WHERE id = ? AND status <> 'redeemed'", req.Status, cardID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更新卡密失败"})
@@ -628,7 +617,6 @@ func AdminLicenseCardExport(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化卡密模块失败"})
 		return
 	}
-	defer db.Close()
 	status := strings.TrimSpace(c.DefaultQuery("status", "unused"))
 	where := "c.batch_id = ?"
 	args := []any{batchID}
@@ -856,7 +844,6 @@ func redeemLicenseCardHandler(c *gin.Context, ownerType string) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化卡密模块失败"})
 		return
 	}
-	defer db.Close()
 	result, message, err := redeemLicenseCard(db, req.CardCode, ownerType, ownerID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "兑换失败，请稍后重试"})

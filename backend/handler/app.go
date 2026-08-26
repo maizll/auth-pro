@@ -16,13 +16,11 @@ import (
 
 // AppList 应用列表（下拉选择用）
 func AppList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	rows, err := db.Query("SELECT id, app_name FROM apps WHERE enabled = 1 ORDER BY id ASC")
 	if err != nil {
@@ -56,13 +54,11 @@ func AppList(c *gin.Context) {
 
 // AppManageList 应用管理列表（含详细信息）
 func AppManageList(c *gin.Context) {
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := EnsureAppPurchaseLicenseTypesColumn(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用授权方式失败"})
 		return
@@ -148,13 +144,11 @@ func AppCreate(c *gin.Context) {
 		return
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := EnsureAppPurchaseLicenseTypesColumn(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用授权方式失败"})
 		return
@@ -199,13 +193,11 @@ func AppUpdate(c *gin.Context) {
 		}
 	}
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := EnsureAppPurchaseLicenseTypesColumn(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用授权方式失败"})
 		return
@@ -251,17 +243,11 @@ func AppLicenseRequiredUpdate(c *gin.Context) {
 		return
 	}
 
-	cfg, err := config.LoadDBConfig()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统未配置"})
-		return
-	}
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := ensureAppLicenseRequiredColumn(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用授权开关失败"})
 		return
@@ -296,13 +282,11 @@ func AppLicenseRequiredUpdate(c *gin.Context) {
 func AppResetSecret(c *gin.Context) {
 	id := c.Param("id")
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 
 	newSecret := "sk_live_" + randomHex(16)
 	_, err = db.Exec("UPDATE apps SET app_secret = ? WHERE id = ?", newSecret, id)
@@ -318,13 +302,11 @@ func AppResetSecret(c *gin.Context) {
 func AppDelete(c *gin.Context) {
 	id := c.Param("id")
 
-	cfg, _ := config.LoadDBConfig()
-	db, err := sql.Open("mysql", config.GetDSN(cfg))
+	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	defer db.Close()
 	if err := EnsureAppVersionsTable(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化版本数据失败"})
 		return
