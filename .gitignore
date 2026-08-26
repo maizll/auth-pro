@@ -40,8 +40,14 @@ release/
 .pnpm-store/
 .cache/
 
-# Local release archives
-auth_pro-dev 2.zip
+# Local archives and stray assets at repo root only
+# (leading slash keeps frontend/ and backend/ resources tracked)
+/*.zip
+/*.tar.gz
+/*.tgz
+/*.png
+/*.jpg
+/*.jpeg
 
 # Local build output
 build-output.txt

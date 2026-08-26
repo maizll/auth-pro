@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { fetchPublicSystemConfig, SystemConfigData } from '@/api/system-manage'
-import defaultLogo from '../../../../哈士奇.svg'
+import defaultLogo from '@/assets/images/common/default-logo.svg'
 
 const DEFAULT_SITE_NAME = '授权管理系统'
 const DEFAULT_SITE_SUBTITLE = '专业的软件授权与服务平台'
