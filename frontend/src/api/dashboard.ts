@@ -1,4 +1,5 @@
 import request from '@/utils/http'
+import type { PromotionPage } from '@/api/promotion'
 
 export interface DashboardCard {
   title: string
@@ -64,6 +65,7 @@ export interface AdminDashboardOverview {
   agentMetrics: DashboardMetricItem[]
   userMetrics: DashboardMetricItem[]
   appMetrics: DashboardMetricItem[]
+  promotions: PromotionPage[]
   riskAlerts?: DashboardTodoItem[]
 }
 

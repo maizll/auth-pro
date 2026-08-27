@@ -70,36 +70,7 @@
       </ElCol>
 
       <ElCol :xs="24" :lg="8" class="trend-status-col">
-        <div class="art-card panel-card status-panel">
-          <div class="panel-header">
-            <div>
-              <h3>授权状态</h3>
-              <p>当前授权健康度</p>
-            </div>
-          </div>
-          <div class="status-list">
-            <div v-for="item in overview.licenseStatus" :key="item.type" class="status-item">
-              <div>
-                <span class="status-dot" :class="`status-${item.type}`"></span>
-                <span>{{ item.name }}</span>
-              </div>
-              <b>{{ item.value }}</b>
-            </div>
-          </div>
-
-          <div class="payment-box">
-            <div class="panel-header compact">
-              <div>
-                <h3>今日支付方式</h3>
-                <p>当前实际以余额支付为主</p>
-              </div>
-            </div>
-            <div v-for="item in overview.paymentMethods" :key="item.name" class="payment-item">
-              <span>{{ item.name }}</span>
-              <strong>¥{{ formatValue(item.revenue) }}</strong>
-            </div>
-          </div>
-        </div>
+        <ArtPromotionBoard :pages="overview.promotions" subtitle="来自软件源的扩展与增值服务" />
       </ElCol>
     </ElRow>
 
@@ -257,11 +228,10 @@
     fetchAdminDashboardAppMetrics,
     fetchAdminDashboardAppRanking,
     fetchAdminDashboardCards,
-    fetchAdminDashboardLicenseStatus,
-    fetchAdminDashboardPaymentMethods,
     fetchAdminDashboardTrend,
     fetchAdminDashboardUserMetrics
   } from '@/api/dashboard'
+  import { fetchPromotionMocks } from '@/mock/promotion/slots'
 
   defineOptions({ name: 'Console' })
 
@@ -275,7 +245,8 @@
     paymentMethods: [],
     agentMetrics: [],
     userMetrics: [],
-    appMetrics: []
+    appMetrics: [],
+    promotions: []
   })
 
   const trendDates = computed(() => overview.trend.map((item) => item.date))
@@ -305,10 +276,7 @@
       overview.trend = await fetchAdminDashboardTrend()
     },
     async () => {
-      overview.licenseStatus = await fetchAdminDashboardLicenseStatus()
-    },
-    async () => {
-      overview.paymentMethods = await fetchAdminDashboardPaymentMethods()
+      overview.promotions = await fetchPromotionMocks('dashboard')
     },
     async () => {
       overview.agentMetrics = await fetchAdminDashboardAgentMetrics()
@@ -425,8 +393,7 @@
       height: 100%;
     }
 
-    .trend-panel,
-    .status-panel {
+    .trend-panel {
       min-height: 470px;
     }
 
@@ -446,11 +413,6 @@
         margin-top: 6px;
         font-size: 13px;
         color: var(--art-gray-500);
-      }
-
-      &.compact {
-        margin-top: 24px;
-        margin-bottom: 10px;
       }
     }
 
@@ -558,7 +520,6 @@
       }
     }
 
-    .status-list,
     .rank-list,
     .activity-list {
       display: flex;
@@ -608,8 +569,6 @@
       }
     }
 
-    .status-item,
-    .payment-item,
     .rank-item,
     .activity-item {
       display: flex;
@@ -619,13 +578,11 @@
       border-bottom: 1px solid var(--art-border-color);
     }
 
-    .status-item > div,
     .activity-item {
       justify-content: flex-start;
       gap: 12px;
     }
 
-    .status-dot,
     .activity-dot {
       display: inline-block;
       width: 9px;
@@ -633,19 +590,6 @@
       margin-right: 8px;
       border-radius: 50%;
       background: var(--art-primary);
-    }
-
-    .status-expiring {
-      background: var(--el-color-warning);
-    }
-
-    .status-expired,
-    .status-revoked {
-      background: var(--el-color-danger);
-    }
-
-    .payment-box {
-      margin-top: 10px;
     }
 
     .rank-no {

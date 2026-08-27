@@ -30,3 +30,7 @@ export { useChart, useChartComponent, useChartOps } from './core/useChart'
 
 // 布局高度
 export { useLayoutHeight, useAutoLayoutHeight } from './core/useLayoutHeight'
+
+// 广告投放项行为
+export { usePromotion } from './core/usePromotion'
+export type { PromotionLink } from './core/usePromotion'
