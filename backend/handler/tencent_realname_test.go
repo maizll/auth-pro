@@ -491,7 +491,9 @@ func TestTencentRealnameFaceSessionRoundTrip(t *testing.T) {
 		FailCode:     "INSUFFICIENT_PACKAGE",
 		HTTPStatus:   http.StatusOK,
 		ResponseCode: 1,
-		ExpireAt:     time.Unix(1721635200, 0),
+		// 显式固定为 UTC：JSON 往返后时区为 UTC，time.Unix 给的是本地时区，
+		// 在 UTC+8 机器上 DeepEqual 碰巧相等，在 UTC 的 CI 上必然不等
+		ExpireAt:     time.Unix(1721635200, 0).UTC(),
 	}
 	got, err := parseRealnameFaceSession(want.encode())
 	if err != nil {
