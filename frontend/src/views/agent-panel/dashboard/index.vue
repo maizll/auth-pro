@@ -1,5 +1,7 @@
 <template>
   <div class="panel-dashboard">
+    <ArtAdSlot position="home-banner" height="120px" class="mb-5 max-sm:mb-4" />
+
     <!-- 统计卡片 -->
     <ElRow :gutter="20" class="flex">
       <ElCol v-for="(item, index) in cardList" :key="index" :sm="12" :md="6" :lg="6">

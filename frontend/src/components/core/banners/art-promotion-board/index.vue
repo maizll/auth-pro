@@ -81,7 +81,7 @@
       layout: page.layout,
       cells: page.items.map((item) => ({
         item,
-        link: resolvePromotionLink(item) as PromotionLink
+        link: resolvePromotionLink(item.linkUrl) as PromotionLink
       }))
     }))
   )

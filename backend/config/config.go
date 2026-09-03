@@ -272,6 +272,28 @@ func GetSoftwareSourceCacheDir() string {
 	return dir
 }
 
+// DefaultAdvertisementURL 是默认的广告投放接口地址，可用 AUTO_PRO_ADVERTISEMENT_URL 覆盖。
+const DefaultAdvertisementURL = "https://plug.91ani.cn/api/v1/public/advertisements"
+
+func GetAdvertisementURL() string {
+	return strings.TrimRight(strings.TrimSpace(envOrDefault("AUTO_PRO_ADVERTISEMENT_URL", DefaultAdvertisementURL)), "/")
+}
+
+func GetAdvertisementTimeout() time.Duration {
+	return durationEnv("AUTO_PRO_ADVERTISEMENT_TIMEOUT", 5*time.Second)
+}
+
+// GetAdvertisementCacheTTL 是投放内容的新鲜期。广告图片是带签名的临时地址，
+// 缓存过久会让前端拿到已过期的链接，所以默认只留 5 分钟。
+func GetAdvertisementCacheTTL() time.Duration {
+	return durationEnv("AUTO_PRO_ADVERTISEMENT_CACHE_TTL", 5*time.Minute)
+}
+
+// GetAdvertisementStaleTTL 是上游不可用时旧内容的容忍期，超出后广告位改回占位。
+func GetAdvertisementStaleTTL() time.Duration {
+	return durationEnv("AUTO_PRO_ADVERTISEMENT_STALE_TTL", time.Hour)
+}
+
 func envOrDefault(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value

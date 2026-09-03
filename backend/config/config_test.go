@@ -50,6 +50,25 @@ func TestSoftwareSourceConfig(t *testing.T) {
 	}
 }
 
+func TestAdvertisementConfig(t *testing.T) {
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", "")
+	if got := GetAdvertisementURL(); got != DefaultAdvertisementURL {
+		t.Fatalf("默认广告接口地址 = %q", got)
+	}
+	// 投放方给出的地址常带多余的尾斜杠，拼 query 前必须归一化
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", " https://plug.example.com/api/v1/public/advertisements// ")
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_TIMEOUT", "2s")
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_CACHE_TTL", "30s")
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_STALE_TTL", "6h")
+	if got := GetAdvertisementURL(); got != "https://plug.example.com/api/v1/public/advertisements" {
+		t.Fatalf("广告接口地址 = %q", got)
+	}
+	if GetAdvertisementTimeout() != 2*time.Second || GetAdvertisementCacheTTL() != 30*time.Second ||
+		GetAdvertisementStaleTTL() != 6*time.Hour {
+		t.Fatal("广告相关时长未按环境变量解析")
+	}
+}
+
 func TestLoadDBConfigFromEnv(t *testing.T) {
 	t.Setenv("AUTO_PRO_DB_HOST", "unix:/tmp/auto-pro-test.sock")
 	t.Setenv("AUTO_PRO_DB_PORT", "")

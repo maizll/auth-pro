@@ -16,15 +16,15 @@ export function usePromotion() {
    * 站内地址交给路由链接，避免整页刷新；两种情况都会渲染成真实的 a 标签，
    * 用户可以右键新开、中键打开、悬停查看目标。
    */
-  const resolvePromotionLink = (item: PromotionItem): PromotionLink => {
-    if (!item.linkUrl) return { is: 'div', props: {} }
-    if (isExternalUrl(item.linkUrl)) {
+  const resolvePromotionLink = (url: string): PromotionLink => {
+    if (!url) return { is: 'div', props: {} }
+    if (isExternalUrl(url)) {
       return {
         is: 'a',
-        props: { href: item.linkUrl, target: '_blank', rel: 'noopener noreferrer' }
+        props: { href: url, target: '_blank', rel: 'noopener noreferrer' }
       }
     }
-    return { is: RouterLink, props: { to: item.linkUrl } }
+    return { is: RouterLink, props: { to: url } }
   }
 
   const coverStyle = (item: PromotionItem) => {

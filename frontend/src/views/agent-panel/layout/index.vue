@@ -34,6 +34,11 @@
           <template #title>个人设置</template>
         </el-menu-item>
       </el-menu>
+
+      <!-- 侧边栏广告位：菜单折叠后宽度放不下 -->
+      <div v-if="!collapsed" class="shrink-0 p-2.5">
+        <ArtAdSlot position="sidebar" height="120px" />
+      </div>
     </aside>
 
     <!-- 主内容区 -->
@@ -78,6 +83,8 @@
         <router-view />
       </main>
     </div>
+
+    <ArtAdPopup />
   </div>
 </template>
 

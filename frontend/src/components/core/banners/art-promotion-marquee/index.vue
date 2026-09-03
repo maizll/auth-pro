@@ -82,7 +82,7 @@
         cards.push({
           key: `${item.id}-${round}-${index}`,
           item,
-          link: resolvePromotionLink(item)
+          link: resolvePromotionLink(item.linkUrl)
         })
       })
     }

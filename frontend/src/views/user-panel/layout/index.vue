@@ -33,6 +33,11 @@
           <template #title>开通代理商</template>
         </el-menu-item>
       </el-menu>
+
+      <!-- 侧边栏广告位：菜单折叠后宽度放不下 -->
+      <div v-if="!collapsed" class="shrink-0 p-2.5">
+        <ArtAdSlot position="sidebar" height="120px" />
+      </div>
     </aside>
 
     <div class="panel-main">
@@ -83,6 +88,8 @@
         </a>
       </footer>
     </div>
+
+    <ArtAdPopup />
   </div>
 </template>
 
@@ -220,6 +227,11 @@ function handleLogout() {
         color: var(--el-color-primary);
       }
     }
+  }
+
+  .sidebar-ad {
+    flex-shrink: 0;
+    padding: 10px;
   }
 }
 

@@ -135,6 +135,9 @@ func main() {
 		api.GET("/software-source/templates/:id/preview", handler.PublicSoftwareSourceTemplatePreview)
 		api.POST("/internal/software-source/cache/invalidate", handler.InternalSoftwareSourceCacheInvalidate)
 
+		// 外部广告投放（上游未开放 CORS，由后端代理转发并缓存）
+		api.GET("/advertisements", handler.PublicAdvertisements)
+
 		// 用户端（需鉴权）
 		userSecured := api.Group("/user-panel")
 		userSecured.Use(middleware.JWTAuth(), middleware.RequireActiveUser(), middleware.RequireFreshPassword("users"))

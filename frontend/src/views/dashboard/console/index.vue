@@ -1,5 +1,7 @@
 <template>
   <div class="admin-dashboard">
+    <ArtAdSlot position="home-banner" height="120px" class="home-banner" />
+
     <ElRow :gutter="16" class="card-row">
       <ElCol v-for="item in overview.cards" :key="item.title" :xs="12" :sm="8" :lg="4">
         <div class="art-card stat-card">
@@ -309,6 +311,10 @@
 
 <style lang="scss" scoped>
   .admin-dashboard {
+    .home-banner {
+      margin-bottom: 16px;
+    }
+
     .card-row {
       margin-bottom: 16px;
     }

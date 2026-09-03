@@ -119,6 +119,11 @@
         />
       </div>
 
+      <!-- 侧边栏广告位：菜单折叠或窄屏时不占地方 -->
+      <div v-if="showSidebarAd" class="sidebar-ad">
+        <ArtAdSlot position="sidebar" :height="`${SIDEBAR_AD_HEIGHT - 20}px`" />
+      </div>
+
       <div
         class="menu-model"
         @click="toggleMenuVisibility"
@@ -147,6 +152,8 @@
   const MOBILE_BREAKPOINT = 800
   const ANIMATION_DELAY = 350
   const MENU_CLOSE_WIDTH = MenuWidth.CLOSE
+  /** 广告位整体占位高度（含上下留白），滚动区高度要按它扣减 */
+  const SIDEBAR_AD_HEIGHT = 140
 
   const route = useRoute()
   const router = useRouter()
@@ -179,6 +186,12 @@
 
   // 移动端屏幕判断（使用 computed 避免重复计算）
   const isMobileScreen = computed(() => width.value < MOBILE_BREAKPOINT)
+
+  // 折叠态宽度只有 64px、窄屏侧边栏是浮层，两种情况都放不下广告
+  const showSidebarAd = computed(
+    () => menuOpen.value && !isDualMenuCollapsed.value && !isMobileScreen.value
+  )
+  const sidebarAdHeight = computed(() => `${SIDEBAR_AD_HEIGHT}px`)
 
   // 路由相关
   const firstLevelMenuPath = computed(() => route.matched[0]?.path)
@@ -228,9 +241,11 @@
       }
     }
 
+    // 广告位是绝对定位贴底的，滚动区必须让出同样的高度，否则菜单会被压在广告下面
+    const reserved = showSidebarAd.value ? 60 + SIDEBAR_AD_HEIGHT : 60
     return {
       transform: 'translateY(0)',
-      height: 'calc(100% - 60px)',
+      height: `calc(100% - ${reserved}px)`,
       transition: 'transform 0.3s ease'
     }
   })
@@ -352,6 +367,15 @@
 
 <style lang="scss" scoped>
   @use './style';
+
+  .sidebar-ad {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: v-bind(sidebarAdHeight);
+    padding: 10px;
+  }
 </style>
 
 <style lang="scss">
