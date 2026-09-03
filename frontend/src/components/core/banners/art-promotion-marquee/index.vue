@@ -10,7 +10,11 @@
     </div>
 
     <div class="marquee-viewport">
-      <div class="marquee-track" :style="{ '--repeat': repeat, animationDuration: duration }">
+      <div
+        class="marquee-track"
+        :class="{ 'is-static': !scrollable }"
+        :style="{ '--repeat': repeat, animationDuration: duration }"
+      >
         <component
           :is="card.link.is"
           v-for="card in loopCards"
@@ -66,14 +70,12 @@
 
   const { resolvePromotionLink, coverStyle } = usePromotion()
 
-  /** 单轮内容必须比视口宽，否则滚动到尾部会露白；投放太少时多复制几轮 */
+  /** 达到这个数量才滚动：无缝滚动需要轨道上放两份内容，投放不足时单份静止展示，不复制刷屏 */
   const MIN_CARDS_PER_ROUND = 8
 
-  const repeat = computed(() => {
-    const count = props.items.length
-    if (count === 0) return 2
-    return Math.max(2, Math.ceil(MIN_CARDS_PER_ROUND / count))
-  })
+  const scrollable = computed(() => props.items.length >= MIN_CARDS_PER_ROUND)
+
+  const repeat = computed(() => (scrollable.value ? 2 : 1))
 
   const loopCards = computed(() => {
     const cards: { key: string; item: PromotionItem; link: PromotionLink }[] = []
@@ -135,6 +137,10 @@
     width: max-content;
     height: 100%;
     animation: promotion-marquee-scroll linear infinite;
+
+    &.is-static {
+      animation: none;
+    }
   }
 
   .marquee-card {

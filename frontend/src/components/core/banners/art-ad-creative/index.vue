@@ -1,4 +1,4 @@
-<!-- 单条广告创意：真实 a 标签包一张投放图，无图或图片失效时退回「广告位出租」占位 -->
+<!-- 单条广告创意：真实 a 标签包一张投放图，无图或图片失效时退回「广告位出租」占位；showInfo 时在图上叠加标题与描述 -->
 <template>
   <component
     :is="link.is"
@@ -6,14 +6,19 @@
     class="ad-creative"
     :class="{ 'is-clickable': clickable }"
   >
-    <img
-      v-if="showImage"
-      :src="item.imageUrl"
-      :alt="item.title"
-      :style="{ objectFit: fit }"
-      loading="lazy"
-      @error="imageFailed = true"
-    />
+    <template v-if="showImage">
+      <img
+        :src="item.imageUrl"
+        :alt="item.title"
+        :style="{ objectFit: fit }"
+        loading="lazy"
+        @error="imageFailed = true"
+      />
+      <div v-if="showInfo" class="ad-info">
+        <span class="ad-info-title">{{ item.title }}</span>
+        <small v-if="item.description" class="ad-info-desc">{{ item.description }}</small>
+      </div>
+    </template>
     <div v-else class="ad-vacancy">
       <span class="ad-vacancy-title">广告位出租</span>
       <small class="ad-vacancy-desc">{{ item.description || '虚位以待，欢迎联系投放' }}</small>
@@ -33,8 +38,10 @@
       item: AdvertisementItem
       /** 横幅铺满用 cover，弹窗要看全图用 contain */
       fit?: 'cover' | 'contain'
+      /** 有图时是否在图上叠加标题与描述（侧边栏等信息必须外露的位置开启） */
+      showInfo?: boolean
     }>(),
-    { fit: 'cover' }
+    { fit: 'cover', showInfo: false }
   )
 
   const { resolvePromotionLink } = usePromotion()
@@ -49,7 +56,8 @@
   )
 
   const showImage = computed(() => !!props.item.imageUrl && !imageFailed.value)
-  const clickable = computed(() => showImage.value && !!props.item.destinationUrl)
+  /** 有跳转地址就可点击：图片过期退回占位时也不该丢进入口 */
+  const clickable = computed(() => !!props.item.destinationUrl)
   const link = computed(() =>
     resolvePromotionLink(clickable.value ? props.item.destinationUrl : '')
   )
@@ -57,6 +65,7 @@
 
 <style lang="scss" scoped>
   .ad-creative {
+    position: relative;
     display: block;
     width: 100%;
     height: 100%;
@@ -107,5 +116,37 @@
   .ad-vacancy-desc {
     font-size: 12px;
     color: var(--el-text-color-placeholder);
+  }
+
+  /* 信息条压在图片底部：渐变底保证任何投放图上文字都可读 */
+  .ad-info {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 18px 10px 8px;
+    overflow: hidden;
+    color: #fff;
+    text-align: left;
+    background: linear-gradient(to top, rgb(0 0 0 / 62%), transparent);
+  }
+
+  .ad-info-title {
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ad-info-desc {
+    overflow: hidden;
+    font-size: 11px;
+    opacity: 0.85;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

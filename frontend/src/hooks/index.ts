@@ -37,3 +37,6 @@ export type { PromotionLink } from './core/usePromotion'
 
 // 广告位投放内容拉取
 export { useAdvertisement } from './core/useAdvertisement'
+
+// 广告接口记录转推广组件投放项
+export { usePromotionAds, usePromotionAdPages } from './core/usePromotionAds'

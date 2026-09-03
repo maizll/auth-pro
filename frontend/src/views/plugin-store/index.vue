@@ -1,7 +1,6 @@
 <template>
   <div class="plugin-store">
     <ArtPromotionMarquee
-      v-if="promotionItems.length > 0"
       :items="promotionItems"
       subtitle="来自软件源的插件与增值服务"
       height="200px"
@@ -296,8 +295,7 @@
     PluginInfo,
     PluginSource
   } from '@/api/system-manage'
-  import type { PromotionPage } from '@/api/promotion'
-  import { fetchPromotionMocks } from '@/mock/promotion/slots'
+  import { usePromotionAds } from '@/hooks'
 
   defineOptions({ name: 'PluginStore' })
 
@@ -312,8 +310,8 @@
   const categories = ref<PluginCategoryGroup[]>([])
   const sources = ref<PluginSource[]>([])
   const homeTemplates = ref<HomeTemplateInfo[]>([])
-  const promotions = ref<PromotionPage[]>([])
-  const promotionItems = computed(() => promotions.value.flatMap((page) => page.items))
+  // 精选推荐接入后端广告代理接口（home-banner 位），含招租占位与失败降级
+  const { items: promotionItems } = usePromotionAds('home-banner')
 
   const activeTab = ref('all')
   const searchText = ref('')
@@ -547,13 +545,8 @@
     if (target) router.push(target)
   }
 
-  const loadPromotions = async () => {
-    promotions.value = await fetchPromotionMocks('plugin-store')
-  }
-
   onMounted(() => {
     loadPlugins()
-    loadPromotions()
   })
 </script>
 

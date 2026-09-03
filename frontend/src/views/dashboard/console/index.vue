@@ -1,6 +1,7 @@
 <template>
   <div class="admin-dashboard">
-    <ArtAdSlot position="home-banner" height="120px" class="home-banner" />
+    <!-- 顶部广告：与应用商店一致的跑马灯，数据走 /api/advertisements?position=home-banner -->
+    <ArtPromotionMarquee :items="topAdItems" subtitle="来自软件源的插件与增值服务" height="200px" />
 
     <ElRow :gutter="16" class="card-row">
       <ElCol v-for="item in overview.cards" :key="item.title" :xs="12" :sm="8" :lg="4">
@@ -9,7 +10,8 @@
             <div>
               <p class="stat-title">{{ item.title }}</p>
               <p class="stat-value">
-                <span v-if="item.prefix">{{ item.prefix }}</span>{{ formatValue(item.value) }}
+                <span v-if="item.prefix">{{ item.prefix }}</span
+                >{{ formatValue(item.value) }}
                 <span class="stat-unit">{{ item.unit }}</span>
               </p>
             </div>
@@ -72,7 +74,7 @@
       </ElCol>
 
       <ElCol :xs="24" :lg="8" class="trend-status-col">
-        <ArtPromotionBoard :pages="overview.promotions" subtitle="来自软件源的扩展与增值服务" />
+        <ArtPromotionBoard :pages="promotionPages" subtitle="来自软件源的扩展与增值服务" />
       </ElCol>
     </ElRow>
 
@@ -90,7 +92,8 @@
               <div>
                 <p>{{ item.label }}</p>
                 <strong>
-                  <span v-if="item.prefix">{{ item.prefix }}</span>{{ formatValue(item.value) }}
+                  <span v-if="item.prefix">{{ item.prefix }}</span
+                  >{{ formatValue(item.value) }}
                   <small>{{ item.unit }}</small>
                 </strong>
                 <em>{{ item.desc }}</em>
@@ -113,7 +116,8 @@
               <div>
                 <p>{{ item.label }}</p>
                 <strong>
-                  <span v-if="item.prefix">{{ item.prefix }}</span>{{ formatValue(item.value) }}
+                  <span v-if="item.prefix">{{ item.prefix }}</span
+                  >{{ formatValue(item.value) }}
                   <small>{{ item.unit }}</small>
                 </strong>
                 <em>{{ item.desc }}</em>
@@ -136,7 +140,8 @@
               <div>
                 <p>{{ item.label }}</p>
                 <strong>
-                  <span v-if="item.prefix">{{ item.prefix }}</span>{{ formatValue(item.value) }}
+                  <span v-if="item.prefix">{{ item.prefix }}</span
+                  >{{ formatValue(item.value) }}
                   <small>{{ item.unit }}</small>
                 </strong>
                 <em>{{ item.desc }}</em>
@@ -191,7 +196,6 @@
           </div>
         </div>
       </ElCol>
-
     </ElRow>
 
     <ElRow :gutter="16">
@@ -204,7 +208,11 @@
             </div>
           </div>
           <div class="activity-list">
-            <div v-for="item in overview.activities" :key="`${item.title}-${item.time}`" class="activity-item">
+            <div
+              v-for="item in overview.activities"
+              :key="`${item.title}-${item.time}`"
+              class="activity-item"
+            >
               <div class="activity-dot"></div>
               <div>
                 <p>{{ item.title }}</p>
@@ -233,9 +241,14 @@
     fetchAdminDashboardTrend,
     fetchAdminDashboardUserMetrics
   } from '@/api/dashboard'
-  import { fetchPromotionMocks } from '@/mock/promotion/slots'
+  import { usePromotionAds, usePromotionAdPages } from '@/hooks'
 
   defineOptions({ name: 'Console' })
+
+  // 顶部跑马灯广告：home-banner 位，含招租占位与失败降级
+  const { items: topAdItems } = usePromotionAds('home-banner')
+  // 推荐服务九宫格：sidebar 位，每页 9 格、不足补招租占位、超过 9 条自动翻页
+  const { pages: promotionPages } = usePromotionAdPages('sidebar', 9)
 
   const overview = reactive<AdminDashboardOverview>({
     cards: [],
@@ -278,9 +291,6 @@
       overview.trend = await fetchAdminDashboardTrend()
     },
     async () => {
-      overview.promotions = await fetchPromotionMocks('dashboard')
-    },
-    async () => {
       overview.agentMetrics = await fetchAdminDashboardAgentMetrics()
     },
     async () => {
@@ -311,10 +321,6 @@
 
 <style lang="scss" scoped>
   .admin-dashboard {
-    .home-banner {
-      margin-bottom: 16px;
-    }
-
     .card-row {
       margin-bottom: 16px;
     }

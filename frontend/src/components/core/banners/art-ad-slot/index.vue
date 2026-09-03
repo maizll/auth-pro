@@ -10,14 +10,20 @@
       autoplay
     >
       <ElCarouselItem v-for="item in items" :key="item.id">
-        <ArtAdCreative :item="item" :fit="fit" />
+        <ArtAdCreative :item="item" :fit="fit" :show-info="showInfo" />
       </ElCarouselItem>
     </ElCarousel>
-    <ArtAdCreative v-else-if="items.length === 1" :item="items[0]" :fit="fit" />
+    <ArtAdCreative
+      v-else-if="items.length === 1"
+      :item="items[0]"
+      :fit="fit"
+      :show-info="showInfo"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
+  import { computed } from 'vue'
   import type { AdPosition } from '@/api/advertisement'
   import { useAdvertisement } from '@/hooks'
 
@@ -33,6 +39,9 @@
     }>(),
     { height: '120px', fit: 'cover', interval: 6000 }
   )
+
+  // 侧边栏空间窄、只放一张图会丢失投放信息，标题和描述直接叠加在图上
+  const showInfo = computed(() => props.position === 'sidebar')
 
   const { items } = useAdvertisement(props.position)
 </script>

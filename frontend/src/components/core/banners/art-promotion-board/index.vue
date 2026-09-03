@@ -11,7 +11,7 @@
 
     <div v-if="pages.length > 0" class="promotion-carousel">
       <ElCarousel
-        indicator-position="outside"
+        :indicator-position="pages.length > 1 ? 'outside' : 'none'"
         arrow="hover"
         :interval="interval"
         :autoplay="pages.length > 1"
@@ -92,8 +92,8 @@
     display: flex;
     flex-direction: column;
     width: 100%;
-    margin-bottom: 16px;
     padding: 20px;
+    margin-bottom: 16px;
   }
 
   .board-header {
@@ -148,9 +148,15 @@
 
     &.is-grid {
       display: grid;
-      grid-auto-rows: 1fr;
       grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-auto-rows: auto;
       gap: 10px;
+
+      // 投放图固定 16:9：行高随内容，图片不被拉伸变形
+      .promotion-cover {
+        flex: none;
+        aspect-ratio: 16 / 9;
+      }
     }
 
     &.is-banner {
@@ -207,7 +213,7 @@
 
       &:hover {
         border-color: rgba(var(--art-primary-rgb), 0.24);
-        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+        box-shadow: 0 6px 16px rgb(0 0 0 / 8%);
         transform: translateY(-2px);
       }
     }
@@ -231,7 +237,7 @@
     span {
       font-size: 20px;
       font-weight: 700;
-      color: rgba(255, 255, 255, 0.92);
+      color: rgb(255 255 255 / 92%);
     }
   }
 
@@ -244,8 +250,8 @@
 
   .promotion-heading {
     display: flex;
-    align-items: center;
     gap: 6px;
+    align-items: center;
     min-width: 0;
   }
 
@@ -280,7 +286,7 @@
     -webkit-line-clamp: 2;
   }
 
-  @media (max-width: 768px) {
+  @media (width <= 768px) {
     .promotion-page.is-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
