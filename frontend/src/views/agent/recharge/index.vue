@@ -1,114 +1,88 @@
+<!-- 代理商财务流水页面 -->
+<!-- art-full-height 自动计算出页面剩余高度 -->
+<!-- art-table-card 一个符合系统样式的 class，同时自动撑满剩余高度 -->
 <template>
-  <div class="agent-recharge">
+  <div class="agent-recharge-page art-full-height">
     <!-- 统计卡片 -->
-    <el-row :gutter="16" class="mb-4">
-      <el-col :xs="12" :sm="6">
-        <el-card shadow="hover" class="stats-card">
-          <div class="stats-title">总充值</div>
-          <div class="stats-value text-primary">¥{{ stats.totalRecharge.toFixed(2) }}</div>
-        </el-card>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <el-card shadow="hover" class="stats-card">
-          <div class="stats-title">总消费</div>
-          <div class="stats-value text-danger">¥{{ stats.totalConsume.toFixed(2) }}</div>
-        </el-card>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <el-card shadow="hover" class="stats-card">
-          <div class="stats-title">本月充值</div>
-          <div class="stats-value text-success">¥{{ stats.monthRecharge.toFixed(2) }}</div>
-        </el-card>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <el-card shadow="hover" class="stats-card">
-          <div class="stats-title">本月消费</div>
-          <div class="stats-value text-warning">¥{{ stats.monthConsume.toFixed(2) }}</div>
-        </el-card>
-      </el-col>
-    </el-row>
+    <div class="stats-cards">
+      <div class="art-card stat-card">
+        <span class="stat-label">总充值</span>
+        <strong class="stat-value text-primary">¥{{ stats.totalRecharge.toFixed(2) }}</strong>
+      </div>
+      <div class="art-card stat-card">
+        <span class="stat-label">总消费</span>
+        <strong class="stat-value text-danger">¥{{ stats.totalConsume.toFixed(2) }}</strong>
+      </div>
+      <div class="art-card stat-card">
+        <span class="stat-label">本月充值</span>
+        <strong class="stat-value text-success">¥{{ stats.monthRecharge.toFixed(2) }}</strong>
+      </div>
+      <div class="art-card stat-card">
+        <span class="stat-label">本月消费</span>
+        <strong class="stat-value text-warning">¥{{ stats.monthConsume.toFixed(2) }}</strong>
+      </div>
+    </div>
 
     <!-- 搜索栏 -->
-    <el-card shadow="hover" class="mb-4">
-      <el-form :model="searchForm" inline>
-        <el-form-item label="代理商">
-          <el-select v-model="searchForm.agentId" placeholder="全部" clearable style="width: 150px">
-            <el-option v-for="a in agentList" :key="a.id" :label="a.name" :value="a.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="类型">
-          <el-select v-model="searchForm.type" placeholder="全部" clearable style="width: 120px">
-            <el-option label="充值" value="recharge" />
-            <el-option label="消费" value="consume" />
-            <el-option label="退款" value="refund" />
-            <el-option label="开通赠送" value="bonus" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="时间范围">
-          <el-date-picker
-            v-model="searchForm.dateRange"
-            type="daterange"
-            start-placeholder="开始"
-            end-placeholder="结束"
-            style="width: 240px"
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">查询</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+    <RechargeSearch v-model="searchForm" @search="handleSearch" @reset="resetSearchParams" />
 
-    <!-- 流水表格 -->
-    <el-card shadow="hover">
-      <template #header>
-        <span class="card-title">财务流水</span>
-      </template>
+    <ElCard class="art-table-card" shadow="never">
+      <!-- 表格头部 -->
+      <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshAll" />
 
-      <el-table :data="tableData" stripe v-loading="loading">
-        <el-table-column prop="orderNo" label="流水号" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="agentName" label="代理商" width="120" />
-        <el-table-column prop="typeLabel" label="类型" width="80" align="center">
-          <template #default="{ row }">
-            <el-tag :type="typeTagMap[row.type]" size="small">{{ row.typeLabel }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="amount" label="金额(元)" width="120" align="right">
-          <template #default="{ row }">
-            <span :class="row.type === 'consume' ? 'text-danger' : 'text-success'">
-              {{ row.type === 'consume' ? '-' : '+' }}¥{{ row.amount.toFixed(2) }}
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="balanceAfter" label="余额(元)" width="110" align="right">
-          <template #default="{ row }"> ¥{{ row.balanceAfter.toFixed(2) }} </template>
-        </el-table-column>
-        <el-table-column prop="remark" label="备注" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="createdAt" label="时间" width="170" />
-      </el-table>
+      <!-- 表格 -->
+      <ArtTable
+        :loading="loading"
+        :data="data"
+        :columns="columns"
+        :pagination="pagination"
+        @pagination:size-change="handleSizeChange"
+        @pagination:current-change="handleCurrentChange"
+      >
+        <!-- 流水号 -->
+        <template #orderNo="{ row }">
+          <span class="mono">{{ row.orderNo }}</span>
+        </template>
 
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[20, 50, 100]"
-          :total="pagination.total"
-          layout="total, sizes, prev, pager, next, jumper"
-          @size-change="handleSearch"
-          @current-change="handleSearch"
-        />
-      </div>
-    </el-card>
+        <!-- 类型 -->
+        <template #typeLabel="{ row }">
+          <ElTag :type="typeTagMap[row.type]" size="small">{{ row.typeLabel }}</ElTag>
+        </template>
+
+        <!-- 金额 -->
+        <template #amount="{ row }">
+          <span :class="row.type === 'consume' ? 'text-danger' : 'text-success'">
+            {{ row.type === 'consume' ? '-' : '+' }}¥{{ Number(row.amount || 0).toFixed(2) }}
+          </span>
+        </template>
+
+        <!-- 余额 -->
+        <template #balanceAfter="{ row }">
+          ¥{{ Number(row.balanceAfter || 0).toFixed(2) }}
+        </template>
+      </ArtTable>
+    </ElCard>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { ref, reactive, onMounted } from 'vue'
-  import request from '@/utils/http'
+  import { useTable } from '@/hooks/core/useTable'
+  import {
+    fetchTransactionList,
+    fetchTransactionStats,
+    type TransactionSearchParams
+  } from '@/api/agent-manage'
+  import RechargeSearch from './modules/recharge-search.vue'
 
-  const loading = ref(false)
+  defineOptions({ name: 'AgentRecharge' })
 
+  interface TransactionSearchForm {
+    agentId?: string
+    type?: string
+    dateRange?: [string, string]
+  }
+
+  // 统计数据
   const stats = reactive({
     totalRecharge: 0,
     totalConsume: 0,
@@ -116,10 +90,13 @@
     monthConsume: 0
   })
 
-  const searchForm = reactive({ agentId: '', type: '', dateRange: [] as any[] })
-  const pagination = reactive({ page: 1, pageSize: 20, total: 0 })
+  // 搜索表单
+  const searchForm = ref<TransactionSearchForm>({
+    agentId: undefined,
+    type: undefined,
+    dateRange: undefined
+  })
 
-  const agentList = ref<{ id: string; name: string }[]>([])
   const typeTagMap: Record<
     string,
     'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined
@@ -130,102 +107,154 @@
     transfer: 'info',
     bonus: 'success'
   } as const
-  const tableData = ref<any[]>([])
 
-  async function fetchStats() {
+  const {
+    columns,
+    columnChecks,
+    data,
+    loading,
+    pagination,
+    getData,
+    replaceSearchParams,
+    resetSearchParams,
+    handleSizeChange,
+    handleCurrentChange,
+    refreshData
+  } = useTable({
+    // 核心配置
+    core: {
+      apiFn: fetchTransactionList,
+      apiParams: {
+        page: 1,
+        pageSize: 20
+      },
+      // 后端流水接口使用 page / pageSize 分页字段
+      paginationKey: {
+        current: 'page',
+        size: 'pageSize'
+      },
+      columnsFactory: () => [
+        { type: 'index', width: 60, label: '序号' }, // 序号
+        {
+          prop: 'orderNo',
+          label: '流水号',
+          minWidth: 180,
+          showOverflowTooltip: true,
+          useSlot: true
+        },
+        { prop: 'agentName', label: '代理商', width: 120 },
+        { prop: 'typeLabel', label: '类型', width: 90, align: 'center', useSlot: true },
+        { prop: 'amount', label: '金额(元)', width: 120, align: 'right', useSlot: true },
+        { prop: 'balanceAfter', label: '余额(元)', width: 110, align: 'right', useSlot: true },
+        { prop: 'remark', label: '备注', minWidth: 150, showOverflowTooltip: true },
+        { prop: 'createdAt', label: '时间', width: 170 }
+      ]
+    },
+    // 数据处理
+    transform: {
+      dataTransformer: (records) => {
+        if (!Array.isArray(records)) {
+          return []
+        }
+        return records
+      }
+    }
+  })
+
+  /**
+   * 加载统计数据
+   */
+  const fetchStats = async () => {
     try {
-      const data = await request.get<any>({ url: '/api/transaction/stats' })
+      const data = await fetchTransactionStats()
       Object.assign(stats, data)
     } catch {
       return
     }
   }
 
-  async function fetchAgentList() {
-    try {
-      const data = await request.get<any[]>({ url: '/api/agent/select-list' })
-      agentList.value = (data || []).map((a: any) => ({ id: String(a.id), name: a.name }))
-    } catch {
-      return
+  /**
+   * 搜索处理：时间范围映射为 startDate / endDate
+   */
+  const handleSearch = (params: TransactionSearchForm) => {
+    const { dateRange, ...rest } = params
+    const query: Partial<TransactionSearchParams> = { ...rest }
+    if (dateRange && dateRange.length === 2) {
+      query.startDate = dateRange[0]
+      query.endDate = dateRange[1]
     }
+    replaceSearchParams(query)
+    getData()
   }
 
-  async function handleSearch() {
-    loading.value = true
-    try {
-      const params: Record<string, any> = { page: pagination.page, pageSize: pagination.pageSize }
-      if (searchForm.agentId) params.agentId = searchForm.agentId
-      if (searchForm.type) params.type = searchForm.type
-      if (searchForm.dateRange && searchForm.dateRange.length === 2) {
-        const fmt = (d: Date) => d.toISOString().slice(0, 10)
-        params.startDate = fmt(searchForm.dateRange[0])
-        params.endDate = fmt(searchForm.dateRange[1])
-      }
-
-      const data = await request.get<{ list: any[]; total: number }>({
-        url: '/api/transaction/list',
-        params
-      })
-      tableData.value = data.list || []
-      pagination.total = data.total || 0
-    } catch (e) {
-      console.error('[Transaction] 查询失败:', e)
-    } finally {
-      loading.value = false
-    }
-  }
-
-  function handleReset() {
-    searchForm.agentId = ''
-    searchForm.type = ''
-    searchForm.dateRange = []
-    pagination.page = 1
-    handleSearch()
-  }
-
-  onMounted(() => {
+  /**
+   * 刷新统计数据与列表
+   */
+  const refreshAll = () => {
     fetchStats()
-    fetchAgentList()
-    handleSearch()
-  })
+    refreshData()
+  }
+
+  onMounted(fetchStats)
 </script>
 
 <style scoped lang="scss">
-  .mb-4 {
-    margin-bottom: 16px;
-  }
-  .card-title {
-    font-weight: 600;
-  }
-  .pagination-wrapper {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: 16px;
-  }
+  .agent-recharge-page {
+    .stats-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 12px;
 
-  .stats-card {
-    text-align: center;
-    .stats-title {
+      @media (width <= 992px) {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .stat-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 64px;
+      padding: 16px 20px;
+    }
+
+    .stat-label {
       font-size: 13px;
       color: var(--el-text-color-secondary);
-      margin-bottom: 8px;
     }
-    .stats-value {
-      font-size: 22px;
-      font-weight: 600;
-    }
-  }
 
-  .text-primary {
-    color: var(--el-color-primary);
-  }
-  .text-success {
-    color: #67c23a;
-  }
-  .text-danger {
-    color: #f56c6c;
-  }
-  .text-warning {
-    color: #e6a23c;
+    .stat-value {
+      font-size: 22px;
+      color: var(--el-text-color-primary);
+
+      &.text-primary {
+        color: var(--el-color-primary);
+      }
+
+      &.text-success {
+        color: var(--el-color-success);
+      }
+
+      &.text-danger {
+        color: var(--el-color-danger);
+      }
+
+      &.text-warning {
+        color: var(--el-color-warning);
+      }
+    }
+
+    .mono {
+      font-family: 'Roboto Mono', monospace;
+    }
+
+    .text-success {
+      color: var(--el-color-success);
+    }
+
+    .text-danger {
+      color: var(--el-color-danger);
+    }
   }
 </style>

@@ -1,182 +1,146 @@
+<!-- 验证日志页面 -->
+<!-- art-full-height 自动计算出页面剩余高度 -->
+<!-- art-table-card 一个符合系统样式的 class，同时自动撑满剩余高度 -->
 <template>
-  <div class="license-logs">
+  <div class="license-logs-page art-full-height">
     <!-- 搜索栏 -->
-    <el-card shadow="hover" class="mb-4">
-      <el-form :model="searchForm" inline>
-        <el-form-item label="域名/IP/密钥">
-          <el-input v-model="searchForm.keyword" placeholder="请输入" clearable style="width: 180px" />
-        </el-form-item>
-        <el-form-item label="应用">
-          <el-select v-model="searchForm.appId" placeholder="全部" clearable style="width: 130px">
-            <el-option v-for="app in appList" :key="app.id" :label="app.name" :value="app.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="验证结果">
-          <el-select v-model="searchForm.result" placeholder="全部" clearable style="width: 110px">
-            <el-option label="通过" value="pass" />
-            <el-option label="拒绝" value="reject" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="时间范围">
-          <el-date-picker
-            v-model="searchForm.dateRange"
-            type="daterange"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
-            style="width: 240px"
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">查询</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+    <LogSearch v-model="searchForm" @search="handleSearch" @reset="resetSearchParams" />
 
-    <!-- 日志表格 -->
-    <el-card shadow="hover">
-      <template #header>
-        <div class="table-header">
-          <span class="card-title">验证日志</span>
-          <el-button type="danger" plain @click="handleClear">清空日志</el-button>
-        </div>
-      </template>
+    <ElCard class="art-table-card" shadow="never">
+      <!-- 表格头部 -->
+      <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
+        <template #left>
+          <ElSpace wrap>
+            <ElButton type="danger" plain @click="handleClear" v-ripple>清空日志</ElButton>
+          </ElSpace>
+        </template>
+      </ArtTableHeader>
 
-      <el-table :data="tableData" stripe v-loading="loading">
-        <el-table-column prop="requestDomain" label="请求域名/IP" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="appName" label="应用" width="110" />
-        <el-table-column prop="result" label="结果" width="80" align="center">
-          <template #default="{ row }">
-            <el-tag :type="row.result === 'pass' ? 'success' : 'danger'" size="small">
-              {{ row.result === 'pass' ? '通过' : '拒绝' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="reason" label="原因" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="clientIp" label="来源IP" width="140" />
-        <el-table-column prop="serverIp" label="本机IP" width="140" />
-        <el-table-column prop="responseTime" label="响应(ms)" width="90" align="center" />
-        <el-table-column prop="createdAt" label="时间" width="170" />
-      </el-table>
-
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[20, 50, 100, 200]"
-          :total="pagination.total"
-          layout="total, sizes, prev, pager, next, jumper"
-          @size-change="handleSearch"
-          @current-change="handleSearch"
-        />
-      </div>
-    </el-card>
+      <!-- 表格 -->
+      <ArtTable
+        :loading="loading"
+        :data="data"
+        :columns="columns"
+        :pagination="pagination"
+        @pagination:size-change="handleSizeChange"
+        @pagination:current-change="handleCurrentChange"
+      >
+        <!-- 结果 -->
+        <template #result="{ row }">
+          <ElTag :type="row.result === 'pass' ? 'success' : 'danger'" size="small">
+            {{ row.result === 'pass' ? '通过' : '拒绝' }}
+          </ElTag>
+        </template>
+      </ArtTable>
+    </ElCard>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '@/utils/http'
+  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { useTable } from '@/hooks/core/useTable'
+  import {
+    fetchVerifyLogList,
+    fetchClearVerifyLogs,
+    type VerifyLogSearchParams
+  } from '@/api/license-manage'
+  import LogSearch from './modules/log-search.vue'
 
-const loading = ref(false)
+  defineOptions({ name: 'LicenseLogs' })
 
-const searchForm = reactive({
-  keyword: '',
-  appId: '',
-  result: '',
-  dateRange: [] as any[]
-})
-
-const pagination = reactive({
-  page: 1,
-  pageSize: 20,
-  total: 0
-})
-
-const appList = ref<{ id: string; name: string }[]>([])
-const tableData = ref<any[]>([])
-
-async function fetchAppList() {
-  try {
-    const data = await request.get<any[]>({ url: '/api/license/apps' })
-    appList.value = data || []
-  } catch {
-    appList.value = []
+  interface VerifyLogSearchForm {
+    keyword?: string
+    appId?: number | string
+    result?: string
+    dateRange?: [string, string]
   }
-}
 
-async function handleSearch() {
-  loading.value = true
-  try {
-    const params: Record<string, any> = {
-      page: pagination.page,
-      pageSize: pagination.pageSize
-    }
-    if (searchForm.keyword) params.keyword = searchForm.keyword
-    if (searchForm.appId) params.appId = searchForm.appId
-    if (searchForm.result) params.result = searchForm.result
-    if (searchForm.dateRange && searchForm.dateRange.length === 2) {
-      const fmt = (d: Date) => d.toISOString().slice(0, 10)
-      params.startDate = fmt(searchForm.dateRange[0])
-      params.endDate = fmt(searchForm.dateRange[1])
-    }
+  // 搜索表单
+  const searchForm = ref<VerifyLogSearchForm>({
+    keyword: undefined,
+    appId: undefined,
+    result: undefined,
+    dateRange: undefined
+  })
 
-    const data = await request.get<{ list: any[]; total: number }>({
-      url: '/api/verify-log/list',
-      params
-    })
-    tableData.value = data.list || []
-    pagination.total = data.total || 0
-  } catch (e) {
-    console.error('[VerifyLog] 查询失败:', e)
-  } finally {
-    loading.value = false
+  const {
+    columns,
+    columnChecks,
+    data,
+    loading,
+    pagination,
+    getData,
+    replaceSearchParams,
+    resetSearchParams,
+    handleSizeChange,
+    handleCurrentChange,
+    refreshData
+  } = useTable({
+    // 核心配置
+    core: {
+      apiFn: fetchVerifyLogList,
+      apiParams: {
+        page: 1,
+        pageSize: 20
+      },
+      // 后端日志接口使用 page / pageSize 分页字段
+      paginationKey: {
+        current: 'page',
+        size: 'pageSize'
+      },
+      columnsFactory: () => [
+        { type: 'index', width: 60, label: '序号' }, // 序号
+        {
+          prop: 'requestDomain',
+          label: '请求域名/IP',
+          minWidth: 180,
+          showOverflowTooltip: true
+        },
+        { prop: 'appName', label: '应用', width: 110 },
+        { prop: 'result', label: '结果', width: 80, align: 'center', useSlot: true },
+        { prop: 'reason', label: '原因', minWidth: 150, showOverflowTooltip: true },
+        { prop: 'clientIp', label: '来源IP', width: 140 },
+        { prop: 'serverIp', label: '本机IP', width: 140 },
+        { prop: 'responseTime', label: '响应(ms)', width: 90, align: 'center' },
+        { prop: 'createdAt', label: '时间', width: 170 }
+      ]
+    },
+    // 数据处理
+    transform: {
+      dataTransformer: (records) => {
+        if (!Array.isArray(records)) {
+          return []
+        }
+        return records
+      }
+    }
+  })
+
+  /**
+   * 搜索处理：时间范围映射为 startDate / endDate
+   */
+  const handleSearch = (params: VerifyLogSearchForm) => {
+    const { dateRange, ...rest } = params
+    const query: Partial<VerifyLogSearchParams> = { ...rest }
+    if (dateRange && dateRange.length === 2) {
+      query.startDate = dateRange[0]
+      query.endDate = dateRange[1]
+    }
+    replaceSearchParams(query)
+    getData()
   }
-}
 
-function handleReset() {
-  searchForm.keyword = ''
-  searchForm.appId = ''
-  searchForm.result = ''
-  searchForm.dateRange = []
-  pagination.page = 1
-  handleSearch()
-}
-
-async function handleClear() {
-  try {
-    await ElMessageBox.confirm('确定清空所有验证日志？此操作不可撤销', '警告', { type: 'error' })
-    await request.del({ url: '/api/verify-log/clear' })
-    ElMessage.success('日志已清空')
-    handleSearch()
-  } catch {}
-}
-
-onMounted(() => {
-  fetchAppList()
-  handleSearch()
-})
+  /**
+   * 清空所有验证日志
+   */
+  const handleClear = async () => {
+    try {
+      await ElMessageBox.confirm('确定清空所有验证日志？此操作不可撤销', '警告', { type: 'error' })
+      await fetchClearVerifyLogs()
+      ElMessage.success('日志已清空')
+      refreshData()
+    } catch {
+      return
+    }
+  }
 </script>
-
-<style scoped lang="scss">
-.mb-4 {
-  margin-bottom: 16px;
-}
-
-.table-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.card-title {
-  font-weight: 600;
-}
-
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 16px;
-}
-</style>

@@ -1,5 +1,5 @@
 <template>
-  <div class="app-versions-page">
+  <div class="app-versions-page art-full-height">
     <header class="page-header">
       <div class="header-main">
         <ElTooltip content="返回应用管理" placement="bottom">
@@ -23,65 +23,54 @@
       </ElButton>
     </header>
 
-    <ElCard shadow="never" class="version-table-card">
-      <ElTable v-loading="loading" :data="versions" stripe>
-        <ElTableColumn label="版本号" min-width="130">
-          <template #default="{ row }">
-            <span class="version-number">{{ row.version }}</span>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn prop="title" label="更新标题" min-width="190" show-overflow-tooltip />
-        <ElTableColumn label="更新包" min-width="190">
-          <template #default="{ row }">
-            <div class="package-cell">
-              <span class="package-name">{{ row.packageName || '外部下载地址' }}</span>
-              <span class="package-meta">
-                {{ row.sourceType === 'upload' ? '本地上传' : '外部 URL' }} ·
-                {{ formatFileSize(row.fileSizeBytes) }}
-              </span>
-            </div>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn label="更新策略" min-width="150">
-          <template #default="{ row }">
-            <div class="policy-tags">
-              <ElTag v-if="row.forceUpdate" type="danger" size="small">强制更新</ElTag>
-              <ElTag v-else type="info" size="small">可选更新</ElTag>
-              <ElTag v-if="row.minVersion" type="warning" size="small" effect="plain">
-                低于 {{ row.minVersion }} 强更
-              </ElTag>
-            </div>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn prop="publishedAt" label="发布时间" width="170" />
-        <ElTableColumn label="操作" width="220" fixed="right">
-          <template #default="{ row }">
-            <ElButton link type="primary" size="small" @click="openDetail(row)">详情</ElButton>
-            <ElButton link type="primary" size="small" @click="openEditDialog(row)">编辑</ElButton>
-            <ElButton link type="primary" size="small" @click="downloadPackage(row)">
-              下载
-            </ElButton>
-            <ElButton link type="danger" size="small" @click="handleDelete(row)">删除</ElButton>
-          </template>
-        </ElTableColumn>
-        <template #empty>
-          <ElEmpty description="暂无版本记录">
-            <ElButton type="primary" @click="openCreateDialog">发布首个版本</ElButton>
-          </ElEmpty>
-        </template>
-      </ElTable>
+    <ElCard shadow="never" class="version-table-card art-table-card">
+      <!-- 表格头部 -->
+      <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData" />
 
-      <div v-if="pagination.total > pagination.pageSize" class="pagination-wrap">
-        <ElPagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.pageSize"
-          layout="total, sizes, prev, pager, next"
-          :page-sizes="[10, 20, 50, 100]"
-          :total="pagination.total"
-          @size-change="loadVersions"
-          @current-change="loadVersions"
-        />
-      </div>
+      <!-- 表格 -->
+      <ArtTable
+        :loading="loading"
+        :data="data"
+        :columns="columns"
+        :pagination="pagination"
+        @pagination:size-change="handleSizeChange"
+        @pagination:current-change="handleCurrentChange"
+      >
+        <!-- 版本号 -->
+        <template #version="{ row }">
+          <span class="version-number">{{ row.version }}</span>
+        </template>
+
+        <!-- 更新包 -->
+        <template #package="{ row }">
+          <div class="package-cell">
+            <span class="package-name">{{ row.packageName || '外部下载地址' }}</span>
+            <span class="package-meta">
+              {{ row.sourceType === 'upload' ? '本地上传' : '外部 URL' }} ·
+              {{ formatFileSize(row.fileSizeBytes) }}
+            </span>
+          </div>
+        </template>
+
+        <!-- 更新策略 -->
+        <template #policy="{ row }">
+          <div class="policy-tags">
+            <ElTag v-if="row.forceUpdate" type="danger" size="small">强制更新</ElTag>
+            <ElTag v-else type="info" size="small">可选更新</ElTag>
+            <ElTag v-if="row.minVersion" type="warning" size="small" effect="plain">
+              低于 {{ row.minVersion }} 强更
+            </ElTag>
+          </div>
+        </template>
+
+        <!-- 操作 -->
+        <template #operation="{ row }">
+          <ElButton link type="primary" @click="openDetail(row)">详情</ElButton>
+          <ElButton link type="primary" @click="openEditDialog(row)">编辑</ElButton>
+          <ElButton link type="primary" @click="downloadPackage(row)">下载</ElButton>
+          <ElButton link type="danger" @click="handleDelete(row)">删除</ElButton>
+        </template>
+      </ArtTable>
     </ElCard>
 
     <ElDialog
@@ -282,7 +271,7 @@
 </template>
 
 <script setup lang="ts">
-  import { onMounted, reactive, ref } from 'vue'
+  import { reactive, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import type {
     FormInstance,
@@ -294,6 +283,8 @@
   } from 'element-plus'
   import { ElMessage, ElMessageBox, genFileId } from 'element-plus'
   import ArtSvgIcon from '@/components/core/base/art-svg-icon/index.vue'
+  import { useTable } from '@/hooks/core/useTable'
+  import { defaultResponseAdapter } from '@/utils/table/tableUtils'
   import {
     createAppVersion,
     createAppVersionDownloadUrl,
@@ -323,10 +314,8 @@
   const route = useRoute()
   const router = useRouter()
   const appId = Number(route.params.id)
-  const loading = ref(false)
   const submitting = ref(false)
   const appInfo = ref<AppVersionApp>()
-  const versions = ref<AppVersionItem[]>([])
   const dialogVisible = ref(false)
   const detailVisible = ref(false)
   const detailVersion = ref<AppVersionItem>()
@@ -338,8 +327,6 @@
   const fileList = ref<UploadFiles>([])
   const formRef = ref<FormInstance>()
   const uploadRef = ref<UploadInstance>()
-
-  const pagination = reactive({ page: 1, pageSize: 20, total: 0 })
   const latestVersion = ref('')
   const form = reactive<VersionForm>({
     version: '',
@@ -394,23 +381,66 @@
     minVersion: [{ validator: validateOptionalVersion, trigger: 'blur' }]
   }
 
-  async function loadVersions() {
-    if (!Number.isInteger(appId) || appId <= 0) {
-      ElMessage.error('应用参数不正确')
-      goBack()
-      return
-    }
-    loading.value = true
-    try {
-      const data = await fetchAppVersions(appId, pagination.page, pagination.pageSize)
-      appInfo.value = data.app
-      versions.value = data.list || []
-      pagination.total = Number(data.total || 0)
-      latestVersion.value = data.latestVersion || ''
-    } finally {
-      loading.value = false
-    }
+  // 应用参数非法时直接返回应用管理页
+  if (!Number.isInteger(appId) || appId <= 0) {
+    ElMessage.error('应用参数不正确')
+    router.push('/license/apps')
   }
+
+  const {
+    columns,
+    columnChecks,
+    data,
+    loading,
+    pagination,
+    handleSizeChange,
+    handleCurrentChange,
+    refreshData,
+    refreshCreate,
+    refreshUpdate,
+    refreshRemove
+  } = useTable({
+    // 核心配置
+    core: {
+      // 应用参数非法时不发起请求
+      immediate: Number.isInteger(appId) && appId > 0,
+      apiFn: (params: { page: number; pageSize: number }) =>
+        fetchAppVersions(appId, params.page, params.pageSize),
+      apiParams: {
+        page: 1,
+        pageSize: 20
+      },
+      // 后端版本接口使用 page / pageSize 分页字段
+      paginationKey: {
+        current: 'page',
+        size: 'pageSize'
+      },
+      columnsFactory: () => [
+        { type: 'index', width: 60, label: '序号' }, // 序号
+        { prop: 'version', label: '版本号', minWidth: 130, useSlot: true },
+        { prop: 'title', label: '更新标题', minWidth: 190, showOverflowTooltip: true },
+        { prop: 'package', label: '更新包', minWidth: 190, useSlot: true },
+        { prop: 'policy', label: '更新策略', minWidth: 150, useSlot: true },
+        { prop: 'publishedAt', label: '发布时间', width: 170 },
+        {
+          prop: 'operation',
+          label: '操作',
+          width: 220,
+          fixed: 'right',
+          useSlot: true
+        }
+      ]
+    },
+    // 数据处理
+    transform: {
+      // 列表接口附带应用信息与最新版本号，在适配器中同步提取
+      responseAdapter: (response) => {
+        appInfo.value = response.app
+        latestVersion.value = response.latestVersion || ''
+        return defaultResponseAdapter(response)
+      }
+    }
+  })
 
   function goBack() {
     router.push('/license/apps')
@@ -544,8 +574,11 @@
         ElMessage.success('版本发布成功')
       }
       dialogVisible.value = false
-      pagination.page = 1
-      await loadVersions()
+      if (editingId.value) {
+        await refreshUpdate()
+      } else {
+        await refreshCreate()
+      }
     } finally {
       submitting.value = false
     }
@@ -594,8 +627,8 @@
       )
       await deleteAppVersion(appId, row.id)
       ElMessage.success('版本删除成功')
-      if (versions.value.length === 1 && pagination.page > 1) pagination.page -= 1
-      await loadVersions()
+      // 删除后智能处理页码，避免停留在空页
+      await refreshRemove()
     } catch {
       // 用户取消删除时保持当前列表。
     }
@@ -607,8 +640,6 @@
     if (value < 1024 * 1024) return `${(value / 1024).toFixed(2)} KB`
     return `${(value / 1024 / 1024).toFixed(2)} MB`
   }
-
-  onMounted(loadVersions)
 </script>
 
 <style scoped lang="scss">
@@ -708,12 +739,6 @@
     flex-direction: column;
     gap: 6px;
     align-items: flex-start;
-  }
-
-  .pagination-wrap {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: 16px;
   }
 
   .package-source-panel,
@@ -816,11 +841,6 @@
 
     .header-copy h1 {
       font-size: 19px;
-    }
-
-    .pagination-wrap {
-      justify-content: flex-start;
-      overflow-x: auto;
     }
 
     :global(.version-dialog) {

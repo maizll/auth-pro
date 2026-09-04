@@ -66,172 +66,179 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import request from '@/utils/http'
+  import { ref, onMounted } from 'vue'
+  import request from '@/utils/http'
 
-interface StatsItem {
-  title: string
-  value: number
-  trend: number
-  icon: string
-  color: string
-  bgColor: string
-}
-
-interface RecentLicense {
-  domain: string
-  appName: string
-  type: string
-  typeLabel: string
-  createdAt: string
-}
-
-interface ExpireItem {
-  id: number
-  domain: string
-  appName: string
-  daysLeft: number
-}
-
-interface DashboardData {
-  stats: { title: string; value: number; trend: number }[]
-  recentLicenses: RecentLicense[]
-  expiringSoon: ExpireItem[]
-}
-
-const iconMap: Record<string, { icon: string; color: string; bgColor: string }> = {
-  '总授权数': { icon: 'ri-shield-keyhole-line', color: '#409eff', bgColor: '#ecf5ff' },
-  '活跃授权': { icon: 'ri-check-double-line', color: '#67c23a', bgColor: '#f0f9eb' },
-  '已过期': { icon: 'ri-time-line', color: '#e6a23c', bgColor: '#fdf6ec' },
-  '今日验证': { icon: 'ri-radar-line', color: '#909399', bgColor: '#f4f4f5' }
-}
-
-const statsCards = ref<StatsItem[]>([])
-const recentLicenses = ref<RecentLicense[]>([])
-const expiringSoon = ref<ExpireItem[]>([])
-
-const typeTagMap: Record<string, 'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined> = {
-  domain: undefined,
-  wildcard: 'success',
-  ip: 'warning',
-  key: 'info'
-} as const
-
-const fetchDashboard = async () => {
-  try {
-    const data = await request.get<DashboardData>({ url: '/api/license/dashboard' })
-    statsCards.value = data.stats.map(s => ({
-      ...s,
-      ...iconMap[s.title] || { icon: 'ri-shield-keyhole-line', color: '#409eff', bgColor: '#ecf5ff' }
-    }))
-    recentLicenses.value = data.recentLicenses
-    expiringSoon.value = data.expiringSoon
-  } catch (e) {
-    console.error('[LicenseDashboard] 加载失败:', e)
+  interface StatsItem {
+    title: string
+    value: number
+    trend: number
+    icon: string
+    color: string
+    bgColor: string
   }
-}
 
-onMounted(() => {
-  fetchDashboard()
-})
+  interface RecentLicense {
+    domain: string
+    appName: string
+    type: string
+    typeLabel: string
+    createdAt: string
+  }
+
+  interface ExpireItem {
+    id: number
+    domain: string
+    appName: string
+    daysLeft: number
+  }
+
+  interface DashboardData {
+    stats: { title: string; value: number; trend: number }[]
+    recentLicenses: RecentLicense[]
+    expiringSoon: ExpireItem[]
+  }
+
+  const iconMap: Record<string, { icon: string; color: string; bgColor: string }> = {
+    总授权数: { icon: 'ri-shield-keyhole-line', color: '#409eff', bgColor: '#ecf5ff' },
+    活跃授权: { icon: 'ri-check-double-line', color: '#67c23a', bgColor: '#f0f9eb' },
+    已过期: { icon: 'ri-time-line', color: '#e6a23c', bgColor: '#fdf6ec' },
+    今日验证: { icon: 'ri-radar-line', color: '#909399', bgColor: '#f4f4f5' }
+  }
+
+  const statsCards = ref<StatsItem[]>([])
+  const recentLicenses = ref<RecentLicense[]>([])
+  const expiringSoon = ref<ExpireItem[]>([])
+
+  const typeTagMap: Record<
+    string,
+    'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined
+  > = {
+    domain: undefined,
+    wildcard: 'success',
+    ip: 'warning',
+    key: 'info'
+  } as const
+
+  const fetchDashboard = async () => {
+    try {
+      const data = await request.get<DashboardData>({ url: '/api/license/dashboard' })
+      statsCards.value = data.stats.map((s) => ({
+        ...s,
+        ...(iconMap[s.title] || {
+          icon: 'ri-shield-keyhole-line',
+          color: '#409eff',
+          bgColor: '#ecf5ff'
+        })
+      }))
+      recentLicenses.value = data.recentLicenses
+      expiringSoon.value = data.expiringSoon
+    } catch (e) {
+      console.error('[LicenseDashboard] 加载失败:', e)
+    }
+  }
+
+  onMounted(() => {
+    fetchDashboard()
+  })
 </script>
 
 <style scoped lang="scss">
-.license-dashboard {
-  padding: 0;
-}
-
-.stats-card {
-  .stats-card-inner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+  .license-dashboard {
+    padding: 0;
   }
 
-  .stats-info {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .stats-title {
-    font-size: 14px;
-    color: var(--el-text-color-secondary);
-  }
-
-  .stats-value {
-    font-size: 28px;
-    font-weight: 600;
-    color: var(--el-text-color-primary);
-  }
-
-  .stats-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .stats-footer {
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid var(--el-border-color-lighter);
-    font-size: 13px;
-
-    .trend-up {
-      color: #67c23a;
-      font-weight: 500;
+  .stats-card {
+    .stats-card-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
 
-    .trend-down {
-      color: #f56c6c;
-      font-weight: 500;
+    .stats-info {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
 
-    .trend-label {
+    .stats-title {
+      font-size: 14px;
       color: var(--el-text-color-secondary);
-      margin-left: 4px;
+    }
+
+    .stats-value {
+      font-size: 28px;
+      font-weight: 600;
+      color: var(--el-text-color-primary);
+    }
+
+    .stats-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .stats-footer {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--el-border-color-lighter);
+      font-size: 13px;
+
+      .trend-up {
+        color: #67c23a;
+        font-weight: 500;
+      }
+
+      .trend-down {
+        color: #f56c6c;
+        font-weight: 500;
+      }
+
+      .trend-label {
+        color: var(--el-text-color-secondary);
+        margin-left: 4px;
+      }
     }
   }
-}
 
-.mb-4 {
-  margin-bottom: 16px;
-}
+  .mb-4 {
+    margin-bottom: 16px;
+  }
 
-.card-title {
-  font-weight: 600;
-}
+  .card-title {
+    font-weight: 600;
+  }
 
-.expire-list {
-  .expire-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 0;
-    border-bottom: 1px solid var(--el-border-color-lighter);
+  .expire-list {
+    .expire-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--el-border-color-lighter);
 
-    &:last-child {
-      border-bottom: none;
+      &:last-child {
+        border-bottom: none;
+      }
+    }
+
+    .expire-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .expire-domain {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .expire-app {
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
     }
   }
-
-  .expire-info {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .expire-domain {
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  .expire-app {
-    font-size: 12px;
-    color: var(--el-text-color-secondary);
-  }
-}
 </style>

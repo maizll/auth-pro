@@ -1,128 +1,81 @@
+<!-- 授权列表页面 -->
+<!-- art-full-height 自动计算出页面剩余高度 -->
+<!-- art-table-card 一个符合系统样式的 class，同时自动撑满剩余高度 -->
 <template>
-  <div class="license-list">
+  <div class="license-list-page art-full-height">
     <!-- 搜索栏 -->
-    <el-card shadow="hover" class="mb-4">
-      <el-form :model="searchForm" inline>
-        <el-form-item label="域名/IP/密钥">
-          <el-input
-            v-model="searchForm.keyword"
-            placeholder="请输入"
-            clearable
-            style="width: 200px"
-          />
-        </el-form-item>
-        <el-form-item label="授权类型">
-          <el-select v-model="searchForm.type" placeholder="全部" clearable style="width: 130px">
-            <el-option label="单域名" value="domain" />
-            <el-option label="泛域名" value="wildcard" />
-            <el-option label="IP" value="ip" />
-            <el-option label="密钥" value="key" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="searchForm.status" placeholder="全部" clearable style="width: 120px">
-            <el-option label="正常" value="active" />
-            <el-option label="已过期" value="expired" />
-            <el-option label="已禁用" value="disabled" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="应用">
-          <el-select v-model="searchForm.appId" placeholder="全部" clearable style="width: 140px">
-            <el-option v-for="app in appList" :key="app.id" :label="app.name" :value="app.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">查询</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+    <LicenseSearch v-model="searchForm" @search="handleSearch" @reset="resetSearchParams" />
 
-    <!-- 操作栏 + 表格 -->
-    <el-card shadow="hover">
-      <template #header>
-        <div class="table-header">
-          <span class="card-title">授权列表</span>
-          <el-button type="primary" @click="handleAdd">新增授权</el-button>
-        </div>
-      </template>
+    <ElCard class="art-table-card" shadow="never">
+      <!-- 表格头部 -->
+      <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
+        <template #left>
+          <ElSpace wrap>
+            <ElButton @click="handleAdd" v-ripple>新增授权</ElButton>
+          </ElSpace>
+        </template>
+      </ArtTableHeader>
 
-      <el-table :data="tableData" stripe v-loading="loading">
-        <el-table-column prop="domain" label="域名/IP/密钥" min-width="200" show-overflow-tooltip />
-        <el-table-column label="归属账号" min-width="180" show-overflow-tooltip>
-          <template #default="{ row }">
-            <div class="owner-cell">
-              <el-tag :type="row.ownerType === 'agent' ? 'warning' : 'info'" size="small">
-                {{ row.ownerType === 'agent' ? '代理' : '用户' }}
-              </el-tag>
-              <span>{{ row.ownerName || `ID ${row.ownerId}` }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="appName" label="应用" width="120" />
-        <el-table-column prop="typeLabel" label="类型" width="90">
-          <template #default="{ row }">
-            <el-tag :type="typeTagMap[row.type]" size="small">{{ row.typeLabel }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="statusLabel" label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="statusTagMap[row.status]" size="small">{{ row.statusLabel }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="expireAt" label="到期时间" width="160" />
-        <el-table-column prop="verifyCount" label="验证次数" width="100" align="center" />
-        <el-table-column label="站点" width="120" align="center">
-          <template #default="{ row }">
-            <span v-if="row.type === 'key'">
-              {{ row.boundSites ?? 0 }} / {{ Number(row.maxSites) ? row.maxSites : '不限' }}
-            </span>
-            <span v-else class="text-secondary">--</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="createdAt" label="创建时间" width="160" />
-        <el-table-column label="操作" width="220" fixed="right">
-          <template #default="{ row }">
-            <el-button
-              v-if="row.type === 'key'"
-              link
-              type="primary"
-              size="small"
-              @click="openSiteDialog(row)"
-            >
-              站点
-            </el-button>
-            <el-button link type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
-            <el-button link type="primary" size="small" @click="handleToggle(row)">
-              {{ row.status === 'active' ? '禁用' : '启用' }}
-            </el-button>
-            <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <!-- 表格 -->
+      <ArtTable
+        :loading="loading"
+        :data="data"
+        :columns="columns"
+        :pagination="pagination"
+        @pagination:size-change="handleSizeChange"
+        @pagination:current-change="handleCurrentChange"
+      >
+        <!-- 归属账号 -->
+        <template #owner="{ row }">
+          <div class="owner-cell">
+            <ElTag :type="row.ownerType === 'agent' ? 'warning' : 'info'" size="small">
+              {{ row.ownerType === 'agent' ? '代理' : '用户' }}
+            </ElTag>
+            <span>{{ row.ownerName || `ID ${row.ownerId}` }}</span>
+          </div>
+        </template>
 
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[10, 20, 50, 100]"
-          :total="pagination.total"
-          layout="total, sizes, prev, pager, next, jumper"
-          @size-change="handleSearch"
-          @current-change="handleSearch"
-        />
-      </div>
-    </el-card>
+        <!-- 类型 -->
+        <template #typeLabel="{ row }">
+          <ElTag :type="typeTagMap[row.type]" size="small">{{ row.typeLabel }}</ElTag>
+        </template>
+
+        <!-- 状态 -->
+        <template #statusLabel="{ row }">
+          <ElTag :type="statusTagMap[row.status]" size="small">{{ row.statusLabel }}</ElTag>
+        </template>
+
+        <!-- 站点 -->
+        <template #sites="{ row }">
+          <span v-if="row.type === 'key'">
+            {{ row.boundSites ?? 0 }} / {{ Number(row.maxSites) ? row.maxSites : '不限' }}
+          </span>
+          <span v-else class="text-secondary">--</span>
+        </template>
+
+        <!-- 操作 -->
+        <template #operation="{ row }">
+          <ElButton v-if="row.type === 'key'" link type="primary" @click="openSiteDialog(row)">
+            站点
+          </ElButton>
+          <ElButton link type="primary" @click="handleEdit(row)">编辑</ElButton>
+          <ElButton link type="primary" @click="handleToggle(row)">
+            {{ row.status === 'active' ? '禁用' : '启用' }}
+          </ElButton>
+          <ElButton link type="danger" @click="handleDelete(row)">删除</ElButton>
+        </template>
+      </ArtTable>
+    </ElCard>
 
     <!-- 新增/编辑弹窗 -->
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="560px" destroy-on-close>
-      <el-form :model="formData" :rules="formRules" ref="formRef" label-width="100px">
+    <ElDialog v-model="dialogVisible" :title="dialogTitle" width="560px" destroy-on-close>
+      <ElForm :model="formData" :rules="formRules" ref="formRef" label-width="100px">
         <template v-if="!isEdit">
-          <el-form-item label="开通到" prop="ownerType">
-            <el-segmented v-model="formData.ownerType" :options="ownerTypeOptions" block />
-          </el-form-item>
-          <el-form-item label="归属账号" prop="ownerId">
-            <el-select
+          <ElFormItem label="开通到" prop="ownerType">
+            <ElSegmented v-model="formData.ownerType" :options="ownerTypeOptions" block />
+          </ElFormItem>
+          <ElFormItem label="归属账号" prop="ownerId">
+            <ElSelect
               v-model="formData.ownerId"
               filterable
               remote
@@ -134,29 +87,29 @@
               style="width: 100%"
               @visible-change="handleOwnerSelectVisible"
             >
-              <el-option
+              <ElOption
                 v-for="owner in ownerOptions"
                 :key="`${owner.type}-${owner.id}`"
                 :label="formatOwnerOption(owner)"
                 :value="owner.id"
               />
-            </el-select>
+            </ElSelect>
             <div class="form-tip">可按名称或登录账号搜索，授权会直接显示在该账号下</div>
-          </el-form-item>
+          </ElFormItem>
         </template>
-        <el-form-item label="应用" prop="appId">
-          <el-select
+        <ElFormItem label="应用" prop="appId">
+          <ElSelect
             v-model="formData.appId"
             placeholder="请选择应用"
             style="width: 100%"
             :disabled="isEdit"
             @change="handleAppChange"
           >
-            <el-option v-for="app in appList" :key="app.id" :label="app.name" :value="app.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="!isEdit" label="套餐" prop="planId">
-          <el-select
+            <ElOption v-for="app in appList" :key="app.id" :label="app.name" :value="app.id" />
+          </ElSelect>
+        </ElFormItem>
+        <ElFormItem v-if="!isEdit" label="套餐" prop="planId">
+          <ElSelect
             v-model="formData.planId"
             :loading="planLoading"
             :disabled="!formData.appId"
@@ -164,58 +117,58 @@
             no-data-text="该应用暂无可用套餐"
             style="width: 100%"
           >
-            <el-option
+            <ElOption
               v-for="plan in planList"
               :key="plan.id"
               :label="`${plan.name}（${plan.durationText}，¥${Number(plan.price).toFixed(2)}）`"
               :value="plan.id"
             />
-          </el-select>
+          </ElSelect>
           <div v-if="formData.appId && !planLoading && planList.length === 0" class="form-tip">
             该应用暂无启用套餐，请先在套餐管理中配置
           </div>
-        </el-form-item>
-        <el-form-item label="授权类型" prop="type">
-          <el-radio-group v-model="formData.type">
-            <el-radio value="domain">单域名</el-radio>
-            <el-radio value="wildcard">泛域名</el-radio>
-            <el-radio value="ip">IP地址</el-radio>
-            <el-radio value="key">密钥</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item :label="domainLabel" prop="domain">
-          <el-input v-model="formData.domain" :placeholder="domainPlaceholder" />
+        </ElFormItem>
+        <ElFormItem label="授权类型" prop="type">
+          <ElRadioGroup v-model="formData.type">
+            <ElRadio value="domain">单域名</ElRadio>
+            <ElRadio value="wildcard">泛域名</ElRadio>
+            <ElRadio value="ip">IP地址</ElRadio>
+            <ElRadio value="key">密钥</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
+        <ElFormItem :label="domainLabel" prop="domain">
+          <ElInput v-model="formData.domain" :placeholder="domainPlaceholder" />
           <div class="form-tip">{{ domainTip }}</div>
-        </el-form-item>
-        <el-form-item v-if="!isEdit" label="到期时间">
-          <el-input
+        </ElFormItem>
+        <ElFormItem v-if="!isEdit" label="到期时间">
+          <ElInput
             :model-value="planExpireText"
             disabled
             :placeholder="formData.planId ? '' : '选择套餐后自动计算'"
           />
           <div class="form-tip">到期时间由所选套餐自动计算，实际时间以后端创建结果为准</div>
-        </el-form-item>
-        <el-form-item v-else label="到期时间" prop="expireAt">
-          <el-date-picker
+        </ElFormItem>
+        <ElFormItem v-else label="到期时间" prop="expireAt">
+          <ElDatePicker
             v-model="formData.expireAt"
             type="datetime"
             placeholder="选择到期时间，留空为永久"
             style="width: 100%"
           />
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="formData.remark" type="textarea" :rows="2" placeholder="可选备注" />
-        </el-form-item>
-      </el-form>
+        </ElFormItem>
+        <ElFormItem label="备注">
+          <ElInput v-model="formData.remark" type="textarea" :rows="2" placeholder="可选备注" />
+        </ElFormItem>
+      </ElForm>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleSubmit">确定</el-button>
+        <ElButton @click="dialogVisible = false">取消</ElButton>
+        <ElButton type="primary" :loading="submitting" @click="handleSubmit">确定</ElButton>
       </template>
-    </el-dialog>
+    </ElDialog>
 
     <!-- 密钥站点管理弹窗 -->
-    <el-dialog v-model="siteDialog.visible" title="密钥绑定站点" width="680px" destroy-on-close>
-      <el-alert
+    <ElDialog v-model="siteDialog.visible" title="密钥绑定站点" width="680px" destroy-on-close>
+      <ElAlert
         v-if="siteDialog.maxSites > 0"
         :title="`当前已绑定 ${siteDialog.list.length} / ${siteDialog.maxSites} 个站点，达到上限后新站点验证会被拒绝，可解绑释放名额。`"
         type="info"
@@ -223,7 +176,7 @@
         :closable="false"
         class="mb-3"
       />
-      <el-alert
+      <ElAlert
         v-else
         title="该密钥不限制站点数量。"
         type="info"
@@ -231,100 +184,97 @@
         :closable="false"
         class="mb-3"
       />
-      <el-table
-        :data="siteDialog.list"
-        size="small"
-        v-loading="siteDialog.loading"
-        max-height="360"
-      >
-        <el-table-column label="类型" width="80">
+      <ElTable :data="siteDialog.list" size="small" v-loading="siteDialog.loading" max-height="360">
+        <ElTableColumn label="类型" width="80">
           <template #default="{ row }">
-            <el-tag :type="row.targetType === 'ip' ? 'warning' : undefined" size="small">
+            <ElTag :type="row.targetType === 'ip' ? 'warning' : undefined" size="small">
               {{ row.targetType === 'ip' ? 'IP' : '域名' }}
-            </el-tag>
+            </ElTag>
           </template>
-        </el-table-column>
-        <el-table-column prop="target" label="站点" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="serverIp" label="最近服务器IP" width="150" show-overflow-tooltip>
+        </ElTableColumn>
+        <ElTableColumn prop="target" label="站点" min-width="160" show-overflow-tooltip />
+        <ElTableColumn prop="serverIp" label="最近服务器IP" width="150" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ row.serverIp || '--' }}</span>
           </template>
-        </el-table-column>
-        <el-table-column prop="firstSeenAt" label="首次绑定" width="160" />
-        <el-table-column prop="lastSeenAt" label="最近验证" width="160" />
-        <el-table-column label="操作" width="80" align="center">
+        </ElTableColumn>
+        <ElTableColumn prop="firstSeenAt" label="首次绑定" width="160" />
+        <ElTableColumn prop="lastSeenAt" label="最近验证" width="160" />
+        <ElTableColumn label="操作" width="80" align="center">
           <template #default="{ row }">
-            <el-button link type="danger" size="small" @click="handleUnbindSite(row)"
-              >解绑</el-button
-            >
+            <ElButton link type="danger" size="small" @click="handleUnbindSite(row)">解绑</ElButton>
           </template>
-        </el-table-column>
+        </ElTableColumn>
         <template #empty>
-          <el-empty description="暂无绑定站点" :image-size="60" />
+          <ElEmpty description="暂无绑定站点" :image-size="60" />
         </template>
-      </el-table>
-    </el-dialog>
+      </ElTable>
+    </ElDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
-  import request from '@/utils/http'
+  import { useTable } from '@/hooks/core/useTable'
+  import {
+    fetchLicenseList,
+    fetchLicenseAppOptions,
+    fetchLicenseOwners,
+    fetchCreateLicense,
+    fetchUpdateLicense,
+    fetchToggleLicense,
+    fetchDeleteLicense,
+    fetchLicenseSites,
+    fetchUnbindLicenseSite,
+    fetchPlanList,
+    type LicenseItem,
+    type LicenseAppOption,
+    type LicenseOwnerOption,
+    type LicensePlanOption,
+    type LicenseSearchParams,
+    type LicenseSiteItem
+  } from '@/api/license-manage'
+  import LicenseSearch from './modules/license-search.vue'
 
-  const loading = ref(false)
+  defineOptions({ name: 'LicenseList' })
+
+  type OwnerType = 'user' | 'agent'
+  type TagType = 'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined
+
+  interface LicenseSearchForm {
+    keyword?: string
+    type?: string
+    status?: string
+    appId?: number | string
+  }
+
+  // 弹窗相关
   const dialogVisible = ref(false)
   const isEdit = ref(false)
   const submitting = ref(false)
   const ownerLoading = ref(false)
   const planLoading = ref(false)
-
   const dialogTitle = computed(() => (isEdit.value ? '编辑授权' : '新增授权'))
 
-  const searchForm = reactive({
-    keyword: '',
-    type: '',
-    status: '',
-    appId: ''
+  // 搜索表单
+  const searchForm = ref<LicenseSearchForm>({
+    keyword: undefined,
+    type: undefined,
+    status: undefined,
+    appId: undefined
   })
 
-  const pagination = reactive({
-    page: 1,
-    pageSize: 10,
-    total: 0
-  })
-
-  const appList = ref<{ id: string; name: string }[]>([])
-
-  interface PlanOption {
-    id: number
-    name: string
-    durationDays: number
-    durationText: string
-    price: number
-  }
-
-  const planList = ref<PlanOption[]>([])
-
-  type OwnerType = 'user' | 'agent'
-
-  interface OwnerOption {
-    id: number
-    name: string
-    account: string
-    type: OwnerType
-  }
+  const appList = ref<LicenseAppOption[]>([])
+  const planList = ref<LicensePlanOption[]>([])
 
   const ownerTypeOptions = [
     { label: '用户账号', value: 'user' },
     { label: '代理账号', value: 'agent' }
   ]
-  const ownerOptions = ref<OwnerOption[]>([])
+  const ownerOptions = ref<LicenseOwnerOption[]>([])
   let ownerSearchTimer: ReturnType<typeof setTimeout> | undefined
   let ownerSearchSequence = 0
   let planRequestSequence = 0
-
-  type TagType = 'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined
 
   const typeTagMap: Record<string, TagType> = {
     domain: undefined,
@@ -338,8 +288,6 @@
     expired: 'info',
     disabled: 'danger'
   }
-
-  const tableData = ref<any[]>([])
 
   const formRef = ref()
   const formData = reactive({
@@ -360,10 +308,78 @@
     licenseId: 0,
     licenseNo: '',
     maxSites: 0,
-    list: [] as any[]
+    list: [] as LicenseSiteItem[]
   })
 
-  function validateLicenseTarget(type: string, value: string) {
+  const {
+    columns,
+    columnChecks,
+    data,
+    loading,
+    pagination,
+    getData,
+    replaceSearchParams,
+    resetSearchParams,
+    handleSizeChange,
+    handleCurrentChange,
+    refreshData,
+    refreshCreate,
+    refreshUpdate,
+    refreshRemove
+  } = useTable({
+    // 核心配置
+    core: {
+      apiFn: fetchLicenseList,
+      apiParams: {
+        page: 1,
+        pageSize: 20,
+        ...searchForm.value
+      },
+      // 后端授权接口使用 page / pageSize 分页字段
+      paginationKey: {
+        current: 'page',
+        size: 'pageSize'
+      },
+      columnsFactory: () => [
+        { type: 'index', width: 60, label: '序号' }, // 序号
+        { prop: 'domain', label: '域名/IP/密钥', minWidth: 200, showOverflowTooltip: true },
+        {
+          prop: 'owner',
+          label: '归属账号',
+          minWidth: 180,
+          showOverflowTooltip: true,
+          useSlot: true
+        },
+        { prop: 'appName', label: '应用', width: 120 },
+        { prop: 'typeLabel', label: '类型', width: 90, align: 'center', useSlot: true },
+        { prop: 'statusLabel', label: '状态', width: 90, align: 'center', useSlot: true },
+        { prop: 'expireAt', label: '到期时间', width: 160 },
+        { prop: 'verifyCount', label: '验证次数', width: 100, align: 'center' },
+        { prop: 'sites', label: '站点', width: 120, align: 'center', useSlot: true },
+        { prop: 'createdAt', label: '创建时间', width: 160 },
+        {
+          prop: 'operation',
+          label: '操作',
+          width: 210,
+          fixed: 'right',
+          useSlot: true
+        }
+      ]
+    },
+    // 数据处理
+    transform: {
+      dataTransformer: (records) => {
+        if (!Array.isArray(records)) {
+          return []
+        }
+        return records
+      }
+    }
+  })
+
+  // ==================== 表单校验 ====================
+
+  const validateLicenseTarget = (type: string, value: string) => {
     const target = (value || '').trim().toLowerCase()
     if (type === 'key') return ''
     if (type === 'domain' && !isValidSingleDomain(target)) return '单域名格式不正确'
@@ -373,7 +389,7 @@
     return ''
   }
 
-  function isValidSingleDomain(value: string) {
+  const isValidSingleDomain = (value: string) => {
     if (
       !value ||
       value.startsWith('*.') ||
@@ -388,7 +404,7 @@
     return labels.every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))
   }
 
-  function isValidIP(value: string) {
+  const isValidIP = (value: string) => {
     const ipv4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/
     const ipv6 = /^(([0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|::1|::)$/i
     return ipv4.test(value) || ipv6.test(value)
@@ -480,23 +496,30 @@
     }
   )
 
-  function formatOwnerOption(owner: OwnerOption) {
+  // ==================== 数据加载 ====================
+
+  /**
+   * 搜索处理
+   */
+  const handleSearch = (params: LicenseSearchForm) => {
+    replaceSearchParams(params as Partial<LicenseSearchParams>)
+    getData()
+  }
+
+  const formatOwnerOption = (owner: LicenseOwnerOption) => {
     return owner.name === owner.account ? owner.name : `${owner.name} (${owner.account})`
   }
 
-  function fetchOwnerOptions(keyword = '') {
+  const fetchOwnerOptions = (keyword = '') => {
     if (ownerSearchTimer) clearTimeout(ownerSearchTimer)
     const sequence = ++ownerSearchSequence
     ownerSearchTimer = setTimeout(async () => {
       ownerLoading.value = true
       try {
-        const data = await request.get<OwnerOption[]>({
-          url: '/api/license/owners',
-          params: {
-            ownerType: formData.ownerType,
-            keyword: keyword.trim(),
-            limit: 30
-          }
+        const data = await fetchLicenseOwners({
+          ownerType: formData.ownerType,
+          keyword: keyword.trim(),
+          limit: 30
         })
         if (sequence === ownerSearchSequence) ownerOptions.value = data || []
       } catch {
@@ -507,30 +530,27 @@
     }, 250)
   }
 
-  function handleOwnerSelectVisible(visible: boolean) {
+  const handleOwnerSelectVisible = (visible: boolean) => {
     if (visible && ownerOptions.value.length === 0) fetchOwnerOptions('')
   }
 
-  async function fetchAppList() {
+  const fetchAppList = async () => {
     try {
-      const data = await request.get<any[]>({ url: '/api/license/apps' })
+      const data = await fetchLicenseAppOptions()
       appList.value = data || []
     } catch {
       appList.value = []
     }
   }
 
-  async function fetchPlanList(appId: string | number) {
+  const fetchPlans = async (appId: string | number) => {
     const sequence = ++planRequestSequence
     planList.value = []
     if (!appId) return
 
     planLoading.value = true
     try {
-      const data = await request.get<PlanOption[]>({
-        url: '/api/plan/list',
-        params: { appId: Number(appId), status: 'enabled' }
-      })
+      const data = await fetchPlanList({ appId: Number(appId), status: 'enabled' })
       if (sequence === planRequestSequence) planList.value = data || []
     } catch {
       if (sequence === planRequestSequence) planList.value = []
@@ -539,48 +559,16 @@
     }
   }
 
-  function handleAppChange(appId: string | number) {
+  const handleAppChange = (appId: string | number) => {
     if (isEdit.value) return
     formData.planId = null
     formRef.value?.clearValidate?.('planId')
-    fetchPlanList(appId)
+    fetchPlans(appId)
   }
 
-  async function handleSearch() {
-    loading.value = true
-    try {
-      const params: Record<string, any> = {
-        page: pagination.page,
-        pageSize: pagination.pageSize
-      }
-      if (searchForm.keyword) params.keyword = searchForm.keyword
-      if (searchForm.type) params.type = searchForm.type
-      if (searchForm.status) params.status = searchForm.status
-      if (searchForm.appId) params.appId = searchForm.appId
+  // ==================== 增删改操作 ====================
 
-      const data = await request.get<{ list: any[]; total: number }>({
-        url: '/api/license/list',
-        params
-      })
-      tableData.value = data.list || []
-      pagination.total = data.total || 0
-    } catch (e) {
-      console.error('[LicenseList] 查询失败:', e)
-    } finally {
-      loading.value = false
-    }
-  }
-
-  function handleReset() {
-    searchForm.keyword = ''
-    searchForm.type = ''
-    searchForm.status = ''
-    searchForm.appId = ''
-    pagination.page = 1
-    handleSearch()
-  }
-
-  function handleAdd() {
+  const handleAdd = () => {
     isEdit.value = false
     formData.id = 0
     formData.appId = ''
@@ -599,7 +587,7 @@
     fetchOwnerOptions('')
   }
 
-  function handleEdit(row: any) {
+  const handleEdit = (row: LicenseItem) => {
     isEdit.value = true
     formData.id = row.id
     formData.appId = String(row.appId)
@@ -614,14 +602,14 @@
     dialogVisible.value = true
   }
 
-  async function handleToggle(row: any) {
+  const handleToggle = async (row: LicenseItem) => {
     const newStatus = row.status === 'active' ? 'disabled' : 'active'
     const action = row.status === 'active' ? '禁用' : '启用'
     try {
       await ElMessageBox.confirm(`确定${action}该授权？`, '提示', { type: 'warning' })
-      await request.put({ url: `/api/license/${row.id}/toggle`, params: { status: newStatus } })
+      await fetchToggleLicense(row.id, newStatus)
       ElMessage.success(`${action}成功`)
-      handleSearch()
+      refreshUpdate()
     } catch (error) {
       if (error !== 'cancel' && error !== 'close') {
         console.error(`[LicenseList] ${action}失败:`, error)
@@ -629,12 +617,12 @@
     }
   }
 
-  async function handleDelete(row: any) {
+  const handleDelete = async (row: LicenseItem) => {
     try {
       await ElMessageBox.confirm('确定删除该授权？删除后不可恢复', '警告', { type: 'error' })
-      await request.del({ url: `/api/license/${row.id}` })
+      await fetchDeleteLicense(row.id)
       ElMessage.success('删除成功')
-      handleSearch()
+      refreshRemove()
     } catch (error) {
       if (error !== 'cancel' && error !== 'close') {
         console.error('[LicenseList] 删除失败:', error)
@@ -642,20 +630,20 @@
     }
   }
 
-  async function openSiteDialog(row: any) {
+  // ==================== 密钥站点管理 ====================
+
+  const openSiteDialog = async (row: LicenseItem) => {
     siteDialog.licenseId = Number(row.id)
     siteDialog.licenseNo = row.licenseNo || ''
     siteDialog.maxSites = Number(row.maxSites) || 0
     siteDialog.visible = true
-    await fetchLicenseSites()
+    await loadLicenseSites()
   }
 
-  async function fetchLicenseSites() {
+  const loadLicenseSites = async () => {
     siteDialog.loading = true
     try {
-      const data = await request.get<{ list: any[]; boundSites: number; maxSites: number }>({
-        url: `/api/license/${siteDialog.licenseId}/sites`
-      })
+      const data = await fetchLicenseSites(siteDialog.licenseId)
       siteDialog.list = data?.list || []
       if (data?.maxSites !== undefined) siteDialog.maxSites = Number(data.maxSites)
     } catch (error) {
@@ -666,15 +654,15 @@
     }
   }
 
-  async function handleUnbindSite(row: any) {
+  const handleUnbindSite = async (row: LicenseSiteItem) => {
     try {
       await ElMessageBox.confirm(`确定解绑站点「${row.target}」？解绑后名额立即释放。`, '提示', {
         type: 'warning'
       })
-      await request.del({ url: `/api/license/${siteDialog.licenseId}/sites/${row.id}` })
+      await fetchUnbindLicenseSite(siteDialog.licenseId, row.id)
       ElMessage.success('解绑成功')
-      await fetchLicenseSites()
-      handleSearch()
+      await loadLicenseSites()
+      refreshUpdate()
     } catch (error) {
       if (error !== 'cancel' && error !== 'close') {
         console.error('[LicenseList] 解绑失败:', error)
@@ -682,7 +670,7 @@
     }
   }
 
-  async function handleSubmit() {
+  const handleSubmit = async () => {
     if (submitting.value) return
     const valid = await formRef.value?.validate().catch(() => false)
     if (!valid) return
@@ -690,34 +678,32 @@
     submitting.value = true
     try {
       if (isEdit.value) {
-        await request.put({
-          url: `/api/license/${formData.id}`,
-          params: {
-            appId: Number(formData.appId),
-            type: formData.type,
-            domain: formData.domain,
-            expireAt: formData.expireAt,
-            remark: formData.remark
-          }
+        await fetchUpdateLicense(formData.id, {
+          appId: Number(formData.appId),
+          type: formData.type,
+          domain: formData.domain,
+          expireAt: formData.expireAt,
+          remark: formData.remark
         })
         ElMessage.success('编辑成功')
       } else {
-        await request.post({
-          url: '/api/license/create',
-          params: {
-            appId: Number(formData.appId),
-            planId: Number(formData.planId),
-            ownerType: formData.ownerType,
-            ownerId: formData.ownerId,
-            type: formData.type,
-            domain: formData.domain,
-            remark: formData.remark
-          }
+        await fetchCreateLicense({
+          appId: Number(formData.appId),
+          planId: Number(formData.planId),
+          ownerType: formData.ownerType,
+          ownerId: formData.ownerId,
+          type: formData.type,
+          domain: formData.domain,
+          remark: formData.remark
         })
         ElMessage.success('新增成功')
       }
       dialogVisible.value = false
-      handleSearch()
+      if (isEdit.value) {
+        refreshUpdate()
+      } else {
+        refreshCreate()
+      }
     } catch (e) {
       console.error('[LicenseList] 提交失败:', e)
     } finally {
@@ -725,10 +711,7 @@
     }
   }
 
-  onMounted(() => {
-    fetchAppList()
-    handleSearch()
-  })
+  onMounted(fetchAppList)
 
   onBeforeUnmount(() => {
     if (ownerSearchTimer) clearTimeout(ownerSearchTimer)
@@ -738,51 +721,33 @@
 </script>
 
 <style scoped lang="scss">
-  .license-list {
-    padding: 0;
-  }
+  .license-list-page {
+    .mb-3 {
+      margin-bottom: 12px;
+    }
 
-  .mb-4 {
-    margin-bottom: 16px;
-  }
+    .form-tip {
+      margin-top: 4px;
+      font-size: 12px;
+      line-height: 18px;
+      color: var(--el-text-color-secondary);
+    }
 
-  .mb-3 {
-    margin-bottom: 12px;
-  }
+    .owner-cell {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      min-width: 0;
 
-  .table-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
+      span:last-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
 
-  .card-title {
-    font-weight: 600;
-  }
-
-  .pagination-wrapper {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: 16px;
-  }
-
-  .form-tip {
-    margin-top: 4px;
-    font-size: 12px;
-    line-height: 18px;
-    color: var(--el-text-color-secondary);
-  }
-
-  .owner-cell {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    min-width: 0;
-
-    span:last-child {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+    .text-secondary {
+      color: var(--el-text-color-secondary);
     }
   }
 </style>

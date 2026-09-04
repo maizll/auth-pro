@@ -1,208 +1,162 @@
+<!-- 代理商等级管理页面 -->
+<!-- art-full-height 自动计算出页面剩余高度 -->
+<!-- art-table-card 一个符合系统样式的 class，同时自动撑满剩余高度 -->
 <template>
-  <div class="agent-level-page">
-    <el-card shadow="hover" class="mb-4 search-card">
-      <el-form :model="searchForm" inline>
-        <el-form-item label="等级关键词">
-          <el-input
-            v-model.trim="searchForm.keyword"
-            placeholder="等级名称"
-            clearable
-            class="search-input"
-            @keyup.enter="handleSearch()"
-          />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select
-            v-model="searchForm.status"
-            placeholder="全部状态"
-            clearable
-            class="status-select"
-          >
-            <el-option label="启用" value="enabled" />
-            <el-option label="禁用" value="disabled" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="loading" @click="handleSearch()">查询</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
-    <el-row :gutter="16" class="mb-4 level-overview">
-      <el-col :xs="24" :sm="12" :lg="6">
-        <el-card shadow="hover" class="stat-card primary">
-          <span class="stat-label">等级总数</span>
-          <strong>{{ stats.total }}</strong>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :sm="12" :lg="6">
-        <el-card shadow="hover" class="stat-card success">
-          <span class="stat-label">当前页启用</span>
-          <strong>{{ stats.enabled }}</strong>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :sm="12" :lg="6">
-        <el-card shadow="hover" class="stat-card warning">
-          <span class="stat-label">最低折扣</span>
-          <strong>{{ stats.minDiscount ? `${stats.minDiscount}折` : '-' }}</strong>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :sm="12" :lg="6">
-        <el-card shadow="hover" class="stat-card info">
-          <span class="stat-label">绑定代理商</span>
-          <strong>{{ stats.agentCount }}</strong>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <el-card shadow="hover" class="table-card">
-      <template #header>
-        <div class="table-header">
-          <div>
-            <span class="card-title">代理商等级</span>
-            <p class="card-desc"
-              >等级决定代理商开通授权时的折扣；修改折扣后，会同步更新已绑定该等级的代理商。</p
-            >
-          </div>
-          <el-button type="primary" @click="handleAdd">新增等级</el-button>
-        </div>
-      </template>
-
-      <el-table :data="tableData" stripe v-loading="loading" row-key="id">
-        <el-table-column prop="name" label="等级" min-width="180">
-          <template #default="{ row }">
-            <div class="level-name">
-              <el-tag :type="levelTagType(row.discount)" size="small">{{ row.name }}</el-tag>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="discount" label="折扣" width="110" align="center">
-          <template #default="{ row }">
-            <span class="discount-text">{{ formatDiscount(row.discount) }}折</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="selfServiceEnabled" label="用户自助开通" width="130" align="center">
-          <template #default="{ row }">
-            <el-tag :type="row.selfServiceEnabled ? 'success' : 'info'" size="small" effect="plain">
-              {{ row.selfServiceEnabled ? '已开放' : '未开放' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="upgradePrice" label="开通价格" width="120" align="right">
-          <template #default="{ row }">
-            <span v-if="row.selfServiceEnabled" class="price-text"
-              >¥{{ Number(row.upgradePrice).toFixed(2) }}</span
-            >
-            <span v-else class="remark-text">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="openingBonus" label="开通赠送" width="120" align="right">
-          <template #default="{ row }">
-            <span v-if="Number(row.openingBonus) > 0" class="bonus-text"
-              >+ ¥{{ Number(row.openingBonus).toFixed(2) }}</span
-            >
-            <span v-else class="remark-text">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="agentCount" label="绑定代理商" width="120" align="center">
-          <template #default="{ row }">
-            <el-tag :type="row.agentCount > 0 ? 'primary' : 'info'" size="small" effect="plain">
-              {{ row.agentCount }} 个
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="sort" label="排序" width="90" align="center" />
-        <el-table-column prop="enabled" label="状态" width="100" align="center">
-          <template #default="{ row }">
-            <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
-              {{ row.enabled ? '启用' : '禁用' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="remark" label="备注" min-width="180" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span class="remark-text">{{ row.remark || '-' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="updatedAt" label="更新时间" width="160" />
-        <el-table-column label="操作" width="210" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
-            <el-tooltip
-              :disabled="row.enabled || row.agentCount === 0"
-              content="已有代理商使用，不能禁用"
-              placement="top"
-            >
-              <span>
-                <el-button
-                  link
-                  type="primary"
-                  size="small"
-                  :disabled="row.enabled && row.agentCount > 0"
-                  @click="handleToggle(row)"
-                >
-                  {{ row.enabled ? '禁用' : '启用' }}
-                </el-button>
-              </span>
-            </el-tooltip>
-            <el-tooltip
-              :disabled="row.agentCount === 0"
-              content="已有代理商使用，不能删除"
-              placement="top"
-            >
-              <span>
-                <el-button
-                  link
-                  type="danger"
-                  size="small"
-                  :disabled="row.agentCount > 0"
-                  @click="handleDelete(row)"
-                >
-                  删除
-                </el-button>
-              </span>
-            </el-tooltip>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <el-empty description="暂无代理商等级">
-            <el-button type="primary" @click="handleAdd">新增第一个等级</el-button>
-          </el-empty>
-        </template>
-      </el-table>
-
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[10, 20, 50]"
-          :total="pagination.total"
-          layout="total, sizes, prev, pager, next, jumper"
-          @size-change="handleSizeChange"
-          @current-change="handleSearch()"
-        />
+  <div class="agent-level-page art-full-height">
+    <!-- 统计卡片 -->
+    <div class="stats-cards">
+      <div class="art-card stat-card">
+        <span class="stat-label">等级总数</span>
+        <strong class="stat-value text-primary">{{ stats.total }}</strong>
       </div>
-    </el-card>
+      <div class="art-card stat-card">
+        <span class="stat-label">当前页启用</span>
+        <strong class="stat-value text-success">{{ stats.enabled }}</strong>
+      </div>
+      <div class="art-card stat-card">
+        <span class="stat-label">最低折扣</span>
+        <strong class="stat-value text-warning">
+          {{ stats.minDiscount ? `${stats.minDiscount}折` : '-' }}
+        </strong>
+      </div>
+      <div class="art-card stat-card">
+        <span class="stat-label">绑定代理商</span>
+        <strong class="stat-value">{{ stats.agentCount }}</strong>
+      </div>
+    </div>
 
-    <el-dialog
+    <!-- 搜索栏 -->
+    <LevelSearch v-model="searchForm" @search="handleSearch" @reset="resetSearchParams" />
+
+    <ElCard class="art-table-card" shadow="never">
+      <!-- 表格头部 -->
+      <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
+        <template #left>
+          <ElSpace wrap>
+            <ElButton @click="handleAdd" v-ripple>新增等级</ElButton>
+          </ElSpace>
+        </template>
+      </ArtTableHeader>
+
+      <!-- 表格 -->
+      <ArtTable
+        :loading="loading"
+        :data="data"
+        :columns="columns"
+        :pagination="pagination"
+        @pagination:size-change="handleSizeChange"
+        @pagination:current-change="handleCurrentChange"
+      >
+        <!-- 等级 -->
+        <template #name="{ row }">
+          <ElTag :type="levelTagType(row.discount)" size="small">{{ row.name }}</ElTag>
+        </template>
+
+        <!-- 折扣 -->
+        <template #discount="{ row }">
+          <span class="discount-text">{{ formatDiscount(row.discount) }}折</span>
+        </template>
+
+        <!-- 用户自助开通 -->
+        <template #selfServiceEnabled="{ row }">
+          <ElTag :type="row.selfServiceEnabled ? 'success' : 'info'" size="small" effect="plain">
+            {{ row.selfServiceEnabled ? '已开放' : '未开放' }}
+          </ElTag>
+        </template>
+
+        <!-- 开通价格 -->
+        <template #upgradePrice="{ row }">
+          <span v-if="row.selfServiceEnabled" class="price-text">
+            ¥{{ Number(row.upgradePrice).toFixed(2) }}
+          </span>
+          <span v-else class="remark-text">-</span>
+        </template>
+
+        <!-- 开通赠送 -->
+        <template #openingBonus="{ row }">
+          <span v-if="Number(row.openingBonus) > 0" class="bonus-text">
+            + ¥{{ Number(row.openingBonus).toFixed(2) }}
+          </span>
+          <span v-else class="remark-text">-</span>
+        </template>
+
+        <!-- 绑定代理商 -->
+        <template #agentCount="{ row }">
+          <ElTag :type="row.agentCount > 0 ? 'primary' : 'info'" size="small" effect="plain">
+            {{ row.agentCount }} 个
+          </ElTag>
+        </template>
+
+        <!-- 状态 -->
+        <template #enabled="{ row }">
+          <ElTag :type="row.enabled ? 'success' : 'info'" size="small">
+            {{ row.enabled ? '启用' : '禁用' }}
+          </ElTag>
+        </template>
+
+        <!-- 备注 -->
+        <template #remark="{ row }">
+          <span class="remark-text">{{ row.remark || '-' }}</span>
+        </template>
+
+        <!-- 操作 -->
+        <template #operation="{ row }">
+          <ElButton link type="primary" @click="handleEdit(row)">编辑</ElButton>
+          <ElTooltip
+            :disabled="row.enabled || row.agentCount === 0"
+            content="已有代理商使用，不能禁用"
+            placement="top"
+          >
+            <span>
+              <ElButton
+                link
+                type="primary"
+                :disabled="row.enabled && row.agentCount > 0"
+                @click="handleToggle(row)"
+              >
+                {{ row.enabled ? '禁用' : '启用' }}
+              </ElButton>
+            </span>
+          </ElTooltip>
+          <ElTooltip
+            :disabled="row.agentCount === 0"
+            content="已有代理商使用，不能删除"
+            placement="top"
+          >
+            <span>
+              <ElButton
+                link
+                type="danger"
+                :disabled="row.agentCount > 0"
+                @click="handleDelete(row)"
+              >
+                删除
+              </ElButton>
+            </span>
+          </ElTooltip>
+        </template>
+      </ArtTable>
+    </ElCard>
+
+    <!-- 新增/编辑弹窗 -->
+    <ElDialog
       v-model="dialogVisible"
       :title="dialogTitle"
       width="560px"
       destroy-on-close
       @closed="resetFormValidate"
     >
-      <el-form :model="formData" :rules="formRules" ref="formRef" label-width="120px">
-        <el-form-item label="等级名称" prop="name">
-          <el-input
+      <ElForm :model="formData" :rules="formRules" ref="formRef" label-width="120px">
+        <ElFormItem label="等级名称" prop="name">
+          <ElInput
             v-model.trim="formData.name"
             placeholder="例如 金牌代理"
             maxlength="50"
             show-word-limit
           />
-        </el-form-item>
-        <el-form-item label="等级折扣" prop="discount">
-          <el-input-number
+        </ElFormItem>
+        <ElFormItem label="等级折扣" prop="discount">
+          <ElInputNumber
             v-model="formData.discount"
             :min="1"
             :max="10"
@@ -211,13 +165,13 @@
           />
           <span class="form-unit">折</span>
           <span class="form-tip inline">数值越小，代理商拿货价格越低。</span>
-        </el-form-item>
-        <el-form-item label="用户自助开通">
-          <el-switch v-model="formData.selfServiceEnabled" />
+        </ElFormItem>
+        <ElFormItem label="用户自助开通">
+          <ElSwitch v-model="formData.selfServiceEnabled" />
           <div class="form-tip">默认关闭；仅开启后，该等级才会出现在用户端开通代理页面。</div>
-        </el-form-item>
-        <el-form-item label="开通价格" prop="upgradePrice">
-          <el-input-number
+        </ElFormItem>
+        <ElFormItem label="开通价格" prop="upgradePrice">
+          <ElInputNumber
             v-model="formData.upgradePrice"
             :min="0"
             :max="9999999999.99"
@@ -226,9 +180,9 @@
             :disabled="!formData.selfServiceEnabled"
           />
           <span class="form-unit">元</span>
-        </el-form-item>
-        <el-form-item label="开通赠送余额" prop="openingBonus">
-          <el-input-number
+        </ElFormItem>
+        <ElFormItem label="开通赠送余额" prop="openingBonus">
+          <ElInputNumber
             v-model="formData.openingBonus"
             :min="0"
             :max="9999999999.99"
@@ -237,9 +191,9 @@
           />
           <span class="form-unit">元</span>
           <div class="form-tip">用户成功自助开通后一次性发放，修改不影响已有订单。</div>
-        </el-form-item>
-        <el-form-item label="等级权益">
-          <el-input
+        </ElFormItem>
+        <ElFormItem label="等级权益">
+          <ElInput
             v-model="formData.benefits"
             type="textarea"
             :rows="4"
@@ -247,12 +201,12 @@
             show-word-limit
             placeholder="每行填写一项权益，将展示在用户端等级卡片中"
           />
-        </el-form-item>
-        <el-form-item label="排序" prop="sort">
-          <el-input-number v-model="formData.sort" :min="0" :max="999" />
-        </el-form-item>
-        <el-form-item label="启用状态">
-          <el-switch
+        </ElFormItem>
+        <ElFormItem label="排序" prop="sort">
+          <ElInputNumber v-model="formData.sort" :min="0" :max="999" />
+        </ElFormItem>
+        <ElFormItem label="启用状态">
+          <ElSwitch
             v-model="formData.enabled"
             :disabled="isEdit && formData.agentCount > 0"
             active-text="启用"
@@ -261,9 +215,9 @@
           <div v-if="isEdit && formData.agentCount > 0" class="form-tip">
             当前等级已绑定 {{ formData.agentCount }} 个代理商，不能直接禁用。
           </div>
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input
+        </ElFormItem>
+        <ElFormItem label="备注">
+          <ElInput
             v-model="formData.remark"
             type="textarea"
             :rows="3"
@@ -271,38 +225,35 @@
             show-word-limit
             placeholder="可选备注"
           />
-        </el-form-item>
-      </el-form>
+        </ElFormItem>
+      </ElForm>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="handleSubmit">确定</el-button>
+        <ElButton @click="dialogVisible = false">取消</ElButton>
+        <ElButton type="primary" :loading="submitLoading" @click="handleSubmit">确定</ElButton>
       </template>
-    </el-dialog>
+    </ElDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, reactive, ref } from 'vue'
   import type { FormInstance, FormRules } from 'element-plus'
   import { ElMessage, ElMessageBox } from 'element-plus'
-  import request from '@/utils/http'
+  import { useTable } from '@/hooks/core/useTable'
+  import {
+    fetchAgentLevelList,
+    fetchCreateAgentLevel,
+    fetchUpdateAgentLevel,
+    fetchDeleteAgentLevel,
+    type AgentLevelItem,
+    type AgentLevelPayload
+  } from '@/api/agent-manage'
+  import LevelSearch from './modules/level-search.vue'
 
-  type LevelStatus = '' | 'enabled' | 'disabled'
+  defineOptions({ name: 'AgentLevel' })
 
-  type AgentLevel = {
-    id: number
-    name: string
-    discount: number
-    selfServiceEnabled: boolean
-    upgradePrice: number
-    openingBonus: number
-    benefits: string
-    sort: number
-    enabled: boolean
-    remark: string
-    agentCount: number
-    createdAt?: string
-    updatedAt: string
+  interface LevelSearchForm {
+    keyword?: string
+    status?: string
   }
 
   type LevelForm = {
@@ -333,16 +284,19 @@
     agentCount: 0
   }
 
-  const loading = ref(false)
+  // 弹窗相关
   const submitLoading = ref(false)
   const dialogVisible = ref(false)
   const isEdit = ref(false)
   const formRef = ref<FormInstance>()
-  const tableData = ref<AgentLevel[]>([])
-
   const dialogTitle = computed(() => (isEdit.value ? '编辑等级' : '新增等级'))
-  const searchForm = reactive<{ keyword: string; status: LevelStatus }>({ keyword: '', status: '' })
-  const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
+
+  // 搜索表单
+  const searchForm = ref<LevelSearchForm>({
+    keyword: undefined,
+    status: undefined
+  })
+
   const formData = reactive<LevelForm>({ ...defaultForm })
 
   const formRules: FormRules<LevelForm> = {
@@ -363,86 +317,154 @@
     sort: [{ required: true, message: '请输入排序', trigger: 'change' }]
   }
 
-  const stats = computed(() => {
-    const discounts = tableData.value.map((item) => Number(item.discount || 0)).filter(Boolean)
-    return {
-      total: pagination.total,
-      enabled: tableData.value.filter((item) => item.enabled).length,
-      minDiscount: discounts.length ? Math.min(...discounts) : 0,
-      agentCount: tableData.value.reduce((total, item) => total + Number(item.agentCount || 0), 0)
+  const {
+    columns,
+    columnChecks,
+    data,
+    loading,
+    pagination,
+    getData,
+    replaceSearchParams,
+    resetSearchParams,
+    handleSizeChange,
+    handleCurrentChange,
+    refreshData,
+    refreshCreate,
+    refreshUpdate,
+    refreshRemove
+  } = useTable({
+    // 核心配置
+    core: {
+      apiFn: fetchAgentLevelList,
+      apiParams: {
+        page: 1,
+        pageSize: 20,
+        ...searchForm.value
+      },
+      // 后端等级接口使用 page / pageSize 分页字段
+      paginationKey: {
+        current: 'page',
+        size: 'pageSize'
+      },
+      columnsFactory: () => [
+        { type: 'index', width: 60, label: '序号' }, // 序号
+        { prop: 'name', label: '等级', minWidth: 150, useSlot: true },
+        { prop: 'discount', label: '折扣', width: 100, align: 'center', useSlot: true },
+        {
+          prop: 'selfServiceEnabled',
+          label: '用户自助开通',
+          width: 120,
+          align: 'center',
+          useSlot: true
+        },
+        {
+          prop: 'upgradePrice',
+          label: '开通价格',
+          width: 110,
+          align: 'right',
+          useSlot: true
+        },
+        {
+          prop: 'openingBonus',
+          label: '开通赠送',
+          width: 110,
+          align: 'right',
+          useSlot: true
+        },
+        {
+          prop: 'agentCount',
+          label: '绑定代理商',
+          width: 110,
+          align: 'center',
+          useSlot: true
+        },
+        { prop: 'sort', label: '排序', width: 80, align: 'center' },
+        { prop: 'enabled', label: '状态', width: 90, align: 'center', useSlot: true },
+        {
+          prop: 'remark',
+          label: '备注',
+          minWidth: 160,
+          showOverflowTooltip: true,
+          useSlot: true
+        },
+        { prop: 'updatedAt', label: '更新时间', width: 160 },
+        {
+          prop: 'operation',
+          label: '操作',
+          width: 190,
+          fixed: 'right',
+          useSlot: true
+        }
+      ]
+    },
+    // 数据处理
+    transform: {
+      dataTransformer: (records) => {
+        if (!Array.isArray(records)) {
+          return []
+        }
+        // 规范化数值与布尔字段，避免后端返回字符串导致展示异常
+        const normalized = (records as unknown as AgentLevelItem[]).map((item) => ({
+          ...item,
+          discount: Number(item.discount || 0),
+          selfServiceEnabled: Boolean(item.selfServiceEnabled),
+          upgradePrice: Number(item.upgradePrice || 0),
+          openingBonus: Number(item.openingBonus || 0),
+          benefits: item.benefits || '',
+          sort: Number(item.sort || 0),
+          agentCount: Number(item.agentCount || 0),
+          remark: item.remark || ''
+        }))
+        return normalized as unknown as typeof records
+      }
     }
   })
 
-  function formatDiscount(discount: number) {
+  /**
+   * 当前页统计数据
+   */
+  const stats = computed(() => {
+    const records = data.value as unknown as AgentLevelItem[]
+    const discounts = records.map((item) => Number(item.discount || 0)).filter(Boolean)
+    return {
+      total: pagination.total,
+      enabled: records.filter((item) => item.enabled).length,
+      minDiscount: discounts.length ? Math.min(...discounts) : 0,
+      agentCount: records.reduce((total, item) => total + Number(item.agentCount || 0), 0)
+    }
+  })
+
+  /**
+   * 搜索处理
+   */
+  const handleSearch = (params: LevelSearchForm) => {
+    replaceSearchParams(params)
+    getData()
+  }
+
+  const formatDiscount = (discount: number) => {
     return Number(discount || 0)
       .toFixed(1)
       .replace(/\.0$/, '')
   }
 
-  function levelTagType(discount: number) {
+  const levelTagType = (discount: number) => {
     if (discount <= 7) return 'warning'
     if (discount <= 8) return 'success'
     return 'info'
   }
 
-  function normalizeLevel(item: AgentLevel): AgentLevel {
-    return {
-      ...item,
-      discount: Number(item.discount || 0),
-      selfServiceEnabled: Boolean(item.selfServiceEnabled),
-      upgradePrice: Number(item.upgradePrice || 0),
-      openingBonus: Number(item.openingBonus || 0),
-      benefits: item.benefits || '',
-      sort: Number(item.sort || 0),
-      agentCount: Number(item.agentCount || 0),
-      remark: item.remark || ''
-    }
-  }
-
-  async function handleSearch() {
-    loading.value = true
-    try {
-      const params: Record<string, string | number> = {
-        page: pagination.page,
-        pageSize: pagination.pageSize
-      }
-      if (searchForm.keyword) params.keyword = searchForm.keyword
-      if (searchForm.status) params.status = searchForm.status
-
-      const data = await request.get<{ list: AgentLevel[]; total: number }>({
-        url: '/api/agent-level/list',
-        params
-      })
-      tableData.value = (data.list || []).map(normalizeLevel)
-      pagination.total = Number(data.total || 0)
-    } finally {
-      loading.value = false
-    }
-  }
-
-  function handleReset() {
-    searchForm.keyword = ''
-    searchForm.status = ''
-    pagination.page = 1
-    handleSearch()
-  }
-
-  function handleSizeChange() {
-    pagination.page = 1
-    handleSearch()
-  }
-
-  function resetFormValidate() {
+  const resetFormValidate = () => {
     formRef.value?.clearValidate()
   }
 
-  function handleAdd() {
+  const handleAdd = () => {
     isEdit.value = false
     Object.assign(formData, defaultForm)
     dialogVisible.value = true
   }
 
-  function handleEdit(row: AgentLevel) {
+  const handleEdit = (row: AgentLevelItem) => {
     isEdit.value = true
     Object.assign(formData, {
       id: row.id,
@@ -460,7 +482,7 @@
     dialogVisible.value = true
   }
 
-  function buildPayload() {
+  const buildPayload = (): AgentLevelPayload => {
     return {
       name: formData.name.trim(),
       discount: Number(formData.discount),
@@ -474,7 +496,7 @@
     }
   }
 
-  async function handleSubmit() {
+  const handleSubmit = async () => {
     const valid = await formRef.value?.validate().catch(() => false)
     if (!valid) return
 
@@ -482,20 +504,24 @@
     try {
       const payload = buildPayload()
       if (isEdit.value) {
-        await request.put({ url: `/api/agent-level/${formData.id}`, params: payload })
+        await fetchUpdateAgentLevel(formData.id, payload)
         ElMessage.success('编辑成功，已同步该等级下的代理商折扣')
       } else {
-        await request.post({ url: '/api/agent-level/create', params: payload })
+        await fetchCreateAgentLevel(payload)
         ElMessage.success('新增成功')
       }
       dialogVisible.value = false
-      handleSearch()
+      if (isEdit.value) {
+        refreshUpdate()
+      } else {
+        refreshCreate()
+      }
     } finally {
       submitLoading.value = false
     }
   }
 
-  async function handleToggle(row: AgentLevel) {
+  const handleToggle = async (row: AgentLevelItem) => {
     if (row.enabled && row.agentCount > 0) {
       ElMessage.warning('该等级已有代理商使用，不能禁用')
       return
@@ -504,28 +530,25 @@
     const action = row.enabled ? '禁用' : '启用'
     try {
       await ElMessageBox.confirm(`确定${action}等级「${row.name}」？`, '提示', { type: 'warning' })
-      await request.put({
-        url: `/api/agent-level/${row.id}`,
-        params: {
-          name: row.name,
-          discount: Number(row.discount),
-          selfServiceEnabled: row.selfServiceEnabled,
-          upgradePrice: Number(row.upgradePrice || 0),
-          openingBonus: Number(row.openingBonus || 0),
-          benefits: row.benefits || '',
-          sort: row.sort,
-          enabled: !row.enabled,
-          remark: row.remark
-        }
+      await fetchUpdateAgentLevel(row.id, {
+        name: row.name,
+        discount: Number(row.discount),
+        selfServiceEnabled: row.selfServiceEnabled,
+        upgradePrice: Number(row.upgradePrice || 0),
+        openingBonus: Number(row.openingBonus || 0),
+        benefits: row.benefits || '',
+        sort: row.sort,
+        enabled: !row.enabled,
+        remark: row.remark
       })
       ElMessage.success(`${action}成功`)
-      handleSearch()
+      refreshUpdate()
     } catch {
       return
     }
   }
 
-  async function handleDelete(row: AgentLevel) {
+  const handleDelete = async (row: AgentLevelItem) => {
     if (row.agentCount > 0) {
       ElMessage.warning('该等级已有代理商使用，不能删除')
       return
@@ -537,66 +560,56 @@
         confirmButtonText: '确认删除',
         confirmButtonClass: 'el-button--danger'
       })
-      await request.del({ url: `/api/agent-level/${row.id}` })
+      await fetchDeleteAgentLevel(row.id)
       ElMessage.success('删除成功')
-      handleSearch()
+      refreshRemove()
     } catch {
       return
     }
   }
-
-  onMounted(() => {
-    handleSearch()
-  })
 </script>
 
 <style scoped lang="scss">
   .agent-level-page {
-    .mb-4 {
-      margin-bottom: 16px;
-    }
+    .stats-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 12px;
 
-    .search-card {
-      :deep(.el-card__body) {
-        padding-bottom: 2px;
+      @media (width <= 992px) {
+        grid-template-columns: repeat(2, 1fr);
       }
     }
 
-    .search-input {
-      width: 220px;
-    }
-
-    .status-select {
-      width: 140px;
-    }
-
-    .level-overview {
-      row-gap: 16px;
-    }
-
-    .table-header {
+    .stat-card {
       display: flex;
-      gap: 16px;
       align-items: center;
       justify-content: space-between;
+      min-height: 64px;
+      padding: 16px 20px;
     }
 
-    .card-title {
-      font-size: 16px;
-      font-weight: 600;
-    }
-
-    .card-desc {
-      margin: 6px 0 0;
-      font-size: 12px;
-      line-height: 1.5;
+    .stat-label {
+      font-size: 13px;
       color: var(--el-text-color-secondary);
     }
 
-    .level-name {
-      display: flex;
-      gap: 8px;
-      align-items: center;
+    .stat-value {
+      font-size: 24px;
+      color: var(--el-text-color-primary);
+
+      &.text-primary {
+        color: var(--el-color-primary);
+      }
+
+      &.text-success {
+        color: var(--el-color-success);
+      }
+
+      &.text-warning {
+        color: var(--el-color-warning);
+      }
     }
 
     .discount-text {
@@ -613,12 +626,6 @@
       color: var(--el-text-color-regular);
     }
 
-    .pagination-wrapper {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: 16px;
-    }
-
     .form-unit {
       margin-left: 8px;
       color: var(--el-text-color-secondary);
@@ -633,55 +640,6 @@
       &.inline {
         margin-top: 0;
         margin-left: 12px;
-      }
-    }
-  }
-
-  .stat-card {
-    :deep(.el-card__body) {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      min-height: 64px;
-    }
-
-    .stat-label {
-      font-size: 13px;
-      color: var(--el-text-color-secondary);
-    }
-
-    strong {
-      font-size: 24px;
-      color: var(--el-text-color-primary);
-    }
-
-    &.primary strong {
-      color: var(--el-color-primary);
-    }
-
-    &.success strong {
-      color: var(--el-color-success);
-    }
-
-    &.warning strong {
-      color: var(--el-color-warning);
-    }
-
-    &.info strong {
-      color: var(--el-color-info);
-    }
-  }
-
-  @media (width <= 768px) {
-    .agent-level-page {
-      .table-header {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-
-      .search-input,
-      .status-select {
-        width: 100%;
       }
     }
   }

@@ -1,246 +1,323 @@
+<!-- 开码配额管理页面 -->
+<!-- art-full-height 自动计算出页面剩余高度 -->
+<!-- art-table-card 一个符合系统样式的 class，同时自动撑满剩余高度 -->
 <template>
-  <div class="agent-quota">
+  <div class="agent-quota-page art-full-height">
     <!-- 搜索栏 -->
-    <el-card shadow="hover" class="mb-4">
-      <el-form :model="searchForm" inline>
-        <el-form-item label="代理商">
-          <el-select v-model="searchForm.agentId" placeholder="全部" clearable style="width: 150px">
-            <el-option v-for="a in agentList" :key="a.id" :label="a.name" :value="a.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="应用">
-          <el-select v-model="searchForm.appId" placeholder="全部" clearable style="width: 140px">
-            <el-option v-for="app in appList" :key="app.id" :label="app.name" :value="app.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">查询</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+    <QuotaSearch v-model="searchForm" @search="handleSearch" @reset="resetSearchParams" />
 
-    <!-- 配额表格 -->
-    <el-card shadow="hover">
-      <template #header>
-        <div class="table-header">
-          <span class="card-title">开码配额</span>
-          <el-button type="primary" @click="handleAdd">分配配额</el-button>
-        </div>
-      </template>
+    <ElCard class="art-table-card" shadow="never">
+      <!-- 表格头部 -->
+      <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
+        <template #left>
+          <ElSpace wrap>
+            <ElButton @click="handleAdd" v-ripple>分配配额</ElButton>
+          </ElSpace>
+        </template>
+      </ArtTableHeader>
 
-      <el-table :data="tableData" stripe v-loading="loading">
-        <el-table-column prop="agentName" label="代理商" min-width="120" />
-        <el-table-column prop="appName" label="应用" width="120" />
-        <el-table-column prop="totalQuota" label="总配额" width="100" align="center" />
-        <el-table-column prop="usedQuota" label="已使用" width="100" align="center" />
-        <el-table-column label="剩余" width="100" align="center">
-          <template #default="{ row }">
-            <span :class="row.totalQuota - row.usedQuota <= 5 ? 'text-danger' : ''">
-              {{ row.totalQuota === -1 ? '无限' : row.totalQuota - row.usedQuota }}
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column label="使用率" width="160">
-          <template #default="{ row }">
-            <el-progress
-              v-if="row.totalQuota !== -1"
-              :percentage="Math.round((row.usedQuota / row.totalQuota) * 100)"
-              :color="getProgressColor(row.usedQuota / row.totalQuota)"
-              :stroke-width="8"
-            />
-            <el-tag v-else type="success" size="small">不限</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="price" label="单价(元)" width="100" align="right">
-          <template #default="{ row }">
-            ¥{{ row.price.toFixed(2) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="updatedAt" label="更新时间" width="160" />
-        <el-table-column label="操作" width="150" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="handleEdit(row)">调整</el-button>
-            <el-button link type="danger" size="small" @click="handleDelete(row)">移除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <!-- 表格 -->
+      <ArtTable
+        :loading="loading"
+        :data="data"
+        :columns="columns"
+        :pagination="pagination"
+        @pagination:size-change="handleSizeChange"
+        @pagination:current-change="handleCurrentChange"
+      >
+        <!-- 剩余 -->
+        <template #remaining="{ row }">
+          <span
+            :class="{ 'text-danger': row.totalQuota !== -1 && row.totalQuota - row.usedQuota <= 5 }"
+          >
+            {{ row.totalQuota === -1 ? '无限' : row.totalQuota - row.usedQuota }}
+          </span>
+        </template>
 
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[10, 20, 50]"
-          :total="pagination.total"
-          layout="total, sizes, prev, pager, next, jumper"
-          @size-change="handleSearch"
-          @current-change="handleSearch"
-        />
-      </div>
-    </el-card>
+        <!-- 使用率 -->
+        <template #usage="{ row }">
+          <ElProgress
+            v-if="row.totalQuota !== -1"
+            :percentage="Math.round((row.usedQuota / row.totalQuota) * 100)"
+            :color="getProgressColor(row.usedQuota / row.totalQuota)"
+            :stroke-width="8"
+          />
+          <ElTag v-else type="success" size="small">不限</ElTag>
+        </template>
+
+        <!-- 单价 -->
+        <template #price="{ row }"> ¥{{ Number(row.price || 0).toFixed(2) }} </template>
+
+        <!-- 操作 -->
+        <template #operation="{ row }">
+          <ElButton link type="primary" @click="handleEdit(row)">调整</ElButton>
+          <ElButton link type="danger" @click="handleDelete(row)">移除</ElButton>
+        </template>
+      </ArtTable>
+    </ElCard>
 
     <!-- 分配/调整弹窗 -->
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="480px" destroy-on-close>
-      <el-form :model="formData" :rules="formRules" ref="formRef" label-width="90px">
-        <el-form-item label="代理商" prop="agentId">
-          <el-select
+    <ElDialog v-model="dialogVisible" :title="dialogTitle" width="480px" destroy-on-close>
+      <ElForm :model="formData" :rules="formRules" ref="formRef" label-width="90px">
+        <ElFormItem label="代理商" prop="agentId">
+          <ElSelect
             v-model="formData.agentId"
             placeholder="请输入代理商名称搜索"
             filterable
             style="width: 100%"
             :disabled="isEdit"
           >
-            <el-option v-for="a in agentList" :key="a.id" :label="a.name" :value="a.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="应用" prop="appId">
-          <el-select v-model="formData.appId" placeholder="请选择" style="width: 100%" :disabled="isEdit">
-            <el-option v-for="app in appList" :key="app.id" :label="app.name" :value="app.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="总配额" prop="totalQuota">
-          <el-input-number v-model="formData.totalQuota" :min="0" :max="999999" :step="10" style="width: 200px" />
-        </el-form-item>
-        <el-form-item label="单价(元)" prop="price">
-          <el-input-number v-model="formData.price" :min="0" :max="999999" :step="10" :precision="2" style="width: 200px" />
-        </el-form-item>
-      </el-form>
+            <ElOption v-for="a in agentList" :key="a.id" :label="a.name" :value="a.id" />
+          </ElSelect>
+        </ElFormItem>
+        <ElFormItem label="应用" prop="appId">
+          <ElSelect
+            v-model="formData.appId"
+            placeholder="请选择"
+            style="width: 100%"
+            :disabled="isEdit"
+          >
+            <ElOption v-for="app in appList" :key="app.id" :label="app.name" :value="app.id" />
+          </ElSelect>
+        </ElFormItem>
+        <ElFormItem label="总配额" prop="totalQuota">
+          <ElInputNumber
+            v-model="formData.totalQuota"
+            :min="0"
+            :max="999999"
+            :step="10"
+            style="width: 200px"
+          />
+        </ElFormItem>
+        <ElFormItem label="单价(元)" prop="price">
+          <ElInputNumber
+            v-model="formData.price"
+            :min="0"
+            :max="999999"
+            :step="10"
+            :precision="2"
+            style="width: 200px"
+          />
+        </ElFormItem>
+      </ElForm>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <ElButton @click="dialogVisible = false">取消</ElButton>
+        <ElButton type="primary" @click="handleSubmit">确定</ElButton>
       </template>
-    </el-dialog>
+    </ElDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '@/utils/http'
+  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { useTable } from '@/hooks/core/useTable'
+  import {
+    fetchQuotaList,
+    fetchCreateQuota,
+    fetchUpdateQuota,
+    fetchDeleteQuota,
+    fetchAgentSelectList,
+    type AgentSelectOption,
+    type QuotaItem
+  } from '@/api/agent-manage'
+  import { fetchLicenseAppOptions, type LicenseAppOption } from '@/api/license-manage'
+  import QuotaSearch from './modules/quota-search.vue'
 
-const loading = ref(false)
-const dialogVisible = ref(false)
-const isEdit = ref(false)
-const dialogTitle = computed(() => (isEdit.value ? '调整配额' : '分配配额'))
+  defineOptions({ name: 'AgentQuota' })
 
-const searchForm = reactive({ agentId: '', appId: '' })
-const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
-
-const agentList = ref<{ id: string; name: string }[]>([])
-const appList = ref<{ id: string; name: string }[]>([])
-const tableData = ref<any[]>([])
-
-const formRef = ref()
-const formData = reactive({ id: 0, agentId: '', appId: '', totalQuota: 0, price: 0.00 })
-const formRules = {
-  agentId: [{ required: true, message: '请选择代理商', trigger: 'change' }],
-  appId: [{ required: true, message: '请选择应用', trigger: 'change' }],
-  totalQuota: [{ required: true, message: '请输入配额', trigger: 'blur' }],
-  price: [{ required: true, message: '请输入单价', trigger: 'blur' }]
-}
-
-function getProgressColor(ratio: number) {
-  if (ratio >= 0.9) return '#f56c6c'
-  if (ratio >= 0.7) return '#e6a23c'
-  return '#67c23a'
-}
-
-async function fetchAgentList() {
-  try {
-    const data = await request.get<any[]>({ url: '/api/agent/select-list' })
-    agentList.value = (data || []).map((a: any) => ({ id: String(a.id), name: a.name }))
-  } catch {}
-}
-
-async function fetchAppList() {
-  try {
-    const data = await request.get<any[]>({ url: '/api/license/apps' })
-    appList.value = (data || []).map((a: any) => ({ id: String(a.id), name: a.name }))
-  } catch {}
-}
-
-async function handleSearch() {
-  loading.value = true
-  try {
-    const params: Record<string, any> = { page: pagination.page, pageSize: pagination.pageSize }
-    if (searchForm.agentId) params.agentId = searchForm.agentId
-    if (searchForm.appId) params.appId = searchForm.appId
-
-    const data = await request.get<{ list: any[]; total: number }>({ url: '/api/quota/list', params })
-    tableData.value = data.list || []
-    pagination.total = data.total || 0
-  } catch (e) {
-    console.error('[Quota] 查询失败:', e)
-  } finally {
-    loading.value = false
+  interface QuotaSearchForm {
+    agentId?: string
+    appId?: string
   }
-}
 
-function handleReset() {
-  searchForm.agentId = ''
-  searchForm.appId = ''
-  pagination.page = 1
-  handleSearch()
-}
+  // 弹窗相关
+  const dialogVisible = ref(false)
+  const isEdit = ref(false)
+  const dialogTitle = computed(() => (isEdit.value ? '调整配额' : '分配配额'))
 
-function handleAdd() {
-  isEdit.value = false
-  Object.assign(formData, { id: 0, agentId: '', appId: '', totalQuota: 0, price: 0.00 })
-  dialogVisible.value = true
-}
+  // 搜索表单
+  const searchForm = ref<QuotaSearchForm>({
+    agentId: undefined,
+    appId: undefined
+  })
 
-function handleEdit(row: any) {
-  isEdit.value = true
-  Object.assign(formData, { id: row.id, agentId: String(row.agentId), appId: String(row.appId), totalQuota: row.totalQuota, price: row.price })
-  dialogVisible.value = true
-}
+  // 弹窗下拉选项
+  const agentList = ref<AgentSelectOption[]>([])
+  const appList = ref<LicenseAppOption[]>([])
 
-async function handleDelete(row: any) {
-  try {
-    await ElMessageBox.confirm(`移除「${row.agentName}」的「${row.appName}」配额？`, '提示', { type: 'warning' })
-    await request.del({ url: `/api/quota/${row.id}` })
-    ElMessage.success('已移除')
-    handleSearch()
-  } catch {}
-}
+  const formRef = ref()
+  const formData = reactive({ id: 0, agentId: '', appId: '', totalQuota: 0, price: 0.0 })
+  const formRules = {
+    agentId: [{ required: true, message: '请选择代理商', trigger: 'change' }],
+    appId: [{ required: true, message: '请选择应用', trigger: 'change' }],
+    totalQuota: [{ required: true, message: '请输入配额', trigger: 'blur' }],
+    price: [{ required: true, message: '请输入单价', trigger: 'blur' }]
+  }
 
-async function handleSubmit() {
-  const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
-
-  try {
-    if (isEdit.value) {
-      await request.put({
-        url: `/api/quota/${formData.id}`,
-        params: { totalQuota: formData.totalQuota, price: formData.price }
-      })
-      ElMessage.success('调整成功')
-    } else {
-      await request.post({
-        url: '/api/quota/create',
-        params: { agentId: Number(formData.agentId), appId: Number(formData.appId), totalQuota: formData.totalQuota, price: formData.price }
-      })
-      ElMessage.success('分配成功')
+  const {
+    columns,
+    columnChecks,
+    data,
+    loading,
+    pagination,
+    getData,
+    replaceSearchParams,
+    resetSearchParams,
+    handleSizeChange,
+    handleCurrentChange,
+    refreshData,
+    refreshCreate,
+    refreshUpdate,
+    refreshRemove
+  } = useTable({
+    // 核心配置
+    core: {
+      apiFn: fetchQuotaList,
+      apiParams: {
+        page: 1,
+        pageSize: 20,
+        ...searchForm.value
+      },
+      // 后端配额接口使用 page / pageSize 分页字段
+      paginationKey: {
+        current: 'page',
+        size: 'pageSize'
+      },
+      columnsFactory: () => [
+        { type: 'index', width: 60, label: '序号' }, // 序号
+        { prop: 'agentName', label: '代理商', minWidth: 120, showOverflowTooltip: true },
+        { prop: 'appName', label: '应用', width: 120 },
+        { prop: 'totalQuota', label: '总配额', width: 100, align: 'center' },
+        { prop: 'usedQuota', label: '已使用', width: 100, align: 'center' },
+        { prop: 'remaining', label: '剩余', width: 100, align: 'center', useSlot: true },
+        { prop: 'usage', label: '使用率', width: 160, useSlot: true },
+        { prop: 'price', label: '单价(元)', width: 100, align: 'right', useSlot: true },
+        { prop: 'updatedAt', label: '更新时间', width: 160 },
+        {
+          prop: 'operation',
+          label: '操作',
+          width: 130,
+          fixed: 'right',
+          useSlot: true
+        }
+      ]
+    },
+    // 数据处理
+    transform: {
+      dataTransformer: (records) => {
+        if (!Array.isArray(records)) {
+          return []
+        }
+        return records
+      }
     }
-    dialogVisible.value = false
-    handleSearch()
-  } catch (e) {
-    console.error('[Quota] 提交失败:', e)
-  }
-}
+  })
 
-onMounted(() => {
-  fetchAgentList()
-  fetchAppList()
-  handleSearch()
-})
+  /**
+   * 搜索处理
+   */
+  const handleSearch = (params: QuotaSearchForm) => {
+    replaceSearchParams(params)
+    getData()
+  }
+
+  const getProgressColor = (ratio: number) => {
+    if (ratio >= 0.9) return '#f56c6c'
+    if (ratio >= 0.7) return '#e6a23c'
+    return '#67c23a'
+  }
+
+  const fetchAgentOptions = async () => {
+    try {
+      const data = await fetchAgentSelectList()
+      agentList.value = (data || []).map((a) => ({ id: String(a.id), name: a.name }))
+    } catch {
+      agentList.value = []
+    }
+  }
+
+  const fetchAppOptions = async () => {
+    try {
+      const data = await fetchLicenseAppOptions()
+      appList.value = (data || []).map((a) => ({ id: String(a.id), name: a.name }))
+    } catch {
+      appList.value = []
+    }
+  }
+
+  const handleAdd = () => {
+    isEdit.value = false
+    Object.assign(formData, { id: 0, agentId: '', appId: '', totalQuota: 0, price: 0.0 })
+    dialogVisible.value = true
+  }
+
+  const handleEdit = (row: QuotaItem) => {
+    isEdit.value = true
+    Object.assign(formData, {
+      id: row.id,
+      agentId: String(row.agentId),
+      appId: String(row.appId),
+      totalQuota: row.totalQuota,
+      price: row.price
+    })
+    dialogVisible.value = true
+  }
+
+  const handleDelete = async (row: QuotaItem) => {
+    try {
+      await ElMessageBox.confirm(`移除「${row.agentName}」的「${row.appName}」配额？`, '提示', {
+        type: 'warning'
+      })
+      await fetchDeleteQuota(row.id)
+      ElMessage.success('已移除')
+      refreshRemove()
+    } catch {
+      return
+    }
+  }
+
+  const handleSubmit = async () => {
+    const valid = await formRef.value?.validate().catch(() => false)
+    if (!valid) return
+
+    try {
+      if (isEdit.value) {
+        await fetchUpdateQuota(formData.id, {
+          totalQuota: formData.totalQuota,
+          price: formData.price
+        })
+        ElMessage.success('调整成功')
+      } else {
+        await fetchCreateQuota({
+          agentId: Number(formData.agentId),
+          appId: Number(formData.appId),
+          totalQuota: formData.totalQuota,
+          price: formData.price
+        })
+        ElMessage.success('分配成功')
+      }
+      dialogVisible.value = false
+      if (isEdit.value) {
+        refreshUpdate()
+      } else {
+        refreshCreate()
+      }
+    } catch (e) {
+      console.error('[Quota] 提交失败:', e)
+    }
+  }
+
+  onMounted(() => {
+    fetchAgentOptions()
+    fetchAppOptions()
+  })
 </script>
 
 <style scoped lang="scss">
-.mb-4 { margin-bottom: 16px; }
-.table-header { display: flex; align-items: center; justify-content: space-between; }
-.card-title { font-weight: 600; }
-.pagination-wrapper { display: flex; justify-content: flex-end; margin-top: 16px; }
-.text-danger { color: #f56c6c; font-weight: 600; }
-.hint-text { margin-left: 8px; font-size: 12px; color: var(--el-text-color-secondary); }
+  .agent-quota-page {
+    .text-danger {
+      font-weight: 600;
+      color: var(--el-color-danger);
+    }
+  }
 </style>

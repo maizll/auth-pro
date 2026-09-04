@@ -1,136 +1,150 @@
+<!-- 应用管理页面 -->
+<!-- art-full-height 自动计算出页面剩余高度 -->
+<!-- art-table-card 一个符合系统样式的 class，同时自动撑满剩余高度 -->
 <template>
-  <div class="license-apps">
-    <el-card shadow="hover">
-      <template #header>
-        <div class="table-header">
-          <span class="card-title">应用管理</span>
-          <el-button type="primary" @click="handleAdd">新增应用</el-button>
-        </div>
-      </template>
+  <div class="license-apps-page art-full-height">
+    <ElCard class="art-table-card no-search-card" shadow="never">
+      <!-- 表格头部 -->
+      <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
+        <template #left>
+          <ElSpace wrap>
+            <ElButton @click="handleAdd" v-ripple>新增应用</ElButton>
+          </ElSpace>
+        </template>
+      </ArtTableHeader>
 
-      <el-table :data="tableData" stripe>
-        <el-table-column prop="name" label="应用名称" min-width="150" />
-        <el-table-column prop="appKey" label="AppKey" min-width="220" show-overflow-tooltip />
-        <el-table-column label="授权方式" min-width="250">
-          <template #default="{ row }">
-            <div v-if="row.purchaseLicenseTypes?.length" class="license-type-tags">
-              <el-tag
-                v-for="licenseType in orderedPurchaseLicenseTypes(row.purchaseLicenseTypes)"
-                :key="licenseType"
-                :type="purchaseLicenseTypeMeta[licenseType]?.tagType"
-                size="small"
-                effect="plain"
-              >
-                {{ purchaseLicenseTypeMeta[licenseType]?.label || licenseType }}
-              </el-tag>
-            </div>
-            <el-tag v-else type="info" size="small">已关闭购买</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="appSecret" label="AppSecret" min-width="220">
-          <template #default="{ row }">
-            <span v-if="!row.showSecret">••••••••••••••••</span>
-            <span v-else>{{ row.appSecret }}</span>
-            <el-button
-              link
-              type="primary"
+      <!-- 表格 -->
+      <ArtTable :loading="loading" :data="data" :columns="columns">
+        <!-- 授权方式 -->
+        <template #purchaseLicenseTypes="{ row }">
+          <div v-if="row.purchaseLicenseTypes?.length" class="license-type-tags">
+            <ElTag
+              v-for="licenseType in orderedPurchaseLicenseTypes(row.purchaseLicenseTypes)"
+              :key="licenseType"
+              :type="purchaseLicenseTypeMeta[licenseType]?.tagType"
               size="small"
-              @click="row.showSecret = !row.showSecret"
-              style="margin-left: 8px"
+              effect="plain"
             >
-              {{ row.showSecret ? '隐藏' : '查看' }}
-            </el-button>
-          </template>
-        </el-table-column>
-        <el-table-column prop="licenseCount" label="授权数" width="90" align="center" />
-        <el-table-column label="版本" min-width="120">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="handleVersions(row)">
-              {{ row.recentVersion || '未发布' }}
-            </el-button>
-            <span v-if="row.versionCount" class="version-count">{{ row.versionCount }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="status" label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
-              {{ row.enabled ? '启用' : '禁用' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="授权校验" width="100" align="center">
-          <template #default="{ row }">
-            <el-switch
-              v-model="row.licenseRequired"
-              :loading="row.licenseRequiredChanging"
-              :before-change="() => handleLicenseRequiredChange(row)"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column prop="createdAt" label="创建时间" width="160" />
-        <el-table-column label="操作" width="250" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="handleVersions(row)"
-              >版本</el-button
-            >
-            <el-button link type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
-            <el-button link type="primary" size="small" @click="handleResetSecret(row)"
-              >重置密钥</el-button
-            >
-            <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+              {{ purchaseLicenseTypeMeta[licenseType]?.label || licenseType }}
+            </ElTag>
+          </div>
+          <ElTag v-else type="info" size="small">已关闭购买</ElTag>
+        </template>
+
+        <!-- AppSecret -->
+        <template #appSecret="{ row }">
+          <span v-if="!row.showSecret">••••••••••••••••</span>
+          <span v-else>{{ row.appSecret }}</span>
+          <ElButton
+            link
+            type="primary"
+            size="small"
+            class="secret-toggle"
+            @click="row.showSecret = !row.showSecret"
+          >
+            {{ row.showSecret ? '隐藏' : '查看' }}
+          </ElButton>
+        </template>
+
+        <!-- 版本 -->
+        <template #version="{ row }">
+          <ElButton link type="primary" @click="handleVersions(row)">
+            {{ row.recentVersion || '未发布' }}
+          </ElButton>
+          <span v-if="row.versionCount" class="version-count">{{ row.versionCount }}</span>
+        </template>
+
+        <!-- 状态 -->
+        <template #enabled="{ row }">
+          <ElTag :type="row.enabled ? 'success' : 'info'" size="small">
+            {{ row.enabled ? '启用' : '禁用' }}
+          </ElTag>
+        </template>
+
+        <!-- 授权校验 -->
+        <template #licenseRequired="{ row }">
+          <ElSwitch
+            v-model="row.licenseRequired"
+            :loading="row.licenseRequiredChanging"
+            :before-change="() => handleLicenseRequiredChange(row)"
+          />
+        </template>
+
+        <!-- 操作 -->
+        <template #operation="{ row }">
+          <ElButton link type="primary" @click="handleVersions(row)">版本</ElButton>
+          <ElButton link type="primary" @click="handleEdit(row)">编辑</ElButton>
+          <ElButton link type="primary" @click="handleResetSecret(row)">重置密钥</ElButton>
+          <ElButton link type="danger" @click="handleDelete(row)">删除</ElButton>
+        </template>
+      </ArtTable>
+    </ElCard>
 
     <!-- 新增/编辑弹窗 -->
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="560px" destroy-on-close>
-      <el-form :model="formData" :rules="formRules" ref="formRef" label-width="100px">
-        <el-form-item label="应用名称" prop="name">
-          <el-input v-model="formData.name" placeholder="请输入应用名称" />
-        </el-form-item>
-        <el-form-item label="授权方式">
-          <el-checkbox-group v-model="formData.purchaseLicenseTypes" class="license-type-options">
-            <el-checkbox
+    <ElDialog v-model="dialogVisible" :title="dialogTitle" width="560px" destroy-on-close>
+      <ElForm :model="formData" :rules="formRules" ref="formRef" label-width="100px">
+        <ElFormItem label="应用名称" prop="name">
+          <ElInput v-model="formData.name" placeholder="请输入应用名称" />
+        </ElFormItem>
+        <ElFormItem label="授权方式">
+          <ElCheckboxGroup v-model="formData.purchaseLicenseTypes" class="license-type-options">
+            <ElCheckbox
               v-for="licenseType in purchaseLicenseTypeOrder"
               :key="licenseType"
               :value="licenseType"
             >
               {{ purchaseLicenseTypeMeta[licenseType].label }}
-            </el-checkbox>
-          </el-checkbox-group>
+            </ElCheckbox>
+          </ElCheckboxGroup>
           <div class="form-tip">全部取消后，用户端和代理端将不再显示该应用。</div>
-        </el-form-item>
-        <el-form-item label="回调地址">
-          <el-input v-model="formData.callbackUrl" placeholder="授权验证回调URL（可选）" />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-switch v-model="formData.enabled" active-text="启用" inactive-text="禁用" />
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="formData.remark" type="textarea" :rows="2" placeholder="可选" />
-        </el-form-item>
-      </el-form>
+        </ElFormItem>
+        <ElFormItem label="回调地址">
+          <ElInput v-model="formData.callbackUrl" placeholder="授权验证回调URL（可选）" />
+        </ElFormItem>
+        <ElFormItem label="状态">
+          <ElSwitch v-model="formData.enabled" active-text="启用" inactive-text="禁用" />
+        </ElFormItem>
+        <ElFormItem label="备注">
+          <ElInput v-model="formData.remark" type="textarea" :rows="2" placeholder="可选" />
+        </ElFormItem>
+      </ElForm>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <ElButton @click="dialogVisible = false">取消</ElButton>
+        <ElButton type="primary" @click="handleSubmit">确定</ElButton>
       </template>
-    </el-dialog>
+    </ElDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { ref, reactive, computed, onActivated } from 'vue'
   import { useRouter } from 'vue-router'
   import { ElMessage, ElMessageBox } from 'element-plus'
-  import request from '@/utils/http'
+  import { useTable } from '@/hooks/core/useTable'
+  import {
+    fetchLicenseAppList,
+    fetchCreateLicenseApp,
+    fetchUpdateLicenseApp,
+    fetchDeleteLicenseApp,
+    fetchResetAppSecret,
+    fetchUpdateAppLicenseRequired,
+    type LicenseAppItem
+  } from '@/api/license-manage'
 
-  const dialogVisible = ref(false)
+  defineOptions({ name: 'LicenseApps' })
+
+  /** 行级本地状态 */
+  type AppRow = LicenseAppItem & {
+    showSecret: boolean
+    licenseRequiredChanging: boolean
+  }
+
   const router = useRouter()
+
+  // 弹窗相关
+  const dialogVisible = ref(false)
   const isEdit = ref(false)
   const dialogTitle = computed(() => (isEdit.value ? '编辑应用' : '新增应用'))
 
-  const tableData = ref<any[]>([])
   const purchaseLicenseTypeOrder = ['domain', 'wildcard', 'ip', 'key'] as const
   const purchaseLicenseTypeMeta: Record<
     string,
@@ -156,25 +170,65 @@
     name: [{ required: true, message: '请输入应用名称', trigger: 'blur' }]
   }
 
-  function orderedPurchaseLicenseTypes(types: string[] = []) {
+  const { columns, columnChecks, data, loading, refreshData, refreshRemove } = useTable({
+    // 核心配置
+    core: {
+      apiFn: fetchLicenseAppList,
+      apiParams: {},
+      columnsFactory: () => [
+        { type: 'index', width: 60, label: '序号' }, // 序号
+        { prop: 'name', label: '应用名称', minWidth: 150, showOverflowTooltip: true },
+        { prop: 'appKey', label: 'AppKey', minWidth: 220, showOverflowTooltip: true },
+        {
+          prop: 'purchaseLicenseTypes',
+          label: '授权方式',
+          minWidth: 250,
+          useSlot: true
+        },
+        { prop: 'appSecret', label: 'AppSecret', minWidth: 220, useSlot: true },
+        { prop: 'licenseCount', label: '授权数', width: 90, align: 'center' },
+        { prop: 'version', label: '版本', minWidth: 120, useSlot: true },
+        { prop: 'enabled', label: '状态', width: 90, align: 'center', useSlot: true },
+        {
+          prop: 'licenseRequired',
+          label: '授权校验',
+          width: 100,
+          align: 'center',
+          useSlot: true
+        },
+        { prop: 'createdAt', label: '创建时间', width: 160 },
+        {
+          prop: 'operation',
+          label: '操作',
+          width: 230,
+          fixed: 'right',
+          useSlot: true
+        }
+      ]
+    },
+    // 数据处理
+    transform: {
+      dataTransformer: (records) => {
+        if (!Array.isArray(records)) {
+          return []
+        }
+        // 附加行级本地状态：密钥可见性、授权校验切换中
+        const normalized = (records as unknown as LicenseAppItem[]).map((item) => ({
+          ...item,
+          licenseRequired: item.licenseRequired !== false,
+          showSecret: false,
+          licenseRequiredChanging: false
+        }))
+        return normalized as unknown as typeof records
+      }
+    }
+  })
+
+  const orderedPurchaseLicenseTypes = (types: string[] = []) => {
     return purchaseLicenseTypeOrder.filter((licenseType) => types.includes(licenseType))
   }
 
-  async function fetchList() {
-    try {
-      const data = await request.get<any[]>({ url: '/api/app/list' })
-      tableData.value = (data || []).map((item: any) => ({
-        ...item,
-        licenseRequired: item.licenseRequired !== false,
-        showSecret: false,
-        licenseRequiredChanging: false
-      }))
-    } catch (e) {
-      console.error('[AppManage] 加载失败:', e)
-    }
-  }
-
-  function handleAdd() {
+  const handleAdd = () => {
     isEdit.value = false
     formData.id = 0
     formData.name = ''
@@ -185,20 +239,20 @@
     dialogVisible.value = true
   }
 
-  function handleEdit(row: any) {
+  const handleEdit = (row: AppRow) => {
     isEdit.value = true
     formData.id = row.id
     formData.name = row.name
     formData.callbackUrl = ''
     formData.enabled = row.enabled
-    formData.remark = row.remark
+    formData.remark = (row as LicenseAppItem & { remark?: string }).remark || ''
     formData.purchaseLicenseTypes = Array.isArray(row.purchaseLicenseTypes)
       ? [...row.purchaseLicenseTypes]
       : [...purchaseLicenseTypeOrder]
     dialogVisible.value = true
   }
 
-  async function handleLicenseRequiredChange(row: any) {
+  const handleLicenseRequiredChange = async (row: AppRow) => {
     const licenseRequired = !row.licenseRequired
     if (!licenseRequired) {
       try {
@@ -218,10 +272,7 @@
 
     row.licenseRequiredChanging = true
     try {
-      await request.put<{ licenseRequired: boolean }>({
-        url: `/api/app/${row.id}/license-required`,
-        params: { licenseRequired }
-      })
+      await fetchUpdateAppLicenseRequired(row.id, licenseRequired)
       ElMessage.success(licenseRequired ? '已要求授权校验' : '已关闭授权校验')
       return true
     } catch (e) {
@@ -232,16 +283,14 @@
     }
   }
 
-  async function handleResetSecret(row: any) {
+  const handleResetSecret = async (row: AppRow) => {
     try {
       await ElMessageBox.confirm(
         `确定重置应用「${row.name}」的AppSecret？旧密钥将立即失效`,
         '警告',
         { type: 'warning' }
       )
-      const data = await request.put<{ appSecret: string }>({
-        url: `/api/app/${row.id}/reset-secret`
-      })
+      const data = await fetchResetAppSecret(row.id)
       row.appSecret = data.appSecret
       ElMessage.success('密钥已重置')
     } catch {
@@ -249,98 +298,98 @@
     }
   }
 
-  function handleVersions(row: any) {
+  const handleVersions = (row: AppRow) => {
     router.push(`/license/apps/${row.id}/versions`)
   }
 
-  async function handleDelete(row: any) {
+  const handleDelete = async (row: AppRow) => {
     try {
       await ElMessageBox.confirm(
         `删除应用「${row.name}」将同时清除其所有授权记录，确定？`,
         '危险操作',
         { type: 'error' }
       )
-      await request.del({ url: `/api/app/${row.id}` })
+      await fetchDeleteLicenseApp(row.id)
       ElMessage.success('删除成功')
-      fetchList()
+      refreshRemove()
     } catch {
       // 用户取消操作时保留当前数据。
     }
   }
 
-  async function handleSubmit() {
+  const handleSubmit = async () => {
     const valid = await formRef.value?.validate().catch(() => false)
     if (!valid) return
 
     try {
       if (isEdit.value) {
-        await request.put({
-          url: `/api/app/${formData.id}`,
-          params: {
-            name: formData.name,
-            enabled: formData.enabled,
-            remark: formData.remark,
-            purchaseLicenseTypes: formData.purchaseLicenseTypes
-          }
+        await fetchUpdateLicenseApp(formData.id, {
+          name: formData.name,
+          enabled: formData.enabled,
+          remark: formData.remark,
+          purchaseLicenseTypes: formData.purchaseLicenseTypes
         })
         ElMessage.success('编辑成功')
       } else {
-        await request.post({
-          url: '/api/app/create',
-          params: {
-            name: formData.name,
-            enabled: formData.enabled,
-            remark: formData.remark,
-            purchaseLicenseTypes: formData.purchaseLicenseTypes
-          }
+        await fetchCreateLicenseApp({
+          name: formData.name,
+          enabled: formData.enabled,
+          remark: formData.remark,
+          purchaseLicenseTypes: formData.purchaseLicenseTypes
         })
         ElMessage.success('新增成功')
       }
       dialogVisible.value = false
-      fetchList()
+      refreshData()
     } catch (e) {
       console.error('[AppManage] 提交失败:', e)
     }
   }
 
+  // keep-alive 从版本管理返回时刷新列表（首次挂载由 useTable immediate 加载，跳过避免重复请求）
+  let activatedOnce = false
   onActivated(() => {
-    fetchList()
+    if (activatedOnce) {
+      refreshData()
+    }
+    activatedOnce = true
   })
 </script>
 
 <style scoped lang="scss">
-  .table-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
+  .license-apps-page {
+    // 无搜索栏时去掉表格卡片的上间距
+    .no-search-card {
+      margin-top: 0;
+    }
 
-  .card-title {
-    font-weight: 600;
-  }
+    .secret-toggle {
+      margin-left: 8px;
+    }
 
-  .version-count {
-    margin-left: 6px;
-    font-size: 12px;
-    color: var(--art-gray-600);
-  }
+    .version-count {
+      margin-left: 6px;
+      font-size: 12px;
+      color: var(--art-gray-600);
+    }
 
-  .license-type-tags,
-  .license-type-options {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
+    .license-type-tags,
+    .license-type-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
 
-  .license-type-options :deep(.el-checkbox) {
-    margin-right: 12px;
-  }
+    .license-type-options :deep(.el-checkbox) {
+      margin-right: 12px;
+    }
 
-  .form-tip {
-    width: 100%;
-    margin-top: 4px;
-    color: var(--el-text-color-secondary);
-    font-size: 12px;
-    line-height: 1.5;
+    .form-tip {
+      width: 100%;
+      margin-top: 4px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--el-text-color-secondary);
+    }
   }
 </style>

@@ -1,130 +1,102 @@
+<!-- 套餐管理页面 -->
+<!-- art-full-height 自动计算出页面剩余高度 -->
+<!-- art-table-card 一个符合系统样式的 class，同时自动撑满剩余高度 -->
 <template>
-  <div class="license-plans">
-    <el-card shadow="hover">
-      <template #header>
-        <div class="table-header">
-          <span class="card-title">套餐管理</span>
-          <el-button type="primary" @click="handleAdd">新增套餐</el-button>
-        </div>
-      </template>
+  <div class="license-plans-page art-full-height">
+    <!-- 搜索栏 -->
+    <PlanSearch v-model="searchForm" @search="handleSearch" @reset="resetSearchParams" />
 
-      <div class="search-bar">
-        <el-select
-          v-model="query.appId"
-          placeholder="选择应用"
-          clearable
-          style="width: 220px"
-          @change="fetchList"
-        >
-          <el-option v-for="app in appOptions" :key="app.id" :label="app.name" :value="app.id" />
-        </el-select>
-        <el-input
-          v-model="query.keyword"
-          placeholder="套餐名/应用名"
-          clearable
-          style="width: 220px"
-          @keyup.enter="fetchList"
-        />
-        <el-select
-          v-model="query.status"
-          placeholder="状态"
-          clearable
-          style="width: 140px"
-          @change="fetchList"
-        >
-          <el-option label="启用" value="enabled" />
-          <el-option label="禁用" value="disabled" />
-        </el-select>
-        <el-button type="primary" @click="fetchList">查询</el-button>
-        <el-button @click="handleReset">重置</el-button>
-      </div>
+    <ElCard class="art-table-card" shadow="never">
+      <!-- 表格头部 -->
+      <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
+        <template #left>
+          <ElSpace wrap>
+            <ElButton @click="handleAdd" v-ripple>新增套餐</ElButton>
+          </ElSpace>
+        </template>
+      </ArtTableHeader>
 
-      <el-table :data="tableData" stripe>
-        <el-table-column prop="appName" label="应用" min-width="150" />
-        <el-table-column prop="name" label="套餐名称" min-width="140" />
-        <el-table-column prop="licenseType" label="授权方式" width="110">
-          <template #default="{ row }">
-            <el-tag v-if="row.licenseType" size="small" effect="plain">{{
-              licenseTypeLabel(row.licenseType)
-            }}</el-tag>
-            <span v-else class="text-secondary">通用</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="durationText" label="授权时长" width="120" />
-        <el-table-column prop="price" label="价格" width="120">
-          <template #default="{ row }">¥{{ Number(row.price || 0).toFixed(2) }}</template>
-        </el-table-column>
-        <el-table-column label="最大站点数" width="110" align="center">
-          <template #default="{ row }">
-            <span v-if="row.licenseType === 'key'">{{ Number(row.maxSites || 0) || '不限' }}</span>
-            <span v-else class="text-secondary">--</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="sort" label="排序" width="80" align="center" />
-        <el-table-column prop="enabled" label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
-              {{ row.enabled ? '启用' : '禁用' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="createdAt" label="创建时间" width="160" />
-        <el-table-column label="操作" width="180" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
-            <el-button link type="primary" size="small" @click="handleToggle(row)">
-              {{ row.enabled ? '禁用' : '启用' }}
-            </el-button>
-            <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+      <!-- 表格（套餐接口不分页，展示全部结果） -->
+      <ArtTable :loading="loading" :data="data" :columns="columns">
+        <!-- 授权方式 -->
+        <template #licenseType="{ row }">
+          <ElTag v-if="row.licenseType" size="small" effect="plain">
+            {{ licenseTypeLabel(row.licenseType) }}
+          </ElTag>
+          <span v-else class="text-secondary">通用</span>
+        </template>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="520px" destroy-on-close>
-      <el-form ref="formRef" :model="formData" :rules="formRules" label-width="90px">
-        <el-form-item label="所属应用" prop="appId">
-          <el-select
+        <!-- 价格 -->
+        <template #price="{ row }"> ¥{{ Number(row.price || 0).toFixed(2) }} </template>
+
+        <!-- 最大站点数 -->
+        <template #maxSites="{ row }">
+          <span v-if="row.licenseType === 'key'">{{ Number(row.maxSites || 0) || '不限' }}</span>
+          <span v-else class="text-secondary">--</span>
+        </template>
+
+        <!-- 状态 -->
+        <template #enabled="{ row }">
+          <ElTag :type="row.enabled ? 'success' : 'info'" size="small">
+            {{ row.enabled ? '启用' : '禁用' }}
+          </ElTag>
+        </template>
+
+        <!-- 操作 -->
+        <template #operation="{ row }">
+          <ElButton link type="primary" @click="handleEdit(row)">编辑</ElButton>
+          <ElButton link type="primary" @click="handleToggle(row)">
+            {{ row.enabled ? '禁用' : '启用' }}
+          </ElButton>
+          <ElButton link type="danger" @click="handleDelete(row)">删除</ElButton>
+        </template>
+      </ArtTable>
+    </ElCard>
+
+    <!-- 新增/编辑弹窗 -->
+    <ElDialog v-model="dialogVisible" :title="dialogTitle" width="520px" destroy-on-close>
+      <ElForm ref="formRef" :model="formData" :rules="formRules" label-width="90px">
+        <ElFormItem label="所属应用" prop="appId">
+          <ElSelect
             v-model="formData.appId"
             placeholder="请选择应用"
             style="width: 100%"
             @change="handleAppChange"
           >
-            <el-option v-for="app in appOptions" :key="app.id" :label="app.name" :value="app.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="套餐名称" prop="name">
-          <el-input v-model="formData.name" placeholder="例如：1个月、3个月、1年、永久" />
-        </el-form-item>
-        <el-form-item label="授权方式" prop="licenseType">
-          <el-select
+            <ElOption v-for="app in appOptions" :key="app.id" :label="app.name" :value="app.id" />
+          </ElSelect>
+        </ElFormItem>
+        <ElFormItem label="套餐名称" prop="name">
+          <ElInput v-model="formData.name" placeholder="例如：1个月、3个月、1年、永久" />
+        </ElFormItem>
+        <ElFormItem label="授权方式" prop="licenseType">
+          <ElSelect
             v-model="formData.licenseType"
             placeholder="请选择授权方式"
             clearable
             style="width: 100%"
             :disabled="!formData.appId || availableLicenseTypes.length === 0"
           >
-            <el-option label="通用（当前应用全部授权方式）" value="" />
-            <el-option
+            <ElOption label="通用（当前应用全部授权方式）" value="" />
+            <ElOption
               v-for="licenseType in availableLicenseTypes"
               :key="licenseType"
               :label="licenseTypeLabels[licenseType] || licenseType"
               :value="licenseType"
             />
-          </el-select>
-          <div class="form-tip" style="margin-top: 4px; margin-left: 0">{{ licenseTypeTip }}</div>
-        </el-form-item>
-        <el-form-item label="快捷时长">
-          <el-space wrap>
-            <el-button size="small" @click="applyPreset('1个月', 30)">1个月</el-button>
-            <el-button size="small" @click="applyPreset('3个月', 90)">3个月</el-button>
-            <el-button size="small" @click="applyPreset('1年', 365)">1年</el-button>
-            <el-button size="small" @click="applyPreset('永久', 0)">永久</el-button>
-          </el-space>
-        </el-form-item>
-        <el-form-item label="授权天数" prop="durationDays">
-          <el-input-number
+          </ElSelect>
+          <div class="form-tip block">{{ licenseTypeTip }}</div>
+        </ElFormItem>
+        <ElFormItem label="快捷时长">
+          <ElSpace wrap>
+            <ElButton size="small" @click="applyPreset('1个月', 30)">1个月</ElButton>
+            <ElButton size="small" @click="applyPreset('3个月', 90)">3个月</ElButton>
+            <ElButton size="small" @click="applyPreset('1年', 365)">1年</ElButton>
+            <ElButton size="small" @click="applyPreset('永久', 0)">永久</ElButton>
+          </ElSpace>
+        </ElFormItem>
+        <ElFormItem label="授权天数" prop="durationDays">
+          <ElInputNumber
             v-model="formData.durationDays"
             :min="0"
             :precision="0"
@@ -132,18 +104,18 @@
             controls-position="right"
           />
           <span class="form-tip">0 表示永久</span>
-        </el-form-item>
-        <el-form-item label="价格" prop="price">
-          <el-input-number
+        </ElFormItem>
+        <ElFormItem label="价格" prop="price">
+          <ElInputNumber
             v-model="formData.price"
             :min="0"
             :precision="2"
             :step="10"
             controls-position="right"
           />
-        </el-form-item>
-        <el-form-item v-if="formData.licenseType === 'key'" label="最大站点数">
-          <el-input-number
+        </ElFormItem>
+        <ElFormItem v-if="formData.licenseType === 'key'" label="最大站点数">
+          <ElInputNumber
             v-model="formData.maxSites"
             :min="0"
             :precision="0"
@@ -151,46 +123,69 @@
             controls-position="right"
           />
           <span class="form-tip">0 表示不限制</span>
-        </el-form-item>
-        <el-form-item label="排序">
-          <el-input-number
+        </ElFormItem>
+        <ElFormItem label="排序">
+          <ElInputNumber
             v-model="formData.sort"
             :precision="0"
             :step="10"
             controls-position="right"
           />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-switch v-model="formData.enabled" active-text="启用" inactive-text="禁用" />
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="formData.remark" type="textarea" :rows="2" placeholder="可选" />
-        </el-form-item>
-      </el-form>
+        </ElFormItem>
+        <ElFormItem label="状态">
+          <ElSwitch v-model="formData.enabled" active-text="启用" inactive-text="禁用" />
+        </ElFormItem>
+        <ElFormItem label="备注">
+          <ElInput v-model="formData.remark" type="textarea" :rows="2" placeholder="可选" />
+        </ElFormItem>
+      </ElForm>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <ElButton @click="dialogVisible = false">取消</ElButton>
+        <ElButton type="primary" @click="handleSubmit">确定</ElButton>
       </template>
-    </el-dialog>
+    </ElDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, reactive, ref } from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
-  import request from '@/utils/http'
+  import { useTable } from '@/hooks/core/useTable'
+  import {
+    fetchPlanList,
+    fetchCreatePlan,
+    fetchUpdatePlan,
+    fetchTogglePlan,
+    fetchDeletePlan,
+    fetchLicenseAppList,
+    type LicenseAppItem,
+    type PlanItem,
+    type PlanPayload
+  } from '@/api/license-manage'
+  import PlanSearch from './modules/plan-search.vue'
 
-  const tableData = ref<any[]>([])
-  const appOptions = ref<any[]>([])
+  defineOptions({ name: 'LicensePlans' })
+
+  interface PlanSearchForm {
+    appId?: number
+    keyword?: string
+    status?: string
+  }
+
+  // 弹窗相关
   const dialogVisible = ref(false)
   const isEdit = ref(false)
   const formRef = ref()
+  const dialogTitle = computed(() => (isEdit.value ? '编辑套餐' : '新增套餐'))
 
-  const query = reactive({
-    appId: undefined as number | undefined,
-    keyword: '',
-    status: ''
+  // 搜索表单
+  const searchForm = ref<PlanSearchForm>({
+    appId: undefined,
+    keyword: undefined,
+    status: undefined
   })
+
+  // 弹窗应用选项（需要 purchaseLicenseTypes 联动授权方式）
+  const appOptions = ref<LicenseAppItem[]>([])
 
   const formData = reactive({
     id: 0,
@@ -225,11 +220,9 @@
     return `仅显示当前应用已配置的授权方式：${availableLicenseTypes.value.map(licenseTypeLabel).join('、')}`
   })
 
-  function licenseTypeLabel(value: string): string {
+  const licenseTypeLabel = (value: string): string => {
     return licenseTypeLabels[value] || value
   }
-
-  const dialogTitle = computed(() => (isEdit.value ? '编辑套餐' : '新增套餐'))
 
   const formRules = {
     appId: [{ required: true, message: '请选择应用', trigger: 'change' }],
@@ -238,31 +231,80 @@
     price: [{ required: true, message: '请输入价格', trigger: 'blur' }]
   }
 
-  async function fetchApps() {
-    const data = await request.get<any[]>({ url: '/api/app/list' })
-    appOptions.value = data || []
-  }
-
-  async function fetchList() {
-    const data = await request.get<any[]>({
-      url: '/api/plan/list',
-      params: {
-        appId: query.appId,
-        keyword: query.keyword,
-        status: query.status
+  const {
+    columns,
+    columnChecks,
+    data,
+    loading,
+    getData,
+    replaceSearchParams,
+    resetSearchParams,
+    refreshData,
+    refreshRemove
+  } = useTable({
+    // 核心配置
+    core: {
+      apiFn: fetchPlanList,
+      apiParams: {
+        page: 1,
+        pageSize: 20,
+        ...searchForm.value
+      },
+      // 后端套餐接口暂不分页，分页参数会被忽略
+      paginationKey: {
+        current: 'page',
+        size: 'pageSize'
+      },
+      columnsFactory: () => [
+        { type: 'index', width: 60, label: '序号' }, // 序号
+        { prop: 'appName', label: '应用', minWidth: 150, showOverflowTooltip: true },
+        { prop: 'name', label: '套餐名称', minWidth: 140, showOverflowTooltip: true },
+        { prop: 'licenseType', label: '授权方式', width: 110, align: 'center', useSlot: true },
+        { prop: 'durationText', label: '授权时长', width: 120 },
+        { prop: 'price', label: '价格', width: 120, align: 'right', useSlot: true },
+        { prop: 'maxSites', label: '最大站点数', width: 110, align: 'center', useSlot: true },
+        { prop: 'sort', label: '排序', width: 80, align: 'center' },
+        { prop: 'enabled', label: '状态', width: 90, align: 'center', useSlot: true },
+        { prop: 'remark', label: '备注', minWidth: 160, showOverflowTooltip: true },
+        { prop: 'createdAt', label: '创建时间', width: 160 },
+        {
+          prop: 'operation',
+          label: '操作',
+          width: 170,
+          fixed: 'right',
+          useSlot: true
+        }
+      ]
+    },
+    // 数据处理
+    transform: {
+      dataTransformer: (records) => {
+        if (!Array.isArray(records)) {
+          return []
+        }
+        return records
       }
-    })
-    tableData.value = data || []
+    }
+  })
+
+  /**
+   * 搜索处理
+   */
+  const handleSearch = (params: PlanSearchForm) => {
+    replaceSearchParams(params)
+    getData()
   }
 
-  function handleReset() {
-    query.appId = undefined
-    query.keyword = ''
-    query.status = ''
-    fetchList()
+  const fetchApps = async () => {
+    try {
+      const data = await fetchLicenseAppList()
+      appOptions.value = data || []
+    } catch {
+      appOptions.value = []
+    }
   }
 
-  function resetForm() {
+  const resetForm = () => {
     Object.assign(formData, {
       id: 0,
       appId: undefined,
@@ -277,25 +319,25 @@
     })
   }
 
-  function handleAppChange() {
+  const handleAppChange = () => {
     if (formData.licenseType && !availableLicenseTypes.value.includes(formData.licenseType)) {
       formData.licenseType = ''
     }
     formRef.value?.clearValidate('licenseType')
   }
 
-  function applyPreset(name: string, days: number) {
+  const applyPreset = (name: string, days: number) => {
     formData.name = name
     formData.durationDays = days
   }
 
-  function handleAdd() {
+  const handleAdd = () => {
     isEdit.value = false
     resetForm()
     dialogVisible.value = true
   }
 
-  function handleEdit(row: any) {
+  const handleEdit = (row: PlanItem) => {
     isEdit.value = true
     Object.assign(formData, {
       id: row.id,
@@ -313,11 +355,11 @@
     dialogVisible.value = true
   }
 
-  async function handleSubmit() {
+  const handleSubmit = async () => {
     const valid = await formRef.value?.validate().catch(() => false)
     if (!valid) return
 
-    const payload = {
+    const payload: PlanPayload = {
       appId: formData.appId,
       name: formData.name,
       licenseType: formData.licenseType,
@@ -330,62 +372,48 @@
     }
 
     if (isEdit.value) {
-      await request.put({ url: `/api/plan/${formData.id}`, data: payload })
+      await fetchUpdatePlan(formData.id, payload)
       ElMessage.success('编辑成功')
     } else {
-      await request.post({ url: '/api/plan/create', data: payload })
+      await fetchCreatePlan(payload)
       ElMessage.success('新增成功')
     }
     dialogVisible.value = false
-    fetchList()
+    refreshData()
   }
 
-  async function handleToggle(row: any) {
-    await request.put({ url: `/api/plan/${row.id}/toggle` })
+  const handleToggle = async (row: PlanItem) => {
+    await fetchTogglePlan(row.id)
     ElMessage.success('操作成功')
-    fetchList()
+    refreshData()
   }
 
-  async function handleDelete(row: any) {
+  const handleDelete = async (row: PlanItem) => {
     try {
       await ElMessageBox.confirm(`确定删除套餐「${row.name}」？`, '删除套餐', { type: 'warning' })
-      await request.del({ url: `/api/plan/${row.id}` })
+      await fetchDeletePlan(row.id)
       ElMessage.success('删除成功')
-      fetchList()
+      refreshRemove()
     } catch {
       return
     }
   }
 
-  onMounted(async () => {
-    await fetchApps()
-    fetchList()
-  })
+  onMounted(fetchApps)
 </script>
 
 <style scoped lang="scss">
-  .license-plans {
-    .table-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .card-title {
-      font-weight: 600;
-    }
-
-    .search-bar {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-bottom: 16px;
-    }
-
+  .license-plans-page {
     .form-tip {
       margin-left: 12px;
       font-size: 12px;
       color: var(--el-text-color-secondary);
+
+      &.block {
+        width: 100%;
+        margin-top: 4px;
+        margin-left: 0;
+      }
     }
 
     .text-secondary {
