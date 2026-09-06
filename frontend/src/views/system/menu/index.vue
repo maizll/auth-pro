@@ -96,7 +96,9 @@
     { label: '路由地址', key: 'route', type: 'input', props: { clearable: true } }
   ])
 
-  onMounted(() => { getMenuList() })
+  onMounted(() => {
+    getMenuList()
+  })
 
   const getMenuList = async (): Promise<void> => {
     loading.value = true
@@ -119,19 +121,49 @@
   }
 
   const { columnChecks, columns } = useTableColumns(() => [
-    { prop: 'title', label: '菜单名称', minWidth: 160, formatter: (row: MenuItem) => formatMenuTitle(row.title || row.name) },
-    { prop: 'type', label: '类型', width: 80, formatter: (row: MenuItem) => h(ElTag, { type: getMenuTypeTag(row) }, () => getMenuTypeText(row)) },
+    {
+      prop: 'title',
+      label: '菜单名称',
+      minWidth: 160,
+      formatter: (row: MenuItem) => formatMenuTitle(row.title || row.name)
+    },
+    {
+      prop: 'type',
+      label: '类型',
+      width: 80,
+      formatter: (row: MenuItem) =>
+        h(ElTag, { type: getMenuTypeTag(row) }, () => getMenuTypeText(row))
+    },
     { prop: 'icon', label: '图标', width: 80, formatter: (row: MenuItem) => row.icon || '-' },
     { prop: 'path', label: '路由', minWidth: 140, formatter: (row: MenuItem) => row.path },
-    { prop: 'component', label: '组件', minWidth: 160, formatter: (row: MenuItem) => row.component || '-' },
+    {
+      prop: 'component',
+      label: '组件',
+      minWidth: 160,
+      formatter: (row: MenuItem) => row.component || '-'
+    },
     { prop: 'sort', label: '排序', width: 70 },
-    { prop: 'enabled', label: '状态', width: 80, formatter: (row: MenuItem) => h(ElTag, { type: row.enabled ? 'success' : 'danger' }, () => row.enabled ? '启用' : '禁用') },
-    { prop: 'operation', label: '操作', width: 160, align: 'right', formatter: (row: MenuItem) => {
-      return h('div', { style: 'text-align: right' }, [
-        h(ArtButtonTable, { type: 'edit', onClick: () => handleEditMenu(row) }),
-        h(ArtButtonTable, { type: 'delete', onClick: () => handleDeleteMenu(row) })
-      ])
-    }}
+    {
+      prop: 'enabled',
+      label: '状态',
+      width: 80,
+      formatter: (row: MenuItem) =>
+        h(ElTag, { type: row.enabled ? 'success' : 'danger' }, () =>
+          row.enabled ? '启用' : '禁用'
+        )
+    },
+    {
+      prop: 'operation',
+      label: '操作',
+      width: 160,
+      align: 'right',
+      formatter: (row: MenuItem) => {
+        return h('div', { style: 'text-align: right' }, [
+          h(ArtButtonTable, { type: 'edit', onClick: () => handleEditMenu(row) }),
+          h(ArtButtonTable, { type: 'delete', onClick: () => handleDeleteMenu(row) })
+        ])
+      }
+    }
   ])
 
   const tableData = ref<MenuItem[]>([])
@@ -146,7 +178,9 @@
     Object.assign(appliedFilters, { ...formFilters })
   }
 
-  const handleRefresh = (): void => { getMenuList() }
+  const handleRefresh = (): void => {
+    getMenuList()
+  }
 
   const searchMenu = (items: MenuItem[]): MenuItem[] => {
     const results: MenuItem[] = []
@@ -171,17 +205,31 @@
 
   const filteredTableData = computed(() => searchMenu(tableData.value))
 
-  const handleAddMenu = (): void => { editData.value = null; dialogVisible.value = true }
-  const handleEditMenu = (row: MenuItem): void => { editData.value = row; dialogVisible.value = true }
+  const handleAddMenu = (): void => {
+    editData.value = null
+    dialogVisible.value = true
+  }
+  const handleEditMenu = (row: MenuItem): void => {
+    editData.value = row
+    dialogVisible.value = true
+  }
 
-  const handleSubmit = (): void => { getMenuList() }
+  const handleSubmit = (): void => {
+    getMenuList()
+  }
 
   const handleDeleteMenu = async (row: MenuItem): Promise<void> => {
     try {
-      await ElMessageBox.confirm('确定要删除该菜单吗？删除后无法恢复', '提示', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+      await ElMessageBox.confirm('确定要删除该菜单吗？删除后无法恢复', '提示', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
       await fetchDeleteMenu(row.id)
       getMenuList()
-    } catch (error) { /* cancelled */ }
+    } catch {
+      /* cancelled */
+    }
   }
 
   const toggleExpand = (): void => {

@@ -369,7 +369,12 @@
             })
           )
           ElMessage.success('登录成功')
-          router.push('/agent-panel/dashboard')
+          const redirect =
+            typeof route.query.redirect === 'string' &&
+            route.query.redirect.startsWith('/agent-panel')
+              ? route.query.redirect
+              : '/agent-panel/dashboard'
+          router.push(redirect)
         } else {
           ElMessage.error(data.msg || '登录失败')
         }

@@ -114,6 +114,8 @@ func main() {
 			agentSecured.GET("/purchase/pay-options", handler.AgentPanelPurchasePayOptions)
 			agentSecured.POST("/purchase", handler.AgentPanelPurchase)
 			agentSecured.GET("/purchase/orders/:orderNo", handler.AgentPanelPurchaseOrderStatus)
+			agentSecured.GET("/licenses/:id/versions", handler.PanelLicenseVersions)
+			agentSecured.POST("/licenses/:id/versions/:versionId/download-url", handler.PanelLicenseVersionDownloadURL)
 		}
 
 		// 用户端（无需管理员鉴权）
@@ -169,6 +171,8 @@ func main() {
 			userSecured.POST("/change-password", handler.UserChangePassword)
 			userSecured.POST("/realname/init", handler.UserRealnameInit)
 			userSecured.GET("/realname/query", handler.UserRealnameQuery)
+			userSecured.GET("/licenses/:id/versions", handler.PanelLicenseVersions)
+			userSecured.POST("/licenses/:id/versions/:versionId/download-url", handler.PanelLicenseVersionDownloadURL)
 		}
 
 		// 需要鉴权的路由（仅管理员角色）

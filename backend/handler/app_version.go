@@ -886,6 +886,202 @@ type appVersionScanner interface {
 	Scan(dest ...any) error
 }
 
+// ==================== 面板端（用户/代理商）授权版本下载 ====================
+
+// panelVersionItem 面板端可见的版本信息（不含内部存储路径、SQL 等敏感字段）
+type panelVersionItem struct {
+	ID            int64  `json:"id"`
+	Version       string `json:"version"`
+	Title         string `json:"title"`
+	Changelog     string `json:"changelog"`
+	PackageName   string `json:"packageName"`
+	SourceType    string `json:"sourceType"`
+	FileSizeBytes int64  `json:"fileSizeBytes"`
+	FileMD5       string `json:"fileMd5"`
+	ForceUpdate   bool   `json:"forceUpdate"`
+	PublishedAt   string `json:"publishedAt"`
+	Downloadable  bool   `json:"downloadable"`
+}
+
+// resolvePanelLicenseOwner 校验授权归属当前面板账号，返回授权所属应用 ID。
+// ownerType 为 "user" 或 "agent"，ownerID 为当前登录的面板账号 ID。
+func resolvePanelLicenseOwner(c *gin.Context, db *sql.DB, licenseID int64, ownerType string, ownerID uint) (int64, bool) {	var appID int64
+	var status string
+	var expiredAt sql.NullTime
+	err := db.QueryRow(`
+		SELECT app_id, status, expired_at FROM licenses
+		WHERE id = ? AND owner_type = ? AND owner_id = ?
+	`, licenseID, ownerType, ownerID).Scan(&appID, &status, &expiredAt)
+	if err != nil {
+		apiError(c, 404, "授权不存在或不属于当前账号")
+		return 0, false
+	}
+	if status != "active" {
+		apiError(c, 403, "授权已停用，无法下载更新包")
+		return 0, false
+	}
+	if expiredAt.Valid && !expiredAt.Time.After(time.Now()) {
+		apiError(c, 403, "授权已过期，无法下载更新包")
+		return 0, false
+	}
+	return appID, true
+}
+
+// panelOwnerContext 从 JWT 上下文中读取面板归属信息。
+// 仅允许 user / agent 角色；返回值 ok=false 时已写入错误响应。
+func panelOwnerContext(c *gin.Context) (string, uint, bool) {
+	role := c.GetString("role")
+	ownerID := c.GetUint("user_id")
+	if (role != "user" && role != "agent") || ownerID == 0 {
+		apiError(c, 401, "认证信息缺失")
+		return "", 0, false
+	}
+	return role, ownerID, true
+}
+
+// PanelLicenseVersions 面板端获取授权所属应用的版本列表。
+// 仅校验授权归属与有效性，不暴露内部存储路径和更新 SQL。
+func PanelLicenseVersions(c *gin.Context) {
+	ownerType, ownerID, ok := panelOwnerContext(c)
+	if !ok {
+		return
+	}
+	licenseID, err := positiveInt64(c.Param("id"))
+	if err != nil {
+		apiError(c, 400, "授权参数不正确")
+		return
+	}
+	db, err := openAppVersionDB()
+	if err != nil {
+		apiError(c, 500, "数据库连接失败")
+		return
+	}
+	if err := EnsureAppVersionsTable(db); err != nil {
+		apiError(c, 500, "初始化版本数据失败")
+		return
+	}
+	appID, ok := resolvePanelLicenseOwner(c, db, licenseID, ownerType, ownerID)
+	if !ok {
+		return
+	}
+
+	var appName string
+	db.QueryRow(`SELECT app_name FROM apps WHERE id = ? AND enabled = 1`, appID).Scan(&appName)
+	if appName == "" {
+		apiError(c, 404, "应用不存在或已禁用")
+		return
+	}
+
+	rows, err := db.Query(`
+		SELECT id, version, title, changelog, package_name, package_path, download_url,
+		       file_size_bytes, file_md5, force_update, published_at
+		FROM app_versions
+		WHERE app_id = ?
+		ORDER BY published_at DESC, id DESC
+	`, appID)
+	if err != nil {
+		apiError(c, 500, "查询版本列表失败")
+		return
+	}
+	defer rows.Close()
+
+	list := []panelVersionItem{}
+	for rows.Next() {
+		var item panelVersionItem
+		var packagePath, downloadURL sql.NullString
+		var publishedAt sql.NullTime
+		if err := rows.Scan(&item.ID, &item.Version, &item.Title, &item.Changelog,
+			&item.PackageName, &packagePath, &downloadURL,
+			&item.FileSizeBytes, &item.FileMD5, &item.ForceUpdate, &publishedAt); err != nil {
+			continue
+		}
+		if packagePath.Valid && packagePath.String != "" {
+			item.SourceType = "upload"
+			item.Downloadable = true
+		} else if downloadURL.Valid && downloadURL.String != "" {
+			item.SourceType = "url"
+			item.Downloadable = true
+		}
+		if publishedAt.Valid {
+			item.PublishedAt = publishedAt.Time.Format("2006-01-02 15:04")
+		}
+		list = append(list, item)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
+		"appName": appName,
+		"list":    list,
+	}})
+}
+
+// PanelLicenseVersionDownloadURL 面板端为授权所属应用的版本签发短期下载令牌。
+// 上传包返回签名令牌地址；外部 URL 直接返回原始地址。
+func PanelLicenseVersionDownloadURL(c *gin.Context) {
+	ownerType, ownerID, ok := panelOwnerContext(c)
+	if !ok {
+		return
+	}
+	licenseID, err := positiveInt64(c.Param("id"))
+	if err != nil {
+		apiError(c, 400, "授权参数不正确")
+		return
+	}
+	versionID, err := positiveInt64(c.Param("versionId"))
+	if err != nil {
+		apiError(c, 400, "版本参数不正确")
+		return
+	}
+	db, err := openAppVersionDB()
+	if err != nil {
+		apiError(c, 500, "数据库连接失败")
+		return
+	}
+	if err := EnsureAppVersionsTable(db); err != nil {
+		apiError(c, 500, "初始化版本数据失败")
+		return
+	}
+	appID, ok := resolvePanelLicenseOwner(c, db, licenseID, ownerType, ownerID)
+	if !ok {
+		return
+	}
+
+	var packagePath, downloadURL string
+	err = db.QueryRow(`
+		SELECT v.package_path, v.download_url
+		FROM app_versions v
+		INNER JOIN apps a ON a.id = v.app_id AND a.enabled = 1
+		WHERE v.id = ? AND v.app_id = ?
+	`, versionID, appID).Scan(&packagePath, &downloadURL)
+	if err != nil {
+		apiError(c, 404, "版本不存在")
+		return
+	}
+
+	// 外部下载地址：直接返回原始地址，无需令牌
+	if packagePath == "" {
+		if downloadURL == "" {
+			apiError(c, 404, "该版本没有可用下载地址")
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
+			"downloadUrl": downloadURL,
+			"external":    true,
+		}})
+		return
+	}
+
+	token, err := createAppVersionDownloadToken(versionID, appID, licenseID, "license")
+	if err != nil {
+		apiError(c, 500, "生成下载地址失败")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
+		"downloadUrl": "/api/app/version/download?token=" + url.QueryEscape(token),
+		"expiresIn":   int(appVersionDownloadTTL.Seconds()),
+		"external":    false,
+	}})
+}
+
 func scanAppVersion(scanner appVersionScanner) (appVersionRecord, error) {
 	var record appVersionRecord
 	err := scanner.Scan(

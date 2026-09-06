@@ -1133,7 +1133,11 @@
           localStorage.setItem('user_panel_token', data.data.accessToken)
           localStorage.setItem('user_panel_info', JSON.stringify(data.data))
           ElMessage.success('登录成功')
-          router.push('/user/dashboard')
+          const redirect =
+            typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/user')
+              ? route.query.redirect
+              : '/user/dashboard'
+          router.push(redirect)
         } else if (data.code === 409 && data.data?.converted) {
           authDialogVisible.value = false
           ElMessage.success(data.msg || '该账号已升级为代理，请前往代理端登录')

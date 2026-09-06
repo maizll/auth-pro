@@ -102,16 +102,22 @@
                   <div v-if="plan.promotion" class="promo-badge">{{ plan.promotion.name }}</div>
                   <div class="plan-head">
                     <span class="plan-name">{{ plan.name }}</span>
-                    <span v-if="plan.promotion" class="plan-tag promo">{{ promoRuleText(plan.promotion) }}</span>
+                    <span v-if="plan.promotion" class="plan-tag promo">{{
+                      promoRuleText(plan.promotion)
+                    }}</span>
                   </div>
                   <div class="plan-pricing">
                     <span class="plan-currency">¥</span>
                     <span class="plan-amount">{{ Number(plan.price).toFixed(2) }}</span>
-                    <span v-if="plan.promotion" class="plan-original">¥{{ Number(plan.originalPrice).toFixed(2) }}</span>
+                    <span v-if="plan.promotion" class="plan-original"
+                      >¥{{ Number(plan.originalPrice).toFixed(2) }}</span
+                    >
                   </div>
                   <div class="plan-meta">
                     <span class="plan-duration">{{ plan.durationText }}</span>
-                    <span v-if="plan.promotion" class="plan-time">活动截止：{{ plan.promotion.endsAt }}</span>
+                    <span v-if="plan.promotion" class="plan-time"
+                      >活动截止：{{ plan.promotion.endsAt }}</span
+                    >
                   </div>
                 </div>
               </div>
@@ -1070,7 +1076,11 @@
 
     &.has-promo {
       border-color: var(--el-color-danger-light-5);
-      background: linear-gradient(180deg, var(--el-color-danger-light-9) 0%, var(--el-bg-color) 70%);
+      background: linear-gradient(
+        180deg,
+        var(--el-color-danger-light-9) 0%,
+        var(--el-bg-color) 70%
+      );
     }
   }
 
@@ -1094,7 +1104,11 @@
     width: 50px;
     height: 50px;
     border-radius: 13px;
-    background: linear-gradient(135deg, var(--el-color-primary-light-8), var(--el-color-primary-light-9));
+    background: linear-gradient(
+      135deg,
+      var(--el-color-primary-light-8),
+      var(--el-color-primary-light-9)
+    );
     color: var(--el-color-primary);
     display: flex;
     align-items: center;
@@ -1272,17 +1286,29 @@
 
     &.active {
       border-color: var(--el-color-primary);
-      background: linear-gradient(180deg, var(--el-color-primary-light-9) 0%, var(--el-bg-color) 100%);
+      background: linear-gradient(
+        180deg,
+        var(--el-color-primary-light-9) 0%,
+        var(--el-bg-color) 100%
+      );
       box-shadow: 0 8px 22px rgba(64, 158, 255, 0.14);
     }
 
     &.has-promo {
       border-color: var(--el-color-danger-light-5);
-      background: linear-gradient(180deg, var(--el-color-danger-light-9) 0%, var(--el-bg-color) 70%);
+      background: linear-gradient(
+        180deg,
+        var(--el-color-danger-light-9) 0%,
+        var(--el-bg-color) 70%
+      );
 
       &.active {
         border-color: var(--el-color-danger);
-        background: linear-gradient(180deg, var(--el-color-danger-light-8) 0%, var(--el-color-danger-light-9) 100%);
+        background: linear-gradient(
+          180deg,
+          var(--el-color-danger-light-8) 0%,
+          var(--el-color-danger-light-9) 100%
+        );
       }
     }
   }

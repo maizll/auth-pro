@@ -2,21 +2,29 @@
 <template>
   <div class="user-center-page w-full min-h-full pb-8">
     <!-- 顶部个人背景与核心信息横幅 -->
-    <div class="art-card-sm user-hero-card mb-5 overflow-hidden border border-g-300/60 dark:border-g-800">
+    <div
+      class="art-card-sm user-hero-card mb-5 overflow-hidden border border-g-300/60 dark:border-g-800"
+    >
       <div class="user-hero-cover relative h-40 w-full overflow-hidden">
         <img class="w-full h-full object-cover select-none" src="@imgs/user/bg.webp" alt="cover" />
         <div class="hero-cover-mask absolute inset-0"></div>
         <div class="absolute right-5 top-5 flex items-center gap-2">
-          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium text-white/90 bg-black/35 backdrop-blur-md border border-white/15">
+          <span
+            class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium text-white/90 bg-black/35 backdrop-blur-md border border-white/15"
+          >
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             账号状态正常
           </span>
         </div>
       </div>
 
-      <div class="user-hero-body relative px-6 pb-5 pt-0 flex flex-wrap items-end justify-between gap-4">
+      <div
+        class="user-hero-body relative px-6 pb-5 pt-0 flex flex-wrap items-end justify-between gap-4"
+      >
         <div class="flex items-end gap-5">
-          <div class="user-avatar-wrap relative -mt-11 rounded-full p-1 bg-[var(--default-box-color)] shadow-md">
+          <div
+            class="user-avatar-wrap relative -mt-11 rounded-full p-1 bg-[var(--default-box-color)] shadow-md"
+          >
             <img
               class="w-22 h-22 rounded-full object-cover border-2 border-white/80 dark:border-g-700 shadow-sm"
               src="@imgs/user/avatar.webp"
@@ -26,7 +34,9 @@
           <div class="pb-1">
             <div class="flex items-center gap-3">
               <h1 class="text-xl font-semibold text-g-900 tracking-tight">{{ displayName }}</h1>
-              <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-700 dark:bg-primary-950/60 dark:text-primary-300 border border-primary-300/40 dark:border-primary-800/40">
+              <span
+                class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-700 dark:bg-primary-950/60 dark:text-primary-300 border border-primary-300/40 dark:border-primary-800/40"
+              >
                 {{ userRoleName }}
               </span>
             </div>
@@ -53,12 +63,7 @@
             <ArtSvgIcon icon="ri:edit-box-line" class="mr-1.5" />
             编辑基本资料
           </ElButton>
-          <ElButton
-            v-if="!isEditPwd"
-            class="!h-9 !px-4"
-            v-ripple
-            @click="isEditPwd = true"
-          >
+          <ElButton v-if="!isEditPwd" class="!h-9 !px-4" v-ripple @click="isEditPwd = true">
             <ArtSvgIcon icon="ri:lock-password-line" class="mr-1.5" />
             修改密码
           </ElButton>
@@ -70,9 +75,13 @@
     <div class="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
       <!-- 基本资料模块 -->
       <div class="art-card-sm border border-g-300/60 dark:border-g-800 overflow-hidden">
-        <div class="p-4 px-5 border-b border-g-200/80 dark:border-g-800/80 flex items-center justify-between">
+        <div
+          class="p-4 px-5 border-b border-g-200/80 dark:border-g-800/80 flex items-center justify-between"
+        >
           <div class="flex items-center gap-2">
-            <div class="w-8 h-8 rounded-lg bg-primary-100 text-primary-700 dark:bg-primary-950/80 dark:text-primary-300 flex items-center justify-center text-base">
+            <div
+              class="w-8 h-8 rounded-lg bg-primary-100 text-primary-700 dark:bg-primary-950/80 dark:text-primary-300 flex items-center justify-center text-base"
+            >
               <ArtSvgIcon icon="ri:user-settings-line" />
             </div>
             <div>
@@ -81,7 +90,9 @@
             </div>
           </div>
           <ElTag v-if="isEdit" type="warning" size="small" effect="plain">编辑中</ElTag>
-          <ElTag v-else type="info" size="small" effect="plain">UID: #{{ userInfo.userId || '-' }}</ElTag>
+          <ElTag v-else type="info" size="small" effect="plain"
+            >UID: #{{ userInfo.userId || '-' }}</ElTag
+          >
         </div>
 
         <div class="p-5">
@@ -138,10 +149,10 @@
               </ElFormItem>
             </div>
 
-            <div class="flex items-center justify-end gap-3 pt-4 border-t border-g-200/60 dark:border-g-800/60 mt-1">
-              <ElButton v-if="isEdit" class="!px-5" v-ripple @click="cancelEdit">
-                取消
-              </ElButton>
+            <div
+              class="flex items-center justify-end gap-3 pt-4 border-t border-g-200/60 dark:border-g-800/60 mt-1"
+            >
+              <ElButton v-if="isEdit" class="!px-5" v-ripple @click="cancelEdit"> 取消 </ElButton>
               <ElButton
                 type="primary"
                 class="!px-6"
@@ -158,9 +169,13 @@
 
       <!-- 安全设置模块 -->
       <div class="art-card-sm border border-g-300/60 dark:border-g-800 overflow-hidden">
-        <div class="p-4 px-5 border-b border-g-200/80 dark:border-g-800/80 flex items-center justify-between">
+        <div
+          class="p-4 px-5 border-b border-g-200/80 dark:border-g-800/80 flex items-center justify-between"
+        >
           <div class="flex items-center gap-2">
-            <div class="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300 flex items-center justify-center text-base">
+            <div
+              class="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300 flex items-center justify-center text-base"
+            >
               <ArtSvgIcon icon="ri:lock-password-line" />
             </div>
             <div>
@@ -224,7 +239,9 @@
               </ElFormItem>
             </div>
 
-            <div class="flex items-center justify-end gap-3 pt-4 border-t border-g-200/60 dark:border-g-800/60 mt-1">
+            <div
+              class="flex items-center justify-end gap-3 pt-4 border-t border-g-200/60 dark:border-g-800/60 mt-1"
+            >
               <ElButton v-if="isEditPwd" class="!px-5" v-ripple @click="cancelEditPwd">
                 取消
               </ElButton>
@@ -416,4 +433,3 @@
     }
   }
 </style>
-

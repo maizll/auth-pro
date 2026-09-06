@@ -125,7 +125,6 @@
 
     <!-- 标签页 -->
     <ArtWorkTab />
-
   </div>
 </template>
 
@@ -251,7 +250,6 @@
       settingStore.hideSettingGuide()
     }
   }
-
 </script>
 
 <style lang="scss" scoped>

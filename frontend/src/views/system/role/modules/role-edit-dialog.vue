@@ -12,18 +12,10 @@
       </ElFormItem>
       <ElFormItem label="应用权限" prop="appPermissions">
         <div class="app-permission-section">
-          <ElCheckbox
-            v-model="form.allApps"
-            @change="handleAllAppsChange"
-          >所有应用权限</ElCheckbox>
+          <ElCheckbox v-model="form.allApps" @change="handleAllAppsChange">所有应用权限</ElCheckbox>
           <div class="app-list" v-if="!form.allApps">
             <ElCheckboxGroup v-model="form.appPermissions">
-              <ElCheckbox
-                v-for="app in appList"
-                :key="app.id"
-                :value="app.id"
-                class="app-checkbox"
-              >
+              <ElCheckbox v-for="app in appList" :key="app.id" :value="app.id" class="app-checkbox">
                 <div class="app-check-item">
                   <span class="app-check-name">{{ app.name }}</span>
                   <ElTag size="small" type="info">{{ app.code }}</ElTag>
@@ -46,7 +38,9 @@
       </ElFormItem>
       <ElFormItem label="折扣" prop="discount">
         <ElInputNumber v-model="form.discount" :min="1" :max="10" :step="0.5" :precision="1" />
-        <span style="margin-left: 8px; font-size: 12px; color: var(--el-text-color-secondary)">1~10，10为无折扣</span>
+        <span style="margin-left: 8px; font-size: 12px; color: var(--el-text-color-secondary)"
+          >1~10，10为无折扣</span
+        >
       </ElFormItem>
       <ElFormItem label="启用">
         <ElSwitch v-model="form.enabled" />
@@ -126,7 +120,7 @@
 
   function handleAllAppsChange(val: boolean | string | number) {
     if (val) {
-      form.appPermissions = appList.value.map(a => a.id)
+      form.appPermissions = appList.value.map((a) => a.id)
     } else {
       form.appPermissions = []
     }
@@ -222,7 +216,9 @@
         margin-right: 0;
         width: 100%;
 
-        &:last-child { margin-bottom: 0; }
+        &:last-child {
+          margin-bottom: 0;
+        }
       }
 
       .app-check-item {

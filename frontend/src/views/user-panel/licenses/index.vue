@@ -82,7 +82,7 @@
             <span v-else class="text-secondary">--</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right" align="center">
+        <el-table-column label="操作" width="200" fixed="right" align="center">
           <template #default="{ row }">
             <el-button
               v-if="canEditTargetType(row.type)"
@@ -94,6 +94,9 @@
               {{ row.bindingPending ? '绑定目标' : '修改目标' }}
             </el-button>
             <el-text v-else-if="row.type !== 'key'" type="info" size="small">不可修改</el-text>
+            <el-button link type="primary" size="small" @click="openVersionsDialog(row)">
+              版本下载
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -262,6 +265,12 @@
         <el-button type="primary" @click="closeRedeemResult">完成</el-button>
       </template>
     </el-dialog>
+
+    <LicenseVersionsDialog
+      ref="versionsDialogRef"
+      api-prefix="/api/user-panel"
+      token-key="user_panel_token"
+    />
   </div>
 </template>
 
@@ -270,6 +279,7 @@
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
+  import LicenseVersionsDialog from '@/components/core/panels/LicenseVersionsDialog.vue'
 
   const loading = ref(false)
   const searchForm = reactive({ keyword: '', appId: '', status: '' })
@@ -294,6 +304,12 @@
     maxSites: 0,
     list: [] as any[]
   })
+
+  const versionsDialogRef = ref<InstanceType<typeof LicenseVersionsDialog>>()
+
+  function openVersionsDialog(row: any) {
+    versionsDialogRef.value?.open({ id: row.id, appName: row.appName })
+  }
 
   const redeemDialog = reactive({
     visible: false,

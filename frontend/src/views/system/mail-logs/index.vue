@@ -80,8 +80,12 @@
 
     <ElDialog v-model="detailVisible" title="邮件详情" width="760px">
       <ElDescriptions v-if="current" :column="1" border>
-        <ElDescriptionsItem label="事件类型">{{ eventTypeLabels[current.eventType] || current.eventType }}</ElDescriptionsItem>
-        <ElDescriptionsItem label="状态">{{ statusLabels[current.status] || current.status }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="事件类型">{{
+          eventTypeLabels[current.eventType] || current.eventType
+        }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="状态">{{
+          statusLabels[current.status] || current.status
+        }}</ElDescriptionsItem>
         <ElDescriptionsItem label="收件邮箱">{{ current.recipient || '-' }}</ElDescriptionsItem>
         <ElDescriptionsItem label="标题">{{ current.subject || '-' }}</ElDescriptionsItem>
         <ElDescriptionsItem label="错误信息">{{ current.error || '-' }}</ElDescriptionsItem>
@@ -102,7 +106,12 @@
 </template>
 
 <script setup lang="ts">
-  import { fetchMailLogDetail, fetchMailLogList, MailLogItem, MailLogSearchParams } from '@/api/system-manage'
+  import {
+    fetchMailLogDetail,
+    fetchMailLogList,
+    MailLogItem,
+    MailLogSearchParams
+  } from '@/api/system-manage'
 
   defineOptions({ name: 'MailLogs' })
 

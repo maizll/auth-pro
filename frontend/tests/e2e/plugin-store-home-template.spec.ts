@@ -304,7 +304,9 @@ test('模板 API Key 缺失不影响原插件商店', async ({ page }) => {
   await mockAdminAndTemplateAPIs(page, true)
   await loginAsAdmin(page)
   await expect(page.getByText('易支付 V1', { exact: true })).toBeVisible()
-  await expect(page.getByText(/首页模板加载失败：软件源目录 API Key 未配置。插件商店不受影响/)).toBeVisible()
+  await expect(
+    page.getByText(/首页模板加载失败：软件源目录 API Key 未配置。插件商店不受影响/)
+  ).toBeVisible()
 })
 
 test('应用商店可启用远程模板并切回默认首页', async ({ page }) => {
