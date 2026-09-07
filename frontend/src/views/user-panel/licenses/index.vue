@@ -1,59 +1,74 @@
 <template>
   <div class="user-licenses">
-    <!-- 筛选 -->
-    <el-card shadow="hover" class="mb-4">
-      <el-form :model="searchForm" inline>
-        <el-form-item label="搜索">
+    <!-- 授权列表卡片：筛选工具栏 + 表格 + 分页 -->
+    <div class="art-card licenses-card">
+      <div class="licenses-toolbar">
+        <div class="toolbar-filters">
           <el-input
             v-model="searchForm.keyword"
-            placeholder="域名/IP/密钥"
+            placeholder="搜索域名 / IP / 密钥"
             clearable
-            style="width: 180px"
-          />
-        </el-form-item>
-        <el-form-item label="应用">
-          <el-select v-model="searchForm.appId" placeholder="全部" clearable style="width: 130px">
+            class="filter-keyword"
+            @keyup.enter="handleSearch"
+          >
+            <template #prefix>
+              <iconify-icon icon="ri:search-line" width="15" />
+            </template>
+          </el-input>
+          <el-select
+            v-model="searchForm.appId"
+            placeholder="全部应用"
+            clearable
+            class="filter-select"
+          >
             <el-option v-for="app in appList" :key="app.id" :label="app.name" :value="app.id" />
           </el-select>
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="searchForm.status" placeholder="全部" clearable style="width: 110px">
+          <el-select
+            v-model="searchForm.status"
+            placeholder="全部状态"
+            clearable
+            class="filter-select status-select"
+          >
             <el-option label="正常" value="active" />
             <el-option label="即将到期" value="expiring" />
             <el-option label="已过期" value="expired" />
           </el-select>
-        </el-form-item>
-        <el-form-item>
           <el-button type="primary" @click="handleSearch">查询</el-button>
           <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
-    <!-- 授权列表 -->
-    <el-card shadow="hover">
-      <template #header>
-        <div class="card-header">
-          <span class="card-title">我的授权</span>
-          <el-button type="primary" @click="openRedeemDialog">兑换卡密</el-button>
         </div>
-      </template>
-      <el-table :data="tableData" stripe v-loading="loading">
-        <el-table-column label="域名/IP/密钥" min-width="200" show-overflow-tooltip>
+        <el-button type="primary" class="redeem-btn" @click="openRedeemDialog">
+          <iconify-icon icon="ri:ticket-2-line" width="15" />
+          兑换卡密
+        </el-button>
+      </div>
+
+      <el-table :data="tableData" stripe v-loading="loading" class="licenses-table">
+        <el-table-column label="域名/IP/密钥" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
-            <el-tag v-if="row.bindingPending" type="warning" size="small">待绑定</el-tag>
-            <span v-else>{{ row.domain || '--' }}</span>
+            <div class="target-cell">
+              <span class="target-icon" :class="`target-icon-${row.type}`">
+                <iconify-icon :icon="typeIconMap[row.type] || 'ri:global-line'" width="15" />
+              </span>
+              <el-tag v-if="row.bindingPending" type="warning" size="small">待绑定</el-tag>
+              <span v-else class="target-value" :class="{ mono: row.type !== 'domain' }">{{
+                row.domain || '--'
+              }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="appName" label="应用" width="110" />
+        <el-table-column prop="appName" label="应用" width="110" show-overflow-tooltip />
         <el-table-column prop="typeLabel" label="类型" width="80">
           <template #default="{ row }">
-            <el-tag :type="typeTagMap[row.type]" size="small">{{ row.typeLabel }}</el-tag>
+            <el-tag :type="typeTagMap[row.type]" size="small" effect="light">{{
+              row.typeLabel
+            }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="statusLabel" label="状态" width="90" align="center">
           <template #default="{ row }">
-            <el-tag :type="statusTagMap[row.status]" size="small">{{ row.statusLabel }}</el-tag>
+            <el-tag :type="statusTagMap[row.status]" size="small" effect="light">{{
+              row.statusLabel
+            }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="expireAt" label="到期时间" width="130" />
@@ -65,7 +80,7 @@
         </el-table-column>
         <el-table-column prop="amount" label="套餐原价" width="110" align="right">
           <template #default="{ row }">
-            <span>{{ formatLicenseAmount(row.amount) }}</span>
+            <span class="amount-text">{{ formatLicenseAmount(row.amount) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="站点" width="110" align="center">
@@ -99,6 +114,9 @@
             </el-button>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="暂无授权记录" :image-size="80" />
+        </template>
       </el-table>
 
       <div class="pagination-wrapper">
@@ -112,7 +130,7 @@
           @size-change="fetchList"
         />
       </div>
-    </el-card>
+    </div>
 
     <el-dialog v-model="editDialog.visible" title="修改授权目标" width="420px" destroy-on-close>
       <el-form label-width="90px">
@@ -334,6 +352,12 @@
     wildcard: 'success',
     ip: 'warning',
     key: 'info'
+  }
+  const typeIconMap: Record<string, string> = {
+    domain: 'ri:global-line',
+    wildcard: 'ri:asterisk',
+    ip: 'ri:router-line',
+    key: 'ri:key-2-line'
   }
   const statusTagMap: Record<string, TagType | undefined> = {
     active: 'success',
@@ -584,8 +608,12 @@
 </script>
 
 <style scoped lang="scss">
-  .mb-4 {
-    margin-bottom: 16px;
+  .user-licenses {
+    .art-card {
+      overflow: hidden;
+      background: var(--el-bg-color);
+      border-radius: 12px !important;
+    }
   }
 
   .mb-3 {
@@ -596,25 +624,115 @@
     color: var(--el-text-color-secondary);
   }
 
-  .card-header {
+  .licenses-card {
+    padding: 20px;
+  }
+
+  // 工具栏：左侧筛选，右侧兑换入口
+  .licenses-toolbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
   }
 
-  .card-title {
+  .toolbar-filters {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .filter-keyword {
+    width: 220px;
+  }
+
+  .filter-select {
+    width: 130px;
+  }
+
+  .status-select {
+    width: 120px;
+  }
+
+  .redeem-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  // 表格细节
+  .licenses-table {
+    :deep(.el-table__header th) {
+      background: var(--el-fill-color-light);
+      color: var(--el-text-color-secondary);
+      font-weight: 600;
+    }
+  }
+
+  .target-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .target-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    background: var(--el-color-primary-light-9);
+    color: var(--el-color-primary);
+  }
+
+  .target-icon-wildcard {
+    background: var(--el-color-success-light-9);
+    color: var(--el-color-success);
+  }
+
+  .target-icon-ip {
+    background: var(--el-color-warning-light-9);
+    color: var(--el-color-warning);
+  }
+
+  .target-icon-key {
+    background: var(--el-color-info-light-9);
+    color: var(--el-color-info);
+  }
+
+  .target-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--el-text-color-primary);
+
+    &.mono {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+    }
+  }
+
+  .source-text {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .amount-text {
+    font-family: 'DIN Alternate', 'Roboto Mono', monospace;
     font-weight: 600;
+    color: var(--el-text-color-primary);
   }
 
   .pagination-wrapper {
     display: flex;
     justify-content: flex-end;
     margin-top: 16px;
-  }
-
-  .source-text {
-    font-size: 12px;
-    color: var(--el-text-color-secondary);
   }
 
   .target-editor {
@@ -645,5 +763,30 @@
   .license-key-result {
     width: 100%;
     min-width: 360px;
+  }
+
+  @media (max-width: 768px) {
+    .licenses-card {
+      padding: 14px;
+    }
+
+    .filter-keyword,
+    .filter-select,
+    .status-select {
+      width: 100%;
+    }
+
+    .toolbar-filters {
+      width: 100%;
+    }
+
+    .redeem-btn {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .pagination-wrapper {
+      justify-content: center;
+    }
   }
 </style>

@@ -1,7 +1,5 @@
 <template>
   <div class="user-dashboard">
-    <ArtAdSlot position="home-banner" height="120px" class="mb-5" />
-
     <!-- 欢迎卡片 -->
     <div class="art-card p-6 mb-5 welcome-card">
       <div class="welcome-content">

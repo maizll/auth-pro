@@ -2,46 +2,74 @@
 <template>
   <el-dialog
     v-model="visible"
-    :title="`版本下载${appName ? ` · ${appName}` : ''}`"
-    width="640px"
+    width="680px"
     destroy-on-close
     class="license-versions-dialog"
+    :show-close="false"
   >
+    <template #header>
+      <div class="dialog-header">
+        <div class="dialog-header-icon">
+          <iconify-icon icon="ri:archive-stack-line" width="20" />
+        </div>
+        <div class="dialog-header-text">
+          <span class="dialog-title">版本下载</span>
+          <span v-if="appName" class="dialog-subtitle">{{ appName }}</span>
+        </div>
+        <button class="dialog-close" type="button" aria-label="关闭" @click="visible = false">
+          <iconify-icon icon="ri:close-line" width="16" />
+        </button>
+      </div>
+    </template>
+
     <div v-loading="loading" class="version-list">
       <template v-if="versions.length">
-        <div v-for="item in versions" :key="item.id" class="version-item">
+        <div
+          v-for="item in versions"
+          :key="item.id"
+          class="version-item"
+          :class="{ 'is-latest': isLatest(item) }"
+        >
+          <div class="version-icon">
+            <iconify-icon icon="ri:file-zip-line" width="20" />
+          </div>
           <div class="version-main">
             <div class="version-title-row">
               <span class="version-number">v{{ item.version }}</span>
-              <el-tag v-if="item.forceUpdate" type="danger" size="small" effect="plain">
-                强制更新
-              </el-tag>
-              <el-tag v-if="isLatest(item)" type="success" size="small" effect="plain">
+              <el-tag v-if="isLatest(item)" type="success" size="small" effect="light" round>
                 最新版本
               </el-tag>
+              <el-tag v-if="item.forceUpdate" type="danger" size="small" effect="light" round>
+                强制更新
+              </el-tag>
             </div>
-            <div class="version-title">{{ item.title }}</div>
+            <div v-if="item.title" class="version-title">{{ item.title }}</div>
             <div class="version-meta">
-              <span>{{ item.publishedAt }}</span>
-              <template v-if="item.fileSizeBytes">
-                <i></i>
-                <span>{{ formatFileSize(item.fileSizeBytes) }}</span>
-              </template>
-              <template v-if="item.packageName">
-                <i></i>
-                <span class="package-name">{{ item.packageName }}</span>
-              </template>
+              <span class="meta-entry">
+                <iconify-icon icon="ri:time-line" width="13" />
+                {{ item.publishedAt }}
+              </span>
+              <span v-if="item.fileSizeBytes" class="meta-entry">
+                <iconify-icon icon="ri:hard-drive-3-line" width="13" />
+                {{ formatFileSize(item.fileSizeBytes) }}
+              </span>
+              <span v-if="item.packageName" class="meta-entry package-name">
+                <iconify-icon icon="ri:file-list-line" width="13" />
+                {{ item.packageName }}
+              </span>
             </div>
             <div v-if="item.changelog" class="version-changelog">{{ item.changelog }}</div>
           </div>
           <el-button
             type="primary"
-            plain
+            :plain="!isLatest(item)"
             size="small"
+            class="download-btn"
             :loading="downloadingId === item.id"
             :disabled="!item.downloadable"
             @click="handleDownload(item)"
           >
+            <iconify-icon v-if="downloadingId !== item.id" icon="ri:download-2-line" width="15" />
             下载
           </el-button>
         </div>
@@ -54,6 +82,7 @@
 <script setup lang="ts">
   import { computed, ref } from 'vue'
   import { ElMessage } from 'element-plus'
+  import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
 
   interface VersionItem {
@@ -157,28 +186,141 @@
 </script>
 
 <style scoped lang="scss">
+  // 弹窗外壳：圆角、柔和阴影、头部底部分隔线
+  :deep(.el-dialog) {
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.16);
+  }
+
+  :deep(.el-dialog__header) {
+    padding: 18px 20px 14px;
+    margin-right: 0;
+    border-bottom: 1px solid var(--el-border-color-extra-light);
+  }
+
+  :deep(.el-dialog__body) {
+    padding: 16px 20px 20px;
+  }
+
+  .dialog-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .dialog-header-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
+    flex-shrink: 0;
+    color: var(--el-color-primary);
+    background: linear-gradient(
+      135deg,
+      var(--el-color-primary-light-8),
+      var(--el-color-primary-light-9)
+    );
+  }
+
+  .dialog-header-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .dialog-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--el-text-color-primary);
+  }
+
+  .dialog-subtitle {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--el-text-color-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dialog-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin-left: auto;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--el-text-color-secondary);
+    background: transparent;
+    transition: all 0.2s;
+
+    &:hover {
+      color: var(--el-text-color-primary);
+      background: var(--el-fill-color);
+    }
+  }
+
   .version-list {
     min-height: 160px;
-    max-height: 480px;
+    max-height: 460px;
     overflow-y: auto;
   }
 
   .version-item {
     display: flex;
     align-items: flex-start;
-    justify-content: space-between;
     gap: 12px;
-    padding: 14px 0;
-    border-bottom: 1px solid var(--el-border-color-lighter);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 12px;
+    background: var(--el-bg-color);
+    transition: all 0.2s ease;
 
     &:last-child {
-      border-bottom: none;
+      margin-bottom: 0;
     }
 
-    .el-button {
-      flex-shrink: 0;
-      margin-top: 4px;
+    &:hover {
+      border-color: var(--el-color-primary-light-5);
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
     }
+
+    &.is-latest {
+      border-color: var(--el-color-primary-light-7);
+      background: linear-gradient(
+        180deg,
+        var(--el-color-primary-light-9) 0%,
+        var(--el-bg-color) 90%
+      );
+    }
+  }
+
+  .version-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--el-color-primary);
+    background: var(--el-color-primary-light-9);
+  }
+
+  .version-item.is-latest .version-icon {
+    color: #fff;
+    background: linear-gradient(135deg, var(--el-color-primary), var(--el-color-primary-light-3));
+    box-shadow: 0 4px 12px rgba(64, 158, 255, 0.28);
   }
 
   .version-main {
@@ -194,55 +336,87 @@
   }
 
   .version-number {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 15px;
-    font-weight: 700;
-    color: var(--el-color-primary);
+    font-family: 'DIN Alternate', 'Roboto Mono', monospace;
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--el-text-color-primary);
   }
 
   .version-title {
-    margin-top: 4px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--el-text-color-primary);
+    margin-top: 3px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--el-text-color-regular);
   }
 
   .version-meta {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-top: 6px;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 7px;
     font-size: 12px;
     color: var(--el-text-color-secondary);
 
-    i {
-      width: 3px;
-      height: 3px;
-      background: var(--el-border-color);
-      border-radius: 50%;
+    .meta-entry {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
     }
 
     .package-name {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      max-width: 260px;
+      max-width: 240px;
+
+      span,
+      & {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
     }
   }
 
   .version-changelog {
-    margin-top: 8px;
-    padding: 8px 10px;
+    margin-top: 9px;
+    padding: 8px 12px;
     font-size: 12px;
-    line-height: 1.6;
+    line-height: 1.7;
     color: var(--el-text-color-regular);
     background: var(--el-fill-color-light);
-    border-radius: 6px;
+    border-radius: 8px;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+
+  .download-btn {
+    flex-shrink: 0;
+    margin-top: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 8px;
+    font-weight: 600;
+  }
+
+  @media (max-width: 768px) {
+    :deep(.el-dialog) {
+      width: calc(100vw - 24px) !important;
+      margin-top: 8vh !important;
+    }
+
+    .version-item {
+      flex-wrap: wrap;
+    }
+
+    .download-btn {
+      width: 100%;
+      justify-content: center;
+      margin-top: 10px;
+    }
   }
 </style>

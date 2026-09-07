@@ -116,6 +116,12 @@ func main() {
 			agentSecured.GET("/purchase/orders/:orderNo", handler.AgentPanelPurchaseOrderStatus)
 			agentSecured.GET("/licenses/:id/versions", handler.PanelLicenseVersions)
 			agentSecured.POST("/licenses/:id/versions/:versionId/download-url", handler.PanelLicenseVersionDownloadURL)
+			agentSecured.POST("/tickets", handler.PanelTicketCreate)
+			agentSecured.GET("/tickets", handler.PanelTicketList)
+			agentSecured.GET("/tickets/unread-count", handler.PanelTicketUnreadCount)
+			agentSecured.GET("/tickets/:id", handler.PanelTicketDetail)
+			agentSecured.POST("/tickets/:id/replies", handler.PanelTicketReply)
+			agentSecured.PUT("/tickets/:id/close", handler.PanelTicketClose)
 		}
 
 		// 用户端（无需管理员鉴权）
@@ -173,6 +179,12 @@ func main() {
 			userSecured.GET("/realname/query", handler.UserRealnameQuery)
 			userSecured.GET("/licenses/:id/versions", handler.PanelLicenseVersions)
 			userSecured.POST("/licenses/:id/versions/:versionId/download-url", handler.PanelLicenseVersionDownloadURL)
+			userSecured.POST("/tickets", handler.PanelTicketCreate)
+			userSecured.GET("/tickets", handler.PanelTicketList)
+			userSecured.GET("/tickets/unread-count", handler.PanelTicketUnreadCount)
+			userSecured.GET("/tickets/:id", handler.PanelTicketDetail)
+			userSecured.POST("/tickets/:id/replies", handler.PanelTicketReply)
+			userSecured.PUT("/tickets/:id/close", handler.PanelTicketClose)
 		}
 
 		// 需要鉴权的路由（仅管理员角色）
@@ -334,6 +346,12 @@ func main() {
 			secured.POST("/menu/create", handler.MenuManageCreate)
 			secured.PUT("/menu/:id", handler.MenuManageUpdate)
 			secured.DELETE("/menu/:id", handler.MenuManageDelete)
+
+			secured.GET("/ticket/list", handler.AdminTicketList)
+			secured.GET("/ticket/unread-count", handler.AdminTicketUnreadCount)
+			secured.GET("/ticket/:id", handler.AdminTicketDetail)
+			secured.POST("/ticket/:id/reply", handler.AdminTicketReply)
+			secured.PUT("/ticket/:id/status", handler.AdminTicketStatus)
 		}
 	}
 

@@ -243,12 +243,19 @@ func GetHomeTemplateDir() string {
 	return dir
 }
 
+// 官方软件源连接信息随后端编译，不从环境变量、配置文件或管理页面读取。
+// 固定 Key 仅用于目录读取；内置不代表保密，不能用于管理写权限。
+const (
+	softwareSourceURL    = "https://plug.91ani.cn"
+	softwareSourceAPIKey = "317e605c32344a416c907b9fad0a26b9adf87410554707c7f09d447b2de61cff"
+)
+
 func GetSoftwareSourceURL() string {
-	return strings.TrimRight(strings.TrimSpace(envOrDefault("AUTO_PRO_SOFTWARE_SOURCE_URL", "http://127.0.0.1:19128")), "/")
+	return softwareSourceURL
 }
 
 func GetSoftwareSourceAPIKey() string {
-	return os.Getenv("AUTO_PRO_SOFTWARE_SOURCE_API_KEY")
+	return softwareSourceAPIKey
 }
 
 func GetSoftwareSourceAdminURL() string {

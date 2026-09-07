@@ -39,7 +39,7 @@ func TestSoftwareSourceConfig(t *testing.T) {
 	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL", "https://source.example.com/admin")
 	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_TIMEOUT", "3s")
 	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_STALE_TTL", "12h")
-	if got := GetSoftwareSourceURL(); got != "http://127.0.0.1:19128" {
+	if got := GetSoftwareSourceURL(); got != "https://plug.91ani.cn" {
 		t.Fatalf("software source URL = %q", got)
 	}
 	if got := GetSoftwareSourceAdminURL(); got != "https://source.example.com/admin/" {
@@ -47,6 +47,25 @@ func TestSoftwareSourceConfig(t *testing.T) {
 	}
 	if GetSoftwareSourceTimeout() != 3*time.Second || GetSoftwareSourceStaleTTL() != 12*time.Hour {
 		t.Fatal("software source durations were not parsed")
+	}
+}
+
+func TestSoftwareSourceConnectionIsBuiltin(t *testing.T) {
+	for _, value := range []string{"", "   ", "deployment-override"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_URL", value)
+			t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_API_KEY", value)
+			t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL", "")
+			if GetSoftwareSourceURL() != "https://plug.91ani.cn" {
+				t.Fatal("software source URL must not depend on environment variables")
+			}
+			if len(GetSoftwareSourceAPIKey()) != 64 || GetSoftwareSourceAPIKey() == value {
+				t.Fatal("software source key must be built in, not supplied by the environment")
+			}
+			if GetSoftwareSourceAdminURL() != "https://plug.91ani.cn/admin/" {
+				t.Fatal("default software source admin URL must use the built-in host")
+			}
+		})
 	}
 }
 

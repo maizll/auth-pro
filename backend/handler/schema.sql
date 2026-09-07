@@ -662,6 +662,52 @@ CREATE TABLE `plugins` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='应用商店插件';
 
 
+DROP TABLE IF EXISTS `tickets`;
+CREATE TABLE `tickets` (
+  `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `ticket_no`     VARCHAR(24)  NOT NULL COMMENT '工单编号',
+  `creator_type`  VARCHAR(10)  NOT NULL COMMENT '创建人类型 user/agent',
+  `creator_id`    BIGINT UNSIGNED NOT NULL COMMENT '创建人ID',
+  `creator_name`  VARCHAR(100) NOT NULL DEFAULT '' COMMENT '创建人显示名',
+  `category`      VARCHAR(20)  NOT NULL DEFAULT 'other' COMMENT '分类',
+  `title`         VARCHAR(120) NOT NULL COMMENT '标题',
+  `priority`      VARCHAR(10)  NOT NULL DEFAULT 'normal' COMMENT '优先级 low/normal/high',
+  `status`        VARCHAR(10)  NOT NULL DEFAULT 'pending' COMMENT '状态 pending/replied/closed',
+  `last_reply_at` DATETIME DEFAULT NULL COMMENT '最后回复时间',
+  `last_reply_by` VARCHAR(10)  NOT NULL DEFAULT '' COMMENT '最后回复角色',
+  `closed_at`     DATETIME DEFAULT NULL COMMENT '关闭时间',
+  `created_at`    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_ticket_no` (`ticket_no`),
+  KEY `idx_creator` (`creator_type`, `creator_id`, `status`),
+  KEY `idx_status` (`status`, `last_reply_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工单';
+
+DROP TABLE IF EXISTS `ticket_messages`;
+CREATE TABLE `ticket_messages` (
+  `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `ticket_id`   BIGINT UNSIGNED NOT NULL,
+  `sender_type` VARCHAR(10)  NOT NULL COMMENT '发送方 user/agent/admin',
+  `sender_id`   BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `sender_name` VARCHAR(100) NOT NULL DEFAULT '' COMMENT '发送方显示名快照',
+  `content`     TEXT NOT NULL,
+  `created_at`  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ticket` (`ticket_id`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工单消息';
+
+DROP TABLE IF EXISTS `ticket_reads`;
+CREATE TABLE `ticket_reads` (
+  `id`                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `ticket_id`            BIGINT UNSIGNED NOT NULL,
+  `reader_type`          VARCHAR(10) NOT NULL COMMENT 'user/agent/admin',
+  `reader_id`            BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'admin 端共用 0',
+  `last_read_message_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_ticket_reader` (`ticket_id`, `reader_type`, `reader_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工单已读游标';
+
 DROP TABLE IF EXISTS `system_configs`;
 CREATE TABLE `system_configs` (
   `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',

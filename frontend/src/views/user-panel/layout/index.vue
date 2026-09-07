@@ -15,6 +15,14 @@
           <el-icon><iconify-icon icon="ri:shield-check-line" /></el-icon>
           <template #title>我的授权</template>
         </el-menu-item>
+        <el-menu-item index="/user/tickets">
+          <el-icon><iconify-icon icon="ri:customer-service-2-line" /></el-icon>
+          <template #title>
+            <el-badge :value="ticketUnread" :hidden="!ticketUnread" :max="99" class="menu-badge">
+              我的工单
+            </el-badge>
+          </template>
+        </el-menu-item>
         <el-menu-item v-if="selfPurchaseEnabled" index="/user/purchase">
           <el-icon><iconify-icon icon="ri:shopping-cart-2-line" /></el-icon>
           <template #title>购买授权</template>
@@ -28,11 +36,6 @@
           <template #title>开通代理商</template>
         </el-menu-item>
       </el-menu>
-
-      <!-- 侧边栏广告位：菜单折叠后宽度放不下 -->
-      <div v-if="!collapsed" class="shrink-0 p-2.5">
-        <ArtAdSlot position="sidebar" height="120px" />
-      </div>
     </aside>
 
     <div class="panel-main">
@@ -105,9 +108,22 @@
   const collapsed = ref(false)
   const balance = ref(0)
   const nickname = ref('')
+  const ticketUnread = ref(0)
+  let ticketUnreadTimer: ReturnType<typeof setInterval> | null = null
 
   function getToken() {
     return localStorage.getItem('user_panel_token') || ''
+  }
+
+  async function fetchTicketUnread() {
+    try {
+      const { data } = await axios.get('/api/user-panel/tickets/unread-count', {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      })
+      if (data.code === 200) ticketUnread.value = data.data.count || 0
+    } catch {
+      /* Ignore unread request errors. */
+    }
   }
 
   function loadUserInfo() {
@@ -135,11 +151,16 @@
   onMounted(() => {
     loadUserInfo()
     fetchBalance()
+    fetchTicketUnread()
+    ticketUnreadTimer = setInterval(fetchTicketUnread, 30000)
     window.addEventListener('user-panel-balance-refresh', fetchBalance)
+    window.addEventListener('panel-ticket-unread-refresh', fetchTicketUnread)
   })
 
   onBeforeUnmount(() => {
+    if (ticketUnreadTimer) clearInterval(ticketUnreadTimer)
     window.removeEventListener('user-panel-balance-refresh', fetchBalance)
+    window.removeEventListener('panel-ticket-unread-refresh', fetchTicketUnread)
   })
 
   watch(
@@ -155,6 +176,7 @@
   const titleMap: Record<string, string> = {
     '/user/dashboard': '概览',
     '/user/licenses': '我的授权',
+    '/user/tickets': '我的工单',
     '/user/purchase': '购买授权',
     '/user/profile': '个人设置',
     '/user/become-agent': '开通代理商'
@@ -223,6 +245,13 @@
         &.is-active {
           background: var(--el-color-primary-light-9);
           color: var(--el-color-primary);
+        }
+      }
+
+      .menu-badge {
+        :deep(.el-badge__content) {
+          transform: translate(10px, 2px) scale(0.75);
+          border: none;
         }
       }
     }

@@ -12,6 +12,7 @@ import { piracyRoutes } from './piracy'
 import { sdkRoutes } from './sdk'
 import { pluginStoreRoutes } from './plugin-store'
 import { onlineUpdateRoutes } from './online-update'
+import { ticketRoutes } from './ticket'
 
 /**
  * 导出所有模块化路由
@@ -29,5 +30,6 @@ export const routeModules: AppRouteRecord[] = [
   exceptionRoutes,
   sdkRoutes,
   systemRoutes,
-  onlineUpdateRoutes
+  onlineUpdateRoutes,
+  ticketRoutes
 ]

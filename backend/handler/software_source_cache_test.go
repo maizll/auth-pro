@@ -8,13 +8,15 @@ import (
 	"testing"
 	"time"
 
+	"auto_pro/config"
 	"auto_pro/softwaresource"
 
 	"github.com/gin-gonic/gin"
 )
 
 func TestInternalSoftwareSourceCacheInvalidate(t *testing.T) {
-	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_API_KEY", "catalog-key")
+	// 目录 Key 已内置于后端，测试直接使用 config 中的固定值。
+	handlerKey := config.GetSoftwareSourceAPIKey()
 	var requests atomic.Int32
 	remote := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		requests.Add(1)
@@ -48,7 +50,7 @@ func TestInternalSoftwareSourceCacheInvalidate(t *testing.T) {
 	}
 
 	request := httptest.NewRequest(http.MethodPost, "/api/internal/software-source/cache/invalidate", nil)
-	request.Header.Set("X-Software-Source-Key", "catalog-key")
+	request.Header.Set("X-Software-Source-Key", handlerKey)
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"revision":9`) || requests.Load() != 2 {

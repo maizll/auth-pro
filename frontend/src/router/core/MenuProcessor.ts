@@ -58,7 +58,35 @@ export class MenuProcessor {
    */
   private async processBackendMenu(): Promise<AppRouteRecord[]> {
     const list = await fetchGetMenuList()
-    return this.filterEmptyMenus(list)
+    const menus = this.filterEmptyMenus(list)
+    this.appendBuiltinMenus(menus)
+    return menus
+  }
+
+  /**
+   * 追加系统内置一级菜单
+   * 工单管理固定显示在末尾（在线更新下方），不依赖菜单表配置
+   */
+  private appendBuiltinMenus(menus: AppRouteRecord[]): void {
+    if (this.hasMenu(menus, 'TicketManage')) return
+    menus.push({
+      name: 'TicketManage',
+      path: '/tickets',
+      component: '/system/tickets',
+      meta: {
+        title: '工单管理',
+        icon: 'ri:customer-service-2-line',
+        keepAlive: true,
+        roles: ['R_SUPER', 'R_ADMIN']
+      }
+    })
+  }
+
+  /** 递归判断菜单是否已存在 */
+  private hasMenu(menus: AppRouteRecord[], name: string): boolean {
+    return menus.some(
+      (item) => item.name === name || (item.children ? this.hasMenu(item.children, name) : false)
+    )
   }
 
   /**

@@ -70,6 +70,7 @@ func GetMenuList(c *gin.Context) {
 	ensureDeveloperDocMenu(db)
 	ensureAppVersionMenu(db)
 	ensureLicenseCardMenu(db)
+	ensureTicketMenu(db)
 
 	// 查询用户的 role_id
 	var roleID sql.NullInt64

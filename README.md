@@ -265,11 +265,11 @@ releases.json
 | `PORT`                | 后端服务端口                                     | `19127`                                                                       |
 | `AUTO_PRO_DATA_DIR`   | 后端运行数据目录，用于保存配置、更新包和运行数据 | 当前运行目录                                                                  |
 | `AUTO_PRO_UPDATE_URL` | 在线更新清单地址；默认值为 Gitee 最新 Release API | `https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest`              |
-| `AUTO_PRO_SOFTWARE_SOURCE_URL` | 独立软件源服务地址 | `http://127.0.0.1:19128` |
-| `AUTO_PRO_SOFTWARE_SOURCE_API_KEY` | 授权后端读取目录、模板和制品的只读 Key | 无，部署时必填 |
 | `AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL` | 旧 `/admin/app-store/*` 跳转目标 | `<软件源地址>/admin/` |
 | `AUTO_PRO_SOFTWARE_SOURCE_TIMEOUT` | 目录 HTTP 请求超时 | `5s` |
 | `AUTO_PRO_SOFTWARE_SOURCE_STALE_TTL` | 最后成功目录快照最大降级时间 | `24h` |
+
+软件源连接信息（服务地址 `https://plug.91ani.cn` 和目录只读 Key）已固定编译进后端二进制，不再读取 `AUTO_PRO_SOFTWARE_SOURCE_URL` / `AUTO_PRO_SOFTWARE_SOURCE_API_KEY` 环境变量。
 | `VITE_API_PROXY_URL`  | 前端开发代理目标地址                             | `http://localhost:19127`                                                      |
 
 ## API 入口
@@ -291,14 +291,9 @@ releases.json
 
 ## 从 auth-pro-plug 安装首页模板
 
-在 `auth-pro` **后端进程环境**中配置：
+软件源服务地址和目录 Key 已固定编译进 auth-pro 后端，**无需在环境变量中配置** `AUTO_PRO_SOFTWARE_SOURCE_URL` / `AUTO_PRO_SOFTWARE_SOURCE_API_KEY`；默认连接 `https://plug.91ani.cn`。
 
-```text
-AUTO_PRO_SOFTWARE_SOURCE_URL=https://你的-auth-pro-plug-服务地址
-AUTO_PRO_SOFTWARE_SOURCE_API_KEY=<与分发后台 SOFTWARE_SOURCE_API_KEY 相同的随机密钥>
-```
-
-在分发后台设置 `SOFTWARE_SOURCE_API_KEY`（至少 32 字符），重启两个后端。服务地址需由 auth-pro 所在机器/容器访问；本机联调可使用 `http://127.0.0.1:19128`。密钥只由服务端发送，不进入前端环境变量、浏览器代码或模板文件。
+分发后台（auth-pro-plug）侧的 `SOFTWARE_SOURCE_API_KEY` 必须与 auth-pro 后端内置的目录 Key 保持一致，否则目录请求会被拒绝。密钥只由服务端发送，不进入前端环境变量、浏览器代码或模板文件。
 
 首次升级需部署两个项目的新版本。auth-pro 已包含黑金首页的布局、玻璃卡片、移动端导航、查询入口和登录弹窗，仍复用主应用的用户登录、代理账号转换和代登录流程，默认及蓝色模板不受影响。
 

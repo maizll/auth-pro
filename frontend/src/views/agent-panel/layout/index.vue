@@ -24,16 +24,19 @@
           <el-icon><iconify-icon icon="ri:money-cny-circle-line" /></el-icon>
           <template #title>我的财务</template>
         </el-menu-item>
+        <el-menu-item index="/agent-panel/tickets">
+          <el-icon><iconify-icon icon="ri:customer-service-2-line" /></el-icon>
+          <template #title>
+            <el-badge :value="ticketUnread" :hidden="!ticketUnread" :max="99" class="menu-badge">
+              我的工单
+            </el-badge>
+          </template>
+        </el-menu-item>
         <el-menu-item index="/agent-panel/profile">
           <el-icon><iconify-icon icon="ri:settings-3-line" /></el-icon>
           <template #title>个人设置</template>
         </el-menu-item>
       </el-menu>
-
-      <!-- 侧边栏广告位：菜单折叠后宽度放不下 -->
-      <div v-if="!collapsed" class="shrink-0 p-2.5">
-        <ArtAdSlot position="sidebar" height="120px" />
-      </div>
     </aside>
 
     <!-- 主内容区 -->
@@ -86,9 +89,10 @@
 </template>
 
 <script setup lang="ts">
-  import { ref, computed } from 'vue'
+  import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { Icon as IconifyIcon } from '@iconify/vue'
+  import axios from 'axios'
   import { useSystemConfigStore } from '@/store/modules/system-config'
   import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
 
@@ -97,6 +101,32 @@
   const systemConfigStore = useSystemConfigStore()
   const { siteName, resolvedLogo } = storeToRefs(systemConfigStore)
   const collapsed = ref(false)
+  const ticketUnread = ref(0)
+  let ticketUnreadTimer: ReturnType<typeof setInterval> | null = null
+
+  async function fetchTicketUnread() {
+    try {
+      const { data } = await axios.get('/api/agent-panel/tickets/unread-count', {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('agent_panel_token') || ''}`
+        }
+      })
+      if (data.code === 200) ticketUnread.value = data.data.count || 0
+    } catch {
+      /* Ignore unread request errors. */
+    }
+  }
+
+  onMounted(() => {
+    fetchTicketUnread()
+    ticketUnreadTimer = setInterval(fetchTicketUnread, 30000)
+    window.addEventListener('panel-ticket-unread-refresh', fetchTicketUnread)
+  })
+
+  onBeforeUnmount(() => {
+    if (ticketUnreadTimer) clearInterval(ticketUnreadTimer)
+    window.removeEventListener('panel-ticket-unread-refresh', fetchTicketUnread)
+  })
 
   const currentRoute = computed(() => route.path)
 
@@ -105,6 +135,7 @@
     '/agent-panel/licenses': '我的授权',
     '/agent-panel/purchase': '开通授权',
     '/agent-panel/finance': '我的财务',
+    '/agent-panel/tickets': '我的工单',
     '/agent-panel/profile': '个人设置'
   }
 
@@ -179,6 +210,13 @@
         &.is-active {
           background: var(--el-color-primary-light-9);
           color: var(--el-color-primary);
+        }
+      }
+
+      .menu-badge {
+        :deep(.el-badge__content) {
+          transform: translate(10px, 2px) scale(0.75);
+          border: none;
         }
       }
     }
