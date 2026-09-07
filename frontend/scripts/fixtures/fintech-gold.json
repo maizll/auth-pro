@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "stylePreset": "fintech-gold",
+  "theme": {
+    "primaryColor": "#f0b90b",
+    "backgroundColor": "#0b0e11",
+    "textColor": "#f5f5f5"
+  },
+  "hero": {
+    "badge": "专业 · 锚定每一次授权",
+    "title": "让每一份软件授权",
+    "highlight": "清晰、安全、可管理",
+    "description": "专为数字业务打造的授权服务平台，统一掌握授权状态、有效周期与关键记录，让每一次访问都有据可依。",
+    "primaryAction": {
+      "label": "进入用户中心",
+      "type": "login"
+    },
+    "secondaryAction": {
+      "label": "快速查询服务",
+      "type": "login"
+    }
+  },
+  "features": [
+    {
+      "icon": "ri:search-eye-line",
+      "title": "快速查询服务",
+      "description": "输入用户账号、许可证 ID 或授权码，即时确认授权状态与有效期限。"
+    },
+    {
+      "icon": "ri:shield-keyhole-line",
+      "title": "安全账户体系",
+      "description": "围绕账户、应用和授权建立清晰的数据边界，重要信息始终可控可查。"
+    },
+    {
+      "icon": "ri:customer-service-2-line",
+      "title": "持续服务支持",
+      "description": "从授权开通到周期管理，提供稳定、直观的一站式服务体验。"
+    }
+  ],
+  "footer": {
+    "text": "安全 · 稳定 · 可验证的软件授权服务"
+  }
+}

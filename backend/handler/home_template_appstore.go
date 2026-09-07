@@ -70,10 +70,11 @@ func listAppStoreTemplates(ctx context.Context) ([]appstore.Template, error) {
 		}
 		previewURL := ""
 		if remote.PreviewURL != "" {
-			previewURL = "/api/software-source/templates/" + remote.ID + "/preview"
+			previewURL = "/api/software-source/templates/" + remote.ID + "/preview?v=" + strconv.FormatInt(remote.UpdatedAt.UnixMilli(), 10)
 		}
 		item := appstore.Template{
-			ID: strconv.FormatInt(mapping.ID, 10), CatalogID: remote.ID, TemplateID: remote.TemplateKey,
+			UpdateAvailable: mapping.InstalledPath != "" && !installedTemplateMatches(mapping.InstalledPath, remote.SHA256),
+			ID:              strconv.FormatInt(mapping.ID, 10), CatalogID: remote.ID, TemplateID: remote.TemplateKey,
 			Name: remote.Name, Description: remote.Description, PreviewImage: previewURL, Version: remote.Version,
 			Author:  appstore.Author{Name: remote.Author.Name, URL: remote.Author.URL, Email: remote.Author.Email},
 			Enabled: activeID == mapping.ID, Source: remote.Source.Name, SourceURL: config.GetSoftwareSourceURL(),
@@ -165,6 +166,14 @@ func normalizeAppStoreTemplateMetadata(item *appstore.Template) {
 	}
 }
 
+func installedTemplateMatches(path, checksum string) bool {
+	if path == "" {
+		return false
+	}
+	payload, err := readLimitedFile(path, homeTemplateMaxBytes)
+	return err == nil && strings.EqualFold(actualChecksumString(sha256.Sum256(payload)), checksum) && validateHomeTemplateDocument(payload) == nil
+}
+
 func installHomeTemplate(ctx context.Context, db *sql.DB, id int64) (string, error) {
 	return installSoftwareSourceTemplate(ctx, db, id)
 }
@@ -179,11 +188,8 @@ func installSoftwareSourceTemplate(ctx context.Context, db *sql.DB, id int64) (s
 	if err != nil {
 		return "", err
 	}
-	if existingInstalledPath != "" {
-		if existingPayload, readErr := readLimitedFile(existingInstalledPath, homeTemplateMaxBytes); readErr == nil &&
-			strings.EqualFold(actualChecksumString(sha256.Sum256(existingPayload)), checksum) && validateHomeTemplateDocument(existingPayload) == nil {
-			return existingInstalledPath, nil
-		}
+	if installedTemplateMatches(existingInstalledPath, checksum) {
+		return existingInstalledPath, nil
 	}
 	if catalogID == "" {
 		return "", errors.New("模板尚未关联独立软件源目录，请刷新应用商店")
@@ -330,7 +336,7 @@ func legacyHomeTemplateItems(items []appstore.Template) []gin.H {
 			"version": version, "source": item.Source, "sourceUrl": item.SourceURL, "sourceType": item.SourceType,
 			"previewUrl": item.PreviewImage, "author": templateAuthor{Name: item.Author.Name, URL: item.Author.URL, Email: item.Author.Email},
 			"sha256": item.SHA256, "schemaVersion": item.SchemaVersion, "enabled": item.Enabled,
-			"installed": item.Installed, "available": item.Available, "updatedAt": item.UpdatedAt,
+			"installed": item.Installed, "available": item.Available, "updatedAt": item.UpdatedAt, "updateAvailable": item.UpdateAvailable,
 		})
 	}
 	return result

@@ -1,5 +1,12 @@
 <template>
-  <div class="remote-home" :class="presetClass" :style="themeStyle">
+  <FintechGoldHome
+    v-if="stylePreset === 'fintech-gold'"
+    :document="document"
+    :site-name="siteName"
+    :site-subtitle="siteSubtitle"
+    :login-action="loginAccount"
+  />
+  <div v-else class="remote-home" :class="presetClass" :style="themeStyle">
     <header class="remote-header">
       <div class="remote-shell header-shell">
         <div class="remote-brand">
@@ -96,6 +103,7 @@
   import { ElMessage, type FormRules } from 'element-plus'
   import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
+  import FintechGoldHome from './fintech-gold/index.vue'
   import { useSystemConfigStore } from '@/store/modules/system-config'
   import {
     type HomeTemplateDocument,
@@ -143,28 +151,52 @@
     loginVisible.value = true
   }
 
+  interface HomeLoginResponse {
+    code: number
+    msg?: string
+    data?: { accessToken?: string; converted?: boolean; loginPath?: string; [key: string]: unknown }
+  }
+
+  // Both visual presets share the host's login and agent-account conversion contract.
+  async function loginAccount(account: string, password: string) {
+    let response: HomeLoginResponse
+    try {
+      const { data } = await axios.post<HomeLoginResponse>(
+        '/api/user-panel/login',
+        { account, password },
+        {
+          validateStatus: (status) => (status >= 200 && status < 300) || status === 409
+        }
+      )
+      response = data
+    } catch {
+      throw new Error('网络错误，请稍后重试')
+    }
+    const token = response.data?.accessToken
+    if (response.code === 200 && typeof token === 'string' && token) {
+      localStorage.setItem('user_panel_token', token)
+      localStorage.setItem('user_panel_info', JSON.stringify(response.data))
+      ElMessage.success('登录成功')
+      await router.push('/user/dashboard')
+      return
+    }
+    if (response.code === 409 && response.data?.converted === true) {
+      loginVisible.value = false
+      ElMessage.success(response.msg || '该账号已升级为代理，请前往代理端登录')
+      await router.push(response.data.loginPath || '/agent-panel/login?upgraded=1')
+      return
+    }
+    throw new Error(response.msg || '登录失败')
+  }
+
   function handleLogin() {
     loginFormRef.value?.validate(async (valid: boolean) => {
-      if (!valid) return
+      if (!valid || loading.value) return
       loading.value = true
-      const account = loginForm.username.trim()
-      const password = loginForm.password.trim()
       try {
-        const { data } = await axios.post('/api/user-panel/login', { account, password })
-        if (data.code === 200) {
-          localStorage.setItem('user_panel_token', data.data.accessToken)
-          localStorage.setItem('user_panel_info', JSON.stringify(data.data))
-          ElMessage.success('登录成功')
-          router.push('/user/dashboard')
-        } else if (data.code === 409 && data.data?.converted) {
-          loginVisible.value = false
-          ElMessage.success(data.msg || '该账号已升级为代理，请前往代理端登录')
-          router.push(data.data.loginPath || '/agent-panel/login?upgraded=1')
-        } else {
-          ElMessage.error(data.msg || '登录失败')
-        }
-      } catch {
-        ElMessage.error('网络错误，请稍后重试')
+        await loginAccount(loginForm.username.trim(), loginForm.password.trim())
+      } catch (error) {
+        ElMessage.error(error instanceof Error ? error.message : '登录失败')
       } finally {
         loading.value = false
       }

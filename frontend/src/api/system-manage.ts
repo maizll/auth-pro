@@ -579,6 +579,7 @@ export function fetchTogglePlugin(id: string, enabled: boolean) {
 }
 
 export interface HomeTemplateInfo {
+  updateAvailable?: boolean
   id: number | 'default'
   catalogId?: string
   templateId: string
@@ -602,9 +603,10 @@ export interface HomeTemplateListData {
   list: HomeTemplateInfo[]
 }
 
-export function fetchHomeTemplateList() {
+export function fetchHomeTemplateList(refresh = false) {
   return request.get<HomeTemplateListData>({
-    url: '/api/system/home-templates'
+    url: '/api/system/home-templates',
+    params: refresh ? { refresh: '1' } : undefined
   })
 }
 

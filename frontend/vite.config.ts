@@ -1,7 +1,6 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
-import { writeFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import vueDevTools from 'vite-plugin-vue-devtools'
 import viteCompression from 'vite-plugin-compression'
@@ -119,10 +118,11 @@ export default ({ mode }: { mode: string }) => {
       {
         name: 'generate-version-json',
         apply: 'build',
-        closeBundle() {
-          writeFileSync(
-            path.resolve(root, 'dist/version.json'),
-            JSON.stringify(
+        generateBundle() {
+          this.emitFile({
+            type: 'asset',
+            fileName: 'version.json',
+            source: JSON.stringify(
               {
                 version: VITE_VERSION || '1.0.0',
                 buildTime: new Date().toISOString()
@@ -130,7 +130,7 @@ export default ({ mode }: { mode: string }) => {
               null,
               2
             )
-          )
+          })
         }
       }
       // 打包分析
