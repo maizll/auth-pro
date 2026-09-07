@@ -8,7 +8,7 @@ import (
 
 func (s *Server) RegisterAdminRoutes(api *gin.RouterGroup) {
 	router := api.Group("/app-store")
-	router.Use(middleware.JWTAuth(), middleware.RequireAdmin())
+	router.Use(middleware.JWTAuth(), middleware.RequireAdmin(), middleware.RequireSuperAdmin())
 	router.GET("/dashboard", s.dashboard)
 	router.GET("/templates", s.templates)
 	router.PUT("/templates/:id/enable", s.enableTemplate)

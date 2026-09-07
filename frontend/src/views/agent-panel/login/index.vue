@@ -86,77 +86,7 @@
             </el-form>
 
             <div class="login-footer">
-              <span>还不是代理商？</span>
-              <el-link type="primary" :underline="false" @click="mode = 'register'"
-                >申请注册</el-link
-              >
-            </div>
-          </div>
-
-          <!-- 注册表单 -->
-          <div v-else-if="mode === 'register'" key="register" class="login-form-wrapper">
-            <h2 class="form-title">代理商注册</h2>
-            <p class="form-subtitle">提交注册申请，审核通过后即可使用</p>
-
-            <el-form
-              ref="registerFormRef"
-              :model="registerForm"
-              :rules="registerRules"
-              @keyup.enter="handleRegister"
-              class="login-form"
-            >
-              <el-form-item prop="email">
-                <el-input
-                  v-model="registerForm.email"
-                  placeholder="邮箱地址"
-                  size="large"
-                  prefix-icon="ri-mail-line"
-                />
-              </el-form-item>
-              <el-form-item prop="name">
-                <el-input
-                  v-model="registerForm.name"
-                  placeholder="代理商账号"
-                  size="large"
-                  prefix-icon="ri-building-2-line"
-                />
-              </el-form-item>
-              <el-form-item prop="password">
-                <el-input
-                  v-model="registerForm.password"
-                  type="password"
-                  placeholder="设置密码"
-                  size="large"
-                  show-password
-                  prefix-icon="ri-lock-line"
-                />
-              </el-form-item>
-              <el-form-item prop="confirmPassword">
-                <el-input
-                  v-model="registerForm.confirmPassword"
-                  type="password"
-                  placeholder="确认密码"
-                  size="large"
-                  show-password
-                  prefix-icon="ri-lock-line"
-                />
-              </el-form-item>
-              <el-form-item>
-                <el-button
-                  type="primary"
-                  size="large"
-                  :loading="loading"
-                  @click="handleRegister"
-                  class="login-btn"
-                >
-                  提交注册
-                </el-button>
-              </el-form-item>
-            </el-form>
-
-            <div class="login-footer">
-              <span>已有账号？</span>
-              <el-link type="primary" :underline="false" @click="mode = 'login'">返回登录</el-link>
+              <span>还没有代理商账号？请联系管理员开通</span>
             </div>
           </div>
 
@@ -227,6 +157,7 @@
   import { ElMessage, type FormRules } from 'element-plus'
   import axios from 'axios'
   import { useSystemConfigStore } from '@/store/modules/system-config'
+  import { useGeetestLoginCaptcha } from '@/utils/geetest'
   import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
 
   const router = useRouter()
@@ -253,10 +184,9 @@
   const systemConfigStore = useSystemConfigStore()
   const { siteName, siteSubtitle, domainLicenseNotice } = storeToRefs(systemConfigStore)
   const loading = ref(false)
-  const mode = ref<'login' | 'register' | 'forgot'>('login')
+  const mode = ref<'login' | 'forgot'>('login')
   const upgradedNotice = ref(route.query.upgraded === '1')
   const loginFormRef = ref()
-  const registerFormRef = ref()
   const forgotFormRef = ref()
   const announcementVisible = ref(false)
   const hideAnnouncementToday = ref(false)
@@ -305,38 +235,6 @@
     password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
   }
 
-  const registerForm = reactive({
-    email: '',
-    name: '',
-    password: '',
-    confirmPassword: ''
-  })
-
-  const registerRules: FormRules = {
-    email: [
-      { required: true, message: '请输入邮箱', trigger: 'blur' },
-      { type: 'email', message: '请输入有效的邮箱地址', trigger: 'blur' }
-    ],
-    name: [{ required: true, message: '请输入代理商账号', trigger: 'blur' }],
-    password: [
-      { required: true, message: '请设置密码', trigger: 'blur' },
-      { min: 6, message: '密码至少6位', trigger: 'blur' }
-    ],
-    confirmPassword: [
-      { required: true, message: '请确认密码', trigger: 'blur' },
-      {
-        validator: (_rule: any, value: string, callback: (error?: Error) => void) => {
-          if (value !== registerForm.password) {
-            callback(new Error('两次密码输入不一致'))
-          } else {
-            callback()
-          }
-        },
-        trigger: 'blur'
-      }
-    ]
-  }
-
   const forgotForm = reactive({
     email: ''
   })
@@ -348,14 +246,35 @@
     ]
   }
 
+  // 极验行为验证：启用后点击登录先弹出滑块验证
+  const {
+    captchaEnabled,
+    preload: preloadCaptcha,
+    verify: verifyCaptcha,
+    reset: resetCaptcha
+  } = useGeetestLoginCaptcha()
+  onMounted(preloadCaptcha)
+
   function handleLogin() {
     loginFormRef.value?.validate(async (valid: boolean) => {
       if (!valid) return
+      let captchaParams = {}
+      if (captchaEnabled.value) {
+        try {
+          const result = await verifyCaptcha()
+          if (!result) return
+          captchaParams = result
+        } catch (error) {
+          ElMessage.error(error instanceof Error ? error.message : '行为验证初始化失败')
+          return
+        }
+      }
       loading.value = true
       try {
         const { data } = await axios.post('/api/agent-panel/login', {
           username: loginForm.username,
-          password: loginForm.password
+          password: loginForm.password,
+          ...captchaParams
         })
         if (data.code === 200) {
           localStorage.setItem('agent_panel_token', data.data.accessToken)
@@ -377,24 +296,14 @@
           router.push(redirect)
         } else {
           ElMessage.error(data.msg || '登录失败')
+          resetCaptcha()
         }
       } catch {
         ElMessage.error('请求失败，请重试')
+        resetCaptcha()
       } finally {
         loading.value = false
       }
-    })
-  }
-
-  function handleRegister() {
-    registerFormRef.value?.validate((valid: boolean) => {
-      if (!valid) return
-      loading.value = true
-      setTimeout(() => {
-        loading.value = false
-        ElMessage.success('注册申请已提交，请等待审核')
-        mode.value = 'login'
-      }, 1000)
     })
   }
 

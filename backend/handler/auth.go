@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"time"
@@ -17,6 +18,7 @@ import (
 type loginRequest struct {
 	UserName string `json:"userName"`
 	Password string `json:"password"`
+	geetestValidateParams
 }
 
 // Login 管理员登录
@@ -38,13 +40,24 @@ func Login(c *gin.Context) {
 		return
 	}
 
+	if pass, msg := verifyGeetestLogin(db, req.geetestValidateParams); !pass {
+		c.JSON(http.StatusOK, gin.H{"code": 403, "message": msg})
+		return
+	}
+
 	var id uint
 	var passwordHash string
-	err = db.QueryRow("SELECT id, password_hash FROM admins WHERE username = ? AND enabled = 1", req.UserName).Scan(&id, &passwordHash)
+	var roleID sql.NullInt64
+	err = db.QueryRow("SELECT id, password_hash, role_id FROM admins WHERE username = ? AND enabled = 1", req.UserName).Scan(&id, &passwordHash, &roleID)
 	if err != nil {
 		middleware.RecordLoginFailure(c.ClientIP(), req.UserName)
 		c.JSON(http.StatusOK, gin.H{"code": 401, "message": "账号或密码错误"})
 		return
+	}
+
+	roleCode := ""
+	if roleID.Valid {
+		_ = db.QueryRow("SELECT role_code FROM roles WHERE id = ?", roleID.Int64).Scan(&roleCode)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
@@ -64,6 +77,7 @@ func Login(c *gin.Context) {
 		UserID:   id,
 		Username: req.UserName,
 		Role:     "admin",
+		RoleCode: roleCode,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -81,6 +95,7 @@ func Login(c *gin.Context) {
 		UserID:   id,
 		Username: req.UserName,
 		Role:     "admin",
+		RoleCode: roleCode,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(7 * 24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(now),

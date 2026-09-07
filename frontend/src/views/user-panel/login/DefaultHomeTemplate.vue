@@ -685,37 +685,6 @@
     </el-dialog>
 
     <el-dialog
-      v-model="emailCaptchaVisible"
-      title="安全验证"
-      width="min(420px, calc(100vw - 32px))"
-      align-center
-      append-to-body
-      :close-on-click-modal="false"
-      @closed="handleEmailCaptchaClosed"
-    >
-      <div class="email-captcha-content">
-        <p
-          >请拖动滑块完成验证，验证通过后将向
-          {{ registerForm.email.trim() || '注册邮箱' }} 发送验证码。</p
-        >
-        <div class="email-captcha-slider">
-          <ArtDragVerify
-            ref="emailCaptchaRef"
-            v-model:value="emailCaptchaPassing"
-            text="按住滑块拖动到底"
-            success-text="验证通过，正在发送..."
-            text-color="var(--el-text-color-secondary)"
-            progress-bar-bg="var(--el-color-primary)"
-            background="var(--el-fill-color-lighter)"
-            handler-bg="var(--el-bg-color)"
-            :height="46"
-            @pass-callback="handleEmailCaptchaPassed"
-          />
-        </div>
-      </div>
-    </el-dialog>
-
-    <el-dialog
       v-model="announcementVisible"
       title="网站公告"
       width="min(480px, calc(100vw - 32px))"
@@ -743,6 +712,7 @@
   import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
   import { useSystemConfigStore } from '@/store/modules/system-config'
+  import { useGeetestLoginCaptcha } from '@/utils/geetest'
 
   interface PublicLicenseItem {
     appName: string
@@ -848,6 +818,15 @@
   const authDialogVisible = ref(false)
   const loading = ref(false)
   const mode = ref<'login' | 'register' | 'forgot'>('login')
+
+  // 极验行为验证：启用后点击登录先弹出滑块验证
+  const {
+    captchaEnabled,
+    preload: preloadCaptcha,
+    verify: verifyCaptcha,
+    reset: resetCaptcha
+  } = useGeetestLoginCaptcha()
+  onMounted(preloadCaptcha)
   const loginFormRef = ref()
   const registerFormRef = ref()
   const forgotFormRef = ref()
@@ -1052,9 +1031,6 @@
     password: '',
     confirmPassword: ''
   })
-  const emailCaptchaVisible = ref(false)
-  const emailCaptchaPassing = ref(false)
-  const emailCaptchaRef = ref()
   const emailCodeSending = ref(false)
   const emailCodeCountdown = ref(0)
   const emailCodeTarget = ref('')
@@ -1124,11 +1100,26 @@
   function handleLogin() {
     loginFormRef.value?.validate(async (valid: boolean) => {
       if (!valid) return
+      let captchaParams = {}
+      if (captchaEnabled.value) {
+        try {
+          const result = await verifyCaptcha()
+          if (!result) return
+          captchaParams = result
+        } catch (error) {
+          ElMessage.error(error instanceof Error ? error.message : '行为验证初始化失败')
+          return
+        }
+      }
       loading.value = true
       const account = loginForm.username.trim()
       const password = loginForm.password.trim()
       try {
-        const { data } = await axios.post('/api/user-panel/login', { account, password })
+        const { data } = await axios.post('/api/user-panel/login', {
+          account,
+          password,
+          ...captchaParams
+        })
         if (data.code === 200) {
           localStorage.setItem('user_panel_token', data.data.accessToken)
           localStorage.setItem('user_panel_info', JSON.stringify(data.data))
@@ -1144,9 +1135,11 @@
           router.push(data.data.loginPath || '/agent-panel/login?upgraded=1')
         } else {
           ElMessage.error(data.msg || '登录失败')
+          resetCaptcha()
         }
       } catch {
         ElMessage.error('网络错误，请稍后重试')
+        resetCaptcha()
       } finally {
         loading.value = false
       }
@@ -1155,44 +1148,49 @@
 
   function handleRequestEmailCode() {
     if (emailCodeCountdown.value > 0 || emailCodeSending.value) return
-    registerFormRef.value?.validateField('email', (valid: boolean) => {
+    registerFormRef.value?.validateField('email', async (valid: boolean) => {
       if (!valid) return
-      emailCaptchaPassing.value = false
-      emailCaptchaVisible.value = true
-      nextTick(() => emailCaptchaRef.value?.reset())
+      // 启用极验后先拉起滑块验证，通过后再发送验证码
+      let captchaParams = {}
+      if (captchaEnabled.value) {
+        try {
+          const result = await verifyCaptcha()
+          if (!result) return
+          captchaParams = result
+        } catch (error) {
+          ElMessage.error(error instanceof Error ? error.message : '行为验证初始化失败')
+          return
+        }
+      }
+      await sendRegisterEmailCode(captchaParams)
     })
   }
 
-  async function handleEmailCaptchaPassed() {
+  async function sendRegisterEmailCode(captchaParams: Record<string, string>) {
     if (emailCodeSending.value) return
     const email = registerForm.email.trim().toLowerCase()
     if (!email) return
 
     emailCodeSending.value = true
     try {
-      const { data } = await axios.post('/api/user-panel/register/email-code', { email })
+      const { data } = await axios.post('/api/user-panel/register/email-code', {
+        email,
+        ...captchaParams
+      })
       if (data.code === 200) {
         emailCodeTarget.value = email
         startEmailCodeCountdown()
-        emailCaptchaVisible.value = false
         ElMessage.success(data.msg || '验证码已发送，请查收邮件')
       } else {
         ElMessage.error(data.msg || '验证码发送失败')
-        emailCaptchaPassing.value = false
-        nextTick(() => emailCaptchaRef.value?.reset())
+        resetCaptcha()
       }
     } catch {
       ElMessage.error('网络错误，请稍后重试')
-      emailCaptchaPassing.value = false
-      nextTick(() => emailCaptchaRef.value?.reset())
+      resetCaptcha()
     } finally {
       emailCodeSending.value = false
     }
-  }
-
-  function handleEmailCaptchaClosed() {
-    emailCaptchaPassing.value = false
-    nextTick(() => emailCaptchaRef.value?.reset())
   }
 
   function handleRegister() {
@@ -1219,6 +1217,12 @@
           password
         })
         if (data.code === 200) {
+          // 开启极验后注册不再免验证自动登录，引导用户完成滑块验证后登录
+          if (captchaEnabled.value) {
+            ElMessage.success('注册成功，请完成行为验证后登录')
+            mode.value = 'login'
+            return
+          }
           ElMessage.success('注册成功，正在登录...')
           const { data: loginData } = await axios.post('/api/user-panel/login', {
             account: email,
@@ -2419,19 +2423,6 @@
         color: var(--el-color-primary);
       }
     }
-  }
-
-  .email-captcha-content p {
-    margin-bottom: 18px;
-    font-size: 14px;
-    line-height: 1.7;
-    color: var(--el-text-color-secondary);
-    overflow-wrap: anywhere;
-  }
-
-  .email-captcha-slider {
-    overflow: hidden;
-    border-radius: 12px;
   }
 
   .announcement-content {

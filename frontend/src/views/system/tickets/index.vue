@@ -105,10 +105,11 @@
                   <span class="divider">·</span>
                   <span>{{ currentTicket.categoryText }}</span>
                   <span class="divider">·</span>
-                  <span>
-                    {{ currentTicket.creatorName }}（{{
-                      currentTicket.creatorType === 'agent' ? '代理商' : '用户'
-                    }}）
+                  <span class="creator-info">
+                    {{ currentTicket.creatorName }}
+                    <em class="creator-badge" :class="`badge-${currentTicket.creatorType}`">
+                      {{ currentTicket.creatorType === 'agent' ? '代理商' : '用户' }}
+                    </em>
                   </span>
                 </div>
               </div>
@@ -664,6 +665,12 @@
         margin: 0 6px;
         color: var(--art-gray-400);
       }
+
+      .creator-info {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
     }
 
     .chat-actions {
@@ -723,6 +730,27 @@
 
     .avatar-admin {
       background: var(--el-color-primary);
+    }
+
+    .creator-badge {
+      font-style: normal;
+      font-size: 10px;
+      font-weight: 500;
+      border-radius: 4px;
+      padding: 1px 5px;
+      line-height: 1.5;
+
+      &.badge-user {
+        color: var(--el-color-success);
+        background: var(--el-color-success-light-9);
+        border: 1px solid var(--el-color-success-light-7);
+      }
+
+      &.badge-agent {
+        color: var(--el-color-warning);
+        background: var(--el-color-warning-light-9);
+        border: 1px solid var(--el-color-warning-light-7);
+      }
     }
 
     .message-body {

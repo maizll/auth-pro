@@ -23,6 +23,7 @@ type userLoginRequest struct {
 	Account  string `json:"account"`
 	Email    string `json:"email"` // 兼容旧版前端字段
 	Password string `json:"password" binding:"required"`
+	geetestValidateParams
 }
 
 type userRegisterRequest struct {
@@ -65,6 +66,11 @@ func UserLogin(c *gin.Context) {
 
 	if err := EnsureAccountUpgradeSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化失败"})
+		return
+	}
+
+	if pass, msg := verifyGeetestLogin(db, req.geetestValidateParams); !pass {
+		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": msg})
 		return
 	}
 

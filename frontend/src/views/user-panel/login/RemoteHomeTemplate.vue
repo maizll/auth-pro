@@ -105,6 +105,7 @@
   import axios from 'axios'
   import FintechGoldHome from './fintech-gold/index.vue'
   import { useSystemConfigStore } from '@/store/modules/system-config'
+  import { useGeetestLoginCaptcha } from '@/utils/geetest'
   import {
     type HomeTemplateDocument,
     isHomeTemplateStylePreset,
@@ -123,6 +124,15 @@
 
   const currentYear = new Date().getFullYear()
   const loginVisible = ref(false)
+
+  // 极验行为验证：启用后登录前弹出滑块验证
+  const {
+    captchaEnabled,
+    preload: preloadCaptcha,
+    verify: verifyCaptcha,
+    reset: resetCaptcha
+  } = useGeetestLoginCaptcha()
+  onMounted(preloadCaptcha)
   const loading = ref(false)
   const loginFormRef = ref()
   const loginForm = reactive({ username: '', password: '' })
@@ -159,17 +169,30 @@
 
   // Both visual presets share the host's login and agent-account conversion contract.
   async function loginAccount(account: string, password: string) {
+    // 极验行为验证：启用后先完成滑块验证再提交登录
+    let captchaParams = {}
+    if (captchaEnabled.value) {
+      let result
+      try {
+        result = await verifyCaptcha()
+      } catch (error) {
+        throw new Error(error instanceof Error ? error.message : '行为验证初始化失败')
+      }
+      if (!result) throw new Error('请先完成行为验证')
+      captchaParams = result
+    }
     let response: HomeLoginResponse
     try {
       const { data } = await axios.post<HomeLoginResponse>(
         '/api/user-panel/login',
-        { account, password },
+        { account, password, ...captchaParams },
         {
           validateStatus: (status) => (status >= 200 && status < 300) || status === 409
         }
       )
       response = data
     } catch {
+      resetCaptcha()
       throw new Error('网络错误，请稍后重试')
     }
     const token = response.data?.accessToken
@@ -190,6 +213,7 @@
       await router.push(response.data.loginPath || '/agent-panel/login?upgraded=1')
       return
     }
+    resetCaptcha()
     throw new Error(response.msg || '登录失败')
   }
 

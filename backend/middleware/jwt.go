@@ -49,6 +49,7 @@ type Claims struct {
 	UserID   uint   `json:"user_id"`
 	Username string `json:"username"`
 	Role     string `json:"role"`
+	RoleCode string `json:"role_code,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -90,6 +91,7 @@ func JWTAuth() gin.HandlerFunc {
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)
 		c.Set("role", claims.Role)
+		c.Set("role_code", claims.RoleCode)
 		if claims.IssuedAt != nil {
 			c.Set("token_issued_at", claims.IssuedAt.Time)
 		}
@@ -153,6 +155,19 @@ func RequireActiveUser() gin.HandlerFunc {
 func RequireAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetString("role") != "admin" {
+			c.JSON(http.StatusOK, gin.H{"code": 403, "message": "无权限访问"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequireSuperAdmin 仅允许超级管理员（R_SUPER）访问，需置于 JWTAuth + RequireAdmin 之后。
+// 用于后端强制对齐前端的 R_SUPER 专属权限，防止 R_ADMIN 绕过前端菜单直接调用接口。
+func RequireSuperAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetString("role_code") != "R_SUPER" {
 			c.JSON(http.StatusOK, gin.H{"code": 403, "message": "无权限访问"})
 			c.Abort()
 			return

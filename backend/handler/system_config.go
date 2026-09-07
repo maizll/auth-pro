@@ -46,6 +46,9 @@ type systemConfigResponse struct {
 	RegistrationEnabled    bool   `json:"registrationEnabled"`
 	SelfPurchaseEnabled    bool   `json:"selfPurchaseEnabled"`
 	PiracyDetectionEnabled bool   `json:"piracyDetectionEnabled"`
+	GeetestEnabled         bool   `json:"geetestEnabled"`
+	GeetestCaptchaID       string `json:"geetestCaptchaId"`
+	GeetestCaptchaKeySet   bool   `json:"geetestCaptchaKeySet"`
 }
 
 type updateSystemConfigRequest struct {
@@ -58,6 +61,10 @@ type updateSystemConfigRequest struct {
 	RegistrationEnabled    bool   `json:"registrationEnabled"`
 	SelfPurchaseEnabled    bool   `json:"selfPurchaseEnabled"`
 	PiracyDetectionEnabled bool   `json:"piracyDetectionEnabled"`
+	GeetestEnabled         bool   `json:"geetestEnabled"`
+	GeetestCaptchaID       string `json:"geetestCaptchaId"`
+	// 验证 Key 只写不读：留空表示保持已保存的 Key
+	GeetestCaptchaKey string `json:"geetestCaptchaKey"`
 }
 
 type paymentConfigResponse struct {
@@ -143,7 +150,10 @@ func ensureSystemConfigStorage(db *sql.DB) error {
 			('payment', 'easypay_default_type', 'alipay', '易支付默认支付方式'),
 			('payment', 'easypay_pay_types', 'alipay,wxpay,qqpay', '易支付已开启支付方式'),
 			('payment', 'easypay_notify_url', '', '易支付异步通知地址'),
-			('payment', 'easypay_return_url', '', '易支付同步跳转地址')
+			('payment', 'easypay_return_url', '', '易支付同步跳转地址'),
+			('captcha', 'geetest_enabled', '0', '是否启用极验行为验证'),
+			('captcha', 'geetest_captcha_id', '', '极验验证 ID'),
+			('captcha', 'geetest_captcha_key', '', '极验验证 Key')
 		ON DUPLICATE KEY UPDATE `+"`key`"+` = VALUES(`+"`key`"+`)
 	`, defaultSiteName, defaultSiteSubtitle, installedAt.Format("2006-01-02 15:04:05"))
 	if err == nil {
@@ -160,16 +170,27 @@ func loadSystemConfig(db *sql.DB) (systemConfigResponse, error) {
 		SelfPurchaseEnabled:    true,
 		PiracyDetectionEnabled: false,
 	}
-	rows, err := db.Query("SELECT `key`, value FROM system_configs WHERE `group` = 'site'")
+	rows, err := db.Query("SELECT `group`, `key`, value FROM system_configs WHERE `group` IN ('site', 'captcha')")
 	if err != nil {
 		return result, err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var key, value string
-		if err := rows.Scan(&key, &value); err != nil {
+		var group, key, value string
+		if err := rows.Scan(&group, &key, &value); err != nil {
 			return result, err
+		}
+		if group == "captcha" {
+			switch key {
+			case "geetest_enabled":
+				result.GeetestEnabled = value == "1"
+			case "geetest_captcha_id":
+				result.GeetestCaptchaID = strings.TrimSpace(value)
+			case "geetest_captcha_key":
+				result.GeetestCaptchaKeySet = strings.TrimSpace(value) != ""
+			}
+			continue
 		}
 		switch key {
 		case "site_name":
@@ -326,6 +347,17 @@ func AdminSystemConfigUpdate(c *gin.Context) {
 		return
 	}
 
+	req.GeetestCaptchaID = strings.TrimSpace(req.GeetestCaptchaID)
+	req.GeetestCaptchaKey = strings.TrimSpace(req.GeetestCaptchaKey)
+	if utf8.RuneCountInString(req.GeetestCaptchaID) > 64 {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "极验验证 ID 不能超过 64 个字符"})
+		return
+	}
+	if utf8.RuneCountInString(req.GeetestCaptchaKey) > 64 {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "极验验证 Key 不能超过 64 个字符"})
+		return
+	}
+
 	db, err := openSystemConfigDB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
@@ -335,6 +367,18 @@ func AdminSystemConfigUpdate(c *gin.Context) {
 	if err := ensureSystemConfigStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化系统配置失败"})
 		return
+	}
+
+	if req.GeetestEnabled {
+		existing, err := loadSystemConfig(db)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取系统配置失败"})
+			return
+		}
+		if req.GeetestCaptchaID == "" || (req.GeetestCaptchaKey == "" && !existing.GeetestCaptchaKeySet) {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "启用极验行为验证前请完整配置验证 ID 和验证 Key"})
+			return
+		}
 	}
 
 	tx, err := db.Begin()
@@ -359,6 +403,17 @@ func AdminSystemConfigUpdate(c *gin.Context) {
 		{group: "site", key: "registration_enabled", value: boolConfigValue(req.RegistrationEnabled), description: "是否允许普通用户注册"},
 		{group: "site", key: "self_purchase_enabled", value: boolConfigValue(req.SelfPurchaseEnabled), description: "是否允许用户自助购买"},
 		{group: "site", key: "piracy_detection_enabled", value: boolConfigValue(req.PiracyDetectionEnabled), description: "是否启用盗版检测入库"},
+		{group: "captcha", key: "geetest_enabled", value: boolConfigValue(req.GeetestEnabled), description: "是否启用极验行为验证"},
+		{group: "captcha", key: "geetest_captcha_id", value: req.GeetestCaptchaID, description: "极验验证 ID"},
+	}
+	// 验证 Key 只写不读，留空表示保持已保存的 Key
+	if req.GeetestCaptchaKey != "" {
+		items = append(items, struct {
+			group       string
+			key         string
+			value       string
+			description string
+		}{group: "captcha", key: "geetest_captcha_key", value: req.GeetestCaptchaKey, description: "极验验证 Key"})
 	}
 	for _, item := range items {
 		if _, err := tx.Exec(`

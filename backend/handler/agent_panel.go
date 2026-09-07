@@ -20,6 +20,7 @@ import (
 type agentPanelLoginRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	geetestValidateParams
 }
 
 // AgentPanelLogin 代理端登录
@@ -38,6 +39,11 @@ func AgentPanelLogin(c *gin.Context) {
 	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
+		return
+	}
+
+	if pass, msg := verifyGeetestLogin(db, req.geetestValidateParams); !pass {
+		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": msg})
 		return
 	}
 

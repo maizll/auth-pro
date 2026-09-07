@@ -66,6 +66,11 @@ declare namespace Api {
     interface LoginParams {
       userName: string
       password: string
+      /** 极验行为验证四要素（启用行为验证时由前端滑块返回） */
+      lot_number?: string
+      captcha_output?: string
+      pass_token?: string
+      gen_time?: string
     }
 
     /** 登录响应 */

@@ -134,6 +134,7 @@ func clearEmailSendLimit(scene, email string) {
 
 type userRegisterEmailCodeRequest struct {
 	Email string `json:"email" binding:"required,email"`
+	geetestValidateParams
 }
 
 var (
@@ -177,6 +178,11 @@ func UserSendRegisterEmailCode(c *gin.Context) {
 
 	if err := ensureUserAuthStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化失败"})
+		return
+	}
+
+	if pass, msg := verifyGeetestLogin(db, req.geetestValidateParams); !pass {
+		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": msg})
 		return
 	}
 

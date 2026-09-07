@@ -31,7 +31,7 @@ func TestAdminRoutesRequireAdminJWT(t *testing.T) {
 	}
 
 	request = httptest.NewRequest(http.MethodGet, "/api/app-store/templates", nil)
-	request.Header.Set("Authorization", "Bearer "+signedToken(t, "user"))
+	request.Header.Set("Authorization", "Bearer "+signedToken(t, "user", ""))
 	recorder = httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)
 	if responseCode(t, recorder) != 403 {
@@ -39,7 +39,15 @@ func TestAdminRoutesRequireAdminJWT(t *testing.T) {
 	}
 
 	request = httptest.NewRequest(http.MethodGet, "/api/app-store/templates", nil)
-	request.Header.Set("Authorization", "Bearer "+signedToken(t, "admin"))
+	request.Header.Set("Authorization", "Bearer "+signedToken(t, "admin", "R_ADMIN"))
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if responseCode(t, recorder) != 403 {
+		t.Fatalf("R_ADMIN response = %s", recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/app-store/templates", nil)
+	request.Header.Set("Authorization", "Bearer "+signedToken(t, "admin", "R_SUPER"))
 	recorder = httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)
 	if responseCode(t, recorder) != 200 {
@@ -67,7 +75,7 @@ func TestAdminRoutesDashboardAndMutations(t *testing.T) {
 	repository := &fakeTemplateRepository{items: []Template{{ID: "default", Enabled: true, Available: true}}}
 	router := gin.New()
 	NewServer(repository).RegisterAdminRoutes(router.Group("/api"))
-	token := signedToken(t, "admin")
+	token := signedToken(t, "admin", "R_SUPER")
 
 	for _, testCase := range []struct {
 		method string
@@ -99,10 +107,10 @@ func TestAdminRoutesDashboardAndMutations(t *testing.T) {
 	}
 }
 
-func signedToken(t *testing.T, role string) string {
+func signedToken(t *testing.T, role, roleCode string) string {
 	t.Helper()
 	claims := middleware.Claims{
-		UserID: 1, Username: "test-admin", Role: role,
+		UserID: 1, Username: "test-admin", Role: role, RoleCode: roleCode,
 		RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

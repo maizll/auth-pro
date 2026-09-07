@@ -33,8 +33,8 @@
                 />
               </ElFormItem>
 
-              <!-- 推拽验证 -->
-              <div class="relative pb-5 mt-6">
+              <!-- 推拽验证（未启用极验时使用本地滑块） -->
+              <div v-if="!captchaEnabled" class="relative pb-5 mt-6">
                 <div
                   class="relative z-[2] overflow-hidden select-none rounded-lg border border-transparent tad-300"
                   :class="{ '!border-[#FF4E4F]': !isPassing && isClickPass }"
@@ -97,8 +97,9 @@
   import { useI18n } from 'vue-i18n'
   import { HttpError } from '@/utils/http/error'
   import { fetchLogin } from '@/api/auth'
-  import { ElNotification, type FormInstance, type FormRules } from 'element-plus'
+  import { ElMessage, ElNotification, type FormInstance, type FormRules } from 'element-plus'
   import { useSettingStore } from '@/store/modules/setting'
+  import { useGeetestLoginCaptcha } from '@/utils/geetest'
 
   defineOptions({ name: 'Login' })
 
@@ -115,6 +116,15 @@
   })
 
   const dragVerify = ref()
+
+  // 极验行为验证：启用后替代本地滑块，点击登录时弹出验证
+  const {
+    captchaEnabled,
+    preload: preloadCaptcha,
+    verify: verifyCaptcha,
+    reset: resetCaptcha
+  } = useGeetestLoginCaptcha()
+  onMounted(preloadCaptcha)
 
   const userStore = useUserStore()
   const router = useRouter()
@@ -175,8 +185,20 @@
       const valid = await formRef.value.validate()
       if (!valid) return
 
-      // 拖拽验证
-      if (!isPassing.value) {
+      // 拖拽验证（极验启用时改为提交前弹出极验滑块）
+      let captchaParams = {}
+      if (captchaEnabled.value) {
+        let result
+        try {
+          result = await verifyCaptcha()
+        } catch (error) {
+          ElMessage.error(error instanceof Error ? error.message : '行为验证初始化失败')
+          return
+        }
+        // null = 用户关闭或组件出错，中止提交
+        if (!result) return
+        captchaParams = result
+      } else if (!isPassing.value) {
         isClickPass.value = true
         return
       }
@@ -189,7 +211,8 @@
 
       const { token, refreshToken } = await fetchLogin({
         userName: username,
-        password
+        password,
+        ...captchaParams
       })
 
       // 验证token
@@ -230,6 +253,7 @@
       loading.value = false
       if (loginAttempted && !loginCompleted) {
         resetDragVerify()
+        resetCaptcha()
       }
     }
   }

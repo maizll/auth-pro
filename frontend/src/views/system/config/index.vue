@@ -246,6 +246,120 @@
             </section>
           </ElTabPane>
 
+          <ElTabPane label="行为验证" name="captcha">
+            <section class="section-card">
+              <div class="section-title">
+                <div>
+                  <strong>极验行为验证</strong>
+                  <span>登录时弹出滑块验证，拦截撞库与暴力破解，覆盖管理端、用户端和代理商端</span>
+                </div>
+                <ElTag :type="form.geetestEnabled ? 'success' : 'info'" effect="light">
+                  {{ form.geetestEnabled ? '已启用' : '未启用' }}
+                </ElTag>
+              </div>
+
+              <div class="realname-master-switch" :class="{ 'is-enabled': form.geetestEnabled }">
+                <div class="switch-content">
+                  <div class="switch-icon">
+                    <ArtSvgIcon icon="ri:shield-check-line" />
+                  </div>
+                  <div>
+                    <strong>启用极验行为验证</strong>
+                    <span>开启后三端登录需先完成滑块验证，保存后立即生效</span>
+                  </div>
+                </div>
+                <ElSwitch
+                  v-model="form.geetestEnabled"
+                  inline-prompt
+                  active-text="开启"
+                  inactive-text="关闭"
+                  size="large"
+                />
+              </div>
+
+              <ElRow :gutter="24">
+                <ElCol :xs="24" :lg="14">
+                  <div class="config-block">
+                    <div class="block-header">
+                      <span class="block-num">1</span>
+                      <div>
+                        <strong>验证凭证</strong>
+                        <span>极验后台创建的「行为验证 4.0」应用凭证</span>
+                      </div>
+                      <ElButton type="primary" link class="block-link-btn" @click="openGeetestDocs">
+                        接入文档
+                      </ElButton>
+                    </div>
+
+                    <ElFormItem label="验证 ID（captchaId）" prop="geetestCaptchaId">
+                      <ElInput
+                        v-model.trim="form.geetestCaptchaId"
+                        maxlength="64"
+                        placeholder="极验后台分配的验证 ID"
+                      >
+                        <template #prefix>
+                          <ArtSvgIcon icon="ri:key-2-line" class="input-icon" />
+                        </template>
+                      </ElInput>
+                    </ElFormItem>
+
+                    <ElFormItem>
+                      <template #label>
+                        <span>验证 Key（captchaKey）</span>
+                        <ElTag
+                          v-if="form.geetestCaptchaKeySet"
+                          type="success"
+                          size="small"
+                          effect="plain"
+                          class="label-tag"
+                          >已配置</ElTag
+                        >
+                      </template>
+                      <ElInput
+                        v-model="form.geetestCaptchaKey"
+                        type="password"
+                        show-password
+                        maxlength="64"
+                        :placeholder="
+                          form.geetestCaptchaKeySet
+                            ? '已保存密钥，留空则不修改；输入新密钥则覆盖'
+                            : '极验后台分配的验证 Key'
+                        "
+                      >
+                        <template #prefix>
+                          <ArtSvgIcon icon="ri:lock-2-line" class="input-icon" />
+                        </template>
+                      </ElInput>
+                      <div class="field-hint">
+                        <ArtSvgIcon icon="ri:information-line" />
+                        <span>验证 Key 仅用于服务端二次校验，不会下发到前端</span>
+                      </div>
+                    </ElFormItem>
+                  </div>
+                </ElCol>
+
+                <ElCol :xs="24" :lg="10">
+                  <div class="config-block help-block">
+                    <div class="block-header">
+                      <ArtSvgIcon icon="ri:information-line" class="help-icon" />
+                      <div>
+                        <strong>接入说明</strong>
+                        <span>开通与生效范围</span>
+                      </div>
+                    </div>
+                    <ul class="help-list">
+                      <li>在极验后台创建「行为验证 4.0」应用，获取验证 ID 与验证 Key</li>
+                      <li>开启后，管理端、用户端、代理商端登录均需完成滑块验证</li>
+                      <li>验证结果由服务端调用极验接口二次校验，前端结果不可信</li>
+                      <li>极验服务不可达时按宕机策略放行，避免影响正常登录</li>
+                      <li>启用前必须完整填写验证 ID 和验证 Key，否则无法保存</li>
+                    </ul>
+                  </div>
+                </ElCol>
+              </ElRow>
+            </section>
+          </ElTabPane>
+
           <ElTabPane label="实名认证" name="realname">
             <section class="section-card">
               <div class="section-title">
@@ -960,7 +1074,11 @@
     domainLicenseNotice: '',
     registrationEnabled: true,
     selfPurchaseEnabled: true,
-    piracyDetectionEnabled: false
+    piracyDetectionEnabled: false,
+    geetestEnabled: false,
+    geetestCaptchaId: '',
+    geetestCaptchaKey: '',
+    geetestCaptchaKeySet: false
   })
 
   const savedConfig = ref<SystemConfigData>({
@@ -973,7 +1091,11 @@
     domainLicenseNotice: '',
     registrationEnabled: true,
     selfPurchaseEnabled: true,
-    piracyDetectionEnabled: false
+    piracyDetectionEnabled: false,
+    geetestEnabled: false,
+    geetestCaptchaId: '',
+    geetestCaptchaKey: '',
+    geetestCaptchaKeySet: false
   })
 
   const previewLogo = computed(() => form.siteLogo || systemConfigStore.resolvedLogo)
@@ -991,6 +1113,18 @@
     icpNumber: [{ max: 100, message: '网站备案号不能超过 100 个字符', trigger: 'blur' }],
     domainLicenseNotice: [
       { max: 2000, message: '域名授权网站公告不能超过 2000 个字符', trigger: 'blur' }
+    ],
+    geetestCaptchaId: [
+      {
+        validator: (_rule, value, callback) => {
+          if (form.geetestEnabled && !(value || '').trim()) {
+            callback(new Error('启用行为验证时请填写验证 ID'))
+          } else {
+            callback()
+          }
+        },
+        trigger: 'blur'
+      }
     ]
   }
 
@@ -1058,6 +1192,10 @@
 
   const openTencentRealnameDocs = () => {
     window.open('https://real.4775.cn/openapi-doc.html#start', '_blank', 'noopener,noreferrer')
+  }
+
+  const openGeetestDocs = () => {
+    window.open('https://docs.geetest.com/gt4/apirefer/api/web', '_blank', 'noopener,noreferrer')
   }
 
   const loadRealnameConfig = async () => {
@@ -1154,7 +1292,12 @@
       domainLicenseNotice: data.domainLicenseNotice || '',
       registrationEnabled: data.registrationEnabled ?? true,
       selfPurchaseEnabled: data.selfPurchaseEnabled ?? true,
-      piracyDetectionEnabled: data.piracyDetectionEnabled ?? false
+      piracyDetectionEnabled: data.piracyDetectionEnabled ?? false,
+      geetestEnabled: data.geetestEnabled ?? false,
+      geetestCaptchaId: data.geetestCaptchaId || '',
+      // 验证 Key 只写不读，回填时保持为空，避免误覆盖
+      geetestCaptchaKey: '',
+      geetestCaptchaKeySet: data.geetestCaptchaKeySet ?? false
     })
     savedConfig.value = { ...form }
   }

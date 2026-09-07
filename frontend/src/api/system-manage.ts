@@ -14,6 +14,11 @@ export interface SystemConfigData {
   registrationEnabled: boolean
   selfPurchaseEnabled: boolean
   piracyDetectionEnabled: boolean
+  geetestEnabled: boolean
+  geetestCaptchaId: string
+  /** 验证 Key 只写不读：提交时留空表示保持已保存的 Key */
+  geetestCaptchaKey?: string
+  geetestCaptchaKeySet: boolean
 }
 
 export interface PaymentConfigData {

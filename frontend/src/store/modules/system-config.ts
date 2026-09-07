@@ -18,6 +18,8 @@ export const useSystemConfigStore = defineStore(
     const domainLicenseNotice = ref('')
     const registrationEnabled = ref(true)
     const selfPurchaseEnabled = ref(true)
+    const captchaEnabled = ref(false)
+    const captchaId = ref('')
     const loaded = ref(false)
 
     const resolvedLogo = computed(() => siteLogo.value || defaultLogo)
@@ -32,6 +34,8 @@ export const useSystemConfigStore = defineStore(
       domainLicenseNotice.value = config?.domainLicenseNotice?.trim() || ''
       registrationEnabled.value = config?.registrationEnabled ?? true
       selfPurchaseEnabled.value = config?.selfPurchaseEnabled ?? true
+      captchaEnabled.value = config?.geetestEnabled ?? false
+      captchaId.value = config?.geetestEnabled ? config?.geetestCaptchaId?.trim() || '' : ''
       loaded.value = true
     }
 
@@ -54,6 +58,8 @@ export const useSystemConfigStore = defineStore(
       domainLicenseNotice,
       registrationEnabled,
       selfPurchaseEnabled,
+      captchaEnabled,
+      captchaId,
       loaded,
       resolvedLogo,
       applyConfig,
