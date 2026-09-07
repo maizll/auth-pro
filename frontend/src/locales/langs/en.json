@@ -162,11 +162,8 @@
     },
     "placeholder": {
       "username": "Please enter your account",
-      "password": "Please enter your password",
-      "slider": "Please slide to verify"
+      "password": "Please enter your password"
     },
-    "sliderText": "Please slide to verify",
-    "sliderSuccessText": "Verification successful",
     "rememberPwd": "Remember password",
     "forgetPwd": "Forgot password",
     "btnText": "Login",

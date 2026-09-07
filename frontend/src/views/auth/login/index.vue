@@ -33,31 +33,6 @@
                 />
               </ElFormItem>
 
-              <!-- 推拽验证（未启用极验时使用本地滑块） -->
-              <div v-if="!captchaEnabled" class="relative pb-5 mt-6">
-                <div
-                  class="relative z-[2] overflow-hidden select-none rounded-lg border border-transparent tad-300"
-                  :class="{ '!border-[#FF4E4F]': !isPassing && isClickPass }"
-                >
-                  <ArtDragVerify
-                    ref="dragVerify"
-                    v-model:value="isPassing"
-                    :text="$t('login.sliderText')"
-                    textColor="var(--art-gray-700)"
-                    :successText="$t('login.sliderSuccessText')"
-                    progressBarBg="var(--main-color)"
-                    :background="isDark ? '#26272F' : '#F1F1F4'"
-                    handlerBg="var(--default-box-color)"
-                  />
-                </div>
-                <p
-                  class="absolute top-0 z-[1] px-px mt-2 text-xs text-[#f56c6c] tad-300"
-                  :class="{ 'translate-y-10': !isPassing && isClickPass }"
-                >
-                  {{ $t('login.placeholder.slider') }}
-                </p>
-              </div>
-
               <div class="flex-cb mt-2 text-sm">
                 <ElCheckbox v-model="formData.rememberPassword">{{
                   $t('login.rememberPwd')
@@ -98,14 +73,11 @@
   import { HttpError } from '@/utils/http/error'
   import { fetchLogin } from '@/api/auth'
   import { ElMessage, ElNotification, type FormInstance, type FormRules } from 'element-plus'
-  import { useSettingStore } from '@/store/modules/setting'
   import { useGeetestLoginCaptcha } from '@/utils/geetest'
 
   defineOptions({ name: 'Login' })
 
   const systemConfigStore = useSystemConfigStore()
-  const settingStore = useSettingStore()
-  const { isDark } = storeToRefs(settingStore)
   const { siteName, icpNumber } = storeToRefs(systemConfigStore)
   const { t, locale } = useI18n()
   const formKey = ref(0)
@@ -115,9 +87,7 @@
     formKey.value++
   })
 
-  const dragVerify = ref()
-
-  // 极验行为验证：启用后替代本地滑块，点击登录时弹出验证
+  // 极验行为验证：启用时点击登录弹出验证，未启用则直接提交
   const {
     captchaEnabled,
     preload: preloadCaptcha,
@@ -129,8 +99,6 @@
   const userStore = useUserStore()
   const router = useRouter()
   const route = useRoute()
-  const isPassing = ref(false)
-  const isClickPass = ref(false)
 
   const formRef = ref<FormInstance>()
 
@@ -185,7 +153,7 @@
       const valid = await formRef.value.validate()
       if (!valid) return
 
-      // 拖拽验证（极验启用时改为提交前弹出极验滑块）
+      // 极验行为验证：启用时提交前弹出极验滑块，未启用则直接提交
       let captchaParams = {}
       if (captchaEnabled.value) {
         let result
@@ -198,9 +166,6 @@
         // null = 用户关闭或组件出错，中止提交
         if (!result) return
         captchaParams = result
-      } else if (!isPassing.value) {
-        isClickPass.value = true
-        return
       }
 
       loginAttempted = true
@@ -252,16 +217,9 @@
     } finally {
       loading.value = false
       if (loginAttempted && !loginCompleted) {
-        resetDragVerify()
         resetCaptcha()
       }
     }
-  }
-
-  // 重置拖拽验证
-  const resetDragVerify = () => {
-    dragVerify.value?.reset()
-    isClickPass.value = false
   }
 
   // 登录成功提示
