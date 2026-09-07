@@ -226,6 +226,7 @@
     OnlineUpdateJob,
     OnlineUpdateStatus
   } from '@/api/update'
+  import { HttpError } from '@/utils/http/error'
 
   defineOptions({ name: 'OnlineUpdate' })
 
@@ -240,7 +241,7 @@
   const job = ref<OnlineUpdateJob | null>(null)
   const jobSectionRef = ref<HTMLElement | null>(null)
   let jobTimer: ReturnType<typeof setInterval> | undefined
-  let reloadScheduled = false
+  let redirectScheduled = false
 
   const latest = computed(() => checkResult.value?.latest || status.value?.latest || null)
   const currentVersion = computed(
@@ -284,7 +285,8 @@
       if (job.value && ['running', 'restarting'].includes(job.value.status)) {
         startJobPolling(job.value.id)
       }
-    } catch {
+    } catch (error) {
+      if (handleUpdateError(error)) return
       ElMessage.error('更新状态加载失败')
     } finally {
       loading.value = false
@@ -318,6 +320,7 @@
         ElMessage.success('当前已经是最新版本')
       }
     } catch (error: any) {
+      if (handleUpdateError(error)) return
       ElMessage.error(error?.message || '检查更新失败')
     } finally {
       checking.value = false
@@ -348,6 +351,7 @@
       ElMessage.success('更新任务已启动')
       startJobPolling(job.value.id)
     } catch (error: any) {
+      if (handleUpdateError(error)) return
       ElMessage.error(error?.message || '更新启动失败')
     } finally {
       applying.value = false
@@ -362,18 +366,16 @@
         job.value = nextJob
         if (nextJob.status === 'success') {
           stopJobPolling()
-          ElMessage.success('更新完成，正在加载新版本')
-          if (!reloadScheduled) {
-            reloadScheduled = true
-            window.setTimeout(() => window.location.reload(), 1000)
-          }
+          ElMessage.success('更新完成，请重新登录')
+          redirectToAdminLogin()
           return
         }
         if (nextJob.status === 'failed') {
           stopJobPolling()
           ElMessage.error(nextJob.error || nextJob.message || '更新失败，已尝试回滚')
         }
-      } catch {
+      } catch (error) {
+        if (handleUpdateError(error)) return
         if (job.value?.status === 'restarting') return
         stopJobPolling()
       }
@@ -383,6 +385,28 @@
   const stopJobPolling = () => {
     if (jobTimer) clearInterval(jobTimer)
     jobTimer = undefined
+  }
+
+  // 登录态失效（401）或无权限（403）时，在线更新接口已不可用，跳转 /admin 重新登录。
+  const isSessionExpired = (error: unknown): boolean =>
+    error instanceof HttpError && (error.code === 401 || error.code === 403)
+
+  const redirectToAdminLogin = () => {
+    if (redirectScheduled) return
+    redirectScheduled = true
+    window.setTimeout(() => window.location.replace('/admin'), 1000)
+  }
+
+  // 返回 true 表示已处理（跳转登录），调用方直接返回；否则按普通错误继续处理。
+  const handleUpdateError = (error: unknown): boolean => {
+    if (!isSessionExpired(error)) return false
+    stopJobPolling()
+    // 401 已由 axios 拦截器提示并触发登出；403 需自行提示后跳转。
+    if (error instanceof HttpError && error.code === 403) {
+      ElMessage.error('登录已失效，请重新登录')
+    }
+    redirectToAdminLogin()
+    return true
   }
 
   const jobStatusText = (value: OnlineUpdateJob['status']) => {
