@@ -41,7 +41,12 @@
               <el-input v-model="dbForm.username" placeholder="请输入数据库用户名" />
             </el-form-item>
             <el-form-item label="密码">
-              <el-input v-model="dbForm.password" type="password" show-password placeholder="请输入数据库密码" />
+              <el-input
+                v-model="dbForm.password"
+                type="password"
+                show-password
+                placeholder="请输入数据库密码"
+              />
             </el-form-item>
           </el-form>
 
@@ -50,7 +55,7 @@
               <IconifyIcon icon="ri:link" width="16" style="margin-right: 4px" />
               测试连接
             </el-button>
-            <el-button v-if="dbConnected" type="primary" @click="step = 2; handleInstallTables()">
+            <el-button v-if="dbConnected" type="primary" @click="handleInstallNext">
               下一步
             </el-button>
           </div>
@@ -69,13 +74,17 @@
         <div v-else-if="step === 2" key="step2" class="step-content">
           <div class="install-progress">
             <div v-if="installing" class="progress-info">
-              <el-icon class="is-loading" :size="24"><IconifyIcon icon="ri:loader-4-line" /></el-icon>
+              <el-icon class="is-loading" :size="24"
+                ><IconifyIcon icon="ri:loader-4-line"
+              /></el-icon>
               <p>正在安装数据表，请稍候...</p>
             </div>
             <div v-else-if="installSuccess" class="progress-info success">
               <IconifyIcon icon="ri:checkbox-circle-fill" width="40" color="#67c23a" />
               <p>数据表安装完成</p>
-              <el-button type="primary" @click="step = 3" style="margin-top: 16px">下一步</el-button>
+              <el-button type="primary" @click="step = 3" style="margin-top: 16px"
+                >下一步</el-button
+              >
             </div>
             <div v-else-if="installError" class="progress-info error">
               <IconifyIcon icon="ri:close-circle-fill" width="40" color="#f56c6c" />
@@ -92,10 +101,20 @@
               <el-input v-model="adminForm.username" placeholder="admin" />
             </el-form-item>
             <el-form-item label="管理员密码">
-              <el-input v-model="adminForm.password" type="password" show-password placeholder="123456" />
+              <el-input
+                v-model="adminForm.password"
+                type="password"
+                show-password
+                placeholder="123456"
+              />
             </el-form-item>
             <el-form-item label="确认密码">
-              <el-input v-model="adminForm.confirmPassword" type="password" show-password placeholder="123456" />
+              <el-input
+                v-model="adminForm.confirmPassword"
+                type="password"
+                show-password
+                placeholder="123456"
+              />
             </el-form-item>
           </el-form>
 
@@ -134,289 +153,307 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Icon as IconifyIcon } from '@iconify/vue'
+  import { ref, reactive } from 'vue'
+  import { useRouter } from 'vue-router'
+  import { ElMessage } from 'element-plus'
+  import { Icon as IconifyIcon } from '@iconify/vue'
 
-const router = useRouter()
-const step = ref(1)
-const testing = ref(false)
-const dbConnected = ref(false)
-const testError = ref('')
-const installing = ref(false)
-const installSuccess = ref(false)
-const installError = ref('')
-const saving = ref(false)
+  const router = useRouter()
+  const step = ref(1)
+  const testing = ref(false)
+  const dbConnected = ref(false)
+  const testError = ref('')
+  const installing = ref(false)
+  const installSuccess = ref(false)
+  const installError = ref('')
+  const saving = ref(false)
 
-const dbForm = reactive({
-  host: '127.0.0.1',
-  port: '3306',
-  database: 'auth_pro',
-  username: '',
-  password: ''
-})
-
-const adminForm = reactive({
-  username: 'admin',
-  password: '123456',
-  confirmPassword: '123456'
-})
-
-async function postJSON(url: string, data: any) {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
+  const dbForm = reactive({
+    host: '127.0.0.1',
+    port: '3306',
+    database: 'auth_pro',
+    username: '',
+    password: ''
   })
-  const json = await res.json()
-  if (json.code !== 200) throw new Error(json.message || '请求失败')
-  return json
-}
 
-async function handleTestConnection() {
-  testing.value = true
-  dbConnected.value = false
-  testError.value = ''
-  try {
-    await postJSON('/api/install/test-db', dbForm)
-    dbConnected.value = true
-  } catch (e: any) {
-    testError.value = e?.message || '连接失败，请检查配置'
-  } finally {
-    testing.value = false
-  }
-}
+  const adminForm = reactive({
+    username: 'admin',
+    password: '123456',
+    confirmPassword: '123456'
+  })
 
-async function handleInstallTables() {
-  installing.value = true
-  installSuccess.value = false
-  installError.value = ''
-  try {
-    await postJSON('/api/install/init-tables', dbForm)
-    installSuccess.value = true
-  } catch (e: any) {
-    installError.value = e?.message || '安装失败'
-  } finally {
-    installing.value = false
-  }
-}
-
-async function handleSaveAdmin() {
-  if (adminForm.password !== adminForm.confirmPassword) {
-    ElMessage.warning('两次密码输入不一致')
-    return
-  }
-  saving.value = true
-  try {
-    await postJSON('/api/install/create-admin', {
-      ...dbForm,
-      adminUsername: adminForm.username,
-      adminPassword: adminForm.password
+  async function postJSON(url: string, data: any) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
     })
-    ElMessage.success('安装完成！')
-    step.value = 4
-  } catch (e: any) {
-    ElMessage.error(e?.message || '保存失败')
-  } finally {
-    saving.value = false
+    const json = await res.json()
+    if (json.code !== 200) throw new Error(json.message || '请求失败')
+    return json
   }
-}
+
+  async function handleTestConnection() {
+    testing.value = true
+    dbConnected.value = false
+    testError.value = ''
+    try {
+      await postJSON('/api/install/test-db', dbForm)
+      dbConnected.value = true
+    } catch (e: any) {
+      testError.value = e?.message || '连接失败，请检查配置'
+    } finally {
+      testing.value = false
+    }
+  }
+
+  async function handleInstallNext() {
+    step.value = 2
+    await handleInstallTables()
+  }
+
+  async function handleInstallTables() {
+    installing.value = true
+    installSuccess.value = false
+    installError.value = ''
+    try {
+      await postJSON('/api/install/init-tables', dbForm)
+      installSuccess.value = true
+    } catch (e: any) {
+      installError.value = e?.message || '安装失败'
+    } finally {
+      installing.value = false
+    }
+  }
+
+  async function handleSaveAdmin() {
+    if (adminForm.password !== adminForm.confirmPassword) {
+      ElMessage.warning('两次密码输入不一致')
+      return
+    }
+    saving.value = true
+    try {
+      await postJSON('/api/install/create-admin', {
+        ...dbForm,
+        adminUsername: adminForm.username,
+        adminPassword: adminForm.password
+      })
+      ElMessage.success('安装完成！')
+      step.value = 4
+    } catch (e: any) {
+      ElMessage.error(e?.message || '保存失败')
+    } finally {
+      saving.value = false
+    }
+  }
 </script>
 
 <style scoped lang="scss">
-.install-page {
-  --el-bg-color: #fff;
-  --el-bg-color-overlay: #fff;
-  --el-fill-color: #f0f2f5;
-  --el-fill-color-light: #f5f7fa;
-  --el-fill-color-lighter: #fafafa;
-  --el-fill-color-blank: #fff;
-  --el-text-color-primary: #303133;
-  --el-text-color-regular: #606266;
-  --el-text-color-secondary: #909399;
-  --el-text-color-placeholder: #a8abb2;
-  --el-border-color: #dcdfe6;
-  --el-border-color-light: #e4e7ed;
-  --el-border-color-lighter: #ebeef5;
+  .install-page {
+    --el-bg-color: #fff;
+    --el-bg-color-overlay: #fff;
+    --el-fill-color: #f0f2f5;
+    --el-fill-color-light: #f5f7fa;
+    --el-fill-color-lighter: #fafafa;
+    --el-fill-color-blank: #fff;
+    --el-text-color-primary: #303133;
+    --el-text-color-regular: #606266;
+    --el-text-color-secondary: #909399;
+    --el-text-color-placeholder: #a8abb2;
+    --el-border-color: #dcdfe6;
+    --el-border-color-light: #e4e7ed;
+    --el-border-color-lighter: #ebeef5;
 
-  width: 100%;
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--el-text-color-primary);
-  background: #f5f7fa;
-  padding: 24px;
-}
-
-.install-container {
-  width: 520px;
-  background: #fff;
-  border-radius: 16px;
-  padding: 40px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
-  border: 1px solid var(--el-border-color-lighter);
-}
-
-.install-header {
-  text-align: center;
-  margin-bottom: 32px;
-
-  .install-title {
-    font-size: 24px;
-    font-weight: 700;
-    color: #1a1a1a;
-    margin-bottom: 8px;
-  }
-
-  .install-desc {
-    font-size: 14px;
-    color: #999;
-  }
-}
-
-.steps-bar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 32px;
-
-  .step {
+    width: 100%;
+    min-height: 100vh;
     display: flex;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
+    color: var(--el-text-color-primary);
+    background: #f5f7fa;
+    padding: 24px;
+  }
 
-    .step-dot {
-      width: 26px;
-      height: 26px;
-      border-radius: 50%;
-      background: var(--el-fill-color);
-      color: var(--el-text-color-secondary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
+  .install-container {
+    width: 520px;
+    background: #fff;
+    border-radius: 16px;
+    padding: 40px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--el-border-color-lighter);
+  }
+
+  .install-header {
+    text-align: center;
+    margin-bottom: 32px;
+
+    .install-title {
+      font-size: 24px;
       font-weight: 700;
-      transition: all 0.3s;
+      color: #1a1a1a;
+      margin-bottom: 8px;
     }
 
-    .step-text {
-      font-size: 12px;
-      color: var(--el-text-color-secondary);
+    .install-desc {
+      font-size: 14px;
+      color: #999;
+    }
+  }
+
+  .steps-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 32px;
+
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+
+      .step-dot {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--el-fill-color);
+        color: var(--el-text-color-secondary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 700;
+        transition: all 0.3s;
+      }
+
+      .step-text {
+        font-size: 12px;
+        color: var(--el-text-color-secondary);
+        font-weight: 500;
+      }
+
+      &.active .step-dot {
+        background: var(--el-color-primary);
+        color: #fff;
+      }
+
+      &.active .step-text {
+        color: var(--el-color-primary);
+      }
+
+      &.done .step-dot {
+        background: var(--el-color-success);
+        color: #fff;
+      }
+    }
+
+    .step-line {
+      width: 40px;
+      height: 2px;
+      background: var(--el-fill-color);
+      margin: 0 8px;
+      transition: background 0.3s;
+
+      &.active {
+        background: var(--el-color-primary);
+      }
+    }
+  }
+
+  .install-form {
+    :deep(.el-form-item__label) {
+      color: var(--el-text-color-regular);
       font-weight: 500;
     }
 
-    &.active .step-dot {
-      background: var(--el-color-primary);
-      color: #fff;
+    :deep(.el-input) {
+      --el-input-text-color: #606266;
+      --el-input-bg-color: #fff;
+      --el-input-icon-color: #a8abb2;
+      --el-input-placeholder-color: #a8abb2;
+      --el-text-color-regular: #606266;
+      --el-text-color-placeholder: #a8abb2;
     }
 
-    &.active .step-text {
-      color: var(--el-color-primary);
-    }
-
-    &.done .step-dot {
-      background: var(--el-color-success);
-      color: #fff;
+    :deep(.el-input__wrapper) {
+      background-color: #fff;
     }
   }
 
-  .step-line {
-    width: 40px;
-    height: 2px;
-    background: var(--el-fill-color);
-    margin: 0 8px;
-    transition: background 0.3s;
-
-    &.active {
-      background: var(--el-color-primary);
-    }
-  }
-}
-
-.install-form {
-  :deep(.el-form-item__label) {
-    color: var(--el-text-color-regular);
-    font-weight: 500;
-  }
-
-  :deep(.el-input) {
-    --el-input-text-color: #606266;
-    --el-input-bg-color: #fff;
-    --el-input-icon-color: #a8abb2;
-    --el-input-placeholder-color: #a8abb2;
-    --el-text-color-regular: #606266;
-    --el-text-color-placeholder: #a8abb2;
-  }
-
-  :deep(.el-input__wrapper) {
-    background-color: #fff;
-  }
-}
-
-.action-row {
-  display: flex;
-  gap: 12px;
-  margin-top: 20px;
-}
-
-.test-result {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 12px;
-  font-size: 13px;
-
-  &.success { color: #67c23a; }
-  &.error { color: #f56c6c; }
-}
-
-.install-progress {
-  text-align: center;
-  padding: 40px 0;
-
-  .progress-info {
+  .action-row {
     display: flex;
-    flex-direction: column;
+    gap: 12px;
+    margin-top: 20px;
+  }
+
+  .test-result {
+    display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 6px;
+    margin-top: 12px;
+    font-size: 13px;
 
-    p {
-      font-size: 15px;
-      color: var(--el-text-color-primary);
+    &.success {
+      color: #67c23a;
+    }
+    &.error {
+      color: #f56c6c;
     }
   }
-}
 
-.fade-enter-active, .fade-leave-active {
-  transition: opacity 0.2s, transform 0.2s;
-}
-.fade-enter-from { opacity: 0; transform: translateX(12px); }
-.fade-leave-to { opacity: 0; transform: translateX(-12px); }
+  .install-progress {
+    text-align: center;
+    padding: 40px 0;
 
-.install-done {
-  text-align: center;
-  padding: 32px 0;
+    .progress-info {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
 
-  .done-title {
-    font-size: 20px;
-    font-weight: 700;
-    color: var(--el-text-color-primary);
-    margin: 16px 0 8px;
+      p {
+        font-size: 15px;
+        color: var(--el-text-color-primary);
+      }
+    }
   }
 
-  .done-desc {
-    font-size: 14px;
-    color: var(--el-text-color-secondary);
-    margin-bottom: 28px;
+  .fade-enter-active,
+  .fade-leave-active {
+    transition:
+      opacity 0.2s,
+      transform 0.2s;
+  }
+  .fade-enter-from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  .fade-leave-to {
+    opacity: 0;
+    transform: translateX(-12px);
   }
 
-  .done-buttons {
-    display: flex;
-    gap: 12px;
-    justify-content: center;
-    flex-wrap: wrap;
+  .install-done {
+    text-align: center;
+    padding: 32px 0;
+
+    .done-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--el-text-color-primary);
+      margin: 16px 0 8px;
+    }
+
+    .done-desc {
+      font-size: 14px;
+      color: var(--el-text-color-secondary);
+      margin-bottom: 28px;
+    }
+
+    .done-buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
   }
-}
 </style>

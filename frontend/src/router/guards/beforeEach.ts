@@ -145,6 +145,52 @@ function isPanelPath(path: string): boolean {
 }
 
 /**
+ * 面板公开路径（无需面板登录即可访问）
+ *
+ * 仅包含登录/注册/找回密码等入口，其余面板页面都要求本地存在对应 token
+ */
+const PANEL_PUBLIC_PATHS: { pattern: RegExp }[] = [
+  { pattern: /^\/agent-panel\/login$/ },
+  { pattern: /^\/user\/login$/ },
+  { pattern: /^\/user\/reset-password$/ }
+]
+
+/** 判断面板路径是否为公开入口 */
+function isPanelPublicPath(path: string): boolean {
+  return PANEL_PUBLIC_PATHS.some(({ pattern }) => pattern.test(path))
+}
+
+/**
+ * 获取面板路径对应的本地 token 键名与登录页
+ */
+function getPanelAuthConfig(path: string): { tokenKey: string; loginPath: string } | null {
+  if (path === '/agent-panel' || path.startsWith('/agent-panel/')) {
+    return { tokenKey: 'agent_panel_token', loginPath: '/agent-panel/login' }
+  }
+  if (path === '/user' || path.startsWith('/user/')) {
+    return { tokenKey: 'user_panel_token', loginPath: '/user/login' }
+  }
+  return null
+}
+
+/**
+ * 校验面板登录状态
+ * @returns true 表示可以继续，false 表示已处理跳转
+ */
+function handlePanelAuth(to: RouteLocationNormalized, next: NavigationGuardNext): boolean {
+  const config = getPanelAuthConfig(to.path)
+  if (!config || isPanelPublicPath(to.path)) {
+    return true
+  }
+  if (localStorage.getItem(config.tokenKey)) {
+    return true
+  }
+  // 未登录访问面板页面，跳转对应登录页并携带 redirect
+  next({ path: config.loginPath, query: { redirect: to.fullPath }, replace: true })
+  return false
+}
+
+/**
  * 处理路由守卫逻辑
  */
 async function handleRouteGuard(
@@ -190,14 +236,23 @@ async function handleRouteGuard(
     return
   }
 
-  // 代理商/用户面板路径直接放行，无需管理后台认证
+  // 代理商/用户面板路径：先做面板自身登录校验，再放行（无需管理后台认证）
   if (isPanelPath(to.path)) {
+    if (!handlePanelAuth(to, next)) {
+      return
+    }
     if (to.matched.length > 0) {
       next()
     } else {
       next({ name: 'Exception404' })
     }
     return
+  }
+
+  // 访问管理员登录页时，若本地残留登录状态（旧 token / 损坏的用户数据），
+  // 直接清理后放行登录页，避免带着无效凭证发起动态路由初始化（此时会出现“查询用户失败”）。
+  if (to.path === RoutesAlias.Login && userStore.isLogin) {
+    userStore.logOut()
   }
 
   // 1. 检查登录状态

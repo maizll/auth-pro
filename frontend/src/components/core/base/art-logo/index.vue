@@ -1,7 +1,12 @@
 <!-- 系统logo -->
 <template>
   <div class="flex-cc">
-    <img :style="logoStyle" :src="systemConfigStore.resolvedLogo" alt="logo" class="w-full h-full" />
+    <img
+      :style="logoStyle"
+      :src="systemConfigStore.resolvedLogo"
+      alt="logo"
+      class="w-full h-full"
+    />
   </div>
 </template>
 

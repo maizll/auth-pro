@@ -149,7 +149,14 @@
             const d = row.discount
             const color = d <= 7 ? '#67c23a' : d <= 8 ? '#e6a23c' : ''
             const text = d >= 10 ? '无折扣' : `${d}折`
-            return h(ElTag, { type: color === '#67c23a' ? 'success' : color === '#e6a23c' ? 'warning' : 'info', size: 'small' }, () => text)
+            return h(
+              ElTag,
+              {
+                type: color === '#67c23a' ? 'success' : color === '#e6a23c' ? 'warning' : 'info',
+                size: 'small'
+              },
+              () => text
+            )
           }
         },
         {
@@ -281,38 +288,38 @@
 </script>
 
 <style scoped lang="scss">
-.permission-view {
-  .pv-apps {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
+  .permission-view {
+    .pv-apps {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
 
-  .pv-app-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px;
-    border-radius: 10px;
-    background: var(--el-fill-color-light);
-    border: 1px solid var(--el-border-color-extra-light);
-
-    .pv-app-icon {
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
-      background: var(--el-color-primary-light-9);
-      color: var(--el-color-primary);
+    .pv-app-item {
       display: flex;
       align-items: center;
-      justify-content: center;
-      font-size: 18px;
-    }
+      gap: 12px;
+      padding: 12px;
+      border-radius: 10px;
+      background: var(--el-fill-color-light);
+      border: 1px solid var(--el-border-color-extra-light);
 
-    .pv-app-name {
-      font-size: 14px;
-      font-weight: 500;
+      .pv-app-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        background: var(--el-color-primary-light-9);
+        color: var(--el-color-primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+      }
+
+      .pv-app-name {
+        font-size: 14px;
+        font-weight: 500;
+      }
     }
   }
-}
 </style>

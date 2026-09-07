@@ -177,7 +177,11 @@
       localStorage.setItem('user_panel_token', token)
       localStorage.setItem('user_panel_info', JSON.stringify(response.data))
       ElMessage.success('登录成功')
-      await router.push('/user/dashboard')
+      const redirect =
+        typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/user')
+          ? route.query.redirect
+          : '/user/dashboard'
+      await router.push(redirect)
       return
     }
     if (response.code === 409 && response.data?.converted === true) {

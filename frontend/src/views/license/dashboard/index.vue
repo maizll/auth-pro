@@ -3,16 +3,14 @@
     <!-- 统计卡片 -->
     <el-row :gutter="16" class="mb-4">
       <el-col :xs="12" :sm="6" v-for="item in statsCards" :key="item.title">
-        <el-card shadow="hover" class="stats-card">
+        <el-card shadow="never" class="art-card stats-card">
           <div class="stats-card-inner">
             <div class="stats-info">
               <span class="stats-title">{{ item.title }}</span>
               <span class="stats-value">{{ item.value }}</span>
             </div>
-            <div class="stats-icon" :style="{ backgroundColor: item.bgColor }">
-              <el-icon :size="24" :color="item.color">
-                <component :is="item.icon" />
-              </el-icon>
+            <div class="stats-icon" :style="{ backgroundColor: item.bgColor, color: item.color }">
+              <ArtSvgIcon :icon="item.icon" />
             </div>
           </div>
           <div class="stats-footer">
@@ -28,7 +26,7 @@
     <!-- 最近授权 + 到期提醒 -->
     <el-row :gutter="16">
       <el-col :xs="24" :lg="14">
-        <el-card shadow="hover">
+        <el-card shadow="never" class="art-card dashboard-panel">
           <template #header>
             <span class="card-title">最近授权</span>
           </template>
@@ -45,7 +43,7 @@
         </el-card>
       </el-col>
       <el-col :xs="24" :lg="10">
-        <el-card shadow="hover">
+        <el-card shadow="never" class="art-card dashboard-panel">
           <template #header>
             <span class="card-title">即将到期</span>
           </template>
@@ -67,6 +65,7 @@
 
 <script setup lang="ts">
   import { ref, onMounted } from 'vue'
+  import ArtSvgIcon from '@/components/core/base/art-svg-icon/index.vue'
   import request from '@/utils/http'
 
   interface StatsItem {
@@ -146,9 +145,35 @@
 <style scoped lang="scss">
   .license-dashboard {
     padding: 0;
+
+    :deep(.el-card) {
+      --el-card-border-color: var(--art-card-border);
+      border-radius: calc(var(--custom-radius) + 4px);
+      background: var(--default-box-color);
+      box-shadow: none;
+    }
+
+    :deep(.el-card__header) {
+      padding: 20px 22px 14px;
+      border-bottom-color: var(--art-card-border);
+    }
+
+    :deep(.el-card__body) {
+      padding: 20px 22px;
+    }
   }
 
   .stats-card {
+    min-height: 154px;
+    transition:
+      border-color 0.2s ease,
+      transform 0.2s ease;
+
+    &:hover {
+      border-color: color-mix(in srgb, var(--art-primary) 30%, var(--art-card-border));
+      transform: translateY(-2px);
+    }
+
     .stats-card-inner {
       display: flex;
       align-items: center;
@@ -162,45 +187,64 @@
     }
 
     .stats-title {
-      font-size: 14px;
-      color: var(--el-text-color-secondary);
+      font-size: 13px;
+      color: var(--art-gray-600);
     }
 
     .stats-value {
       font-size: 28px;
-      font-weight: 600;
-      color: var(--el-text-color-primary);
+      font-weight: 700;
+      line-height: 1.2;
+      color: var(--art-gray-900);
     }
 
     .stats-icon {
-      width: 48px;
-      height: 48px;
-      border-radius: 12px;
+      width: 44px;
+      height: 44px;
+      border-radius: 13px;
       display: flex;
       align-items: center;
       justify-content: center;
     }
 
     .stats-footer {
-      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 16px;
       padding-top: 12px;
-      border-top: 1px solid var(--el-border-color-lighter);
-      font-size: 13px;
+      border-top: 1px solid var(--art-card-border);
+      font-size: 12px;
 
       .trend-up {
-        color: #67c23a;
-        font-weight: 500;
+        color: var(--el-color-success);
+        font-weight: 600;
       }
 
       .trend-down {
-        color: #f56c6c;
-        font-weight: 500;
+        color: var(--el-color-danger);
+        font-weight: 600;
       }
 
       .trend-label {
-        color: var(--el-text-color-secondary);
-        margin-left: 4px;
+        color: var(--art-gray-500);
       }
+    }
+  }
+
+  .dashboard-panel {
+    height: 100%;
+
+    :deep(.el-table) {
+      --el-table-border-color: var(--art-card-border);
+      --el-table-header-bg-color: var(--art-gray-100);
+      --el-table-row-hover-bg-color: var(--art-gray-100);
+      color: var(--art-gray-800);
+    }
+
+    :deep(.el-table th.el-table__cell) {
+      color: var(--art-gray-600);
+      font-weight: 600;
     }
   }
 
@@ -209,7 +253,9 @@
   }
 
   .card-title {
-    font-weight: 600;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--art-gray-900);
   }
 
   .expire-list {
@@ -217,8 +263,8 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--el-border-color-lighter);
+      padding: 13px 0;
+      border-bottom: 1px solid var(--art-card-border);
 
       &:last-child {
         border-bottom: none;
@@ -228,17 +274,36 @@
     .expire-info {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      min-width: 0;
+      gap: 5px;
+      margin-right: 12px;
     }
 
     .expire-domain {
+      overflow: hidden;
       font-size: 14px;
-      font-weight: 500;
+      font-weight: 600;
+      color: var(--art-gray-800);
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .expire-app {
+      overflow: hidden;
       font-size: 12px;
-      color: var(--el-text-color-secondary);
+      color: var(--art-gray-500);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .license-dashboard {
+      :deep(.el-card__header),
+      :deep(.el-card__body) {
+        padding-right: 16px;
+        padding-left: 16px;
+      }
     }
   }
 </style>

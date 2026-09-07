@@ -21,13 +21,13 @@ export const routeModules: AppRouteRecord[] = [
   userManageRoutes,
   orderListRoutes,
   promotionCampaignRoutes,
-  systemRoutes,
+  pluginStoreRoutes,
   licenseRoutes,
   agentRoutes,
   piracyRoutes,
   resultRoutes,
   exceptionRoutes,
   sdkRoutes,
-  pluginStoreRoutes,
+  systemRoutes,
   onlineUpdateRoutes
 ]

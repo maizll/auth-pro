@@ -7,12 +7,7 @@
         <span class="brand-text" v-show="!collapsed">{{ siteName }}</span>
       </div>
 
-      <el-menu
-        :default-active="currentRoute"
-        :collapse="collapsed"
-        router
-        class="sidebar-menu"
-      >
+      <el-menu :default-active="currentRoute" :collapse="collapsed" router class="sidebar-menu">
         <el-menu-item index="/agent-panel/dashboard">
           <el-icon><iconify-icon icon="ri:dashboard-line" /></el-icon>
           <template #title>概览</template>
@@ -77,7 +72,9 @@
       <main
         class="panel-content"
         :class="{
-          'is-panel-surface': ['/agent-panel/dashboard', '/agent-panel/profile'].includes(currentRoute)
+          'is-panel-surface': ['/agent-panel/dashboard', '/agent-panel/profile'].includes(
+            currentRoute
+          )
         }"
       >
         <router-view />
@@ -89,160 +86,162 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { Icon as IconifyIcon } from '@iconify/vue'
-import { useSystemConfigStore } from '@/store/modules/system-config'
-import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
+  import { ref, computed } from 'vue'
+  import { useRoute, useRouter } from 'vue-router'
+  import { Icon as IconifyIcon } from '@iconify/vue'
+  import { useSystemConfigStore } from '@/store/modules/system-config'
+  import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
 
-const route = useRoute()
-const router = useRouter()
-const systemConfigStore = useSystemConfigStore()
-const { siteName, resolvedLogo } = storeToRefs(systemConfigStore)
-const collapsed = ref(false)
+  const route = useRoute()
+  const router = useRouter()
+  const systemConfigStore = useSystemConfigStore()
+  const { siteName, resolvedLogo } = storeToRefs(systemConfigStore)
+  const collapsed = ref(false)
 
-const currentRoute = computed(() => route.path)
+  const currentRoute = computed(() => route.path)
 
-const titleMap: Record<string, string> = {
-  '/agent-panel/dashboard': '概览',
-  '/agent-panel/licenses': '我的授权',
-  '/agent-panel/purchase': '开通授权',
-  '/agent-panel/finance': '我的财务',
-  '/agent-panel/profile': '个人设置'
-}
-
-const currentTitle = computed(() => titleMap[route.path] || '概览')
-const agentName = computed(() => {
-  try {
-    const info = JSON.parse(localStorage.getItem('agent_panel_info') || '{}')
-    return info.name || info.email || '代理商'
-  } catch {
-    return '代理商'
+  const titleMap: Record<string, string> = {
+    '/agent-panel/dashboard': '概览',
+    '/agent-panel/licenses': '我的授权',
+    '/agent-panel/purchase': '开通授权',
+    '/agent-panel/finance': '我的财务',
+    '/agent-panel/profile': '个人设置'
   }
-})
 
-function handleLogout() {
-  localStorage.removeItem('agent_panel_token')
-  localStorage.removeItem('agent_panel_info')
-  router.push('/agent-panel/login')
-}
+  const currentTitle = computed(() => titleMap[route.path] || '概览')
+  const agentName = computed(() => {
+    try {
+      const info = JSON.parse(localStorage.getItem('agent_panel_info') || '{}')
+      return info.name || info.email || '代理商'
+    } catch {
+      return '代理商'
+    }
+  })
+
+  function handleLogout() {
+    localStorage.removeItem('agent_panel_token')
+    localStorage.removeItem('agent_panel_info')
+    router.push('/agent-panel/login')
+  }
 </script>
 
 <style scoped lang="scss">
-.agent-panel-layout {
-  display: flex;
-  height: 100vh;
-  overflow: hidden;
-  background: var(--el-bg-color);
-}
-
-.panel-sidebar {
-  width: 220px;
-  background: var(--el-bg-color);
-  display: flex;
-  flex-direction: column;
-  transition: width 0.3s;
-  flex-shrink: 0;
-  border-right: 1px solid var(--el-border-color-lighter);
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.03);
-
-  .sidebar-header {
-    height: 56px;
+  .agent-panel-layout {
     display: flex;
-    align-items: center;
-    padding: 0 16px;
-    gap: 10px;
-    border-bottom: 1px solid var(--el-border-color-lighter);
+    height: 100vh;
+    overflow: hidden;
+    background: var(--el-bg-color);
+  }
 
-    .brand-logo {
-      width: 32px;
-      height: 32px;
-      border-radius: 6px;
-      flex-shrink: 0;
+  .panel-sidebar {
+    width: 220px;
+    background: var(--el-bg-color);
+    display: flex;
+    flex-direction: column;
+    transition: width 0.3s;
+    flex-shrink: 0;
+    border-right: 1px solid var(--el-border-color-lighter);
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.03);
+
+    .sidebar-header {
+      height: 56px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 10px;
+      border-bottom: 1px solid var(--el-border-color-lighter);
+
+      .brand-logo {
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+        flex-shrink: 0;
+      }
+
+      .brand-text {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--el-text-color-primary);
+        white-space: nowrap;
+      }
     }
 
-    .brand-text {
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--el-text-color-primary);
-      white-space: nowrap;
+    .sidebar-menu {
+      border-right: none;
+      flex: 1;
+      padding: 8px 0;
+
+      :deep(.el-menu-item) {
+        margin: 2px 8px;
+        border-radius: 8px;
+        height: 44px;
+
+        &.is-active {
+          background: var(--el-color-primary-light-9);
+          color: var(--el-color-primary);
+        }
+      }
     }
   }
 
-  .sidebar-menu {
-    border-right: none;
+  .panel-main {
     flex: 1;
-    padding: 8px 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
 
-    :deep(.el-menu-item) {
-      margin: 2px 8px;
-      border-radius: 8px;
-      height: 44px;
+  .panel-header {
+    height: 56px;
+    background: var(--el-bg-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--el-border-color-lighter);
+    flex-shrink: 0;
 
-      &.is-active {
-        background: var(--el-color-primary-light-9);
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+
+      .collapse-btn {
+        cursor: pointer;
+        color: var(--el-text-color-secondary);
+        transition: color 0.2s;
+        &:hover {
+          color: var(--el-color-primary);
+        }
+      }
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+
+      .agent-name {
+        font-size: 14px;
+        color: var(--el-text-color-primary);
+      }
+
+      .avatar-btn {
+        cursor: pointer;
+        background: var(--el-color-primary-light-7);
         color: var(--el-color-primary);
       }
     }
   }
-}
 
-.panel-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
+  .panel-content {
+    flex: 1;
+    padding: 16px;
+    overflow: auto;
+    background: var(--el-bg-color-page);
 
-.panel-header {
-  height: 56px;
-  background: var(--el-bg-color);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
-  flex-shrink: 0;
-
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-
-    .collapse-btn {
-      cursor: pointer;
-      color: var(--el-text-color-secondary);
-      transition: color 0.2s;
-      &:hover { color: var(--el-color-primary); }
+    &.is-panel-surface {
+      background: var(--el-bg-color);
     }
   }
-
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-
-    .agent-name {
-      font-size: 14px;
-      color: var(--el-text-color-primary);
-    }
-
-    .avatar-btn {
-      cursor: pointer;
-      background: var(--el-color-primary-light-7);
-      color: var(--el-color-primary);
-    }
-  }
-}
-
-.panel-content {
-  flex: 1;
-  padding: 16px;
-  overflow: auto;
-  background: var(--el-bg-color-page);
-
-  &.is-panel-surface {
-    background: var(--el-bg-color);
-  }
-}
 </style>

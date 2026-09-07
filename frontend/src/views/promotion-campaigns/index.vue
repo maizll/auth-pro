@@ -115,11 +115,7 @@
         <el-table-column label="操作" width="210" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="handleEdit(row)">编辑</el-button>
-            <el-button
-              link
-              :type="row.enabled ? 'danger' : 'success'"
-              @click="handleToggle(row)"
-            >
+            <el-button link :type="row.enabled ? 'danger' : 'success'" @click="handleToggle(row)">
               {{ row.enabled ? '禁用' : '启用' }}
             </el-button>
             <el-button
@@ -149,10 +145,20 @@
       <el-form ref="formRef" :model="form" :rules="formRules" label-position="top">
         <div class="form-grid">
           <el-form-item label="活动名称" prop="name">
-            <el-input v-model="form.name" maxlength="100" show-word-limit placeholder="例如：春季限时活动" />
+            <el-input
+              v-model="form.name"
+              maxlength="100"
+              show-word-limit
+              placeholder="例如：春季限时活动"
+            />
           </el-form-item>
           <el-form-item label="适用对象" prop="audience">
-            <el-segmented v-model="form.audience" :options="audienceOptions" block class="audience-field" />
+            <el-segmented
+              v-model="form.audience"
+              :options="audienceOptions"
+              block
+              class="audience-field"
+            />
           </el-form-item>
         </div>
 
@@ -166,7 +172,12 @@
               :disabled="isEdit"
               @change="handleAppChange"
             >
-              <el-option v-for="app in appOptions" :key="app.id" :label="app.name" :value="app.id" />
+              <el-option
+                v-for="app in appOptions"
+                :key="app.id"
+                :label="app.name"
+                :value="app.id"
+              />
             </el-select>
           </el-form-item>
           <el-form-item label="活动状态">
@@ -226,7 +237,11 @@
               <strong>{{ planById(draft.planId)?.name || `套餐 ${draft.planId}` }}</strong>
               <span>原价 ¥{{ money(planById(draft.planId)?.price || 0) }}</span>
             </div>
-            <el-select v-model="draft.ruleType" class="rule-type" @change="normalizeRuleValue(draft)">
+            <el-select
+              v-model="draft.ruleType"
+              class="rule-type"
+              @change="normalizeRuleValue(draft)"
+            >
               <el-option label="折扣" value="discount" />
               <el-option label="立减" value="reduction" />
               <el-option label="固定活动价" value="fixed_price" />
@@ -332,7 +347,10 @@
   })
 
   const form = reactive<CampaignForm>(createInitialForm())
-  const defaultTimes: [Date, Date] = [new Date(2000, 0, 1, 0, 0, 0), new Date(2000, 0, 1, 23, 59, 59)]
+  const defaultTimes: [Date, Date] = [
+    new Date(2000, 0, 1, 0, 0, 0),
+    new Date(2000, 0, 1, 23, 59, 59)
+  ]
   const dateRangeModel = computed<[Date, Date] | null>({
     get: () => {
       const [start, end] = form.dateRange
@@ -387,7 +405,11 @@
             if (!Number.isFinite(draft.value)) return true
             if (draft.ruleType === 'discount') return draft.value <= 0 || draft.value > 10
             const price = Number(planById(draft.planId)?.price || 0)
-            return draft.value < 0 || draft.value > price || (draft.ruleType === 'reduction' && draft.value === 0)
+            return (
+              draft.value < 0 ||
+              draft.value > price ||
+              (draft.ruleType === 'reduction' && draft.value === 0)
+            )
           })
           if (invalid) {
             callback(new Error('请检查套餐优惠值，立减和固定价不能高于套餐原价'))
@@ -426,7 +448,12 @@
       { active: 0, upcoming: 0, ended: 0, disabled: 0 }
     )
     return [
-      { label: '全部活动', value: tableData.value.length, icon: 'ri:price-tag-3-line', tone: 'blue' },
+      {
+        label: '全部活动',
+        value: tableData.value.length,
+        icon: 'ri:price-tag-3-line',
+        tone: 'blue'
+      },
       { label: '进行中', value: counts.active, icon: 'ri:flashlight-line', tone: 'green' },
       { label: '未开始', value: counts.upcoming, icon: 'ri:time-line', tone: 'purple' },
       { label: '已禁用', value: counts.disabled, icon: 'ri:pause-circle-line', tone: 'orange' }
@@ -478,7 +505,10 @@
       draft.value = 9
       return
     }
-    draft.value = Math.min(price, draft.ruleType === 'reduction' ? Math.max(0.01, price * 0.1) : price)
+    draft.value = Math.min(
+      price,
+      draft.ruleType === 'reduction' ? Math.max(0.01, price * 0.1) : price
+    )
   }
 
   const rulePreview = (draft: CampaignRuleDraft) => {
@@ -723,10 +753,18 @@
     border-radius: 12px;
     place-items: center;
 
-    &.blue { background: linear-gradient(135deg, #4776e6, #6b8df2); }
-    &.green { background: linear-gradient(135deg, #18a875, #42c99a); }
-    &.purple { background: linear-gradient(135deg, #7956d8, #9b7bea); }
-    &.orange { background: linear-gradient(135deg, #ef8d3c, #f5ad64); }
+    &.blue {
+      background: linear-gradient(135deg, #4776e6, #6b8df2);
+    }
+    &.green {
+      background: linear-gradient(135deg, #18a875, #42c99a);
+    }
+    &.purple {
+      background: linear-gradient(135deg, #7956d8, #9b7bea);
+    }
+    &.orange {
+      background: linear-gradient(135deg, #ef8d3c, #f5ad64);
+    }
   }
 
   .campaign-card {
@@ -748,8 +786,12 @@
     align-items: center;
   }
 
-  .filter-item { width: 150px; }
-  .keyword-input { width: 210px; }
+  .filter-item {
+    width: 150px;
+  }
+  .keyword-input {
+    width: 210px;
+  }
 
   .campaign-name,
   .time-range,
@@ -884,9 +926,18 @@
     }
   }
 
-  .plan-option-name { margin-right: 8px; }
-  .plan-option-price { color: var(--el-color-primary); font-weight: 600; }
-  .plan-option-state { margin-left: 8px; color: var(--el-color-warning); font-size: 11px; }
+  .plan-option-name {
+    margin-right: 8px;
+  }
+  .plan-option-price {
+    color: var(--el-color-primary);
+    font-weight: 600;
+  }
+  .plan-option-state {
+    margin-left: 8px;
+    color: var(--el-color-warning);
+    font-size: 11px;
+  }
 
   .plan-empty {
     width: 100%;
@@ -933,7 +984,9 @@
     border-top: 1px solid var(--el-border-color-lighter);
   }
 
-  .rule-value { width: 150px; }
+  .rule-value {
+    width: 150px;
+  }
 
   .rule-preview {
     color: var(--el-color-success);
@@ -943,20 +996,44 @@
   }
 
   @media (max-width: 1100px) {
-    .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .toolbar { align-items: flex-start; flex-direction: column; }
-    .filters { width: 100%; flex-wrap: wrap; }
+    .summary-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .toolbar {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+    .filters {
+      width: 100%;
+      flex-wrap: wrap;
+    }
   }
 
   @media (max-width: 720px) {
-    .page-heading { gap: 16px; align-items: flex-start; flex-direction: column; }
-    .summary-grid { grid-template-columns: 1fr; }
+    .page-heading {
+      gap: 16px;
+      align-items: flex-start;
+      flex-direction: column;
+    }
+    .summary-grid {
+      grid-template-columns: 1fr;
+    }
     .form-grid,
-    .plan-selector { grid-template-columns: 1fr; }
-    .date-range-field { width: 100%; }
-    .rule-row { grid-template-columns: 1fr; }
+    .plan-selector {
+      grid-template-columns: 1fr;
+    }
+    .date-range-field {
+      width: 100%;
+    }
+    .rule-row {
+      grid-template-columns: 1fr;
+    }
     .rule-value,
-    .rule-type { width: 100%; }
-    .rule-preview { text-align: left; }
+    .rule-type {
+      width: 100%;
+    }
+    .rule-preview {
+      text-align: left;
+    }
   }
 </style>

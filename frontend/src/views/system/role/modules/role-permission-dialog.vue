@@ -170,7 +170,9 @@
 
     const checkedKeys = tree.getCheckedKeys()
     const halfCheckedKeys = tree.getHalfCheckedKeys()
-    const allKeys = [...checkedKeys, ...halfCheckedKeys].filter((k): k is number => typeof k === 'number')
+    const allKeys = [...checkedKeys, ...halfCheckedKeys].filter(
+      (k): k is number => typeof k === 'number'
+    )
 
     await fetchUpdateRoleMenus(props.roleData.roleId, allKeys)
     emit('success')

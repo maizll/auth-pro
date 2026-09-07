@@ -7,12 +7,7 @@
             <h2>支付配置</h2>
             <p>管理已启用支付插件的网关、商户信息、回调地址和默认支付方式</p>
           </div>
-          <ElButton
-            v-if="pluginEnabled"
-            type="primary"
-            :loading="saving"
-            @click="handleSave"
-          >
+          <ElButton v-if="pluginEnabled" type="primary" :loading="saving" @click="handleSave">
             保存配置
           </ElButton>
         </div>
