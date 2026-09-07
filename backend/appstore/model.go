@@ -12,23 +12,24 @@ type Author struct {
 }
 
 type Template struct {
-	ID            string `json:"id"`
-	CatalogID     string `json:"catalogId,omitempty"`
-	TemplateID    string `json:"templateId"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	PreviewImage  string `json:"previewImage"`
-	Version       string `json:"version"`
-	Author        Author `json:"author"`
-	Enabled       bool   `json:"enabled"`
-	Source        string `json:"source,omitempty"`
-	SourceURL     string `json:"sourceUrl,omitempty"`
-	SourceType    string `json:"sourceType,omitempty"`
-	Available     bool   `json:"available"`
-	Installed     bool   `json:"installed"`
-	SchemaVersion int    `json:"schemaVersion,omitempty"`
-	SHA256        string `json:"sha256,omitempty"`
-	UpdatedAt     string `json:"updatedAt,omitempty"`
+	UpdateAvailable bool   `json:"updateAvailable"`
+	ID              string `json:"id"`
+	CatalogID       string `json:"catalogId,omitempty"`
+	TemplateID      string `json:"templateId"`
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	PreviewImage    string `json:"previewImage"`
+	Version         string `json:"version"`
+	Author          Author `json:"author"`
+	Enabled         bool   `json:"enabled"`
+	Source          string `json:"source,omitempty"`
+	SourceURL       string `json:"sourceUrl,omitempty"`
+	SourceType      string `json:"sourceType,omitempty"`
+	Available       bool   `json:"available"`
+	Installed       bool   `json:"installed"`
+	SchemaVersion   int    `json:"schemaVersion,omitempty"`
+	SHA256          string `json:"sha256,omitempty"`
+	UpdatedAt       string `json:"updatedAt,omitempty"`
 }
 
 type Dashboard struct {

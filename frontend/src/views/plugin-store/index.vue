@@ -99,6 +99,7 @@
               </div>
               <div class="plugin-card-bottom">
                 <div class="plugin-status">
+                  <ElTag v-if="template.updateAvailable" type="warning" size="small">待更新</ElTag>
                   <ElTag v-if="template.enabled" type="success" size="small">已启用</ElTag>
                   <ElTag v-else-if="!template.available" type="danger" size="small"
                     >源中已移除</ElTag
@@ -112,11 +113,16 @@
                 <ElButton
                   type="primary"
                   size="small"
-                  :disabled="template.enabled || (!template.available && !template.installed)"
+                  :disabled="
+                    (template.enabled && !template.updateAvailable) ||
+                    (!template.available && !template.installed)
+                  "
                   :loading="togglingTemplateId === String(template.id)"
                   @click="handleEnableTemplate(template)"
                 >
-                  {{ template.enabled ? '当前模板' : '启用' }}
+                  {{
+                    template.updateAvailable ? '更新并启用' : template.enabled ? '当前模板' : '启用'
+                  }}
                 </ElButton>
               </div>
             </div>
@@ -374,14 +380,14 @@
     return ''
   }
 
-  const loadPlugins = async () => {
+  const loadPlugins = async (refreshTemplates: unknown = false) => {
     loading.value = true
     loadError.value = ''
     templateLoadError.value = ''
     try {
       const [pluginResult, templateResult] = await Promise.allSettled([
         fetchPluginList({ q: searchText.value || undefined }),
-        fetchHomeTemplateList()
+        fetchHomeTemplateList(refreshTemplates === true)
       ])
 
       if (pluginResult.status === 'fulfilled') {
@@ -416,7 +422,7 @@
       ElMessage.error(error?.message || '部分软件源刷新失败')
     } finally {
       loading.value = false
-      await loadPlugins()
+      await loadPlugins(true)
     }
   }
 

@@ -12,6 +12,9 @@ import (
 	"strconv"
 	"strings"
 
+	"auto_pro/appstore"
+	"auto_pro/softwaresource"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -82,6 +85,16 @@ func ensureHomeTemplateStorage(db *sql.DB) error {
 }
 
 func AdminHomeTemplateList(c *gin.Context) {
+	if c.Query("refresh") == "1" {
+		client, err := softwaresource.Default()
+		if err == nil {
+			_, err = client.Refresh(c.Request.Context())
+		}
+		if err != nil {
+			writeAppStoreError(c, appstore.UnavailableError("刷新模板分发目录失败："+err.Error(), err))
+			return
+		}
+	}
 	items, err := listAppStoreTemplates(c.Request.Context())
 	if err != nil {
 		writeAppStoreError(c, err)

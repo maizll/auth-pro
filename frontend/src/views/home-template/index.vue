@@ -16,14 +16,14 @@
           >
             恢复默认模板
           </ElButton>
-          <ElButton :icon="Refresh" circle :loading="loading" @click="loadAll" />
+          <ElButton :icon="Refresh" circle :loading="loading" @click="loadAll(true)" />
         </div>
       </div>
 
       <div class="source-bar">
         <ArtSvgIcon icon="ri:archive-2-line" class="source-bar-icon" />
         <template v-if="sourceError">
-          <span class="source-bar-name">内置软件源</span>
+          <span class="source-bar-name">模板分发中心</span>
           <ElText type="danger" size="small">{{ sourceError }}</ElText>
         </template>
         <template v-else-if="softwareSource">
@@ -34,7 +34,7 @@
             {{ softwareSource.plugins.length }} 个插件
           </ElText>
         </template>
-        <ElText v-else type="info" size="small">正在读取内置软件源…</ElText>
+        <ElText v-else type="info" size="small">正在读取模板分发中心…</ElText>
       </div>
 
       <div v-loading="loading" class="panel-body">
@@ -119,6 +119,7 @@
 
             <div class="template-footer">
               <div class="template-status">
+                <ElTag v-if="template.updateAvailable" type="warning" size="small">待更新</ElTag>
                 <ElTag v-if="!template.available" type="danger" size="small" effect="light">
                   源中已移除
                 </ElTag>
@@ -137,14 +138,19 @@
                 停用
               </ElButton>
               <ElButton
-                v-else
+                v-if="!template.enabled || template.updateAvailable || template.id === 'default'"
                 type="primary"
                 size="small"
-                :disabled="template.enabled || (!template.available && !template.installed)"
+                :disabled="
+                  (template.enabled && !template.updateAvailable) ||
+                  (!template.available && !template.installed)
+                "
                 :loading="togglingId === String(template.id)"
                 @click="handleEnable(template)"
               >
-                {{ template.enabled ? '当前模板' : '启用' }}
+                {{
+                  template.updateAvailable ? '更新并启用' : template.enabled ? '当前模板' : '启用'
+                }}
               </ElButton>
             </div>
           </article>
@@ -186,7 +192,7 @@
   const previewSrc = (template: HomeTemplateInfo): string => {
     if (failedPreviews.value.has(String(template.id))) return ''
     if (template.previewUrl) return template.previewUrl
-    // 数据库未记录示例图片时，回退到内置软件源目录里的同名条目
+    // 数据库未记录示例图片时，回退到模板分发中心目录里的同名条目
     const fromSource = softwareSource.value?.homeTemplates.find(
       (item) => item.id === template.templateId
     )
@@ -197,21 +203,21 @@
     failedPreviews.value = new Set(failedPreviews.value).add(String(template.id))
   }
 
-  /** 内置软件源为公开接口，单独失败时不影响模板列表展示 */
+  /** 模板分发中心为公开接口，单独失败时不影响模板列表展示 */
   const loadSoftwareSource = async () => {
     sourceError.value = ''
     try {
       softwareSource.value = await fetchSoftwareSourcePlugins()
     } catch (error: any) {
       softwareSource.value = null
-      sourceError.value = error?.message || '内置软件源读取失败'
+      sourceError.value = error?.message || '模板分发中心读取失败'
     }
   }
 
-  const loadTemplates = async () => {
+  const loadTemplates = async (refresh = false) => {
     loadError.value = ''
     try {
-      const data = await fetchHomeTemplateList()
+      const data = await fetchHomeTemplateList(refresh)
       templates.value = data.list || []
       failedPreviews.value = new Set()
     } catch (error: any) {
@@ -221,10 +227,11 @@
     }
   }
 
-  const loadAll = async () => {
+  const loadAll = async (refresh = false) => {
     loading.value = true
     try {
-      await Promise.all([loadTemplates(), loadSoftwareSource()])
+      await loadTemplates(refresh)
+      await loadSoftwareSource()
     } finally {
       loading.value = false
     }
