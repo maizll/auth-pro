@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -8,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -74,7 +76,7 @@ func TestSoftwareSourceHTTPIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	pluginPackage := []byte("authorization-local-plugin-package")
+	pluginPackage := makeTestZIP(t, testZIPEntry{name: "payload.txt", data: "authorization-local-plugin-package"})
 	pluginFixture := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/index.json":
@@ -214,9 +216,86 @@ func TestSoftwareSourceHTTPIntegration(t *testing.T) {
 	if !strings.Contains(downloadResponse.Body.String(), `"code":200`) {
 		t.Fatalf("download response=%s", downloadResponse.Body.String())
 	}
-	artifact, err := os.ReadFile(filepath.Join(dataDir, "plugins", "p4-demo-plugin", "plugin.pkg"))
-	if err != nil || string(artifact) != string(pluginPackage) {
+	artifact, err := os.ReadFile(filepath.Join(dataDir, "plugins", "p4-demo-plugin", "payload.txt"))
+	if err != nil || string(artifact) != "authorization-local-plugin-package" {
 		t.Fatalf("downloaded artifact=%q err=%v", artifact, err)
+	}
+	// Uploaded JSON and static ZIPs must install and activate without the remote catalog.
+	restoreSource := softwaresource.SetDefaultForTest(offlineClient)
+	defer restoreSource()
+	for _, entry := range []testZIPEntry{
+		{name: "template.json", data: `{"schemaVersion":1,"hero":{"title":"Uploaded ZIP home"}}`},
+		{name: "index.html", data: `<html><h1>Uploaded ZIP home</h1></html>`},
+	} {
+		var body bytes.Buffer
+		form := multipart.NewWriter(&body)
+		file, err := form.CreateFormFile("file", "custom-home.zip")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := file.Write(makeTestZIP(t, entry)); err != nil {
+			t.Fatal(err)
+		}
+		if err := form.WriteField("name", "Uploaded ZIP home"); err != nil {
+			t.Fatal(err)
+		}
+		if err := form.Close(); err != nil {
+			t.Fatal(err)
+		}
+		response := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(response)
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/system/home-templates/upload", &body)
+		ctx.Request.Header.Set("Content-Type", form.FormDataContentType())
+		AdminHomeTemplateUpload(ctx)
+		var uploaded struct {
+			Code int `json:"code"`
+			Data struct {
+				ID int64 `json:"id"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &uploaded); err != nil || uploaded.Code != 200 || uploaded.Data.ID <= 0 {
+			t.Fatalf("upload: %s %v", response.Body, err)
+		}
+		if err := enableAppStoreTemplate(context.Background(), strconv.FormatInt(uploaded.Data.ID, 10)); err != nil {
+			t.Fatal(err)
+		}
+		items, err := listAppStoreTemplates(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, item := range items {
+			if item.ID == strconv.FormatInt(uploaded.Data.ID, 10) {
+				found = item.Enabled && item.Installed && item.SourceType == "upload"
+			}
+		}
+		if !found {
+			t.Fatal("uploaded template missing from offline list")
+		}
+		active := invokeHandler(t, http.MethodGet, "/api/home-template/active", nil, nil, PublicActiveHomeTemplate)
+		if !strings.Contains(active.Body.String(), "Uploaded ZIP home") {
+			t.Fatalf("active upload: %s", active.Body)
+		}
+		if entry.name == "index.html" {
+			var result struct {
+				Data struct {
+					EntryURL string `json:"entryUrl"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(active.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			parts := strings.Split(result.Data.EntryURL, "/")
+			if len(parts) != 7 {
+				t.Fatalf("invalid static entry URL: %s", result.Data.EntryURL)
+			}
+			asset := invokeHandler(t, http.MethodGet, result.Data.EntryURL, nil, gin.Params{
+				{Key: "id", Value: parts[4]}, {Key: "revision", Value: parts[5]}, {Key: "filepath", Value: "/index.html"},
+			}, PublicHomeTemplateAsset)
+			if asset.Code != 200 || !strings.Contains(asset.Body.String(), "Uploaded ZIP home") || !strings.Contains(asset.Header().Get("Content-Security-Policy"), "sandbox allow-scripts;") {
+				t.Fatalf("static asset: %s %v", asset.Body, asset.Header())
+			}
+		}
 	}
 	pluginDB, err := openSystemConfigDB()
 	if err != nil {

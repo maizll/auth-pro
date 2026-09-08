@@ -40,6 +40,9 @@ export interface ActiveHomeTemplateResponse {
   name: string
   version: string
   isDefault: boolean
+  format?: 'json' | 'static'
+  entryUrl?: string
+  assetBaseUrl?: string
   schemaVersion?: number
   document?: HomeTemplateDocument
 }
@@ -76,4 +79,31 @@ export function safeTemplateImageURL(value: string | undefined): string {
 
 export function safeTemplateIcon(value: string | undefined): string {
   return value && /^ri:[a-z0-9-]+$/i.test(value) ? value : 'ri:sparkling-line'
+}
+
+export function isStaticHomeTemplateEntryURL(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^\/api\/home-template\/assets\/[1-9]\d*\/upload-\d+\/index\.html$/.test(value)
+  )
+}
+
+export function resolveHomeTemplateAssets(
+  document: HomeTemplateDocument,
+  assetBaseUrl?: string
+): HomeTemplateDocument {
+  const image = document.hero.imageUrl
+  if (
+    !image ||
+    !assetBaseUrl ||
+    !/^\/api\/home-template\/assets\/[1-9]\d*\/upload-\d+\/$/.test(assetBaseUrl) ||
+    /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(image)
+  )
+    return document
+  const base = new URL(assetBaseUrl, window.location.origin).href
+  const resolved = new URL(image.replace(/^\/+/, ''), base).href
+  return {
+    ...document,
+    hero: { ...document.hero, imageUrl: resolved.startsWith(base) ? resolved : '' }
+  }
 }

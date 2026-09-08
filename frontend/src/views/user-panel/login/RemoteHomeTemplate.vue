@@ -1,6 +1,15 @@
 <template>
+  <div v-if="staticEntryUrl" class="static-home">
+    <iframe
+      ref="staticFrame"
+      :src="staticEntryUrl"
+      title="自定义首页模板"
+      sandbox="allow-scripts"
+      referrerpolicy="no-referrer"
+    />
+  </div>
   <FintechGoldHome
-    v-if="stylePreset === 'fintech-gold'"
+    v-else-if="stylePreset === 'fintech-gold'"
     :document="document"
     :site-name="siteName"
     :site-subtitle="siteSubtitle"
@@ -62,43 +71,43 @@
         {{ document.footer?.text || `© ${currentYear} ${siteName}` }}
       </div>
     </footer>
-
-    <ElDialog
-      v-model="loginVisible"
-      width="min(460px, calc(100vw - 28px))"
-      :class="['remote-login-dialog', dialogPresetClass]"
-      :style="themeStyle"
-      destroy-on-close
-    >
-      <template #header>
-        <div class="dialog-brand"><img :src="resolvedLogo" alt="网站 Logo" />{{ siteName }}</div>
-      </template>
-      <h2>用户登录</h2>
-      <p class="dialog-subtitle">登录后查看并管理您的授权</p>
-      <ElForm ref="loginFormRef" :model="loginForm" :rules="loginRules" @submit.prevent>
-        <ElFormItem prop="username">
-          <ElInput v-model="loginForm.username" size="large" placeholder="手机号 / 邮箱 / 用户ID" />
-        </ElFormItem>
-        <ElFormItem prop="password">
-          <ElInput
-            v-model="loginForm.password"
-            size="large"
-            type="password"
-            show-password
-            placeholder="登录密码"
-            @keyup.enter="handleLogin"
-          />
-        </ElFormItem>
-        <ElButton class="login-submit" type="primary" :loading="loading" @click="handleLogin">
-          登录用户中心
-        </ElButton>
-      </ElForm>
-    </ElDialog>
   </div>
+
+  <ElDialog
+    v-model="loginVisible"
+    width="min(460px, calc(100vw - 28px))"
+    :class="['remote-login-dialog', dialogPresetClass]"
+    :style="themeStyle"
+    destroy-on-close
+  >
+    <template #header>
+      <div class="dialog-brand"><img :src="resolvedLogo" alt="网站 Logo" />{{ siteName }}</div>
+    </template>
+    <h2>用户登录</h2>
+    <p class="dialog-subtitle">登录后查看并管理您的授权</p>
+    <ElForm ref="loginFormRef" :model="loginForm" :rules="loginRules" @submit.prevent>
+      <ElFormItem prop="username">
+        <ElInput v-model="loginForm.username" size="large" placeholder="手机号 / 邮箱 / 用户ID" />
+      </ElFormItem>
+      <ElFormItem prop="password">
+        <ElInput
+          v-model="loginForm.password"
+          size="large"
+          type="password"
+          show-password
+          placeholder="登录密码"
+          @keyup.enter="handleLogin"
+        />
+      </ElFormItem>
+      <ElButton class="login-submit" type="primary" :loading="loading" @click="handleLogin">
+        登录用户中心
+      </ElButton>
+    </ElForm>
+  </ElDialog>
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, reactive, ref } from 'vue'
+  import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { ElMessage, type FormRules } from 'element-plus'
   import { Icon as IconifyIcon } from '@iconify/vue'
@@ -116,7 +125,21 @@
 
   defineOptions({ name: 'RemoteHomeTemplate' })
 
-  const props = defineProps<{ document: HomeTemplateDocument }>()
+  const props = defineProps<{ document: HomeTemplateDocument; staticEntryUrl?: string }>()
+  const staticFrame = ref<HTMLIFrameElement>()
+
+  function handleTemplateMessage(event: MessageEvent) {
+    // Only the installed iframe may open the host login dialog; never share credentials or tokens.
+    if (
+      props.staticEntryUrl &&
+      event.source === staticFrame.value?.contentWindow &&
+      event.data?.type === 'auth-pro:login'
+    ) {
+      openLogin()
+    }
+  }
+  onMounted(() => window.addEventListener('message', handleTemplateMessage))
+  onUnmounted(() => window.removeEventListener('message', handleTemplateMessage))
   const router = useRouter()
   const route = useRoute()
   const systemConfigStore = useSystemConfigStore()
@@ -249,6 +272,17 @@
 </script>
 
 <style scoped lang="scss">
+  .static-home {
+    min-height: 100vh;
+
+    iframe {
+      display: block;
+      width: 100%;
+      height: 100vh;
+      border: 0;
+    }
+  }
+
   .remote-home {
     min-height: 100vh;
     color: var(--remote-text);

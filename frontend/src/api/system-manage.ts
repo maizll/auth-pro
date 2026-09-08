@@ -510,6 +510,7 @@ export interface TemplateAuthor {
 }
 
 export interface PluginInfo {
+  canEnable?: boolean
   id: string
   category: string
   name: string
@@ -572,7 +573,8 @@ export function fetchDeletePluginSource(id: number) {
 
 export function fetchDownloadPlugin(id: string) {
   return request.post<null>({
-    url: `/api/system/plugins/${id}/download`
+    url: `/api/system/plugins/${id}/download`,
+    timeout: 120_000
   })
 }
 
@@ -593,7 +595,7 @@ export interface HomeTemplateInfo {
   version: string
   source: string
   sourceUrl?: string
-  sourceType?: 'json' | 'git' | 'builtin'
+  sourceType?: 'json' | 'git' | 'builtin' | 'upload'
   previewUrl?: string
   author?: TemplateAuthor
   sha256?: string
@@ -605,6 +607,7 @@ export interface HomeTemplateInfo {
 }
 
 export interface HomeTemplateListData {
+  warning?: string
   list: HomeTemplateInfo[]
 }
 
@@ -612,6 +615,14 @@ export function fetchHomeTemplateList(refresh = false) {
   return request.get<HomeTemplateListData>({
     url: '/api/system/home-templates',
     params: refresh ? { refresh: '1' } : undefined
+  })
+}
+
+export function fetchUploadHomeTemplate(data: FormData) {
+  return request.post<{ id: number }>({
+    url: '/api/system/home-templates/upload',
+    data,
+    timeout: 120_000
   })
 }
 

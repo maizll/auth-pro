@@ -113,7 +113,7 @@ for (const template of [
     stylePreset: 'fintech-gold',
     title: '让授权管理保持',
     highlight: '清晰、快速、可信',
-    className: 'remote-home--fintech-gold'
+    className: 'gold-home'
   }
 ] as const) {
   test(`${template.name}预设可渲染且保持登录页 URL`, async ({ page }) => {
@@ -214,4 +214,101 @@ test('远程模板登录沿用原请求契约与本地存储键', async ({ page 
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('user_panel_token')))
     .toBe('test-token')
+})
+
+test('静态 ZIP 首页不叠加浮动按钮并保留沙箱与系统登录', async ({ page }) => {
+  const base = '/api/home-template/assets/99/upload-12345/'
+  await mockPublicAPIs(page, {
+    id: 99,
+    templateId: 'upload-12345',
+    name: '自定义 ZIP 首页',
+    version: '1.0.0',
+    isDefault: false,
+    format: 'static',
+    entryUrl: `${base}index.html`
+  })
+  await page.addInitScript(() => {
+    if (window === window.top) localStorage.setItem('zip-test-token', 'must-stay-private')
+  })
+  await page.route('**/api/home-template/assets/**', async (route) => {
+    const isScript = route.request().url().endsWith('/assets/main.js')
+    await route.fulfill({
+      status: 200,
+      contentType: isScript ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8',
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Security-Policy':
+          "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
+      },
+      body: isScript
+        ? `
+        document.querySelector('h1').textContent = 'ZIP 静态脚本已运行';
+        try { window.parent.localStorage.getItem('zip-test-token'); }
+        catch { document.body.dataset.isolated = 'yes'; }
+        document.querySelector('button').onclick = () => window.parent.postMessage({ type: 'auth-pro:login' }, '*');
+      `
+        : '<!doctype html><html><body><h1>加载中</h1><button>模板登录按钮</button><script type="module" src="./assets/main.js"></script></body></html>'
+    })
+  })
+  await page.goto('/user/login')
+  const frame = page.frameLocator('iframe[title="自定义首页模板"]')
+  await expect(frame.getByRole('heading', { name: 'ZIP 静态脚本已运行' })).toBeVisible()
+  await expect(frame.locator('body')).toHaveAttribute('data-isolated', 'yes')
+  await expect(page.locator('.static-home iframe')).toHaveAttribute('sandbox', 'allow-scripts')
+  await expect(page.locator('.static-home-actions')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '使用默认首页', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '登录用户中心', exact: true })).toHaveCount(0)
+  await expect(page).toHaveURL('http://127.0.0.1:4175/user/login')
+  await page.evaluate(() => window.postMessage({ type: 'auth-pro:login' }, '*'))
+  await expect(page.getByPlaceholder('手机号 / 邮箱 / 用户ID')).not.toBeVisible()
+  await frame.getByRole('button', { name: '模板登录按钮' }).click()
+  await expect(page.getByPlaceholder('手机号 / 邮箱 / 用户ID')).toBeVisible()
+  await page.locator('.el-dialog__headerbtn').click()
+  await expect(page.getByPlaceholder('手机号 / 邮箱 / 用户ID')).not.toBeVisible()
+  await expect(frame.getByRole('heading', { name: 'ZIP 静态脚本已运行' })).toBeVisible()
+  await expect(page.locator('.license-home')).toHaveCount(0)
+  // The response CSP must isolate direct navigation as well as iframe rendering.
+  await page.goto(`${base}index.html`)
+  await expect(page.locator('body')).toHaveAttribute('data-isolated', 'yes')
+})
+
+test('ZIP JSON 模板使用安装目录内的相对图片资源', async ({ page }) => {
+  const base = '/api/home-template/assets/99/upload-12345/'
+  await mockPublicAPIs(page, {
+    id: 99,
+    templateId: 'upload-12345',
+    name: 'JSON ZIP',
+    version: '1.0.0',
+    isDefault: false,
+    format: 'json',
+    assetBaseUrl: base,
+    document: { schemaVersion: 1, hero: { title: 'ZIP JSON 首页', imageUrl: 'assets/cover.svg' } }
+  })
+  await page.route('**/api/home-template/assets/**', async (route) => {
+    await route.fulfill({
+      contentType: 'image/svg+xml',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="blue"/></svg>'
+    })
+  })
+  await page.goto('/user/login')
+  await expect(page.getByAltText('首页模板展示图')).toHaveAttribute(
+    'src',
+    `http://127.0.0.1:4175${base}assets/cover.svg`
+  )
+  await expect(page.getByAltText('首页模板展示图')).toBeVisible()
+})
+
+test('非法静态模板地址回退默认首页', async ({ page }) => {
+  await mockPublicAPIs(page, {
+    id: 99,
+    templateId: 'bad',
+    name: 'bad',
+    version: '1.0.0',
+    isDefault: false,
+    format: 'static',
+    entryUrl: 'https://example.invalid/untrusted.html'
+  })
+  await page.goto('/user/login')
+  await expect(page.locator('.license-home')).toBeVisible()
+  await expect(page.locator('.static-home')).toHaveCount(0)
 })

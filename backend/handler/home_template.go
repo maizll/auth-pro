@@ -9,10 +9,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
-	"auto_pro/appstore"
 	"auto_pro/softwaresource"
 
 	"github.com/gin-gonic/gin"
@@ -85,14 +85,14 @@ func ensureHomeTemplateStorage(db *sql.DB) error {
 }
 
 func AdminHomeTemplateList(c *gin.Context) {
+	warning := ""
 	if c.Query("refresh") == "1" {
 		client, err := softwaresource.Default()
 		if err == nil {
 			_, err = client.Refresh(c.Request.Context())
 		}
 		if err != nil {
-			writeAppStoreError(c, appstore.UnavailableError("刷新模板分发目录失败："+err.Error(), err))
-			return
+			warning = "刷新模板分发目录失败，本地上传模板仍可使用：" + err.Error()
 		}
 	}
 	items, err := listAppStoreTemplates(c.Request.Context())
@@ -100,7 +100,7 @@ func AdminHomeTemplateList(c *gin.Context) {
 		writeAppStoreError(c, err)
 		return
 	}
-	writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": legacyHomeTemplateItems(items)}})
+	writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": legacyHomeTemplateItems(items), "warning": warning}})
 }
 
 func AdminHomeTemplateEnable(c *gin.Context) {
@@ -143,11 +143,26 @@ func PublicActiveHomeTemplate(c *gin.Context) {
 		writeDefaultHomeTemplate(c)
 		return
 	}
-	var templateID, name, version, installedPath string
-	if err := db.QueryRow("SELECT template_key, name, version, installed_path FROM home_templates WHERE id = ?", activeID).
-		Scan(&templateID, &name, &version, &installedPath); err != nil || installedPath == "" {
+	var templateID, name, version, installedPath, sourceType, checksum string
+	if err := db.QueryRow("SELECT template_key, name, version, installed_path, source_type, sha256 FROM home_templates WHERE id = ?", activeID).
+		Scan(&templateID, &name, &version, &installedPath, &sourceType, &checksum); err != nil || installedPath == "" {
 		writeDefaultHomeTemplate(c)
 		return
+	}
+	assetBaseURL := ""
+	if sourceType == "upload" {
+		if !installedUploadedTemplateMatches(installedPath, checksum) {
+			writeDefaultHomeTemplate(c)
+			return
+		}
+		assetBaseURL = homeTemplateAssetBaseURL(activeID, installedPath)
+		if filepath.Ext(installedPath) == ".html" {
+			writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
+				"id": activeID, "templateId": templateID, "name": name, "version": version, "isDefault": false,
+				"format": "static", "entryUrl": assetBaseURL + "index.html",
+			}})
+			return
+		}
 	}
 	payload, err := readLimitedFile(installedPath, homeTemplateMaxBytes)
 	if err != nil || validateHomeTemplateDocument(payload) != nil {
@@ -156,7 +171,7 @@ func PublicActiveHomeTemplate(c *gin.Context) {
 	}
 	writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
 		"id": activeID, "templateId": templateID, "name": name, "version": version,
-		"isDefault": false, "schemaVersion": homeTemplateSchemaVersion, "document": json.RawMessage(payload),
+		"isDefault": false, "format": "json", "assetBaseUrl": assetBaseURL, "schemaVersion": homeTemplateSchemaVersion, "document": json.RawMessage(payload),
 	}})
 }
 

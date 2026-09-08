@@ -41,14 +41,6 @@ func (appStoreTemplateRepository) Disable(ctx context.Context, id string) error 
 }
 
 func listAppStoreTemplates(ctx context.Context) ([]appstore.Template, error) {
-	client, err := softwaresource.Default()
-	if err != nil {
-		return nil, appstore.UnavailableError(err.Error(), err)
-	}
-	remoteCatalog, err := client.Catalog(ctx)
-	if err != nil {
-		return nil, appstore.UnavailableError(err.Error(), err)
-	}
 	db, err := openSystemConfigDB()
 	if err != nil {
 		return nil, appstore.ServerError("数据库连接失败", err)
@@ -63,6 +55,25 @@ func listAppStoreTemplates(ctx context.Context) ([]appstore.Template, error) {
 		Author:  appstore.Author{Name: builtinAuthor.Name, URL: builtinAuthor.URL, Email: builtinAuthor.Email},
 		Enabled: activeID == 0, Source: "授权系统本地", SourceType: "builtin", Available: true, Installed: true,
 	}}
+	uploaded, err := listUploadedHomeTemplates(ctx, db, activeID)
+	if err != nil {
+		return nil, appstore.ServerError("读取本地上传模板失败", err)
+	}
+	items = append(items, uploaded...)
+	client, err := softwaresource.Default()
+	if err != nil {
+		if len(uploaded) > 0 {
+			return items, nil
+		}
+		return nil, appstore.UnavailableError(err.Error(), err)
+	}
+	remoteCatalog, err := client.Catalog(ctx)
+	if err != nil {
+		if len(uploaded) > 0 {
+			return items, nil
+		}
+		return nil, appstore.UnavailableError(err.Error(), err)
+	}
 	for _, remote := range remoteCatalog.Templates {
 		mapping, err := ensureRemoteTemplateMapping(ctx, db, remote)
 		if err != nil {
@@ -103,12 +114,12 @@ func ensureRemoteTemplateMapping(ctx context.Context, db *sql.DB, remote softwar
 		Scan(&mapping.ID, &mapping.InstalledPath)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = db.QueryRowContext(ctx, `SELECT id, installed_path FROM home_templates
-			WHERE source_id = ? AND template_key = ? ORDER BY id ASC LIMIT 1`, sourceID, remote.TemplateKey).
+			WHERE source_id = ? AND template_key = ? AND source_type <> 'upload' ORDER BY id ASC LIMIT 1`, sourceID, remote.TemplateKey).
 			Scan(&mapping.ID, &mapping.InstalledPath)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		err = db.QueryRowContext(ctx, `SELECT id, installed_path FROM home_templates
-			WHERE template_key = ? AND (catalog_id IS NULL OR catalog_id = '') ORDER BY id ASC LIMIT 1`, remote.TemplateKey).
+			WHERE template_key = ? AND (catalog_id IS NULL OR catalog_id = '') AND source_type <> 'upload' ORDER BY id ASC LIMIT 1`, remote.TemplateKey).
 			Scan(&mapping.ID, &mapping.InstalledPath)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
@@ -179,14 +190,20 @@ func installHomeTemplate(ctx context.Context, db *sql.DB, id int64) (string, err
 }
 
 func installSoftwareSourceTemplate(ctx context.Context, db *sql.DB, id int64) (string, error) {
-	var catalogID, checksum, existingInstalledPath string
-	err := db.QueryRowContext(ctx, "SELECT COALESCE(catalog_id, ''), sha256, installed_path FROM home_templates WHERE id = ?", id).
-		Scan(&catalogID, &checksum, &existingInstalledPath)
+	var catalogID, checksum, existingInstalledPath, sourceType string
+	err := db.QueryRowContext(ctx, "SELECT COALESCE(catalog_id, ''), sha256, installed_path, source_type FROM home_templates WHERE id = ?", id).
+		Scan(&catalogID, &checksum, &existingInstalledPath, &sourceType)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", errors.New("模板不存在")
 	}
 	if err != nil {
 		return "", err
+	}
+	if sourceType == "upload" {
+		if !installedUploadedTemplateMatches(existingInstalledPath, checksum) {
+			return "", errors.New("本地模板文件缺失或校验失败，请重新上传 ZIP")
+		}
+		return existingInstalledPath, nil
 	}
 	if installedTemplateMatches(existingInstalledPath, checksum) {
 		return existingInstalledPath, nil

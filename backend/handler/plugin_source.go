@@ -14,8 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"auto_pro/config"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -193,10 +191,17 @@ func AdminPluginList(c *gin.Context) {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "读取插件状态失败"})
 		return
 	}
-	localIDs, err := loadLocalPluginIDs()
+	localPlugins, err := loadLocalPlugins()
 	if err != nil {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "读取本地插件失败"})
 		return
+	}
+	localIDs := make(map[string]bool)
+	for _, plugin := range pluginCatalog {
+		localIDs[plugin.ID] = true
+	}
+	for _, plugin := range localPlugins {
+		localIDs[plugin.ID] = true
 	}
 	sources, err := listPluginSources(db)
 	if err != nil {
@@ -207,11 +212,10 @@ func AdminPluginList(c *gin.Context) {
 	keyword := strings.ToLower(strings.TrimSpace(c.Query("q")))
 	local := make([]pluginInfo, 0, len(pluginCatalog))
 	if sourceFilter == "" || sourceFilter == "local" {
-		for _, plugin := range listedCatalogPlugins() {
+		for _, plugin := range localPlugins {
 			plugin.Enabled = enabledMap[plugin.ID]
 			plugin.Configured = pluginConfigured(db, plugin.ID)
 			plugin.Local = true
-			plugin.Source = "builtin"
 			local = append(local, plugin)
 		}
 	}
@@ -366,9 +370,13 @@ func AdminPluginDownload(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})
 		return
 	}
-	localIDs, _ := loadLocalPluginIDs()
+	localIDs, err := loadLocalPluginIDs()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取本地插件失败"})
+		return
+	}
 	if localIDs[pluginID] {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "插件已在本地，无需下载"})
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "插件已安装，无需重复下载"})
 		return
 	}
 	sources, err := listPluginSources(db)
@@ -377,6 +385,7 @@ func AdminPluginDownload(c *gin.Context) {
 		return
 	}
 	downloadURL := ""
+	var metadata pluginInfo
 	for _, source := range sources {
 		index, _ := loadPluginSourceIndex(c.Request.Context(), db, source, false)
 		if index == nil {
@@ -385,6 +394,12 @@ func AdminPluginDownload(c *gin.Context) {
 		for _, plugin := range index.Plugins {
 			if plugin.ID == pluginID {
 				downloadURL = strings.TrimSpace(plugin.DownloadURL)
+				metadata = pluginInfo{ID: plugin.ID, Category: plugin.Category, Name: plugin.Name,
+					Description: plugin.Description, Icon: plugin.Icon, Version: plugin.Version,
+					Author: plugin.Author, Source: source.Name, DownloadURL: downloadURL}
+				if metadata.Source == "" {
+					metadata.Source = index.Name
+				}
 				break
 			}
 		}
@@ -401,16 +416,11 @@ func AdminPluginDownload(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "下载失败：" + err.Error()})
 		return
 	}
-	pluginDir := filepath.Join(config.GetPluginDir(), pluginID)
-	if err := os.MkdirAll(pluginDir, 0755); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建插件目录失败"})
+	if err := installPluginZIP(payload, metadata); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "插件安装失败：" + err.Error()})
 		return
 	}
-	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.pkg"), payload, 0644); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存插件包失败"})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "插件已下载到本地"})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "插件已下载、解压并安装"})
 }
 
 func AdminPluginSourceRefresh(c *gin.Context) {

@@ -298,11 +298,43 @@ releases.json
 首次升级需部署两个项目的新版本。auth-pro 已包含黑金首页的布局、玻璃卡片、移动端导航、查询入口和登录弹窗，仍复用主应用的用户登录、代理账号转换和代登录流程，默认及蓝色模板不受影响。
 
 1. 在 auth-pro-plug 的首页模板管理中上传 `templates/fintech-gold.json`，填写 `fintech-gold` 标识、版本与作者；可附预览图，保存并上架。
-2. 在本系统「首页模板管理」或应用商店点击刷新。显式刷新会重新读取目录，不必等待 5 分钟缓存。
+2. 在本系统「应用商店」的首页模板分区点击刷新。显式刷新会重新读取目录，不必等待 5 分钟缓存。
 3. 点击启用：后端下载 JSON、校验 SHA-256、验证 schema，并原子保存安装文件后切换首页。访问路径仍为 `/user/login`。
 4. 已安装模板内容更新后会显示「待更新 / 更新并启用」；预览图 URL 带更新时间，避免继续使用旧封面缓存。恢复默认模板沿用原有操作。
 
-此协议安装的是声明式 JSON，不是独立 Vue 构建 ZIP。后续文案、配色与既有布局配置可以直接发布 JSON；新增任意布局或修改渲染代码仍需更新本系统前端。分发端下架不等于远程卸载已安装文件。
+软件源的现有模板协议仍使用声明式 JSON；此外，超级管理员可以在「应用商店」点击「上传首页模板 ZIP」，上传自己的首页，无需发布到软件源。分发端下架不等于远程卸载已安装文件。
+
+### ZIP 插件的自动安装
+
+软件源 `plugins[].downloadUrl` 应指向有效 ZIP（URL 扩展名不限）。点击「下载并安装」后，后端自动解压至服务端数据目录的 `plugins/<插件ID>/`，写入安装状态并在本地插件列表显示。包可直接包含文件，也可额外套一层目录；可选 `plugin.json` 中的 `id` 必须与软件源一致。
+
+只有成功解压、校验并登记的目录才算已安装。旧版只保存了 `plugin.pkg` 的目录可以重新点击下载，失败不会破坏旧文件。插件安装不自动切换支付/实名认证服务商，也不会执行 `install.sh`、可执行文件或热加载 Go 代码；未包含在当前服务端代码中的插件显示为已安装资源，启用其业务能力仍需部署相应运行实现。
+
+### 自行上传首页模板 ZIP
+
+支持两种包结构（允许外层包含一个 `dist/` 等目录）：
+
+```text
+# 声明式模板：复用系统布局、登录与验证码
+custom-home.zip
+├── template.json          # schemaVersion: 1，并包含 hero.title
+└── assets/
+    └── cover.png          # hero.imageUrl 可写 assets/cover.png
+
+# 静态首页：支持独立 HTML 或已构建的 Vue 等静态产物
+custom-site.zip
+├── index.html
+└── assets/
+    ├── index.js
+    └── index.css
+```
+
+- 上传接口：`POST /api/system/home-templates/upload`，需超级管理员认证，使用 multipart 字段 `file`；可选 `name`、`version`、`description`、`author`。
+- 上传即安全解压安装，但**不会自动启用**。在模板列表中点击「启用」后，访问路径仍为 `/user/login`；可以随时恢复默认模板。已上传模板无需访问远程软件源即可启用。
+- 静态 ZIP 必须是构建产物，不是 Vue 源码；推荐资源使用相对路径（Vite 设置 `base: './'`，路由使用 hash 模式）；安装时会自动适配入口 HTML 中指向包内文件的 `/assets/...` 等根路径引用，不改写主站导航、外部链接或脚本中的业务逻辑。若同时包含 `index.html` 与 `template.json`，以静态首页为准。
+- 静态页面运行在禁止同源权限的 iframe/CSP 沙箱中，不可访问主站 Token、Cookie 或调用业务接口。系统不额外叠加悬浮按钮；模板内的登录按钮应调用 `window.parent.postMessage({ type: 'auth-pro:login' }, '*')` 打开系统登录框。恢复默认模板由管理员在后台应用商店操作。不要在模板中实现密码收集或保存 Token。
+- ZIP 上限 20 MiB，解压总大小上限 100 MiB，最多 2048 个条目，入口文件上限 2 MiB。路径穿越、符号链接、特殊文件、重复路径和损坏包会被拒绝；只在独立模板目录部署，不覆盖主站代码。
+- 部署安全：模板文件只应通过 `/api/home-template/assets/...` 访问。Go 已阻止通过普通静态路由直接读取插件/模板目录；若 Nginx/宝塔直接提供网站根目录文件，也必须禁止访问运行数据目录（默认配置可添加 `location ^~ /backend/ { return 404; }`），不要为模板目录另配静态 alias 或脚本执行，以免绕过沙箱响应头。
 
 ### 验证
 
@@ -311,3 +343,5 @@ releases.json
 - 前端：运行 `pnpm exec vue-tsc --noEmit` 与 `pnpm build`，再按原有发布流程部署。
 
 上线前应在测试环境完成实际数据库与两个服务的连通性验证；仅通过单元测试或生成构建产物，不代表已经在生产后台发布模板。
+
+上传安装的旧表兼容回归可设置 `AUTO_PRO_TEST_UPLOAD_DB=1` 后运行 `go test ./handler -run TestUploadedTemplateRegistrationLegacyMySQL -v`；可用 `AUTO_PRO_TEST_TEMPLATE_ZIP` 指定真实 ZIP。该测试只在当前数据库连接内创建临时表，不修改现有表结构、模板记录或启用状态。

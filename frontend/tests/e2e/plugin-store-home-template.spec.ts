@@ -250,18 +250,7 @@ async function submitAdminLogin(page: Page) {
   await page.getByPlaceholder('请输入账号').fill('preview-admin')
   await page.getByPlaceholder('请输入密码').fill('preview-password')
 
-  const slider = page.locator('.drag_verify')
-  const handler = page.locator('.dv_handler')
-  const sliderBox = await slider.boundingBox()
-  const handlerBox = await handler.boundingBox()
-  if (!sliderBox || !handlerBox) throw new Error('登录滑块不可见')
-
-  await page.mouse.move(handlerBox.x + handlerBox.width / 2, handlerBox.y + handlerBox.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(sliderBox.x + sliderBox.width - 2, handlerBox.y + handlerBox.height / 2)
-  await page.mouse.up()
-  await expect(page.getByText('验证成功', { exact: true })).toBeVisible()
-
+  // The public-config fixture disables Geetest; the legacy local slider no longer exists.
   const loginResponse = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname === '/api/auth/login' && response.status() === 200
@@ -275,7 +264,9 @@ async function loginAsAdmin(page: Page) {
   await expect(page).toHaveURL(/\/admin/)
   await submitAdminLogin(page)
   await expect(page).toHaveURL(/\/plugin-store$/, { timeout: 15_000 })
-  await expect(page.getByRole('heading', { name: '应用商店', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '应用商店', exact: true })).toBeVisible({
+    timeout: 30_000
+  })
   await page.waitForTimeout(300)
 }
 
@@ -324,11 +315,13 @@ test('应用商店可启用远程模板并切回默认首页', async ({ page }) 
   expect(enableRequests).toContain('/api/system/home-templates/12/enable')
 
   await page.goto('/user/login')
-  await expect(page.locator('.remote-home--fintech-gold')).toBeVisible()
+  await expect(page.locator('.gold-home')).toBeVisible()
   await expect(page).toHaveURL('http://127.0.0.1:4175/user/login')
 
   await page.goto('/plugin-store')
-  await expect(page.getByRole('heading', { name: '应用商店', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '应用商店', exact: true })).toBeVisible({
+    timeout: 30_000
+  })
   await page.waitForTimeout(300)
   const defaultCard = page.locator('.template-card').filter({ hasText: '默认首页模板' })
   await defaultCard.getByRole('button', { name: '启用', exact: true }).click({ force: true })
@@ -343,4 +336,105 @@ test('应用商店可启用远程模板并切回默认首页', async ({ page }) 
   await expect(page.locator('.license-home')).toBeVisible()
   await expect(page.locator('.remote-home')).toHaveCount(0)
   await expect(page).toHaveURL('http://127.0.0.1:4175/user/login')
+})
+
+test('应用商店支持上传 ZIP 安装后手动启用', async ({ page }, testInfo) => {
+  await mockAdminAndTemplateAPIs(page)
+  let uploaded = false
+  let enabled = false
+  let enableCalls = 0
+  let uploadAttempts = 0
+  await page.route('**/api/system/home-templates', async (route) => {
+    await route.fulfill({
+      status: 200,
+      json: {
+        code: 200,
+        data: {
+          list: [
+            {
+              id: 'default',
+              templateId: 'default',
+              name: '默认首页模板',
+              version: 'builtin',
+              source: 'builtin',
+              enabled: !enabled,
+              installed: true,
+              available: true
+            },
+            ...(uploaded
+              ? [
+                  {
+                    id: 99,
+                    templateId: 'upload-12345',
+                    name: '我的 ZIP 首页',
+                    description: '自定义首页',
+                    version: '1.0.0',
+                    source: '本地上传',
+                    sourceType: 'upload',
+                    enabled,
+                    installed: true,
+                    available: true
+                  }
+                ]
+              : [])
+          ]
+        }
+      }
+    })
+  })
+  await page.route('**/api/system/home-templates/upload', async (route) => {
+    expect(route.request().method()).toBe('POST')
+    expect(route.request().headers()['content-type']).toContain('multipart/form-data; boundary=')
+    expect(route.request().headers().authorization).toContain('admin-test-token')
+    expect(route.request().postDataBuffer()?.toString()).toContain('filename="custom-home.zip"')
+    uploadAttempts++
+    if (uploadAttempts === 1) {
+      await route.fulfill({ status: 200, json: { code: 500, msg: '登记模板安装状态失败' } })
+      return
+    }
+    uploaded = true
+    await route.fulfill({ status: 200, json: { code: 200, data: { id: 99 } } })
+  })
+  await page.route('**/api/system/home-templates/99/enable', async (route) => {
+    enabled = true
+    enableCalls++
+    await route.fulfill({ status: 200, json: { code: 200 } })
+  })
+  await loginAsAdmin(page)
+  await page.getByRole('button', { name: '上传首页模板 ZIP' }).click()
+  const dialog = page.getByRole('dialog', { name: '上传首页模板 ZIP' })
+  await expect(dialog.locator('.el-upload-dragger')).toBeVisible()
+  await expect(dialog.locator('.el-upload-dragger')).toHaveCSS('border-style', 'dashed')
+  await expect(dialog.locator('input[type="file"]')).not.toBeVisible()
+  await dialog
+    .locator('input[type="file"]')
+    .setInputFiles({ name: 'bad.txt', mimeType: 'text/plain', buffer: Buffer.from('bad') })
+  await expect(dialog.getByText('请选择不超过 20 MiB 的非空 ZIP 文件')).toBeVisible()
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'custom-home.zip',
+    mimeType: 'application/zip',
+    buffer: Buffer.from(
+      'UEsDBBQAAAAAAJRiKF1JdWPAJwAAACcAAAAKAAAAaW5kZXguaHRtbDwhZG9jdHlwZSBodG1sPjxoMT5DdXN0b20gWklQIGhvbWU8L2gxPlBLAQIUABQAAAAAAJRiKF1JdWPAJwAAACcAAAAKAAAAAAAAAAAAAACAAQAAAABpbmRleC5odG1sUEsFBgAAAAABAAEAOAAAAE8AAAAAAA==',
+      'base64'
+    )
+  })
+  await dialog.getByPlaceholder('默认使用 ZIP 文件名').fill('我的 ZIP 首页')
+  await expect(dialog.locator('.upload-file-name')).toContainText('custom-home.zip')
+  await dialog.screenshot({ path: testInfo.outputPath('upload-picker.png') })
+  await dialog.getByRole('button', { name: '上传并安装' }).click()
+  await expect(dialog.getByText('登记模板安装状态失败', { exact: true })).toBeVisible()
+  await expect(dialog.locator('.upload-file-name')).toContainText('custom-home.zip')
+  await dialog.getByRole('button', { name: '上传并安装' }).click()
+  await expect(dialog).not.toBeVisible()
+  expect(uploadAttempts).toBe(2)
+  const card = page.locator('.template-card').filter({ hasText: '我的 ZIP 首页' })
+  await expect(card.getByText('已安装', { exact: true })).toBeVisible()
+  expect(enableCalls).toBe(0)
+  await card.getByRole('button', { name: '启用', exact: true }).click({ force: true })
+  await page
+    .locator('.el-message-box')
+    .getByRole('button', { name: '启用', exact: true })
+    .click({ force: true })
+  await expect(card.getByText('已启用', { exact: true })).toBeVisible()
+  expect(enableCalls).toBe(1)
 })

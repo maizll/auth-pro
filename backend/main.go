@@ -137,6 +137,7 @@ func main() {
 			userAuth.POST("/reset-password", handler.UserResetPassword)
 		}
 		api.GET("/home-template/active", handler.PublicActiveHomeTemplate)
+		api.GET("/home-template/assets/:id/:revision/*filepath", handler.PublicHomeTemplateAsset)
 		// 内置软件源（内嵌远程仓库）：目录清单与模板示例图片
 		api.GET("/software-source/plugins", handler.PublicSoftwareSourcePlugins)
 		api.GET("/software-source/previews/:file", handler.PublicSoftwareSourcePreview)
@@ -224,6 +225,7 @@ func main() {
 			superSecured.DELETE("/system/plugin-sources/:id", handler.AdminPluginSourceDelete)
 			superSecured.POST("/system/plugin-sources/:id/refresh", handler.AdminPluginSourceRefresh)
 			superSecured.GET("/system/home-templates", handler.AdminHomeTemplateList)
+			superSecured.POST("/system/home-templates/upload", handler.AdminHomeTemplateUpload)
 			superSecured.POST("/system/home-templates/:id/enable", handler.AdminHomeTemplateEnable)
 			superSecured.GET("/system/realname-config", handler.AdminRealnameConfig)
 			superSecured.PUT("/system/realname-config", handler.AdminRealnameConfigUpdate)
@@ -399,6 +401,10 @@ func main() {
 		if diskServer != nil {
 			if cleanPath != "." {
 				if info, err := os.Stat(filepath.Join(frontendDir, cleanPath)); err == nil && !info.IsDir() {
+					if handler.IsInstalledPackageFile(filepath.Join(frontendDir, cleanPath)) {
+						c.Status(http.StatusNotFound)
+						return
+					}
 					diskServer.ServeHTTP(c.Writer, c.Request)
 					return
 				}

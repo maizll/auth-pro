@@ -1,5 +1,10 @@
 <template>
-  <RemoteHomeTemplate v-if="activeDocument" :key="activeTemplateKey" :document="activeDocument" />
+  <RemoteHomeTemplate
+    v-if="activeDocument"
+    :key="activeTemplateKey"
+    :document="activeDocument"
+    :static-entry-url="staticEntryUrl"
+  />
   <DefaultHomeTemplate v-else />
 </template>
 
@@ -11,16 +16,20 @@
   import {
     type ActiveHomeTemplateResponse,
     type HomeTemplateDocument,
-    isHomeTemplateDocument
+    isHomeTemplateDocument,
+    isStaticHomeTemplateEntryURL,
+    resolveHomeTemplateAssets
   } from './home-template'
 
   defineOptions({ name: 'UserLogin' })
 
   const activeDocument = shallowRef<HomeTemplateDocument | null>(null)
   const activeTemplateKey = ref('default')
+  const staticEntryUrl = ref('')
 
   function useDefaultTemplate() {
     activeDocument.value = null
+    staticEntryUrl.value = ''
     activeTemplateKey.value = 'default'
   }
 
@@ -32,12 +41,23 @@
         useDefaultTemplate()
         return
       }
+      if (result.format === 'static') {
+        if (!isStaticHomeTemplateEntryURL(result.entryUrl)) {
+          useDefaultTemplate()
+          return
+        }
+        staticEntryUrl.value = result.entryUrl
+        activeTemplateKey.value = `${result.id}:${result.version}:${result.entryUrl}`
+        activeDocument.value = { schemaVersion: 1, hero: { title: result.name || '自定义首页' } }
+        return
+      }
       if (!isHomeTemplateDocument(result.document)) {
         useDefaultTemplate()
         return
       }
       activeTemplateKey.value = `${result.id}:${result.version}`
-      activeDocument.value = result.document
+      staticEntryUrl.value = ''
+      activeDocument.value = resolveHomeTemplateAssets(result.document, result.assetBaseUrl)
     } catch {
       useDefaultTemplate()
     }

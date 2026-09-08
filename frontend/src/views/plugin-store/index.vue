@@ -13,6 +13,7 @@
           <p class="store-subtitle">按分区浏览插件，支持从软件源下载远程插件</p>
         </div>
         <div class="store-header-actions">
+          <UploadTemplate @uploaded="loadPlugins()" />
           <ElButton :icon="FolderAdd" @click="sourceDialogVisible = true">软件源管理</ElButton>
           <ElButton :icon="Refresh" circle :loading="loading" @click="handleRefresh" />
         </div>
@@ -101,13 +102,19 @@
                 <div class="plugin-status">
                   <ElTag v-if="template.updateAvailable" type="warning" size="small">待更新</ElTag>
                   <ElTag v-if="template.enabled" type="success" size="small">已启用</ElTag>
-                  <ElTag v-else-if="!template.available" type="danger" size="small"
-                    >源中已移除</ElTag
-                  >
+                  <ElTag v-else-if="!template.available" type="danger" size="small">{{
+                    template.sourceType === 'upload' ? '安装文件损坏' : '源中已移除'
+                  }}</ElTag>
                   <ElTag v-else-if="template.installed" type="info" size="small">已安装</ElTag>
                   <ElTag v-else type="warning" size="small">启用时安装</ElTag>
                   <ElText v-if="template.sourceType" type="info" size="small">
-                    {{ template.sourceType === 'git' ? 'Git 仓库' : 'JSON 清单' }}
+                    {{
+                      template.sourceType === 'upload'
+                        ? 'ZIP 上传'
+                        : template.sourceType === 'git'
+                          ? 'Git 仓库'
+                          : 'JSON 清单'
+                    }}
                   </ElText>
                 </div>
                 <ElButton
@@ -177,8 +184,12 @@
               <div class="plugin-card-bottom">
                 <div class="plugin-status">
                   <template v-if="plugin.remote">
-                    <ElTag type="warning" size="small" effect="light">未下载</ElTag>
+                    <ElTag type="warning" size="small" effect="light">未安装</ElTag>
                     <ElText type="info" size="small">来源：{{ plugin.source }}</ElText>
+                  </template>
+                  <template v-else-if="plugin.canEnable === false">
+                    <ElTag type="success" size="small" effect="plain">已安装</ElTag>
+                    <ElText type="info" size="small">资源包已解压</ElText>
                   </template>
                   <template v-else>
                     <ElTag v-if="plugin.enabled" type="success" size="small" effect="light"
@@ -207,7 +218,7 @@
                       :loading="downloadingId === plugin.id"
                       @click="handleDownload(plugin)"
                     >
-                      下载
+                      下载并安装
                     </ElButton>
                   </template>
                   <template v-else>
@@ -220,6 +231,7 @@
                       配置
                     </ElButton>
                     <ElButton
+                      v-if="plugin.canEnable !== false"
                       :type="plugin.enabled ? 'default' : 'primary'"
                       size="small"
                       :loading="togglingId === plugin.id"
@@ -227,6 +239,13 @@
                     >
                       {{ plugin.enabled ? '停用' : '启用' }}
                     </ElButton>
+                    <ElText
+                      v-else
+                      type="info"
+                      size="small"
+                      title="启用此插件需部署对应的服务端实现；不会执行 ZIP 中的脚本"
+                      >需运行实现</ElText
+                    >
                   </template>
                 </div>
               </div>
@@ -283,6 +302,7 @@
 </template>
 
 <script setup lang="ts">
+  import UploadTemplate from '@/views/home-template/UploadTemplate.vue'
   import { computed, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { ElMessage, ElMessageBox } from 'element-plus'
@@ -374,6 +394,7 @@
   // 配置入口；返回空串表示无独立配置页。
   // 实名服务商共用系统配置的实名页签，新增服务商无需再改这里。
   const configTarget = (plugin: PluginInfo): string => {
+    if (plugin.canEnable === false) return ''
     const mapped = pluginConfigPaths[plugin.id]
     if (mapped) return mapped
     if (plugin.category === 'realname') return '/system/config?tab=realname'
@@ -402,6 +423,7 @@
 
       if (templateResult.status === 'fulfilled') {
         homeTemplates.value = templateResult.value.list || []
+        templateLoadError.value = templateResult.value.warning || ''
         failedTemplatePreviews.value = new Set()
       } else {
         homeTemplates.value = []
@@ -494,10 +516,10 @@
     downloadingId.value = plugin.id
     try {
       await fetchDownloadPlugin(plugin.id)
-      ElMessage.success(`「${plugin.name}」已下载到本地`)
+      ElMessage.success(`「${plugin.name}」已下载、解压并安装`)
       await loadPlugins()
-    } catch {
-      ElMessage.error('插件下载失败')
+    } catch (error: any) {
+      ElMessage.error(error?.message || '插件下载安装失败')
     } finally {
       downloadingId.value = ''
     }

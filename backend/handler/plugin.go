@@ -6,11 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
-
-	"auto_pro/config"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
@@ -34,10 +31,11 @@ type pluginInfo struct {
 	Author      templateAuthor `json:"author"`
 	Enabled     bool           `json:"enabled"`
 	Configured  bool           `json:"configured"`
-	Local       bool           `json:"local"`       // 本地已有（内置或已下载）
+	CanEnable   bool           `json:"canEnable"`   // 当前服务是否包含该插件的运行实现
+	Local       bool           `json:"local"`       // 本地已有（内置或已安装）
 	Source      string         `json:"source"`      // 内置: builtin；远程插件: 来源仓库名
-	Remote      bool           `json:"remote"`      // 仅存在于远程仓库、本地未下载
-	DownloadURL string         `json:"downloadUrl"` // 远程插件包地址（未下载时用于下载）
+	Remote      bool           `json:"remote"`      // 仅存在于远程仓库、本地未安装
+	DownloadURL string         `json:"downloadUrl"` // 远程插件包地址（未安装时用于下载）
 	Hidden      bool           `json:"-"`           // 暂时从应用商店隐藏，底层能力与历史状态保留
 }
 
@@ -243,20 +241,18 @@ func normalizePluginCategory(category string) string {
 	return "other"
 }
 
-// loadLocalPluginIDs 返回本地已有的插件 id（内置 + plugins 目录下已下载）。
+// loadLocalPluginIDs 返回本地已有的插件 id（内置 + plugins 目录下已完成安装）。
 func loadLocalPluginIDs() (map[string]bool, error) {
 	ids := map[string]bool{}
-	for _, p := range pluginCatalog {
-		ids[p.ID] = true
+	for _, plugin := range pluginCatalog {
+		ids[plugin.ID] = true
 	}
-	entries, err := os.ReadDir(config.GetPluginDir())
+	plugins, err := loadLocalPlugins()
 	if err != nil {
-		return ids, nil // 目录不存在视为无已下载插件
+		return nil, err
 	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			ids[entry.Name()] = true
-		}
+	for _, plugin := range plugins {
+		ids[plugin.ID] = true
 	}
 	return ids, nil
 }
