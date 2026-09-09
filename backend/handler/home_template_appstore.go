@@ -60,21 +60,27 @@ func listAppStoreTemplates(ctx context.Context) ([]appstore.Template, error) {
 		return nil, appstore.ServerError("读取本地上传模板失败", err)
 	}
 	items = append(items, uploaded...)
+	stored, err := listStoredCatalogTemplates(ctx, db, activeID)
+	if err != nil {
+		return nil, appstore.ServerError("读取已安装模板失败", err)
+	}
 	client, err := softwaresource.Default()
 	if err != nil {
-		if len(uploaded) > 0 {
-			return items, nil
+		if len(uploaded)+len(stored) > 0 {
+			return append(items, stored...), nil
 		}
 		return nil, appstore.UnavailableError(err.Error(), err)
 	}
 	remoteCatalog, err := client.Catalog(ctx)
 	if err != nil {
-		if len(uploaded) > 0 {
-			return items, nil
+		if len(uploaded)+len(stored) > 0 {
+			return append(items, stored...), nil
 		}
 		return nil, appstore.UnavailableError(err.Error(), err)
 	}
+	seen := make(map[string]bool)
 	for _, remote := range remoteCatalog.Templates {
+		seen[remote.ID] = true
 		mapping, err := ensureRemoteTemplateMapping(ctx, db, remote)
 		if err != nil {
 			return nil, appstore.ServerError("保存模板本地映射失败", err)
@@ -90,10 +96,15 @@ func listAppStoreTemplates(ctx context.Context) ([]appstore.Template, error) {
 			Author:  appstore.Author{Name: remote.Author.Name, URL: remote.Author.URL, Email: remote.Author.Email},
 			Enabled: activeID == mapping.ID, Source: remote.Source.Name, SourceURL: config.GetSoftwareSourceURL(),
 			SourceType: remote.Source.Type, Available: remote.Available, Installed: mapping.InstalledPath != "",
-			SchemaVersion: remote.SchemaVersion, SHA256: remote.SHA256, UpdatedAt: remote.UpdatedAt.Format(time.RFC3339),
+			Format: remote.Format, SchemaVersion: remote.SchemaVersion, SHA256: remote.SHA256, UpdatedAt: remote.UpdatedAt.Format(time.RFC3339),
 		}
 		normalizeAppStoreTemplateMetadata(&item)
 		items = append(items, item)
+	}
+	for _, item := range stored {
+		if !seen[item.CatalogID] {
+			items = append(items, item)
+		}
 	}
 	return items, nil
 }
@@ -181,6 +192,11 @@ func installedTemplateMatches(path, checksum string) bool {
 	if path == "" {
 		return false
 	}
+	if strings.HasPrefix(filepath.Base(filepath.Dir(path)), "upload-") {
+		installation, err := readCatalogTemplateInstallation(path)
+		return err == nil && strings.EqualFold(installation.SHA256, checksum) &&
+			installedUploadedTemplateMatches(path, installation.EntrySHA256)
+	}
 	payload, err := readLimitedFile(path, homeTemplateMaxBytes)
 	return err == nil && strings.EqualFold(actualChecksumString(sha256.Sum256(payload)), checksum) && validateHomeTemplateDocument(payload) == nil
 }
@@ -222,6 +238,18 @@ func installSoftwareSourceTemplate(ctx context.Context, db *sql.DB, id int64) (s
 	payload, err := client.TemplateContent(ctx, remote)
 	if err != nil {
 		return "", err
+	}
+	if remote.Format == "zip" {
+		installedPath, err := installCatalogHomeTemplateZIP(payload, remote)
+		if err != nil {
+			return "", err
+		}
+		snapshot, _ := json.Marshal(remote)
+		if _, err := db.ExecContext(ctx, "UPDATE home_templates SET sha256=?, catalog_snapshot=?, updated_at=NOW() WHERE id=?", remote.SHA256, snapshot, id); err != nil {
+			_ = os.RemoveAll(filepath.Dir(installedPath))
+			return "", err
+		}
+		return installedPath, nil
 	}
 	if err := validateHomeTemplateDocument(payload); err != nil {
 		return "", err
@@ -267,6 +295,12 @@ func installSoftwareSourceTemplate(ctx context.Context, db *sql.DB, id int64) (s
 }
 
 func enableAppStoreTemplate(ctx context.Context, rawID string) error {
+	return applyHomeTemplate(ctx, rawID, true)
+}
+
+func applyHomeTemplate(ctx context.Context, rawID string, activate bool) error {
+	homeTemplateMutationMu.Lock()
+	defer homeTemplateMutationMu.Unlock()
 	rawID = strings.TrimSpace(rawID)
 	db, err := openSystemConfigDB()
 	if err != nil {
@@ -276,6 +310,9 @@ func enableAppStoreTemplate(ctx context.Context, rawID string) error {
 		return appstore.ServerError("初始化模板存储失败", err)
 	}
 	if rawID == "default" {
+		if !activate {
+			return appstore.ClientError("内置默认模板无需安装", nil)
+		}
 		if _, err := db.ExecContext(ctx, "DELETE FROM system_configs WHERE `group` = 'home_template' AND `key` = 'active_template_id'"); err != nil {
 			return appstore.ServerError("启用默认模板失败", err)
 		}
@@ -285,10 +322,23 @@ func enableAppStoreTemplate(ctx context.Context, rawID string) error {
 	if err != nil || id <= 0 {
 		return appstore.ClientError("模板标识不合法", err)
 	}
+	if !activate && loadActiveHomeTemplateID(db) == id {
+		return appstore.ClientError("当前模板正在使用，请先停用或选择更新并启用", nil)
+	}
+	var previousPath string
+	if err := db.QueryRowContext(ctx, "SELECT installed_path FROM home_templates WHERE id=?", id).Scan(&previousPath); err != nil {
+		return appstore.ClientError("模板不存在或安装状态读取失败", err)
+	}
 	installedPath, err := installHomeTemplate(ctx, db, id)
 	if err != nil {
 		return appstore.ClientError("模板启用失败："+err.Error(), err)
 	}
+	registered := false
+	defer func() {
+		if !registered && installedPath != previousPath {
+			removeReplacedHomeTemplate(installedPath, id)
+		}
+	}()
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return appstore.ServerError("模板启用失败", err)
@@ -297,17 +347,25 @@ func enableAppStoreTemplate(ctx context.Context, rawID string) error {
 	if _, err := tx.ExecContext(ctx, "UPDATE home_templates SET installed_path=?, installed_at=NOW(), updated_at=NOW() WHERE id=?", installedPath, id); err != nil {
 		return appstore.ServerError("保存模板安装状态失败", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO system_configs (`+"`group`"+`, `+"`key`"+`, value, description)
-		VALUES ('home_template', 'active_template_id', ?, '当前启用的首页模板ID') ON DUPLICATE KEY UPDATE value=VALUES(value)`, strconv.FormatInt(id, 10)); err != nil {
-		return appstore.ServerError("保存模板启用状态失败", err)
+	if activate {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO system_configs (`+"`group`"+`, `+"`key`"+`, value, description)
+			VALUES ('home_template', 'active_template_id', ?, '当前启用的首页模板ID') ON DUPLICATE KEY UPDATE value=VALUES(value)`, strconv.FormatInt(id, 10)); err != nil {
+			return appstore.ServerError("保存模板启用状态失败", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
-		return appstore.ServerError("模板启用失败", err)
+		return appstore.ServerError("模板安装状态保存失败", err)
+	}
+	registered = true
+	if previousPath != "" && previousPath != installedPath {
+		removeReplacedHomeTemplate(previousPath, id)
 	}
 	return nil
 }
 
 func disableAppStoreTemplate(ctx context.Context, rawID string) error {
+	homeTemplateMutationMu.Lock()
+	defer homeTemplateMutationMu.Unlock()
 	rawID = strings.TrimSpace(rawID)
 	if rawID == "default" {
 		return appstore.ClientError("默认模板不能禁用", nil)
@@ -329,10 +387,7 @@ func disableAppStoreTemplate(ctx context.Context, rawID string) error {
 	} else if err != nil {
 		return appstore.ServerError("读取首页模板失败", err)
 	}
-	if loadActiveHomeTemplateID(db) != id {
-		return nil
-	}
-	if _, err := db.ExecContext(ctx, "DELETE FROM system_configs WHERE `group`='home_template' AND `key`='active_template_id'"); err != nil {
+	if _, err := db.ExecContext(ctx, "DELETE FROM system_configs WHERE `group`='home_template' AND `key`='active_template_id' AND value=?", strconv.FormatInt(id, 10)); err != nil {
 		return appstore.ServerError("禁用首页模板失败", err)
 	}
 	return nil
@@ -352,7 +407,7 @@ func legacyHomeTemplateItems(items []appstore.Template) []gin.H {
 			"id": id, "catalogId": item.CatalogID, "templateId": item.TemplateID, "name": item.Name, "description": item.Description,
 			"version": version, "source": item.Source, "sourceUrl": item.SourceURL, "sourceType": item.SourceType,
 			"previewUrl": item.PreviewImage, "author": templateAuthor{Name: item.Author.Name, URL: item.Author.URL, Email: item.Author.Email},
-			"sha256": item.SHA256, "schemaVersion": item.SchemaVersion, "enabled": item.Enabled,
+			"sha256": item.SHA256, "format": item.Format, "schemaVersion": item.SchemaVersion, "enabled": item.Enabled,
 			"installed": item.Installed, "available": item.Available, "updatedAt": item.UpdatedAt, "updateAvailable": item.UpdateAvailable,
 		})
 	}

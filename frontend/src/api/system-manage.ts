@@ -596,6 +596,7 @@ export interface HomeTemplateInfo {
   source: string
   sourceUrl?: string
   sourceType?: 'json' | 'git' | 'builtin' | 'upload'
+  format?: 'json' | 'zip'
   previewUrl?: string
   author?: TemplateAuthor
   sha256?: string
@@ -676,8 +677,29 @@ export function fetchRefreshPluginSource(id: number) {
   })
 }
 
+export function fetchDownloadHomeTemplate(id: number | 'default') {
+  return request.get<Blob>({
+    url: `/api/system/home-templates/${id}/download`,
+    responseType: 'blob',
+    timeout: 120_000
+  })
+}
+
+export function fetchInstallHomeTemplate(id: number | 'default') {
+  return request.post<null>({ url: `/api/system/home-templates/${id}/install`, timeout: 120_000 })
+}
+
+export function fetchUninstallHomeTemplate(id: number | 'default') {
+  return request.post<null>({ url: `/api/system/home-templates/${id}/uninstall` })
+}
+
+export function fetchDisableHomeTemplate(id: number | 'default') {
+  return request.post<null>({ url: `/api/system/home-templates/${id}/disable` })
+}
+
 export function fetchEnableHomeTemplate(id: number | 'default') {
   return request.post<null>({
-    url: `/api/system/home-templates/${id}/enable`
+    url: `/api/system/home-templates/${id}/enable`,
+    timeout: 120_000
   })
 }

@@ -150,7 +150,19 @@ func PublicActiveHomeTemplate(c *gin.Context) {
 		return
 	}
 	assetBaseURL := ""
-	if sourceType == "upload" {
+	if sourceType == "upload" || strings.HasPrefix(filepath.Base(filepath.Dir(installedPath)), "upload-") {
+		if sourceType != "upload" {
+			installation, err := readCatalogTemplateInstallation(installedPath)
+			if err != nil {
+				writeDefaultHomeTemplate(c)
+				return
+			}
+			// A catalog refresh must not disable the last successfully installed version.
+			checksum = installation.EntrySHA256
+			if installation.Version != "" {
+				version = installation.Version
+			}
+		}
 		if !installedUploadedTemplateMatches(installedPath, checksum) {
 			writeDefaultHomeTemplate(c)
 			return

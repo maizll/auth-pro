@@ -24,10 +24,11 @@ import (
 )
 
 const (
-	catalogCacheTTL  = 5 * time.Minute
-	catalogMaxBytes  = int64(4 << 20)
-	templateMaxBytes = int64(2 << 20)
-	previewMaxBytes  = int64(5 << 20)
+	catalogCacheTTL     = 5 * time.Minute
+	catalogMaxBytes     = int64(4 << 20)
+	templateMaxBytes    = int64(2 << 20)
+	templateZIPMaxBytes = int64(20 << 20)
+	previewMaxBytes     = int64(5 << 20)
 )
 
 var ErrUnavailable = errors.New("软件源服务暂时不可用")
@@ -55,6 +56,7 @@ type Template struct {
 	PreviewURL    string    `json:"previewUrl"`
 	Version       string    `json:"version"`
 	Author        Author    `json:"author"`
+	Format        string    `json:"format,omitempty"`
 	SchemaVersion int       `json:"schemaVersion"`
 	SHA256        string    `json:"sha256"`
 	ContentURL    string    `json:"contentUrl"`
@@ -276,7 +278,11 @@ func (client *Client) FindTemplate(ctx context.Context, catalogID string) (Templ
 }
 
 func (client *Client) TemplateContent(ctx context.Context, template Template) ([]byte, error) {
-	payload, headers, err := client.catalogBytes(ctx, "/api/v1/catalog/templates/"+url.PathEscape(template.ID)+"/content", templateMaxBytes)
+	limit := templateMaxBytes
+	if template.Format == "zip" {
+		limit = templateZIPMaxBytes
+	}
+	payload, headers, err := client.catalogBytes(ctx, "/api/v1/catalog/templates/"+url.PathEscape(template.ID)+"/content", limit)
 	if err != nil {
 		return nil, err
 	}
@@ -504,8 +510,10 @@ func validateCatalog(catalog Catalog) error {
 	}
 	templateIDs := make(map[string]struct{}, len(catalog.Templates))
 	for _, template := range catalog.Templates {
+		compatible := (template.Format == "" || template.Format == "json") && template.SchemaVersion == 1 ||
+			template.Format == "zip" && (template.SchemaVersion == 0 || template.SchemaVersion == 1)
 		if template.ID == "" || template.TemplateKey == "" || template.Name == "" || template.Version == "" ||
-			template.Source.ID == "" || template.SchemaVersion != 1 || len(template.SHA256) != 64 {
+			template.Source.ID == "" || !compatible || len(template.SHA256) != 64 {
 			return errors.New("软件源模板目录字段不完整或 schema 不兼容")
 		}
 		if _, exists := sourceIDs[template.Source.ID]; !exists {

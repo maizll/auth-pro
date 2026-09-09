@@ -126,32 +126,10 @@
                 <ElTag v-else-if="template.installed" type="info" size="small" effect="plain">
                   已安装
                 </ElTag>
-                <ElTag v-else type="warning" size="small" effect="light">启用时安装</ElTag>
+                <ElTag v-else type="warning" size="small" effect="light">未安装</ElTag>
               </div>
 
-              <ElButton
-                v-if="template.enabled && template.id !== 'default'"
-                size="small"
-                :loading="togglingId === String(template.id)"
-                @click="handleDisable(template)"
-              >
-                停用
-              </ElButton>
-              <ElButton
-                v-if="!template.enabled || template.updateAvailable || template.id === 'default'"
-                type="primary"
-                size="small"
-                :disabled="
-                  (template.enabled && !template.updateAvailable) ||
-                  (!template.available && !template.installed)
-                "
-                :loading="togglingId === String(template.id)"
-                @click="handleEnable(template)"
-              >
-                {{
-                  template.updateAvailable ? '更新并启用' : template.enabled ? '当前模板' : '启用'
-                }}
-              </ElButton>
+              <TemplateActions :template="template" @changed="loadAll()" />
             </div>
           </article>
         </div>
@@ -163,6 +141,7 @@
 </template>
 
 <script setup lang="ts">
+  import TemplateActions from './TemplateActions.vue'
   import { computed, onMounted, ref } from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { Refresh } from '@element-plus/icons-vue'
@@ -248,33 +227,6 @@
     } finally {
       togglingId.value = ''
     }
-  }
-
-  const handleEnable = async (template: HomeTemplateInfo) => {
-    try {
-      await ElMessageBox.confirm(
-        `确认启用首页模板「${template.name}」？用户访问 /user/login 时将展示该模板，访问路径保持不变。`,
-        '启用首页模板',
-        { confirmButtonText: '启用', cancelButtonText: '取消', type: 'warning' }
-      )
-    } catch {
-      return
-    }
-    await applyTemplate(template.id, `已启用「${template.name}」`)
-  }
-
-  // 停用即切回默认模板，保证任意时刻恰好有一个模板生效
-  const handleDisable = async (template: HomeTemplateInfo) => {
-    try {
-      await ElMessageBox.confirm(
-        `确认停用「${template.name}」？停用后 /user/login 将恢复展示默认首页模板。`,
-        '停用首页模板',
-        { confirmButtonText: '停用', cancelButtonText: '取消', type: 'warning' }
-      )
-    } catch {
-      return
-    }
-    await applyTemplate('default', `已停用「${template.name}」，已恢复默认首页模板`)
   }
 
   const handleRestoreDefault = async () => {

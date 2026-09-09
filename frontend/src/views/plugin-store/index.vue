@@ -13,7 +13,6 @@
           <p class="store-subtitle">按分区浏览插件，支持从软件源下载远程插件</p>
         </div>
         <div class="store-header-actions">
-          <UploadTemplate @uploaded="loadPlugins()" />
           <ElButton :icon="FolderAdd" @click="sourceDialogVisible = true">软件源管理</ElButton>
           <ElButton :icon="Refresh" circle :loading="loading" @click="handleRefresh" />
         </div>
@@ -106,31 +105,16 @@
                     template.sourceType === 'upload' ? '安装文件损坏' : '源中已移除'
                   }}</ElTag>
                   <ElTag v-else-if="template.installed" type="info" size="small">已安装</ElTag>
-                  <ElTag v-else type="warning" size="small">启用时安装</ElTag>
+                  <ElTag v-else type="warning" size="small">未安装</ElTag>
                   <ElText v-if="template.sourceType" type="info" size="small">
                     {{
-                      template.sourceType === 'upload'
-                        ? 'ZIP 上传'
-                        : template.sourceType === 'git'
-                          ? 'Git 仓库'
-                          : 'JSON 清单'
+                      template.format === 'zip' || template.sourceType === 'upload'
+                        ? 'ZIP 模板'
+                        : 'JSON 模板'
                     }}
                   </ElText>
                 </div>
-                <ElButton
-                  type="primary"
-                  size="small"
-                  :disabled="
-                    (template.enabled && !template.updateAvailable) ||
-                    (!template.available && !template.installed)
-                  "
-                  :loading="togglingTemplateId === String(template.id)"
-                  @click="handleEnableTemplate(template)"
-                >
-                  {{
-                    template.updateAvailable ? '更新并启用' : template.enabled ? '当前模板' : '启用'
-                  }}
-                </ElButton>
+                <TemplateActions :template="template" @changed="loadPlugins()" />
               </div>
             </div>
           </div>
@@ -302,7 +286,7 @@
 </template>
 
 <script setup lang="ts">
-  import UploadTemplate from '@/views/home-template/UploadTemplate.vue'
+  import TemplateActions from '@/views/home-template/TemplateActions.vue'
   import { computed, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { ElMessage, ElMessageBox } from 'element-plus'
@@ -311,7 +295,6 @@
     fetchAddPluginSource,
     fetchDeletePluginSource,
     fetchDownloadPlugin,
-    fetchEnableHomeTemplate,
     fetchHomeTemplateList,
     fetchPluginList,
     fetchRefreshPluginSource,
@@ -329,7 +312,6 @@
   const loading = ref(false)
   const togglingId = ref('')
   const downloadingId = ref('')
-  const togglingTemplateId = ref('')
   const refreshingSourceId = ref<number | null>(null)
   const loadError = ref('')
   const templateLoadError = ref('')
@@ -458,28 +440,6 @@
       ElMessage.error(error?.message || '软件源刷新失败')
     } finally {
       refreshingSourceId.value = null
-    }
-  }
-
-  const handleEnableTemplate = async (template: HomeTemplateInfo) => {
-    try {
-      await ElMessageBox.confirm(
-        `确认启用首页模板「${template.name}」？用户访问 /user/login 时将展示该模板。`,
-        '启用首页模板',
-        { confirmButtonText: '启用', cancelButtonText: '取消', type: 'warning' }
-      )
-    } catch {
-      return
-    }
-    togglingTemplateId.value = String(template.id)
-    try {
-      await fetchEnableHomeTemplate(template.id)
-      ElMessage.success(`已启用「${template.name}」`)
-      await loadPlugins()
-    } catch (error: any) {
-      ElMessage.error(error?.message || '首页模板启用失败')
-    } finally {
-      togglingTemplateId.value = ''
     }
   }
 

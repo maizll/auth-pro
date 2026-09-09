@@ -82,7 +82,16 @@ axiosInstance.interceptors.request.use(
 
 /** 响应拦截器 */
 axiosInstance.interceptors.response.use(
-  (response: AxiosResponse<BaseResponse>) => {
+  async (response: AxiosResponse<BaseResponse>) => {
+    if (response.config.responseType === 'blob') {
+      if (response.headers['content-disposition']?.includes('attachment')) return response
+      const data = response.data as unknown as Blob
+      try {
+        response.data = JSON.parse(await data.text())
+      } catch {
+        throw createHttpError($t('httpMsg.requestFailed'), ApiStatus.error)
+      }
+    }
     const { code, msg, message } = response.data
     const responseMessage = msg || message
     if (code === ApiStatus.success) return response
@@ -177,6 +186,7 @@ async function request<T = any>(config: ExtendedAxiosRequestConfig): Promise<T> 
 
   try {
     const res = await axiosInstance.request<BaseResponse<T>>(config)
+    if (config.responseType === 'blob') return res.data as unknown as T
 
     // 显示成功消息
     if (config.showSuccessMessage && res.data.msg) {

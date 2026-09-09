@@ -27,6 +27,7 @@ type Template struct {
 	SourceType      string `json:"sourceType,omitempty"`
 	Available       bool   `json:"available"`
 	Installed       bool   `json:"installed"`
+	Format          string `json:"format,omitempty"`
 	SchemaVersion   int    `json:"schemaVersion,omitempty"`
 	SHA256          string `json:"sha256,omitempty"`
 	UpdatedAt       string `json:"updatedAt,omitempty"`

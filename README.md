@@ -302,7 +302,7 @@ releases.json
 3. 点击启用：后端下载 JSON、校验 SHA-256、验证 schema，并原子保存安装文件后切换首页。访问路径仍为 `/user/login`。
 4. 已安装模板内容更新后会显示「待更新 / 更新并启用」；预览图 URL 带更新时间，避免继续使用旧封面缓存。恢复默认模板沿用原有操作。
 
-软件源的现有模板协议仍使用声明式 JSON；此外，超级管理员可以在「应用商店」点击「上传首页模板 ZIP」，上传自己的首页，无需发布到软件源。分发端下架不等于远程卸载已安装文件。
+上传入口统一放在 auth-pro-plug 的「模板管理」，本系统隐藏「上传首页模板 ZIP」按钮，保留既有上传接口与已安装模板的兼容。软件源可分发 JSON 或 ZIP；两端需一起升级 ZIP 目录协议后再发布 ZIP。分发端下架不等于远程卸载已安装文件。
 
 ### ZIP 插件的自动安装
 
@@ -310,7 +310,7 @@ releases.json
 
 只有成功解压、校验并登记的目录才算已安装。旧版只保存了 `plugin.pkg` 的目录可以重新点击下载，失败不会破坏旧文件。插件安装不自动切换支付/实名认证服务商，也不会执行 `install.sh`、可执行文件或热加载 Go 代码；未包含在当前服务端代码中的插件显示为已安装资源，启用其业务能力仍需部署相应运行实现。
 
-### 自行上传首页模板 ZIP
+### 在 auth-pro-plug 发布首页模板 ZIP
 
 支持两种包结构（允许外层包含一个 `dist/` 等目录）：
 
@@ -329,12 +329,35 @@ custom-site.zip
     └── index.css
 ```
 
-- 上传接口：`POST /api/system/home-templates/upload`，需超级管理员认证，使用 multipart 字段 `file`；可选 `name`、`version`、`description`、`author`。
-- 上传即安全解压安装，但**不会自动启用**。在模板列表中点击「启用」后，访问路径仍为 `/user/login`；可以随时恢复默认模板。已上传模板无需访问远程软件源即可启用。
+- 推荐入口：auth-pro-plug「模板管理 → 上传模板」，使用 multipart 字段 `metadata`、`template` 和可选 `preview` 保存并上架。本系统原 `POST /api/system/home-templates/upload` 仍保留超级管理员认证用于兼容，但不再展示本地上传入口。
+- 在发布端上传不会自动启用。在本系统应用商店刷新目录并点击「启用」后，才下载、校验 ZIP 的 SHA-256、安全解压并激活，访问路径仍为 `/user/login`；可以随时恢复默认模板。原有本地上传模板继续可用。
 - 静态 ZIP 必须是构建产物，不是 Vue 源码；推荐资源使用相对路径（Vite 设置 `base: './'`，路由使用 hash 模式）；安装时会自动适配入口 HTML 中指向包内文件的 `/assets/...` 等根路径引用，不改写主站导航、外部链接或脚本中的业务逻辑。若同时包含 `index.html` 与 `template.json`，以静态首页为准。
 - 静态页面运行在禁止同源权限的 iframe/CSP 沙箱中，不可访问主站 Token、Cookie 或调用业务接口。系统不额外叠加悬浮按钮；模板内的登录按钮应调用 `window.parent.postMessage({ type: 'auth-pro:login' }, '*')` 打开系统登录框。恢复默认模板由管理员在后台应用商店操作。不要在模板中实现密码收集或保存 Token。
 - ZIP 上限 20 MiB，解压总大小上限 100 MiB，最多 2048 个条目，入口文件上限 2 MiB。路径穿越、符号链接、特殊文件、重复路径和损坏包会被拒绝；只在独立模板目录部署，不覆盖主站代码。
 - 部署安全：模板文件只应通过 `/api/home-template/assets/...` 访问。Go 已阻止通过普通静态路由直接读取插件/模板目录；若 Nginx/宝塔直接提供网站根目录文件，也必须禁止访问运行数据目录（默认配置可添加 `location ^~ /backend/ { return 404; }`），不要为模板目录另配静态 alias 或脚本执行，以免绕过沙箱响应头。
+
+### 首页模板的下载、安装、停用和卸载
+
+在「应用商店 → 首页模板」与旧「首页模板管理」页面共用同一组操作：
+
+- **下载**：保存软件源的原始 JSON / ZIP 文件到浏览器，不安装、不启用。已安装 ZIP 保留经校验的原包副本，软件源离线/下架时仍可下载。
+- **安装**：下载、校验并登记服务端安装，不切换当前首页。已启用模板的更新需选「更新并启用」，或者先停用后更新。
+- **启用**：必要时下载安装，再切换 `/user/login`；刷新目录本身不会替换已运行的版本。
+- **停用**：恢复默认首页，保留本地文件；只停用指定模板，不影响另一个当前模板。
+- **卸载**：先恢复默认（仅当卸载当前模板），清空安装状态并删除受控目录的文件；分发端记录不删除，仍可重新安装。内置默认模板禁止卸载。
+- 下架、离线不等于卸载：已安装的远程模板仍列出，允许本地停用、启用和卸载。卸载先隔离目录，数据库写入失败会回滚，拒绝越界路径或链接目录。
+
+接口均要求管理员 JWT 与超级管理员权限：
+
+| 方法 | 路径 | 含义 |
+| --- | --- | --- |
+| GET | `/api/system/home-templates/:id/download` | 下载文件（attachment） |
+| POST | `/api/system/home-templates/:id/install` | 仅安装 |
+| POST | `/api/system/home-templates/:id/enable` | 安装并启用 / 更新并启用 |
+| POST | `/api/system/home-templates/:id/disable` | 停用 |
+| POST | `/api/system/home-templates/:id/uninstall` | 卸载本地安装 |
+
+ZIP 分发必须同时部署 auth-pro-plug 的 `017_template_zip` 迁移和本项目客户端兼容代码。发布端仍为只读密钥目录，不把软件源密钥下发浏览器。
 
 ### 验证
 
@@ -345,3 +368,6 @@ custom-site.zip
 上线前应在测试环境完成实际数据库与两个服务的连通性验证；仅通过单元测试或生成构建产物，不代表已经在生产后台发布模板。
 
 上传安装的旧表兼容回归可设置 `AUTO_PRO_TEST_UPLOAD_DB=1` 后运行 `go test ./handler -run TestUploadedTemplateRegistrationLegacyMySQL -v`；可用 `AUTO_PRO_TEST_TEMPLATE_ZIP` 指定真实 ZIP。该测试只在当前数据库连接内创建临时表，不修改现有表结构、模板记录或启用状态。
+
+跨项目真实链路回归从 auth-pro-plug 运行 `go test -tags integration ./internal/template -run TestMySQLCrossProjectTemplateLifecycle -v`。
+需要 `AUTH_PRO_INTEGRATION_DSN`（发布端一次性 `*_test` 库）、`AUTH_PRO_TEMPLATE_CONSUMER_DIR`（本项目 backend 绝对路径）、`AUTO_PRO_DB_HOST/PORT/NAME/USER/PASSWORD`（消费端另一个一次性 `*_test` 库）。测试使用真实 multipart 上传、两个 HTTP 服务、真实 MySQL 和安装目录，验证两种 ZIP、下载不激活、安装不激活、启停/卸载/重装/更新、离线操作、权限和失败回滚；不连接业务库。

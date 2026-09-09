@@ -234,7 +234,7 @@ func PublicHomeTemplateAsset(c *gin.Context) {
 		return
 	}
 	var installedPath string
-	if err := db.QueryRowContext(c.Request.Context(), "SELECT installed_path FROM home_templates WHERE id=? AND source_type='upload'", id).Scan(&installedPath); err != nil {
+	if err := db.QueryRowContext(c.Request.Context(), "SELECT installed_path FROM home_templates WHERE id=?", id).Scan(&installedPath); err != nil {
 		c.Status(http.StatusNotFound)
 		return
 	}

@@ -338,12 +338,25 @@ test('应用商店可启用远程模板并切回默认首页', async ({ page }) 
   await expect(page).toHaveURL('http://127.0.0.1:4175/user/login')
 })
 
-test('应用商店支持上传 ZIP 安装后手动启用', async ({ page }, testInfo) => {
+test('应用商店隐藏本地上传入口并保留软件源模板安装', async ({ page }) => {
   await mockAdminAndTemplateAPIs(page)
-  let uploaded = false
+  await loginAsAdmin(page)
+  await expect(page.getByRole('button', { name: '上传首页模板 ZIP' })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: '上传首页模板 ZIP' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '软件源管理' })).toBeVisible()
+  await expect(page.locator('.template-card').filter({ hasText: '黑金金融科技' })).toBeVisible()
+})
+
+test('ZIP 首页模板下载、安装、停用、卸载和重新安装互不混淆', async ({ page }, testInfo) => {
+  await mockAdminAndTemplateAPIs(page)
+  let installed = false
   let enabled = false
-  let enableCalls = 0
-  let uploadAttempts = 0
+  let downloadAttempts = 0
+  const calls: string[] = []
+  const archive = Buffer.from(
+    'UEsDBBQAAAAAAJRiKF1JdWPAJwAAACcAAAAKAAAAaW5kZXguaHRtbDwhZG9jdHlwZSBodG1sPjxoMT5DdXN0b20gWklQIGhvbWU8L2gxPlBLAQIUABQAAAAAAJRiKF1JdWPAJwAAACcAAAAKAAAAAAAAAAAAAACAAQAAAABpbmRleC5odG1sUEsFBgAAAAABAAEAOAAAAE8AAAAAAA==',
+    'base64'
+  )
   await page.route('**/api/system/home-templates', async (route) => {
     await route.fulfill({
       status: 200,
@@ -356,85 +369,111 @@ test('应用商店支持上传 ZIP 安装后手动启用', async ({ page }, test
               templateId: 'default',
               name: '默认首页模板',
               version: 'builtin',
-              source: 'builtin',
+              sourceType: 'builtin',
+              source: '本地',
               enabled: !enabled,
               installed: true,
               available: true
             },
-            ...(uploaded
-              ? [
-                  {
-                    id: 99,
-                    templateId: 'upload-12345',
-                    name: '我的 ZIP 首页',
-                    description: '自定义首页',
-                    version: '1.0.0',
-                    source: '本地上传',
-                    sourceType: 'upload',
-                    enabled,
-                    installed: true,
-                    available: true
-                  }
-                ]
-              : [])
+            {
+              id: 99,
+              catalogId: 'published-99',
+              templateId: 'custom-home',
+              name: 'ZIP 生命周期首页',
+              description: '由 auth-pro-plug 发布',
+              version: '1.0.0',
+              format: 'zip',
+              source: 'Auth Pro 模板中心',
+              sourceType: 'json',
+              enabled,
+              installed,
+              available: true
+            }
           ]
         }
       }
     })
   })
-  await page.route('**/api/system/home-templates/upload', async (route) => {
-    expect(route.request().method()).toBe('POST')
-    expect(route.request().headers()['content-type']).toContain('multipart/form-data; boundary=')
+  await page.route('**/api/system/home-templates/99/*', async (route) => {
+    const action = new URL(route.request().url()).pathname.split('/').at(-1)!
     expect(route.request().headers().authorization).toContain('admin-test-token')
-    expect(route.request().postDataBuffer()?.toString()).toContain('filename="custom-home.zip"')
-    uploadAttempts++
-    if (uploadAttempts === 1) {
-      await route.fulfill({ status: 200, json: { code: 500, msg: '登记模板安装状态失败' } })
+    if (action === 'download') {
+      expect(route.request().method()).toBe('GET')
+      downloadAttempts++
+      if (downloadAttempts === 1) {
+        await route.fulfill({ status: 200, json: { code: 503, msg: '模板下载暂不可用，请重试' } })
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/zip',
+          headers: { 'content-disposition': 'attachment; filename="custom-home.zip"' },
+          body: archive
+        })
+      }
       return
     }
-    uploaded = true
-    await route.fulfill({ status: 200, json: { code: 200, data: { id: 99 } } })
-  })
-  await page.route('**/api/system/home-templates/99/enable', async (route) => {
-    enabled = true
-    enableCalls++
-    await route.fulfill({ status: 200, json: { code: 200 } })
+    expect(route.request().method()).toBe('POST')
+    calls.push(action)
+    if (action === 'install') installed = true
+    if (action === 'enable') installed = enabled = true
+    if (action === 'disable') enabled = false
+    if (action === 'uninstall') installed = enabled = false
+    await route.fulfill({ status: 200, json: { code: 200, msg: 'ok' } })
   })
   await loginAsAdmin(page)
-  await page.getByRole('button', { name: '上传首页模板 ZIP' }).click()
-  const dialog = page.getByRole('dialog', { name: '上传首页模板 ZIP' })
-  await expect(dialog.locator('.el-upload-dragger')).toBeVisible()
-  await expect(dialog.locator('.el-upload-dragger')).toHaveCSS('border-style', 'dashed')
-  await expect(dialog.locator('input[type="file"]')).not.toBeVisible()
-  await dialog
-    .locator('input[type="file"]')
-    .setInputFiles({ name: 'bad.txt', mimeType: 'text/plain', buffer: Buffer.from('bad') })
-  await expect(dialog.getByText('请选择不超过 20 MiB 的非空 ZIP 文件')).toBeVisible()
-  await dialog.locator('input[type="file"]').setInputFiles({
-    name: 'custom-home.zip',
-    mimeType: 'application/zip',
-    buffer: Buffer.from(
-      'UEsDBBQAAAAAAJRiKF1JdWPAJwAAACcAAAAKAAAAaW5kZXguaHRtbDwhZG9jdHlwZSBodG1sPjxoMT5DdXN0b20gWklQIGhvbWU8L2gxPlBLAQIUABQAAAAAAJRiKF1JdWPAJwAAACcAAAAKAAAAAAAAAAAAAACAAQAAAABpbmRleC5odG1sUEsFBgAAAAABAAEAOAAAAE8AAAAAAA==',
-      'base64'
-    )
-  })
-  await dialog.getByPlaceholder('默认使用 ZIP 文件名').fill('我的 ZIP 首页')
-  await expect(dialog.locator('.upload-file-name')).toContainText('custom-home.zip')
-  await dialog.screenshot({ path: testInfo.outputPath('upload-picker.png') })
-  await dialog.getByRole('button', { name: '上传并安装' }).click()
-  await expect(dialog.getByText('登记模板安装状态失败', { exact: true })).toBeVisible()
-  await expect(dialog.locator('.upload-file-name')).toContainText('custom-home.zip')
-  await dialog.getByRole('button', { name: '上传并安装' }).click()
-  await expect(dialog).not.toBeVisible()
-  expect(uploadAttempts).toBe(2)
-  const card = page.locator('.template-card').filter({ hasText: '我的 ZIP 首页' })
+  const card = page.locator('.template-card').filter({ hasText: 'ZIP 生命周期首页' })
+  const defaultCard = page.locator('.template-card').filter({ hasText: '默认首页模板' })
+  const confirm = async (name: string) => {
+    await page.locator('.el-message-box').getByRole('button', { name, exact: true }).click()
+  }
+  await expect(page.getByRole('button', { name: '上传首页模板 ZIP' })).toHaveCount(0)
+  await expect(card.getByText('未安装', { exact: true })).toBeVisible()
+  let downloadEvents = 0
+  page.on('download', () => downloadEvents++)
+  await card.getByRole('button', { name: '下载', exact: true }).click()
+  await expect(page.getByText('模板下载暂不可用，请重试', { exact: true })).toBeVisible()
+  expect(downloadEvents).toBe(0)
+  const downloadEvent = page.waitForEvent('download')
+  await card.getByRole('button', { name: '下载', exact: true }).click()
+  const download = await downloadEvent
+  expect(download.suggestedFilename()).toBe('custom-home.zip')
+  const stream = await download.createReadStream()
+  const chunks: Buffer[] = []
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk))
+  expect(Buffer.concat(chunks)).toEqual(archive)
+  expect(calls).toEqual([])
+  await card.getByRole('button', { name: '安装', exact: true }).click()
+  await confirm('取消')
+  expect(calls).toEqual([])
+  await card.getByRole('button', { name: '安装', exact: true }).click()
+  await confirm('安装')
   await expect(card.getByText('已安装', { exact: true })).toBeVisible()
-  expect(enableCalls).toBe(0)
-  await card.getByRole('button', { name: '启用', exact: true }).click({ force: true })
-  await page
-    .locator('.el-message-box')
-    .getByRole('button', { name: '启用', exact: true })
-    .click({ force: true })
+  await expect(defaultCard.getByText('已启用', { exact: true })).toBeVisible()
+  expect(calls).toEqual(['install'])
+  await card.getByRole('button', { name: '启用', exact: true }).click()
+  await confirm('启用')
   await expect(card.getByText('已启用', { exact: true })).toBeVisible()
-  expect(enableCalls).toBe(1)
+  await card.getByRole('button', { name: '停用', exact: true }).click()
+  await confirm('停用')
+  await expect(card.getByText('已安装', { exact: true })).toBeVisible()
+  await expect(defaultCard.getByText('已启用', { exact: true })).toBeVisible()
+  await card.getByRole('button', { name: '启用', exact: true }).click()
+  await confirm('启用')
+  await expect(card.getByText('已启用', { exact: true })).toBeVisible()
+  await expect(page.locator('.el-message-box__wrapper:visible')).toHaveCount(0)
+  await card.screenshot({
+    path: testInfo.outputPath('template-lifecycle-actions.png'),
+    animations: 'disabled'
+  })
+  await card.getByRole('button', { name: '卸载', exact: true }).click()
+  await confirm('取消')
+  expect(calls).not.toContain('uninstall')
+  await card.getByRole('button', { name: '卸载', exact: true }).click()
+  await confirm('卸载')
+  await expect(card.getByText('未安装', { exact: true })).toBeVisible()
+  await expect(defaultCard.getByText('已启用', { exact: true })).toBeVisible()
+  await card.getByRole('button', { name: '安装', exact: true }).click()
+  await confirm('安装')
+  await expect(card.getByText('已安装', { exact: true })).toBeVisible()
+  expect(calls).toEqual(['install', 'enable', 'disable', 'enable', 'uninstall', 'install'])
 })
