@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -355,6 +356,11 @@ func userPurchaseOnline(c *gin.Context, appID int64, planID int64, licenseType s
 		return
 	}
 
+	if err := ensurePurchasePromotionSchema(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化促销活动失败"})
+		return
+	}
+
 	plan, err := loadPurchasePlanPricing(db, appID, planID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "套餐不存在、已禁用或应用已下架"})
@@ -389,9 +395,11 @@ func userPurchaseOnline(c *gin.Context, appID int64, planID int64, licenseType s
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 			return
 		}
-		if err := insertAllowedLicensePurchaseOrder(db, orderNo, 0, "user", ownerID, licenseType, domain, plan, quote, payChannelEpayV1, payType, frontendReturnURL); err != nil {
+		if err := insertAllowedLicensePurchaseOrder(c.Request.Context(), db, orderNo, 0, "user", ownerID, licenseType, domain, plan, quote, payChannelEpayV1, payType, frontendReturnURL); err != nil {
 			if err == errPurchaseTypeNotAllowed {
 				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": purchaseLicenseTypeNotAllowedMessage(licenseType)})
+			} else if violation := purchaseLimitViolationMessage(err); violation != "" {
+				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": violation})
 			} else if err == sql.ErrNoRows {
 				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用不存在或已下架"})
 			} else {
@@ -410,9 +418,11 @@ func userPurchaseOnline(c *gin.Context, appID int64, planID int64, licenseType s
 	payConfigV2, err := loadEpayV2Config(db)
 	if (selection.Channel == "" || selection.Channel == payChannelEpayV2) && err == nil && payConfigV2.validateForPay() == nil && payConfigV2.isPayTypeEnabled(payType) {
 		frontendReturnURL := buildFrontendReturnURL(c, orderNo, "/user/purchase")
-		if err := insertAllowedLicensePurchaseOrder(db, orderNo, 0, "user", ownerID, licenseType, domain, plan, quote, payChannelEpayV2, payType, frontendReturnURL); err != nil {
+		if err := insertAllowedLicensePurchaseOrder(c.Request.Context(), db, orderNo, 0, "user", ownerID, licenseType, domain, plan, quote, payChannelEpayV2, payType, frontendReturnURL); err != nil {
 			if err == errPurchaseTypeNotAllowed {
 				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": purchaseLicenseTypeNotAllowedMessage(licenseType)})
+			} else if violation := purchaseLimitViolationMessage(err); violation != "" {
+				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": violation})
 			} else if err == sql.ErrNoRows {
 				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用不存在或已下架"})
 			} else {
@@ -459,6 +469,11 @@ func agentPanelPurchaseOnline(c *gin.Context, appID int64, planID int64, userID 
 	}
 	if err := ensureLicensePurchaseOrderSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化购买订单表失败: " + err.Error()})
+		return
+	}
+
+	if err := ensurePurchasePromotionSchema(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化促销活动失败"})
 		return
 	}
 
@@ -515,9 +530,11 @@ func agentPanelPurchaseOnline(c *gin.Context, appID int64, planID int64, userID 
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 			return
 		}
-		if err := insertAllowedLicensePurchaseOrder(db, orderNo, agentID, ownerType, ownerID, licenseType, domain, plan, quote, payChannelEpayV1, payType, frontendReturnURL); err != nil {
+		if err := insertAllowedLicensePurchaseOrder(c.Request.Context(), db, orderNo, agentID, ownerType, ownerID, licenseType, domain, plan, quote, payChannelEpayV1, payType, frontendReturnURL); err != nil {
 			if err == errPurchaseTypeNotAllowed {
 				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": purchaseLicenseTypeNotAllowedMessage(licenseType)})
+			} else if violation := purchaseLimitViolationMessage(err); violation != "" {
+				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": violation})
 			} else if err == sql.ErrNoRows {
 				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用不存在或已下架"})
 			} else {
@@ -536,9 +553,11 @@ func agentPanelPurchaseOnline(c *gin.Context, appID int64, planID int64, userID 
 	payConfigV2, err := loadEpayV2Config(db)
 	if (selection.Channel == "" || selection.Channel == payChannelEpayV2) && err == nil && payConfigV2.validateForPay() == nil && payConfigV2.isPayTypeEnabled(payType) {
 		frontendReturnURL := buildFrontendReturnURL(c, orderNo, "/agent/purchase")
-		if err := insertAllowedLicensePurchaseOrder(db, orderNo, agentID, ownerType, ownerID, licenseType, domain, plan, quote, payChannelEpayV2, payType, frontendReturnURL); err != nil {
+		if err := insertAllowedLicensePurchaseOrder(c.Request.Context(), db, orderNo, agentID, ownerType, ownerID, licenseType, domain, plan, quote, payChannelEpayV2, payType, frontendReturnURL); err != nil {
 			if err == errPurchaseTypeNotAllowed {
 				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": purchaseLicenseTypeNotAllowedMessage(licenseType)})
+			} else if violation := purchaseLimitViolationMessage(err); violation != "" {
+				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": violation})
 			} else if err == sql.ErrNoRows {
 				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用不存在或已下架"})
 			} else {
@@ -563,13 +582,20 @@ func agentPanelPurchaseOnline(c *gin.Context, appID int64, planID int64, userID 
 	c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "该支付方式未开启"})
 }
 
-func insertAllowedLicensePurchaseOrder(db *sql.DB, orderNo string, agentID uint, ownerType string, ownerID int64, licenseType string, domain string, plan purchasePlanPricing, quote purchasePriceQuote, payChannel string, payType string, returnURL string) error {
-	tx, err := db.Begin()
+func insertAllowedLicensePurchaseOrder(ctx context.Context, db *sql.DB, orderNo string, agentID uint, ownerType string, ownerID int64, licenseType string, domain string, plan purchasePlanPricing, quote purchasePriceQuote, payChannel string, payType string, returnURL string) error {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	if err := requireAppPurchaseLicenseType(tx, plan.AppID, licenseType); err != nil {
+		return err
+	}
+	buyerType := purchaseAudienceUser
+	if agentID > 0 {
+		buyerType = purchaseAudienceAgent
+	}
+	if err := enforcePurchaseLimit(ctx, tx, plan.AppID, plan.PlanID, buyerType, ownerType, ownerID); err != nil {
 		return err
 	}
 
@@ -591,8 +617,8 @@ func insertAllowedLicensePurchaseOrder(db *sql.DB, orderNo string, agentID uint,
 			type, target, amount, original_amount, base_amount, discount_amount,
 			promotion_id, promotion_name, promotion_rule_snapshot, pricing_snapshot,
 			app_name_snapshot, plan_name_snapshot, duration_days_snapshot, max_sites_snapshot,
-			pay_channel, pay_method, status, return_url, remark
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+			pay_channel, pay_method, status, expires_at, return_url, remark
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL 30 MINUTE), ?, ?)
 	`, orderNo, agentID, uid, plan.AppID, plan.PlanID, ownerType, ownerID, licenseType, domain,
 		snapshot.Amount, snapshot.OriginalAmount, snapshot.BaseAmount, snapshot.DiscountAmount,
 		snapshot.PromotionID, snapshot.PromotionName, snapshot.PromotionRule, snapshot.PricingSnapshot,
@@ -803,6 +829,7 @@ func ensureLicensePurchaseOrderSchema(db *sql.DB) error {
 			license_id BIGINT UNSIGNED DEFAULT NULL COMMENT '生成的授权ID',
 			license_no VARCHAR(64) DEFAULT '' COMMENT '生成的授权编号',
 			status ENUM('pending','paid','failed','cancelled') DEFAULT 'pending' COMMENT '状态',
+			expires_at DATETIME DEFAULT NULL COMMENT '待支付订单过期时间',
 			paid_at DATETIME DEFAULT NULL COMMENT '支付完成时间',
 			remark VARCHAR(255) DEFAULT '' COMMENT '备注',
 			notify_payload TEXT COMMENT '支付回调原始参数',
@@ -842,6 +869,20 @@ func ensureLicensePurchaseOrderSchema(db *sql.DB) error {
 		if err := ensureColumn(db, "license_purchase_orders", column.name, column.sql); err != nil {
 			return err
 		}
+	}
+	if err := ensureColumn(db, "license_purchase_orders", "expires_at",
+		"ALTER TABLE license_purchase_orders ADD COLUMN expires_at DATETIME DEFAULT NULL COMMENT '待支付订单过期时间' AFTER status"); err != nil {
+		return err
+	}
+	if err := ensureIndex(db, "license_purchase_orders", "idx_purchase_order_expiry", []string{"status", "expires_at"}, false); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`
+		UPDATE license_purchase_orders
+		SET expires_at = DATE_ADD(created_at, INTERVAL 30 MINUTE)
+		WHERE status = 'pending' AND expires_at IS NULL
+	`); err != nil {
+		return err
 	}
 	return ensureLicensePriceSnapshotSchema(db)
 }

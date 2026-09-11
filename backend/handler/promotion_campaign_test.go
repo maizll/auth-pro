@@ -76,19 +76,19 @@ func (conn *promotionCampaignTestConn) QueryContext(_ context.Context, query str
 		return &promotionCampaignTestRows{columns: []string{"price"}, values: [][]driver.Value{{float64(100)}}}, nil
 	case strings.Contains(query, "SELECT pc.id, pc.app_id") && strings.Contains(query, "FROM promotion_campaigns pc"):
 		if conn.state.campaignID == 0 {
-			return &promotionCampaignTestRows{columns: []string{"id", "app_id", "app_name", "name", "audience", "starts_at", "ends_at", "enabled", "created_at", "updated_at"}}, nil
+			return &promotionCampaignTestRows{columns: []string{"id", "app_id", "app_name", "name", "audience", "starts_at", "ends_at", "enabled", "purchase_limit_enabled", "created_at", "updated_at"}}, nil
 		}
 		return &promotionCampaignTestRows{
-			columns: []string{"id", "app_id", "app_name", "name", "audience", "starts_at", "ends_at", "enabled", "created_at", "updated_at"},
+			columns: []string{"id", "app_id", "app_name", "name", "audience", "starts_at", "ends_at", "enabled", "purchase_limit_enabled", "created_at", "updated_at"},
 			values: [][]driver.Value{{
 				conn.state.campaignID, conn.state.appID, "Test App", "春季活动", "all",
-				conn.state.startsAt, conn.state.endsAt, true, conn.state.startsAt, conn.state.startsAt,
+				conn.state.startsAt, conn.state.endsAt, true, true, conn.state.startsAt, conn.state.startsAt,
 			}},
 		}, nil
 	case strings.Contains(query, "FROM promotion_campaign_plans pcp") && strings.Contains(query, "JOIN license_plans p"):
 		return &promotionCampaignTestRows{
-			columns: []string{"campaign_id", "id", "name", "price", "rule_type", "rule_value"},
-			values:  [][]driver.Value{{conn.state.campaignID, int64(3), "年度套餐", float64(100), "discount", float64(8.5)}},
+			columns: []string{"campaign_id", "id", "name", "price", "rule_type", "rule_value", "per_owner_limit", "stock_limit"},
+			values:  [][]driver.Value{{conn.state.campaignID, int64(3), "年度套餐", float64(100), "discount", float64(8.5), int64(0), int64(0)}},
 		}, nil
 	case strings.Contains(query, "SELECT id, name") && strings.Contains(query, "FROM promotion_campaigns"):
 		if !conn.state.conflict {
@@ -310,6 +310,68 @@ func TestParsePromotionCampaignRequest(t *testing.T) {
 	}
 }
 
+func TestParsePromotionCampaignRequestClearsLimitsWhenDisabled(t *testing.T) {
+	request := promotionCampaignRequest{
+		AppID:                9,
+		Name:                 "限购活动",
+		Audience:             "all",
+		StartsAt:             "2026-03-01T10:00:00+08:00",
+		EndsAt:               "2026-03-01T12:00:00+08:00",
+		PurchaseLimitEnabled: false,
+		Plans: []promotionCampaignPlanRequest{{
+			PlanID:        3,
+			RuleType:      "fixed_price",
+			Value:         promotionFloat(60),
+			PerOwnerLimit: 5,
+			StockLimit:    20,
+		}},
+	}
+	campaign, err := parsePromotionCampaignRequest(request, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if campaign.PurchaseLimitEnabled || campaign.Plans[0].PerOwnerLimit != 0 || campaign.Plans[0].StockLimit != 0 {
+		t.Fatalf("disabled purchase limits were not cleared: %#v", campaign)
+	}
+
+	request.PurchaseLimitEnabled = true
+	campaign, err = parsePromotionCampaignRequest(request, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !campaign.PurchaseLimitEnabled || campaign.Plans[0].PerOwnerLimit != 5 || campaign.Plans[0].StockLimit != 20 {
+		t.Fatalf("enabled purchase limits were not preserved: %#v", campaign)
+	}
+}
+
+func TestParsePromotionCampaignRequestRejectsInvalidLimits(t *testing.T) {
+	base := promotionCampaignRequest{
+		AppID:                9,
+		Name:                 "限购活动",
+		Audience:             "all",
+		StartsAt:             "2026-03-01T10:00:00+08:00",
+		EndsAt:               "2026-03-01T12:00:00+08:00",
+		PurchaseLimitEnabled: true,
+		Plans: []promotionCampaignPlanRequest{{
+			PlanID:   3,
+			RuleType: "fixed_price",
+			Value:    promotionFloat(60),
+		}},
+	}
+	for _, field := range []string{"perOwnerLimit", "stockLimit"} {
+		request := base
+		request.Plans = append([]promotionCampaignPlanRequest(nil), base.Plans...)
+		if field == "perOwnerLimit" {
+			request.Plans[0].PerOwnerLimit = -1
+		} else {
+			request.Plans[0].StockLimit = -1
+		}
+		if _, err := parsePromotionCampaignRequest(request, 7); err == nil {
+			t.Fatalf("negative %s was accepted", field)
+		}
+	}
+}
+
 func TestParsePromotionCampaignRuleTypes(t *testing.T) {
 	request := promotionCampaignRequest{
 		AppID:    9,
@@ -374,9 +436,9 @@ func TestPromotionCampaignPersistsOnlySelectedPlanRules(t *testing.T) {
 		t.Fatalf("unexpected selected-plan writes: %#v", state.execs)
 	}
 	wantArgs := [][]any{
-		{int64(42), int64(3), "discount", "8.5", "0.00"},
-		{int64(42), int64(5), "reduction", "20.00", "0.00"},
-		{int64(42), int64(8), "fixed_price", "60.00", "60.00"},
+		{int64(42), int64(3), "discount", "8.5", "0.00", int64(0), int64(0)},
+		{int64(42), int64(5), "reduction", "20.00", "0.00", int64(0), int64(0)},
+		{int64(42), int64(8), "fixed_price", "60.00", "60.00", int64(0), int64(0)},
 	}
 	for index, want := range wantArgs {
 		args := state.execArgs[index+1]
@@ -513,7 +575,7 @@ func TestCreatePromotionCampaignAllowsAdjacentRange(t *testing.T) {
 	if len(state.execs) != 3 || !strings.Contains(state.execs[0], "INSERT INTO promotion_campaigns") || !strings.Contains(state.execs[1], "DELETE FROM promotion_campaign_plans") || !strings.Contains(state.execs[2], "INSERT INTO promotion_campaign_plans") {
 		t.Fatalf("unexpected writes: %#v", state.execs)
 	}
-	if len(state.execArgs[2]) != 5 || state.execArgs[2][0].Value != int64(42) || state.execArgs[2][1].Value != int64(3) || state.execArgs[2][2].Value != "fixed_price" || state.execArgs[2][3].Value != "60.00" || state.execArgs[2][4].Value != "60.00" {
+	if len(state.execArgs[2]) != 7 || state.execArgs[2][0].Value != int64(42) || state.execArgs[2][1].Value != int64(3) || state.execArgs[2][2].Value != "fixed_price" || state.execArgs[2][3].Value != "60.00" || state.execArgs[2][4].Value != "60.00" || state.execArgs[2][5].Value != int64(0) || state.execArgs[2][6].Value != int64(0) {
 		t.Fatalf("unexpected campaign plan rule: %#v", state.execArgs[2])
 	}
 	if state.commits != 1 || state.rollbacks != 0 {
@@ -556,7 +618,7 @@ func TestUpdatePromotionCampaignPersistsSelectedPlanRules(t *testing.T) {
 	wantPlanIDs := []int64{3, 5, 8}
 	for index, wantRule := range wantRules {
 		args := state.execArgs[index+2]
-		if len(args) != 5 || args[0].Value != int64(42) || args[1].Value != wantPlanIDs[index] || args[2].Value != wantRule {
+		if len(args) != 7 || args[0].Value != int64(42) || args[1].Value != wantPlanIDs[index] || args[2].Value != wantRule || args[5].Value != int64(0) || args[6].Value != int64(0) {
 			t.Fatalf("unexpected updated plan rule %d: %#v", index, args)
 		}
 	}

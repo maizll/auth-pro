@@ -87,11 +87,15 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="活动套餐" min-width="220">
+        <el-table-column label="活动套餐" min-width="260">
           <template #default="{ row }">
             <div class="plan-tags">
               <el-tag v-for="plan in row.plans" :key="plan.planId" size="small" type="info">
                 {{ plan.planName }} · {{ ruleLabel(plan) }}
+                <template v-if="row.purchaseLimitEnabled">
+                  · 每人 {{ limitText(plan.perOwnerLimit) }} · 总库存
+                  {{ limitText(plan.stockLimit) }}
+                </template>
               </el-tag>
               <span v-if="!row.plans.length" class="muted">未选择套餐</span>
             </div>
@@ -202,6 +206,18 @@
           <div class="field-tip">结束时间不包含在活动区间内，首尾相接的活动可以连续配置。</div>
         </el-form-item>
 
+        <el-form-item label="是否开启购买限购">
+          <div class="switch-field limit-switch-field">
+            <el-switch v-model="form.purchaseLimitEnabled" @change="handlePurchaseLimitChange" />
+            <span>
+              {{
+                form.purchaseLimitEnabled
+                  ? '开启后按套餐限制每个持有方和活动总库存'
+                  : '关闭时活动仅影响价格，不限制购买数量'
+              }}
+            </span>
+          </div>
+        </el-form-item>
         <el-form-item label="选择活动套餐" prop="plans">
           <div v-if="!form.appId" class="plan-empty">请先选择所属应用</div>
           <div v-else-if="plansLoading" class="plan-empty">正在加载套餐...</div>
@@ -255,6 +271,26 @@
               controls-position="right"
               class="rule-value"
             />
+            <div v-if="form.purchaseLimitEnabled" class="limit-field">
+              <span class="limit-label">每个持有方（份）</span>
+              <el-input-number
+                v-model="draft.perOwnerLimit"
+                :min="0"
+                :max="999999"
+                controls-position="right"
+                class="limit-input"
+              />
+            </div>
+            <div v-if="form.purchaseLimitEnabled" class="limit-field">
+              <span class="limit-label">活动总库存（份）</span>
+              <el-input-number
+                v-model="draft.stockLimit"
+                :min="0"
+                :max="999999"
+                controls-position="right"
+                class="limit-input"
+              />
+            </div>
             <div class="rule-preview">{{ rulePreview(draft) }}</div>
           </div>
         </div>
@@ -301,6 +337,8 @@
     planId: number
     ruleType: PromotionRuleType
     value: number
+    perOwnerLimit: number
+    stockLimit: number
   }
 
   interface CampaignForm {
@@ -310,6 +348,7 @@
     audience: PromotionAudience
     dateRange: [Date | null, Date | null]
     enabled: boolean
+    purchaseLimitEnabled: boolean
     plans: CampaignRuleDraft[]
   }
 
@@ -343,6 +382,7 @@
     audience: 'all',
     dateRange: [null, null],
     enabled: true,
+    purchaseLimitEnabled: false,
     plans: []
   })
 
@@ -403,6 +443,18 @@
           }
           const invalid = value.some((draft) => {
             if (!Number.isFinite(draft.value)) return true
+            if (form.purchaseLimitEnabled) {
+              if (
+                !Number.isInteger(draft.perOwnerLimit) ||
+                !Number.isInteger(draft.stockLimit) ||
+                draft.perOwnerLimit < 0 ||
+                draft.stockLimit < 0 ||
+                draft.perOwnerLimit > 999999 ||
+                draft.stockLimit > 999999
+              ) {
+                return true
+              }
+            }
             if (draft.ruleType === 'discount') return draft.value <= 0 || draft.value > 10
             const price = Number(planById(draft.planId)?.price || 0)
             return (
@@ -412,7 +464,7 @@
             )
           })
           if (invalid) {
-            callback(new Error('请检查套餐优惠值，立减和固定价不能高于套餐原价'))
+            callback(new Error('请检查套餐优惠值和限购数量，数量须为0-999999的整数'))
             return
           }
           callback()
@@ -432,7 +484,9 @@
         return {
           planId,
           ruleType: 'fixed_price',
-          value: Number(planById(planId)?.price || 0)
+          value: Number(planById(planId)?.price || 0),
+          perOwnerLimit: 0,
+          stockLimit: 0
         }
       })
       void nextTick(() => formRef.value?.validateField('plans').catch(() => undefined))
@@ -461,6 +515,7 @@
   })
 
   const money = (value: number) => Number(value || 0).toFixed(2)
+  const limitText = (value: number) => (Number(value) > 0 ? `${value} 份` : '不限')
   const planById = (planId: number) => planOptions.value.find((plan) => plan.id === planId)
 
   const audienceLabel = (audience: PromotionAudience) =>
@@ -569,6 +624,16 @@
     dialogVisible.value = true
   }
 
+  const handlePurchaseLimitChange = (enabled: boolean | string | number) => {
+    if (!enabled) {
+      form.plans.forEach((draft) => {
+        draft.perOwnerLimit = 0
+        draft.stockLimit = 0
+      })
+    }
+    void nextTick(() => formRef.value?.validateField('plans').catch(() => undefined))
+  }
+
   const handleAppChange = async (appId?: number) => {
     form.plans = []
     planOptions.value = []
@@ -586,12 +651,14 @@
       name: row.name,
       audience: row.audience,
       dateRange: [new Date(row.startsAt), new Date(row.endsAt)],
-      enabled: row.enabled,
       plans: row.plans.map((plan) => ({
         planId: plan.planId,
         ruleType: plan.ruleType,
-        value: Number(plan.value)
-      }))
+        value: Number(plan.value),
+        perOwnerLimit: Number(plan.perOwnerLimit || 0),
+        stockLimit: Number(plan.stockLimit || 0)
+      })),
+      purchaseLimitEnabled: Boolean(row.purchaseLimitEnabled)
     })
     await nextTick()
     formRef.value?.clearValidate()
@@ -611,10 +678,13 @@
         startsAt: startAt.toISOString(),
         endsAt: endAt.toISOString(),
         enabled: form.enabled,
+        purchaseLimitEnabled: form.purchaseLimitEnabled,
         plans: form.plans.map((draft) => ({
           planId: draft.planId,
           ruleType: draft.ruleType,
-          value: Number(draft.value)
+          value: Number(draft.value),
+          perOwnerLimit: form.purchaseLimitEnabled ? Number(draft.perOwnerLimit) : 0,
+          stockLimit: form.purchaseLimitEnabled ? Number(draft.stockLimit) : 0
         }))
       }
       if (isEdit.value) {

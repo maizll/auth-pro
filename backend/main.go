@@ -434,6 +434,7 @@ func main() {
 
 	// 启动后台邮件到期提醒任务
 	handler.StartMailReminderWorker()
+	handler.StartPurchaseOrderExpiryWorker()
 
 	// 兜底迁移：补齐购买订单字段，修正历史线上购买流水与价格快照
 	func() {
@@ -452,6 +453,9 @@ func main() {
 		}
 		if err := handler.EnsureLicensePurchasePriceSnapshotSchema(db); err != nil {
 			log.Printf("ensure license purchase price snapshots failed: %v", err)
+		}
+		if err := handler.EnsurePromotionCampaignSchema(db); err != nil {
+			log.Printf("ensure promotion campaign schema failed: %v", err)
 		}
 		if err := handler.EnsureAccountUpgradeSchema(db); err != nil {
 			log.Printf("ensure account upgrade schema failed: %v", err)

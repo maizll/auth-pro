@@ -234,6 +234,7 @@ CREATE TABLE `promotion_campaigns` (
   `starts_at`  DATETIME NOT NULL COMMENT '开始时间（含）',
   `ends_at`    DATETIME NOT NULL COMMENT '结束时间（不含）',
   `enabled`    TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否启用',
+  `purchase_limit_enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否开启购买限购',
   `created_by` BIGINT UNSIGNED DEFAULT NULL COMMENT '创建管理员ID',
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -248,6 +249,8 @@ CREATE TABLE `promotion_campaign_plans` (
   `rule_type`       ENUM('discount','reduction','fixed_price') NOT NULL DEFAULT 'fixed_price' COMMENT '优惠方式',
   `rule_value`      DECIMAL(12,4) NOT NULL DEFAULT 0 COMMENT '折扣值或金额',
   `promotion_price` DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '兼容旧版固定活动价',
+  `per_owner_limit` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '每个持有方限购数量，0表示不限',
+  `stock_limit` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '活动总库存，0表示不限',
   `created_at`      DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   PRIMARY KEY (`campaign_id`, `plan_id`),
   KEY `idx_promotion_plan` (`plan_id`, `campaign_id`)
@@ -549,6 +552,7 @@ CREATE TABLE `license_purchase_orders` (
   `license_id`               BIGINT UNSIGNED DEFAULT NULL COMMENT '生成的授权ID',
   `license_no`               VARCHAR(64) DEFAULT '' COMMENT '生成的授权编号',
   `status`                   ENUM('pending','paid','failed','cancelled') DEFAULT 'pending' COMMENT '状态',
+  `expires_at`               DATETIME DEFAULT NULL COMMENT '待支付订单过期时间',
   `paid_at`                  DATETIME DEFAULT NULL COMMENT '支付完成时间',
   `remark`                   VARCHAR(255) DEFAULT '' COMMENT '备注',
   `notify_payload`           TEXT COMMENT '支付回调原始参数',
@@ -558,7 +562,8 @@ CREATE TABLE `license_purchase_orders` (
   UNIQUE KEY `uk_order_no` (`order_no`),
   KEY `idx_agent` (`agent_id`, `status`),
   KEY `idx_user` (`user_id`, `status`),
-  KEY `idx_promotion` (`promotion_id`, `status`)
+  KEY `idx_promotion` (`promotion_id`, `status`),
+  KEY `idx_purchase_order_expiry` (`status`, `expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权购买订单表';
 
 DROP TABLE IF EXISTS `operation_logs`;

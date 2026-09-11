@@ -861,6 +861,11 @@ func UserPurchase(c *gin.Context) {
 		return
 	}
 
+	if err := ensurePurchasePromotionSchema(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化促销活动失败"})
+		return
+	}
+
 	plan, err := loadPurchasePlanPricing(db, req.AppID, req.PlanID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "套餐不存在、已禁用或应用已下架"})
@@ -904,6 +909,15 @@ func UserPurchase(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": purchaseLicenseTypeNotAllowedMessage(req.Type)})
 		} else {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用不存在或已下架"})
+		}
+		return
+	}
+
+	if err := enforcePurchaseLimit(c.Request.Context(), tx, req.AppID, req.PlanID, purchaseAudienceUser, "user", int64(userID)); err != nil {
+		if violation := purchaseLimitViolationMessage(err); violation != "" {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": violation})
+		} else {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "检查购买限购失败"})
 		}
 		return
 	}

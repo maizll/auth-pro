@@ -40,7 +40,7 @@ var (
 	ensureAppPurchaseLicenseTypes    = EnsureAppPurchaseLicenseTypesColumn
 	ensurePlanLicenseType            = ensurePlanLicenseTypeColumn
 	ensurePurchaseOrderPricingSchema = ensureLicensePurchaseOrderSchema
-	ensurePurchasePromotionSchema    = ensurePromotionCampaignSchema
+	ensurePurchasePromotionSchema    = EnsurePromotionCampaignSchema
 	selfPurchaseEnabledForPurchase   = isSelfPurchaseEnabled
 	queuePurchaseSuccessMail         = QueuePurchaseSuccessMail
 	queueAdminLicenseOpenedMail      = QueueLicenseOpenedMail

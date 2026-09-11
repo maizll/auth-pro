@@ -62,6 +62,7 @@ func GetMenuList(c *gin.Context) {
 	ensureEpayConfigMenu(db)
 	ensurePaymentOrdersMenu(db)
 	ensurePromotionCampaignMenu(db)
+	cleanupPurchaseLimitCampaignMenu(db)
 	ensurePluginStoreMenu(db)
 	removeHomeTemplateMenu(db)
 	ensureOnlineUpdateMenu(db)
@@ -555,6 +556,11 @@ func ensurePromotionCampaignMenu(db *sql.DB) {
 		INSERT IGNORE INTO role_menus (role_id, menu_id)
 		SELECT id, ? FROM roles WHERE role_code IN ('R_SUPER', 'R_ADMIN') AND enabled = 1
 	`, menuID)
+}
+
+func cleanupPurchaseLimitCampaignMenu(db *sql.DB) {
+	_, _ = db.Exec("DELETE FROM role_menus WHERE menu_id = 213")
+	_, _ = db.Exec("DELETE FROM menus WHERE id = 213 OR name = 'PurchaseLimitCampaigns'")
 }
 
 func ensureMailConfigMenu(db *sql.DB) {

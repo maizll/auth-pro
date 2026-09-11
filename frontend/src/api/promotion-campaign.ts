@@ -26,6 +26,8 @@ export interface PromotionCampaignPlan {
   originalPrice: number
   ruleType: PromotionRuleType
   value: number
+  perOwnerLimit: number
+  stockLimit: number
 }
 
 export interface PromotionCampaignItem {
@@ -37,6 +39,7 @@ export interface PromotionCampaignItem {
   startsAt: string
   endsAt: string
   enabled: boolean
+  purchaseLimitEnabled: boolean
   status: PromotionCampaignStatus
   createdAt: string
   updatedAt: string
@@ -50,10 +53,13 @@ export interface PromotionCampaignPayload {
   startsAt: string
   endsAt: string
   enabled: boolean
+  purchaseLimitEnabled: boolean
   plans: Array<{
     planId: number
     ruleType: PromotionRuleType
     value: number
+    perOwnerLimit: number
+    stockLimit: number
   }>
 }
 

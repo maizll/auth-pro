@@ -35,37 +35,43 @@ const (
 )
 
 type promotionCampaignPlanWrite struct {
-	PlanID     int64
-	RuleType   promotionRuleType
-	ValueUnits int64
+	PlanID        int64
+	RuleType      promotionRuleType
+	ValueUnits    int64
+	PerOwnerLimit int
+	StockLimit    int
 }
 
 type promotionCampaignWrite struct {
-	AppID     int64
-	Name      string
-	Audience  purchaseAudience
-	StartsAt  time.Time
-	EndsAt    time.Time
-	Enabled   bool
-	CreatedBy int64
-	Plans     []promotionCampaignPlanWrite
+	AppID                int64
+	Name                 string
+	Audience             purchaseAudience
+	StartsAt             time.Time
+	EndsAt               time.Time
+	Enabled              bool
+	PurchaseLimitEnabled bool
+	CreatedBy            int64
+	Plans                []promotionCampaignPlanWrite
 }
 
 type promotionCampaignPlanRequest struct {
-	PlanID   int64    `json:"planId"`
-	RuleType string   `json:"ruleType"`
-	Value    *float64 `json:"value"`
-	Price    *float64 `json:"price"`
+	PlanID        int64    `json:"planId"`
+	RuleType      string   `json:"ruleType"`
+	Value         *float64 `json:"value"`
+	Price         *float64 `json:"price"`
+	PerOwnerLimit int      `json:"perOwnerLimit"`
+	StockLimit    int      `json:"stockLimit"`
 }
 
 type promotionCampaignRequest struct {
-	AppID    int64                          `json:"appId"`
-	Name     string                         `json:"name"`
-	Audience string                         `json:"audience"`
-	StartsAt string                         `json:"startsAt"`
-	EndsAt   string                         `json:"endsAt"`
-	Enabled  bool                           `json:"enabled"`
-	Plans    []promotionCampaignPlanRequest `json:"plans"`
+	AppID                int64                          `json:"appId"`
+	Name                 string                         `json:"name"`
+	Audience             string                         `json:"audience"`
+	StartsAt             string                         `json:"startsAt"`
+	EndsAt               string                         `json:"endsAt"`
+	Enabled              bool                           `json:"enabled"`
+	PurchaseLimitEnabled bool                           `json:"purchaseLimitEnabled"`
+	Plans                []promotionCampaignPlanRequest `json:"plans"`
 }
 
 type promotionCampaignPlanItem struct {
@@ -74,21 +80,24 @@ type promotionCampaignPlanItem struct {
 	OriginalPrice float64           `json:"originalPrice"`
 	RuleType      promotionRuleType `json:"ruleType"`
 	Value         float64           `json:"value"`
+	PerOwnerLimit int               `json:"perOwnerLimit"`
+	StockLimit    int               `json:"stockLimit"`
 }
 
 type promotionCampaignListItem struct {
-	ID        int64                       `json:"id"`
-	AppID     int64                       `json:"appId"`
-	AppName   string                      `json:"appName"`
-	Name      string                      `json:"name"`
-	Audience  purchaseAudience            `json:"audience"`
-	StartsAt  string                      `json:"startsAt"`
-	EndsAt    string                      `json:"endsAt"`
-	Enabled   bool                        `json:"enabled"`
-	Status    string                      `json:"status"`
-	CreatedAt string                      `json:"createdAt"`
-	UpdatedAt string                      `json:"updatedAt"`
-	Plans     []promotionCampaignPlanItem `json:"plans"`
+	ID                   int64                       `json:"id"`
+	AppID                int64                       `json:"appId"`
+	AppName              string                      `json:"appName"`
+	Name                 string                      `json:"name"`
+	Audience             purchaseAudience            `json:"audience"`
+	StartsAt             string                      `json:"startsAt"`
+	EndsAt               string                      `json:"endsAt"`
+	Enabled              bool                        `json:"enabled"`
+	PurchaseLimitEnabled bool                        `json:"purchaseLimitEnabled"`
+	Status               string                      `json:"status"`
+	CreatedAt            string                      `json:"createdAt"`
+	UpdatedAt            string                      `json:"updatedAt"`
+	Plans                []promotionCampaignPlanItem `json:"plans"`
 }
 
 type promotionCampaignListFilter struct {
@@ -162,6 +171,11 @@ func promotionRuleValueText(ruleType promotionRuleType, valueUnits int64) string
 	return formatCents(valueUnits)
 }
 
+// EnsurePromotionCampaignSchema initializes the unified campaign and plan-rule schema.
+func EnsurePromotionCampaignSchema(db *sql.DB) error {
+	return ensurePromotionCampaignSchema(db)
+}
+
 func ensurePromotionCampaignSchema(db *sql.DB) error {
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS promotion_campaigns (
@@ -172,6 +186,7 @@ func ensurePromotionCampaignSchema(db *sql.DB) error {
 			starts_at DATETIME NOT NULL COMMENT '开始时间（含）',
 			ends_at DATETIME NOT NULL COMMENT '结束时间（不含）',
 			enabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否启用',
+			purchase_limit_enabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否开启购买限购',
 			created_by BIGINT UNSIGNED DEFAULT NULL COMMENT '创建管理员ID',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -188,6 +203,8 @@ func ensurePromotionCampaignSchema(db *sql.DB) error {
 			rule_type ENUM('discount','reduction','fixed_price') NOT NULL DEFAULT 'fixed_price' COMMENT '优惠方式',
 			rule_value DECIMAL(12,4) NOT NULL DEFAULT 0 COMMENT '折扣值或金额',
 			promotion_price DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '兼容旧版固定活动价',
+			per_owner_limit INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '每个持有方限购数量，0表示不限',
+			stock_limit INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '活动总库存，0表示不限',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
 			PRIMARY KEY (campaign_id, plan_id),
 			KEY idx_promotion_plan (plan_id, campaign_id)
@@ -196,12 +213,16 @@ func ensurePromotionCampaignSchema(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureColumn(db, "promotion_campaign_plans", "rule_type",
-		"ALTER TABLE promotion_campaign_plans ADD COLUMN rule_type ENUM('discount','reduction','fixed_price') NOT NULL DEFAULT 'fixed_price' COMMENT '优惠方式' AFTER plan_id"); err != nil {
+	if err := ensureColumn(db, "promotion_campaigns", "purchase_limit_enabled",
+		"ALTER TABLE promotion_campaigns ADD COLUMN purchase_limit_enabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否开启购买限购' AFTER enabled"); err != nil {
 		return err
 	}
-	if err := ensureColumn(db, "promotion_campaign_plans", "rule_value",
-		"ALTER TABLE promotion_campaign_plans ADD COLUMN rule_value DECIMAL(12,4) NOT NULL DEFAULT 0 COMMENT '折扣值或金额' AFTER rule_type"); err != nil {
+	if err := ensureColumn(db, "promotion_campaign_plans", "per_owner_limit",
+		"ALTER TABLE promotion_campaign_plans ADD COLUMN per_owner_limit INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '每个持有方限购数量，0表示不限' AFTER promotion_price"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "promotion_campaign_plans", "stock_limit",
+		"ALTER TABLE promotion_campaign_plans ADD COLUMN stock_limit INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '活动总库存，0表示不限' AFTER per_owner_limit"); err != nil {
 		return err
 	}
 	_, err = db.Exec(`
@@ -211,6 +232,8 @@ func ensurePromotionCampaignSchema(db *sql.DB) error {
 	`)
 	return err
 }
+
+const maxPromotionCampaignLimit = 999999
 
 func parsePromotionCampaignRequest(req promotionCampaignRequest, createdBy int64) (promotionCampaignWrite, error) {
 	name := strings.TrimSpace(req.Name)
@@ -257,22 +280,32 @@ func parsePromotionCampaignRequest(req promotionCampaignRequest, createdBy int64
 		if err != nil {
 			return promotionCampaignWrite{}, err
 		}
+		if plan.PerOwnerLimit < 0 || plan.StockLimit < 0 || plan.PerOwnerLimit > maxPromotionCampaignLimit || plan.StockLimit > maxPromotionCampaignLimit {
+			return promotionCampaignWrite{}, fmt.Errorf("限购数量须为0-999999")
+		}
+		if !req.PurchaseLimitEnabled {
+			plan.PerOwnerLimit = 0
+			plan.StockLimit = 0
+		}
 		seenPlans[plan.PlanID] = struct{}{}
 		plans = append(plans, promotionCampaignPlanWrite{
-			PlanID:     plan.PlanID,
-			RuleType:   ruleType,
-			ValueUnits: valueUnits,
+			PlanID:        plan.PlanID,
+			RuleType:      ruleType,
+			ValueUnits:    valueUnits,
+			PerOwnerLimit: plan.PerOwnerLimit,
+			StockLimit:    plan.StockLimit,
 		})
 	}
 	return promotionCampaignWrite{
-		AppID:     req.AppID,
-		Name:      name,
-		Audience:  audience,
-		StartsAt:  startsAt,
-		EndsAt:    endsAt,
-		Enabled:   req.Enabled,
-		CreatedBy: createdBy,
-		Plans:     plans,
+		AppID:                req.AppID,
+		Name:                 name,
+		Audience:             audience,
+		StartsAt:             startsAt,
+		EndsAt:               endsAt,
+		Enabled:              req.Enabled,
+		PurchaseLimitEnabled: req.PurchaseLimitEnabled,
+		CreatedBy:            createdBy,
+		Plans:                plans,
 	}, nil
 }
 
@@ -339,9 +372,9 @@ func replacePromotionCampaignPlans(ctx context.Context, tx *sql.Tx, campaignID i
 			legacyPrice = formatCents(plan.ValueUnits)
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO promotion_campaign_plans (campaign_id, plan_id, rule_type, rule_value, promotion_price)
-			VALUES (?, ?, ?, ?, ?)
-		`, campaignID, plan.PlanID, plan.RuleType, promotionRuleValueText(plan.RuleType, plan.ValueUnits), legacyPrice); err != nil {
+			INSERT INTO promotion_campaign_plans (campaign_id, plan_id, rule_type, rule_value, promotion_price, per_owner_limit, stock_limit)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`, campaignID, plan.PlanID, plan.RuleType, promotionRuleValueText(plan.RuleType, plan.ValueUnits), legacyPrice, plan.PerOwnerLimit, plan.StockLimit); err != nil {
 			return err
 		}
 	}
@@ -389,9 +422,9 @@ func createPromotionCampaign(ctx context.Context, db *sql.DB, campaign promotion
 		}
 	}
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO promotion_campaigns (app_id, name, audience, starts_at, ends_at, enabled, created_by)
-		VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, 0))
-	`, campaign.AppID, campaign.Name, campaign.Audience, campaign.StartsAt, campaign.EndsAt, campaign.Enabled, campaign.CreatedBy)
+		INSERT INTO promotion_campaigns (app_id, name, audience, starts_at, ends_at, enabled, purchase_limit_enabled, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0))
+	`, campaign.AppID, campaign.Name, campaign.Audience, campaign.StartsAt, campaign.EndsAt, campaign.Enabled, campaign.PurchaseLimitEnabled, campaign.CreatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -446,9 +479,9 @@ func updatePromotionCampaign(ctx context.Context, db *sql.DB, campaignID int64, 
 	// 前面已 SELECT ... FOR UPDATE 确认行存在；MySQL 在值未变化时 RowsAffected=0，不能据此判断不存在
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE promotion_campaigns
-		SET name = ?, audience = ?, starts_at = ?, ends_at = ?, enabled = ?
+		SET name = ?, audience = ?, starts_at = ?, ends_at = ?, enabled = ?, purchase_limit_enabled = ?
 		WHERE id = ?
-	`, campaign.Name, campaign.Audience, campaign.StartsAt, campaign.EndsAt, campaign.Enabled, campaignID); err != nil {
+	`, campaign.Name, campaign.Audience, campaign.StartsAt, campaign.EndsAt, campaign.Enabled, campaign.PurchaseLimitEnabled, campaignID); err != nil {
 		return err
 	}
 	if err := replacePromotionCampaignPlans(ctx, tx, campaignID, campaign.Plans); err != nil {
@@ -586,7 +619,7 @@ func listPromotionCampaigns(ctx context.Context, db *sql.DB, filter promotionCam
 
 	rows, err := db.QueryContext(ctx, fmt.Sprintf(`
 		SELECT pc.id, pc.app_id, a.app_name, pc.name, pc.audience,
-		       pc.starts_at, pc.ends_at, pc.enabled, pc.created_at, pc.updated_at
+		       pc.starts_at, pc.ends_at, pc.enabled, pc.purchase_limit_enabled, pc.created_at, pc.updated_at
 		FROM promotion_campaigns pc
 		JOIN apps a ON a.id = pc.app_id
 		WHERE %s
@@ -605,9 +638,10 @@ func listPromotionCampaigns(ctx context.Context, db *sql.DB, filter promotionCam
 		var item promotionCampaignListItem
 		var audienceText string
 		var startsAt, endsAt, createdAt, updatedAt time.Time
+		var purchaseLimitEnabled bool
 		if err := rows.Scan(
 			&item.ID, &item.AppID, &item.AppName, &item.Name, &audienceText,
-			&startsAt, &endsAt, &item.Enabled, &createdAt, &updatedAt,
+			&startsAt, &endsAt, &item.Enabled, &purchaseLimitEnabled, &createdAt, &updatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -616,6 +650,7 @@ func listPromotionCampaigns(ctx context.Context, db *sql.DB, filter promotionCam
 			return nil, err
 		}
 		item.Audience = audience
+		item.PurchaseLimitEnabled = purchaseLimitEnabled
 		item.StartsAt = startsAt.Format(time.RFC3339)
 		item.EndsAt = endsAt.Format(time.RFC3339)
 		item.Status = promotionCampaignStatus(item.Enabled, startsAt, endsAt, now)
@@ -640,7 +675,8 @@ func listPromotionCampaigns(ctx context.Context, db *sql.DB, filter promotionCam
 		         WHEN pcp.rule_type = 'fixed_price' AND pcp.rule_value = 0 AND pcp.promotion_price <> 0
 		         THEN pcp.promotion_price
 		         ELSE pcp.rule_value
-		       END AS rule_value
+		       END AS rule_value,
+		       pcp.per_owner_limit, pcp.stock_limit
 		FROM promotion_campaign_plans pcp
 		JOIN license_plans p ON p.id = pcp.plan_id
 		WHERE pcp.campaign_id IN (%s)
@@ -656,6 +692,7 @@ func listPromotionCampaigns(ctx context.Context, db *sql.DB, filter promotionCam
 		var ruleTypeText string
 		if err := planRows.Scan(
 			&campaignID, &plan.PlanID, &plan.PlanName, &plan.OriginalPrice, &ruleTypeText, &plan.Value,
+			&plan.PerOwnerLimit, &plan.StockLimit,
 		); err != nil {
 			return nil, err
 		}

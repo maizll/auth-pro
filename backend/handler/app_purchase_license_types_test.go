@@ -96,6 +96,8 @@ func (conn *purchaseLicenseTypeTestConn) QueryContext(_ context.Context, query s
 			columns: []string{"purchase_license_type_mask"},
 			values:  [][]driver.Value{{int64(conn.state.mask)}},
 		}, nil
+	case strings.Contains(query, "FROM license_purchase_orders") && strings.Contains(query, "status = 'pending'") && strings.Contains(query, "expires_at"):
+		return &purchaseLicenseTypeTestRows{columns: []string{"count"}, values: [][]driver.Value{{int64(0)}}}, nil
 	case strings.Contains(query, "FROM license_purchase_orders") && strings.Contains(query, "FOR UPDATE"):
 		payChannel := conn.state.purchasePayChannel
 		if payChannel == "" {
@@ -455,7 +457,7 @@ func TestDisabledTypeDoesNotCreateOnlinePurchaseOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = insertAllowedLicensePurchaseOrder(
-		db, "LP-test", 2, "agent", 2, "key", "", plan, quote, payChannelEpayV1, "alipay", "https://example.test/return",
+		context.Background(), db, "LP-test", 2, "agent", 2, "key", "", plan, quote, payChannelEpayV1, "alipay", "https://example.test/return",
 	)
 	if !errors.Is(err, errPurchaseTypeNotAllowed) {
 		t.Fatalf("disabled online order error = %v", err)
@@ -491,7 +493,7 @@ func TestAllowedTypeCreatesOnlinePurchaseOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = insertAllowedLicensePurchaseOrder(
-		db, "LP-test", 2, "agent", 2, "key", "", plan, quote, payChannelEpayV1, "alipay", "https://example.test/return",
+		context.Background(), db, "LP-test", 2, "agent", 2, "key", "", plan, quote, payChannelEpayV1, "alipay", "https://example.test/return",
 	)
 	if err != nil {
 		t.Fatalf("allowed online order rejected: %v", err)
