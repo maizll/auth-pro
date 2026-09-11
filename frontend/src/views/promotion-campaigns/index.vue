@@ -248,50 +248,84 @@
             </div>
             <el-tag type="primary" effect="plain">已选 {{ form.plans.length }} 个</el-tag>
           </div>
-          <div v-for="draft in form.plans" :key="draft.planId" class="rule-row">
-            <div class="rule-plan">
-              <strong>{{ planById(draft.planId)?.name || `套餐 ${draft.planId}` }}</strong>
-              <span>原价 ¥{{ money(planById(draft.planId)?.price || 0) }}</span>
+          <div
+            v-for="draft in form.plans"
+            :key="draft.planId"
+            class="rule-row"
+            :class="{ 'with-limit': form.purchaseLimitEnabled }"
+          >
+            <div class="rule-row-head">
+              <div class="rule-plan">
+                <strong>{{ planById(draft.planId)?.name || `套餐 ${draft.planId}` }}</strong>
+                <span>原价 ¥{{ money(planById(draft.planId)?.price || 0) }}</span>
+              </div>
+              <span class="rule-preview">{{ rulePreview(draft) }}</span>
             </div>
-            <el-select
-              v-model="draft.ruleType"
-              class="rule-type"
-              @change="normalizeRuleValue(draft)"
-            >
-              <el-option label="折扣" value="discount" />
-              <el-option label="立减" value="reduction" />
-              <el-option label="固定活动价" value="fixed_price" />
-            </el-select>
-            <el-input-number
-              v-model="draft.value"
-              :min="ruleMinimum(draft.ruleType)"
-              :max="ruleMaximum(draft)"
-              :precision="draft.ruleType === 'discount' ? 3 : 2"
-              :step="draft.ruleType === 'discount' ? 0.1 : 1"
-              controls-position="right"
-              class="rule-value"
-            />
-            <div v-if="form.purchaseLimitEnabled" class="limit-field">
-              <span class="limit-label">每个持有方（份）</span>
-              <el-input-number
-                v-model="draft.perOwnerLimit"
-                :min="0"
-                :max="999999"
-                controls-position="right"
-                class="limit-input"
-              />
+
+            <div class="rule-fields">
+              <div class="rule-field">
+                <span class="rule-field-label">优惠方式</span>
+                <el-select v-model="draft.ruleType" @change="normalizeRuleValue(draft)">
+                  <el-option label="折扣" value="discount" />
+                  <el-option label="立减" value="reduction" />
+                  <el-option label="固定活动价" value="fixed_price" />
+                </el-select>
+              </div>
+
+              <div class="rule-field">
+                <span class="rule-field-label">
+                  优惠值{{ draft.ruleType === 'discount' ? '（折）' : '（元）' }}
+                </span>
+                <el-input-number
+                  v-model="draft.value"
+                  :min="ruleMinimum(draft.ruleType)"
+                  :max="ruleMaximum(draft)"
+                  :precision="draft.ruleType === 'discount' ? 3 : 2"
+                  :step="draft.ruleType === 'discount' ? 0.1 : 1"
+                  controls-position="right"
+                />
+              </div>
+
+              <template v-if="form.purchaseLimitEnabled">
+                <div class="rule-field">
+                  <div class="rule-field-head">
+                    <span class="rule-field-label">每个持有方（份）</span>
+                    <el-checkbox
+                      class="rule-unlimited"
+                      :model-value="draft.perOwnerLimit === 0"
+                      @change="setLimitUnlimited(draft, 'perOwnerLimit', $event)"
+                    >
+                      不限
+                    </el-checkbox>
+                  </div>
+                  <el-input-number
+                    v-model="draft.perOwnerLimit"
+                    :min="0"
+                    :max="999999"
+                    controls-position="right"
+                  />
+                </div>
+
+                <div class="rule-field">
+                  <div class="rule-field-head">
+                    <span class="rule-field-label">活动总库存（份）</span>
+                    <el-checkbox
+                      class="rule-unlimited"
+                      :model-value="draft.stockLimit === 0"
+                      @change="setLimitUnlimited(draft, 'stockLimit', $event)"
+                    >
+                      不限
+                    </el-checkbox>
+                  </div>
+                  <el-input-number
+                    v-model="draft.stockLimit"
+                    :min="0"
+                    :max="999999"
+                    controls-position="right"
+                  />
+                </div>
+              </template>
             </div>
-            <div v-if="form.purchaseLimitEnabled" class="limit-field">
-              <span class="limit-label">活动总库存（份）</span>
-              <el-input-number
-                v-model="draft.stockLimit"
-                :min="0"
-                :max="999999"
-                controls-position="right"
-                class="limit-input"
-              />
-            </div>
-            <div class="rule-preview">{{ rulePreview(draft) }}</div>
           </div>
         </div>
       </el-form>
@@ -624,12 +658,28 @@
     dialogVisible.value = true
   }
 
+  const defaultLimitValue = 100
+
   const handlePurchaseLimitChange = (enabled: boolean | string | number) => {
     if (!enabled) {
       form.plans.forEach((draft) => {
         draft.perOwnerLimit = 0
         draft.stockLimit = 0
       })
+    }
+    void nextTick(() => formRef.value?.validateField('plans').catch(() => undefined))
+  }
+
+  // 0 表示不限；取消“不限”时补一个可编辑的起始值，避免输入框停留在 0 再次触发不限。
+  const setLimitUnlimited = (
+    draft: CampaignRuleDraft,
+    field: 'perOwnerLimit' | 'stockLimit',
+    unlimited: boolean | string | number
+  ) => {
+    if (unlimited) {
+      draft[field] = 0
+    } else if (draft[field] <= 0) {
+      draft[field] = defaultLimitValue
     }
     void nextTick(() => formRef.value?.validateField('plans').catch(() => undefined))
   }
@@ -1046,23 +1096,74 @@
   }
 
   .rule-row {
-    display: grid;
-    grid-template-columns: minmax(140px, 1fr) 140px 150px 145px;
-    gap: 10px;
-    align-items: center;
-    padding: 11px 0;
-    border-top: 1px solid var(--el-border-color-lighter);
+    padding: 14px 0;
+
+    & + .rule-row {
+      border-top: 1px solid var(--el-border-color-lighter);
+    }
   }
 
-  .rule-value {
-    width: 150px;
+  .rule-row-head {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .rule-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .rule-row.with-limit .rule-fields {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .rule-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .rule-field-head {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .rule-field-label {
+    overflow: hidden;
+    color: var(--art-gray-500);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rule-field :deep(.el-input-number),
+  .rule-field :deep(.el-select) {
+    width: 100%;
+  }
+
+  .rule-unlimited {
+    height: auto;
+    margin-right: 0;
+
+    :deep(.el-checkbox__label) {
+      padding-left: 4px;
+      font-size: 12px;
+    }
   }
 
   .rule-preview {
+    flex: none;
     color: var(--el-color-success);
     font-size: 12px;
     font-weight: 600;
-    text-align: right;
+    white-space: nowrap;
   }
 
   @media (max-width: 1100px) {
@@ -1076,6 +1177,9 @@
     .filters {
       width: 100%;
       flex-wrap: wrap;
+    }
+    .rule-row.with-limit .rule-fields {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 
@@ -1095,15 +1199,14 @@
     .date-range-field {
       width: 100%;
     }
-    .rule-row {
+    .rule-fields,
+    .rule-row.with-limit .rule-fields {
       grid-template-columns: 1fr;
     }
-    .rule-value,
-    .rule-type {
-      width: 100%;
-    }
-    .rule-preview {
-      text-align: left;
+    .rule-row-head {
+      gap: 6px;
+      align-items: flex-start;
+      flex-direction: column;
     }
   }
 </style>
