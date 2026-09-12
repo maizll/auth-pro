@@ -686,6 +686,10 @@ func UserAppListForPurchase(c *gin.Context) {
 		StartsAt string  `json:"startsAt"`
 		EndsAt   string  `json:"endsAt"`
 	}
+	type purchasePlanLimit struct {
+		PerOwnerLimit int `json:"perOwnerLimit"`
+		StockLimit    int `json:"stockLimit"`
+	}
 	type purchasePlan struct {
 		ID             int64                  `json:"id"`
 		Name           string                 `json:"name"`
@@ -697,6 +701,7 @@ func UserAppListForPurchase(c *gin.Context) {
 		Price          float64                `json:"price"`
 		DiscountAmount float64                `json:"discountAmount"`
 		Promotion      *purchasePlanPromotion `json:"promotion,omitempty"`
+		PurchaseLimit  *purchasePlanLimit     `json:"purchaseLimit,omitempty"`
 	}
 	type purchaseApp struct {
 		ID                   int64          `json:"id"`
@@ -751,6 +756,12 @@ func UserAppListForPurchase(c *gin.Context) {
 							Discount: quote.PromotionDiscount,
 							StartsAt: quote.PromotionStartsAt,
 							EndsAt:   quote.PromotionEndsAt,
+						}
+					}
+					if quote.PurchaseLimitEnabled {
+						plan.PurchaseLimit = &purchasePlanLimit{
+							PerOwnerLimit: quote.PerOwnerLimit,
+							StockLimit:    quote.StockLimit,
 						}
 					}
 				} else {

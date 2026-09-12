@@ -130,14 +130,16 @@ func (conn *purchaseLicenseTypeTestConn) QueryContext(_ context.Context, query s
 			columns: []string{"app_name", "name", "license_type", "price", "duration_days", "max_sites"},
 			values:  [][]driver.Value{{"Test App", "Test Plan", "", float64(10), int64(30), int64(5)}},
 		}, nil
+	case strings.Contains(query, "SELECT p.per_owner_limit, p.stock_limit"):
+		return &purchaseLicenseTypeTestRows{columns: []string{"per_owner_limit", "stock_limit"}}, nil
 	case strings.Contains(query, "FROM promotion_campaigns pc") && strings.Contains(query, "JOIN promotion_campaign_plans pcp"):
 		promotion := conn.state.promotion
 		if promotion == nil || len(args) < 3 {
-			return &purchaseLicenseTypeTestRows{columns: []string{"id", "name", "audience", "rule_type", "rule_value", "starts_at", "ends_at"}}, nil
+			return &purchaseLicenseTypeTestRows{columns: []string{"id", "name", "audience", "rule_type", "rule_value", "purchase_limit_enabled", "per_owner_limit", "stock_limit", "starts_at", "ends_at"}}, nil
 		}
 		planID, _ := args[1].Value.(int64)
 		if conn.state.promotionPlanIDs != nil && !conn.state.promotionPlanIDs[planID] {
-			return &purchaseLicenseTypeTestRows{columns: []string{"id", "name", "audience", "rule_type", "rule_value", "starts_at", "ends_at"}}, nil
+			return &purchaseLicenseTypeTestRows{columns: []string{"id", "name", "audience", "rule_type", "rule_value", "purchase_limit_enabled", "per_owner_limit", "stock_limit", "starts_at", "ends_at"}}, nil
 		}
 		buyer, ok := args[2].Value.(string)
 		if !ok {
@@ -146,7 +148,7 @@ func (conn *purchaseLicenseTypeTestConn) QueryContext(_ context.Context, query s
 			}
 		}
 		if promotion.Audience != purchaseAudienceAll && string(promotion.Audience) != buyer {
-			return &purchaseLicenseTypeTestRows{columns: []string{"id", "name", "audience", "rule_type", "rule_value", "starts_at", "ends_at"}}, nil
+			return &purchaseLicenseTypeTestRows{columns: []string{"id", "name", "audience", "rule_type", "rule_value", "purchase_limit_enabled", "per_owner_limit", "stock_limit", "starts_at", "ends_at"}}, nil
 		}
 		ruleType := promotion.RuleType
 		valueUnits := promotion.RuleValueUnits
@@ -156,9 +158,9 @@ func (conn *purchaseLicenseTypeTestConn) QueryContext(_ context.Context, query s
 		}
 		now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 		return &purchaseLicenseTypeTestRows{
-			columns: []string{"id", "name", "audience", "rule_type", "rule_value", "starts_at", "ends_at"},
+			columns: []string{"id", "name", "audience", "rule_type", "rule_value", "purchase_limit_enabled", "per_owner_limit", "stock_limit", "starts_at", "ends_at"},
 			values: [][]driver.Value{{
-				promotion.ID, promotion.Name, string(promotion.Audience), string(ruleType), promotionRuleValueText(ruleType, valueUnits), now.Add(-time.Hour), now.Add(time.Hour),
+				promotion.ID, promotion.Name, string(promotion.Audience), string(ruleType), promotionRuleValueText(ruleType, valueUnits), promotion.PurchaseLimitEnabled, int64(promotion.PerOwnerLimit), int64(promotion.StockLimit), now.Add(-time.Hour), now.Add(time.Hour),
 			}},
 		}, nil
 	case strings.Contains(query, "SELECT CASE") && strings.Contains(query, "FROM agents a"):

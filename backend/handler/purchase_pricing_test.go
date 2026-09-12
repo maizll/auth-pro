@@ -138,6 +138,32 @@ func TestUserKeepsLowerOriginalPriceAfterPlanPriceDrops(t *testing.T) {
 	}
 }
 
+func TestCalculatePurchasePriceCarriesPurchaseLimitsWhenPromotionDoesNotWin(t *testing.T) {
+	quote, err := calculatePurchasePrice(purchasePricingInput{
+		BuyerType:     purchaseAudienceAgent,
+		OriginalCents: 10000,
+		AgentDiscount: 7,
+		Promotion: &purchasePromotionCandidate{
+			ID:                   16,
+			Name:                 "限购活动",
+			Audience:             purchaseAudienceAgent,
+			AmountCents:          8000,
+			PurchaseLimitEnabled: true,
+			PerOwnerLimit:        2,
+			StockLimit:           100,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quote.AmountCents != 7000 || quote.PromotionID != 0 {
+		t.Fatalf("worse promotion changed agent price: %#v", quote)
+	}
+	if !quote.PurchaseLimitEnabled || quote.PerOwnerLimit != 2 || quote.StockLimit != 100 {
+		t.Fatalf("purchase limits were lost with worse promotion: %#v", quote)
+	}
+}
+
 func TestPurchaseOrderSnapshot(t *testing.T) {
 	plan := purchasePlanPricing{
 		AppID:        9,
@@ -362,10 +388,13 @@ func TestLosingPromotionIsExcludedFromOrderSnapshot(t *testing.T) {
 func TestQuotePurchaseLoadsOnlyApplicableActivePromotion(t *testing.T) {
 	state := &purchaseLicenseTypeTestState{
 		promotion: &purchasePromotionCandidate{
-			ID:          31,
-			Name:        "用户活动",
-			Audience:    purchaseAudienceUser,
-			AmountCents: 6000,
+			ID:                   31,
+			Name:                 "用户活动",
+			Audience:             purchaseAudienceUser,
+			AmountCents:          6000,
+			PurchaseLimitEnabled: true,
+			PerOwnerLimit:        2,
+			StockLimit:           100,
 		},
 	}
 	db := openPurchaseLicenseTypeTestDB(t, state)
@@ -377,6 +406,9 @@ func TestQuotePurchaseLoadsOnlyApplicableActivePromotion(t *testing.T) {
 	}
 	if userQuote.AmountCents != 6000 || userQuote.PromotionID != 31 || userQuote.PromotionAudience != purchaseAudienceUser {
 		t.Fatalf("user promotion was not applied: %#v", userQuote)
+	}
+	if !userQuote.PurchaseLimitEnabled || userQuote.PerOwnerLimit != 2 || userQuote.StockLimit != 100 {
+		t.Fatalf("user purchase limits were not loaded: %#v", userQuote)
 	}
 
 	agentQuote, err := quoteAgentPurchase(db, plan, 8)

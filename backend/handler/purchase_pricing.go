@@ -36,15 +36,18 @@ type purchasePlanPricing struct {
 }
 
 type purchasePromotionCandidate struct {
-	ID             int64
-	Name           string
-	Audience       purchaseAudience
-	RuleType       promotionRuleType
-	RuleValueUnits int64
-	AmountCents    int64
-	RuleSnapshot   string
-	StartsAt       string
-	EndsAt         string
+	ID                   int64
+	Name                 string
+	Audience             purchaseAudience
+	RuleType             promotionRuleType
+	RuleValueUnits       int64
+	AmountCents          int64
+	RuleSnapshot         string
+	StartsAt             string
+	EndsAt               string
+	PurchaseLimitEnabled bool
+	PerOwnerLimit        int
+	StockLimit           int
 }
 
 type purchasePricingInput struct {
@@ -55,20 +58,23 @@ type purchasePricingInput struct {
 }
 
 type purchasePriceQuote struct {
-	BuyerType         purchaseAudience
-	OriginalCents     int64
-	BaseCents         int64
-	AmountCents       int64
-	DiscountCents     int64
-	AgentDiscount     float64
-	PromotionID       int64
-	PromotionName     string
-	PromotionAudience purchaseAudience
-	PromotionRule     string
-	PromotionRuleType promotionRuleType
-	PromotionDiscount float64
-	PromotionStartsAt string
-	PromotionEndsAt   string
+	BuyerType            purchaseAudience
+	OriginalCents        int64
+	BaseCents            int64
+	AmountCents          int64
+	DiscountCents        int64
+	AgentDiscount        float64
+	PromotionID          int64
+	PromotionName        string
+	PromotionAudience    purchaseAudience
+	PromotionRule        string
+	PromotionRuleType    promotionRuleType
+	PromotionDiscount    float64
+	PromotionStartsAt    string
+	PromotionEndsAt      string
+	PurchaseLimitEnabled bool
+	PerOwnerLimit        int
+	StockLimit           int
 }
 
 type purchasePricingSnapshot struct {
@@ -148,6 +154,11 @@ func calculatePurchasePrice(input purchasePricingInput) (purchasePriceQuote, err
 	}
 	if promotion.AmountCents < 0 {
 		return purchasePriceQuote{}, fmt.Errorf("活动价格不能小于 0")
+	}
+	quote.PurchaseLimitEnabled = promotion.PurchaseLimitEnabled
+	if quote.PurchaseLimitEnabled {
+		quote.PerOwnerLimit = promotion.PerOwnerLimit
+		quote.StockLimit = promotion.StockLimit
 	}
 	if promotion.AmountCents >= quote.BaseCents {
 		return quote, nil
@@ -262,6 +273,8 @@ func queryActivePurchasePromotion(db *sql.DB, appID, planID, originalCents int64
 	}
 	var candidate purchasePromotionCandidate
 	var audienceText, ruleTypeText, ruleValueText string
+	var purchaseLimitEnabled bool
+	var perOwnerLimit, stockLimit int
 	var startsAt, endsAt time.Time
 	err := db.QueryRow(`
 		SELECT pc.id, pc.name, pc.audience, pcp.rule_type,
@@ -270,6 +283,7 @@ func queryActivePurchasePromotion(db *sql.DB, appID, planID, originalCents int64
 		         THEN pcp.promotion_price
 		         ELSE pcp.rule_value
 		       END AS rule_value,
+		       pc.purchase_limit_enabled, pcp.per_owner_limit, pcp.stock_limit,
 		       pc.starts_at, pc.ends_at
 		FROM promotion_campaigns pc
 		JOIN promotion_campaign_plans pcp ON pcp.campaign_id = pc.id
@@ -281,7 +295,7 @@ func queryActivePurchasePromotion(db *sql.DB, appID, planID, originalCents int64
 		LIMIT 1
 	`, appID, planID, buyerType).Scan(
 		&candidate.ID, &candidate.Name, &audienceText, &ruleTypeText, &ruleValueText,
-		&startsAt, &endsAt,
+		&purchaseLimitEnabled, &perOwnerLimit, &stockLimit, &startsAt, &endsAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -322,6 +336,11 @@ func queryActivePurchasePromotion(db *sql.DB, appID, planID, originalCents int64
 	candidate.RuleType = ruleType
 	candidate.RuleValueUnits = valueUnits
 	candidate.AmountCents = amountCents
+	candidate.PurchaseLimitEnabled = purchaseLimitEnabled
+	if purchaseLimitEnabled {
+		candidate.PerOwnerLimit = perOwnerLimit
+		candidate.StockLimit = stockLimit
+	}
 	candidate.RuleSnapshot = ruleSnapshot
 	candidate.StartsAt = startsAt.Format("2006-01-02 15:04")
 	candidate.EndsAt = endsAt.Format("2006-01-02 15:04")

@@ -31,6 +31,17 @@ export const sdkRoutes: AppRouteRecord = {
         keepAlive: true,
         roles: ['R_SUPER', 'R_ADMIN']
       }
+    },
+    {
+      path: 'default-home-template',
+      name: 'DefaultHomeTemplateDoc',
+      component: '/sdk/default-home-template-doc',
+      meta: {
+        title: '首页模版文档',
+        icon: 'ri:layout-4-line',
+        keepAlive: true,
+        roles: ['R_SUPER', 'R_ADMIN']
+      }
     }
   ]
 }

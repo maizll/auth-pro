@@ -71,4 +71,5 @@ INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `title`, `i
 -- SDK 子菜单
 INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `title`, `icon`, `sort`, `keep_alive`) VALUES
 (801, 8, 'SdkIndex',     'index',         '/sdk/index',         'SDK 示例',                 'ri:code-s-slash-line', 1, 1),
-(802, 8, 'DeveloperDoc', 'developer-doc', '/sdk/developer-doc', 'menus.system.developerDoc', 'ri:file-code-line',    2, 1);
+(802, 8, 'DeveloperDoc', 'developer-doc', '/sdk/developer-doc', 'menus.system.developerDoc', 'ri:file-code-line',    2, 1),
+(803, 8, 'DefaultHomeTemplateDoc', 'default-home-template', '/sdk/default-home-template-doc', '首页模版文档', 'ri:layout-4-line', 3, 1);

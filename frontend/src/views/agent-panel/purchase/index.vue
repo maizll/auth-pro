@@ -143,6 +143,9 @@
                     <span v-if="plan.promotion" class="plan-time"
                       >活动截止：{{ plan.promotion.endsAt }}</span
                     >
+                    <span v-if="plan.purchaseLimit" class="plan-limit">
+                      限购：{{ purchaseLimitText(plan.purchaseLimit) }}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -172,14 +175,31 @@
                   <span class="preview-key">目标</span>
                   <span class="preview-val mono">{{ displayTarget }}</span>
                 </div>
+                <div v-if="usePromotionPath || hasAgentDiscount" class="preview-item">
+                  <span class="preview-key">优惠</span>
+                  <span class="preview-val preview-discount">
+                    <template v-if="usePromotionPath">
+                      {{ promoRuleText(selectedPromotion) }}，优惠 ¥{{
+                        promotionDiscountAmount.toFixed(2)
+                      }}
+                    </template>
+                    <template v-else>
+                      {{ formatDiscount(agentDiscount) }}，优惠 ¥{{
+                        agentDiscountAmount.toFixed(2)
+                      }}
+                    </template>
+                  </span>
+                </div>
               </div>
               <div class="preview-footer">
                 <span class="preview-total-label">折后价格</span>
                 <div class="preview-price-wrap">
                   <span v-if="hasDiscount" class="preview-original-price"
-                    >¥{{ originalPrice.toFixed(2) }}</span
+                    >原价 ¥{{ originalPrice.toFixed(2) }}</span
                   >
-                  <span class="preview-total-price">¥{{ computedCost.toFixed(2) }}</span>
+                  <span class="preview-total-price" :class="{ 'promotion-price': usePromotionPath }"
+                    >¥{{ computedCost.toFixed(2) }}</span
+                  >
                 </div>
               </div>
             </div>
@@ -233,7 +253,7 @@
                 >
                 <span
                   >{{ promoRuleText(selectedPromotion) }}，优惠 ¥{{
-                    promotionSavings.toFixed(2)
+                    promotionDiscountAmount.toFixed(2)
                   }}</span
                 >
               </div>
@@ -726,6 +746,7 @@
   const hasAgentDiscount = computed(() => agentDiscountAmount.value >= 0.01)
   const selectedPromotion = computed(() => selectedPlan.value?.promotion || null)
   const promotionSavings = computed(() => Math.max(0, originalPrice.value - computedCost.value))
+  const promotionDiscountAmount = computed(() => Math.max(0, basePrice.value - computedCost.value))
   const agentSavings = computed(() => Math.max(0, originalPrice.value - basePrice.value))
   const usePromotionPath = computed(
     () => !!selectedPromotion.value && promotionSavings.value >= agentSavings.value
@@ -775,6 +796,17 @@
     if (promotion.ruleType === 'discount') return `${promotion.discount} 折`
     if (promotion.ruleType === 'reduction') return '立减'
     return '固定价'
+  }
+
+  function purchaseLimitText(limit: any) {
+    if (!limit) return ''
+    const owner =
+      Number(limit.perOwnerLimit || 0) > 0
+        ? `每个持有方限购 ${limit.perOwnerLimit} 份`
+        : '每个持有方不限购'
+    const stock =
+      Number(limit.stockLimit || 0) > 0 ? `活动库存上限 ${limit.stockLimit} 份` : '活动库存不限'
+    return `${owner} · ${stock}`
   }
 
   function resetPurchaseSelection() {
@@ -1316,6 +1348,11 @@
     color: var(--el-text-color-secondary);
   }
 
+  .plan-limit {
+    line-height: 1.4;
+    color: var(--el-color-warning);
+  }
+
   .config-layout {
     display: flex;
     gap: 24px;
@@ -1467,6 +1504,10 @@
             font-family: 'Roboto Mono', monospace;
             font-size: 11px;
           }
+
+          &.preview-discount {
+            color: var(--el-color-danger);
+          }
         }
       }
     }
@@ -1488,6 +1529,10 @@
         font-size: 20px;
         font-weight: 800;
         color: var(--el-color-primary);
+
+        &.promotion-price {
+          color: var(--el-color-danger);
+        }
       }
 
       .preview-price-wrap {

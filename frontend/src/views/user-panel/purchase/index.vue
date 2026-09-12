@@ -118,6 +118,9 @@
                     <span v-if="plan.promotion" class="plan-time"
                       >活动截止：{{ plan.promotion.endsAt }}</span
                     >
+                    <span v-if="plan.purchaseLimit" class="plan-limit">
+                      限购：{{ purchaseLimitText(plan.purchaseLimit) }}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -147,10 +150,28 @@
                   <span class="preview-key">目标</span>
                   <span class="preview-val mono">{{ displayTarget }}</span>
                 </div>
+                <div v-if="hasDiscount" class="preview-item">
+                  <span class="preview-key">优惠</span>
+                  <span class="preview-val preview-discount">
+                    <template v-if="selectedPromotion">
+                      {{ promoRuleText(selectedPromotion) }}，优惠 ¥{{ discountAmount.toFixed(2) }}
+                    </template>
+                    <template v-else>已优惠 ¥{{ discountAmount.toFixed(2) }}</template>
+                  </span>
+                </div>
               </div>
               <div class="preview-footer">
                 <span class="preview-total-label">套餐价格</span>
-                <span class="preview-total-price">¥{{ computedCost.toFixed(2) }}</span>
+                <div class="preview-price-wrap">
+                  <span v-if="hasDiscount" class="preview-original-price"
+                    >原价 ¥{{ originalPrice.toFixed(2) }}</span
+                  >
+                  <span
+                    class="preview-total-price"
+                    :class="{ 'promotion-price': !!selectedPromotion }"
+                    >¥{{ computedCost.toFixed(2) }}</span
+                  >
+                </div>
               </div>
             </div>
           </div>
@@ -628,6 +649,12 @@
     selectedAppPlans.value.find((p: any) => p.id == formData.planId)
   )
   const computedCost = computed(() => Number(selectedPlan.value?.price || 0))
+  const originalPrice = computed(() =>
+    Number(selectedPlan.value?.originalPrice ?? computedCost.value)
+  )
+  const selectedPromotion = computed(() => selectedPlan.value?.promotion || null)
+  const discountAmount = computed(() => Math.max(0, originalPrice.value - computedCost.value))
+  const hasDiscount = computed(() => discountAmount.value >= 0.01)
   const isOnlinePay = computed(() => payMethod.value !== 'balance')
   const purchaseButtonText = computed(() => {
     if (purchasing.value) {
@@ -698,6 +725,15 @@
     if (promotion.ruleType === 'discount') return `${promotion.discount} 折`
     if (promotion.ruleType === 'reduction') return '立减'
     return '固定价'
+  }
+
+  function purchaseLimitText(limit: any) {
+    if (!limit) return ''
+    const owner =
+      Number(limit.perOwnerLimit || 0) > 0 ? `每人限购 ${limit.perOwnerLimit} 份` : '每人不限购'
+    const stock =
+      Number(limit.stockLimit || 0) > 0 ? `活动库存上限 ${limit.stockLimit} 份` : '活动库存不限'
+    return `${owner} · ${stock}`
   }
 
   function goToLicenses() {
@@ -1403,6 +1439,11 @@
     color: var(--el-text-color-secondary);
   }
 
+  .plan-limit {
+    line-height: 1.4;
+    color: var(--el-color-warning);
+  }
+
   // 预览卡
   .config-preview {
     width: 260px;
@@ -1448,6 +1489,10 @@
             font-family: 'Roboto Mono', monospace;
             font-size: 11px;
           }
+
+          &.preview-discount {
+            color: var(--el-color-danger);
+          }
         }
       }
     }
@@ -1464,11 +1509,28 @@
         font-weight: 600;
       }
 
+      .preview-price-wrap {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+      }
+
+      .preview-original-price {
+        color: var(--el-text-color-placeholder);
+        font-family: 'DIN Alternate', 'Roboto Mono', monospace;
+        font-size: 12px;
+        text-decoration: line-through;
+      }
+
       .preview-total-price {
         font-size: 20px;
         font-weight: 800;
         color: var(--el-color-primary);
         font-family: 'DIN Alternate', 'Roboto Mono', monospace;
+
+        &.promotion-price {
+          color: var(--el-color-danger);
+        }
       }
     }
   }

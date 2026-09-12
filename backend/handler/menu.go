@@ -69,6 +69,7 @@ func GetMenuList(c *gin.Context) {
 	ensureMailConfigMenu(db)
 	ensureMailLogMenu(db)
 	ensureDeveloperDocMenu(db)
+	ensureDefaultHomeTemplateDocMenu(db)
 	ensureAppVersionMenu(db)
 	ensureLicenseCardMenu(db)
 	ensureTicketMenu(db)
@@ -620,6 +621,30 @@ func ensureDeveloperDocMenu(db *sql.DB) {
 
 	var menuID int64
 	if err := db.QueryRow("SELECT id FROM menus WHERE name = 'DeveloperDoc' LIMIT 1").Scan(&menuID); err != nil || menuID == 0 {
+		return
+	}
+
+	_, _ = db.Exec(`
+		INSERT IGNORE INTO role_menus (role_id, menu_id)
+		SELECT id, ? FROM roles WHERE role_code IN ('R_SUPER', 'R_ADMIN') AND enabled = 1
+	`, menuID)
+}
+
+func ensureDefaultHomeTemplateDocMenu(db *sql.DB) {
+	var parentID int64
+	if err := db.QueryRow("SELECT id FROM menus WHERE name = 'Sdk' LIMIT 1").Scan(&parentID); err != nil || parentID == 0 {
+		return
+	}
+
+	_, _ = db.Exec(`
+		INSERT INTO menus (id, parent_id, name, path, component, title, icon, sort, keep_alive, enabled)
+		VALUES (803, ?, 'DefaultHomeTemplateDoc', 'default-home-template', '/sdk/default-home-template-doc', '首页模版文档', 'ri:layout-4-line', 3, 1, 1)
+		ON DUPLICATE KEY UPDATE parent_id = VALUES(parent_id), path = VALUES(path), component = VALUES(component),
+			title = VALUES(title), icon = VALUES(icon), sort = VALUES(sort), keep_alive = VALUES(keep_alive), enabled = 1
+	`, parentID)
+
+	var menuID int64
+	if err := db.QueryRow("SELECT id FROM menus WHERE name = 'DefaultHomeTemplateDoc' LIMIT 1").Scan(&menuID); err != nil || menuID == 0 {
 		return
 	}
 
