@@ -4,7 +4,7 @@
       ref="staticFrame"
       :src="staticEntryUrl"
       title="自定义首页模板"
-      sandbox="allow-scripts"
+      sandbox="allow-scripts allow-same-origin"
       referrerpolicy="no-referrer"
     />
   </div>

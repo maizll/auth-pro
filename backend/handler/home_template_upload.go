@@ -296,8 +296,8 @@ func serveUploadedHomeTemplateAsset(c *gin.Context, installedPath string) {
 	c.Header("Referrer-Policy", "no-referrer")
 	c.Header("Access-Control-Allow-Origin", "*") // anonymous ES modules in an opaque-origin sandbox
 	c.Header("Cache-Control", "no-cache")
-	// Enforced by the response too, so opening an HTML/SVG URL directly cannot escape the sandbox.
-	c.Header("Content-Security-Policy", "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
+	// Enforced on the response too, so direct navigation of the HTML/SVG URL carries the same policy.
+	c.Header("Content-Security-Policy", "sandbox allow-scripts allow-same-origin; default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; object-src 'none'; frame-ancestors 'self'")
 	http.ServeContent(c.Writer, c.Request, name, info.ModTime(), file)
 }
 

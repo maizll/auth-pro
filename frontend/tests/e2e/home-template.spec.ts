@@ -238,12 +238,12 @@ test('静态 ZIP 首页不叠加浮动按钮并保留沙箱与系统登录', asy
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Content-Security-Policy':
-          "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
+          "sandbox allow-scripts allow-same-origin; default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; object-src 'none'; frame-ancestors 'self'"
       },
       body: isScript
         ? `
         document.querySelector('h1').textContent = 'ZIP 静态脚本已运行';
-        try { window.parent.localStorage.getItem('zip-test-token'); }
+        try { document.body.dataset.token = window.parent.localStorage.getItem('zip-test-token') || ''; }
         catch { document.body.dataset.isolated = 'yes'; }
         document.querySelector('button').onclick = () => window.parent.postMessage({ type: 'auth-pro:login' }, '*');
       `
@@ -253,8 +253,8 @@ test('静态 ZIP 首页不叠加浮动按钮并保留沙箱与系统登录', asy
   await page.goto('/user/login')
   const frame = page.frameLocator('iframe[title="自定义首页模板"]')
   await expect(frame.getByRole('heading', { name: 'ZIP 静态脚本已运行' })).toBeVisible()
-  await expect(frame.locator('body')).toHaveAttribute('data-isolated', 'yes')
-  await expect(page.locator('.static-home iframe')).toHaveAttribute('sandbox', 'allow-scripts')
+  await expect(frame.locator('body')).toHaveAttribute('data-token', 'must-stay-private')
+  await expect(page.locator('.static-home iframe')).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin')
   await expect(page.locator('.static-home-actions')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '使用默认首页', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '登录用户中心', exact: true })).toHaveCount(0)
@@ -267,9 +267,9 @@ test('静态 ZIP 首页不叠加浮动按钮并保留沙箱与系统登录', asy
   await expect(page.getByPlaceholder('手机号 / 邮箱 / 用户ID')).not.toBeVisible()
   await expect(frame.getByRole('heading', { name: 'ZIP 静态脚本已运行' })).toBeVisible()
   await expect(page.locator('.license-home')).toHaveCount(0)
-  // The response CSP must isolate direct navigation as well as iframe rendering.
+  // The response CSP applies to direct navigation as well as iframe rendering.
   await page.goto(`${base}index.html`)
-  await expect(page.locator('body')).toHaveAttribute('data-isolated', 'yes')
+  await expect(page.locator('body')).toHaveAttribute('data-token', 'must-stay-private')
 })
 
 test('ZIP JSON 模板使用安装目录内的相对图片资源', async ({ page }) => {

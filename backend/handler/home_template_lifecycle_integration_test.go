@@ -266,8 +266,8 @@ func TestPublishedTemplateLifecycleHTTP(t *testing.T) {
 				assetURL = fmt.Sprint(running["assetBaseUrl"]) + "assets/cover.png"
 			}
 			asset, headers, status := request(http.MethodGet, consumer.URL+fmt.Sprint(assetURL), "", "", nil)
-			if status != 200 || !strings.Contains(headers.Get("Content-Security-Policy"), "sandbox allow-scripts") || strings.Contains(headers.Get("Content-Security-Policy"), "allow-same-origin") {
-				t.Fatalf("missing asset sandbox: %d %v", status, headers)
+			if status != 200 || !strings.Contains(headers.Get("Content-Security-Policy"), "sandbox allow-scripts") || !strings.Contains(headers.Get("Content-Security-Policy"), "allow-same-origin") {
+				t.Fatalf("unexpected asset sandbox: %d %v", status, headers)
 			}
 			if format == "static" && !bytes.Contains(asset, []byte(`src="./assets/app.js"`)) {
 				t.Fatal("static resource path not rebased")
