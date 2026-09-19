@@ -41,6 +41,9 @@
           <template #title>开发者入驻</template>
         </el-menu-item>
       </el-menu>
+      <div v-show="!collapsed" class="sidebar-ad">
+        <ArtAdSlot position="sidebar" height="120px" />
+      </div>
     </aside>
 
     <!-- 主内容区 -->
@@ -226,6 +229,11 @@
           border: none;
         }
       }
+    }
+
+    .sidebar-ad {
+      flex-shrink: 0;
+      padding: 10px;
     }
   }
 

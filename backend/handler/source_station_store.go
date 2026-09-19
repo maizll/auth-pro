@@ -789,8 +789,10 @@ func (store *memorySourceStore) ListAdvertisements(position string) ([]advertise
 	defer store.mu.Unlock()
 	result := make([]advertisementRecord, 0, len(store.ads))
 	for _, item := range store.ads {
-		if position == "" || item.Position == position {
-			result = append(result, item)
+		if position == "" || advertisementMatchesPosition(item, position) {
+			copyItem := item
+			hydrateAdvertisementRecord(&copyItem)
+			result = append(result, copyItem)
 		}
 	}
 	return result, nil
@@ -978,7 +980,7 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			title VARCHAR(120) NOT NULL DEFAULT '',
 			image_url VARCHAR(500) NOT NULL DEFAULT '',
 			destination_url VARCHAR(500) NOT NULL DEFAULT '',
-			position VARCHAR(30) NOT NULL,
+			position VARCHAR(191) NOT NULL,
 			weight INT NOT NULL DEFAULT 0,
 			start_at VARCHAR(40) NOT NULL DEFAULT '',
 			end_at VARCHAR(40) NOT NULL DEFAULT '',
@@ -1062,6 +1064,7 @@ func ensureSourceStationStorage(db *sql.DB) error {
 		"ALTER TABLE source_catalog_templates ADD COLUMN min_version VARCHAR(40) NOT NULL DEFAULT '' AFTER latest_version",
 		"ALTER TABLE source_catalog_templates ADD COLUMN force_update TINYINT(1) NOT NULL DEFAULT 0 AFTER min_version",
 		"ALTER TABLE source_catalog_templates ADD COLUMN changelog VARCHAR(2000) NOT NULL DEFAULT '' AFTER template_url",
+		"ALTER TABLE source_advertisements MODIFY COLUMN position VARCHAR(191) NOT NULL",
 	}
 	for _, statement := range alters {
 		_, _ = db.Exec(statement)
@@ -1763,14 +1766,8 @@ func (mysqlSourceStore) ListAdvertisements(position string) ([]advertisementReco
 	if err := ensureSourceStationStorage(db); err != nil {
 		return nil, err
 	}
-	query := `SELECT id, title, image_url, destination_url, position, weight, start_at, end_at, description FROM source_advertisements`
-	args := []any{}
-	if position != "" {
-		query += ` WHERE position=?`
-		args = append(args, position)
-	}
-	query += ` ORDER BY weight DESC, id ASC`
-	rows, err := db.Query(query, args...)
+	query := `SELECT id, title, image_url, destination_url, position, weight, start_at, end_at, description FROM source_advertisements ORDER BY weight DESC, id ASC`
+	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -1781,6 +1778,10 @@ func (mysqlSourceStore) ListAdvertisements(position string) ([]advertisementReco
 		if err := rows.Scan(&item.ID, &item.Title, &item.ImageURL, &item.DestinationURL, &item.Position, &item.Weight, &item.StartAt, &item.EndAt, &item.Description); err != nil {
 			return nil, err
 		}
+		if position != "" && !advertisementMatchesPosition(item, position) {
+			continue
+		}
+		hydrateAdvertisementRecord(&item)
 		result = append(result, item)
 	}
 	return result, rows.Err()

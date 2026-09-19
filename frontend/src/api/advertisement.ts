@@ -10,6 +10,7 @@ export interface AdvertisementItem {
   imageUrl: string
   destinationUrl: string
   position: string
+  positions?: string[]
   weight: number
   startAt: string
   endAt: string
