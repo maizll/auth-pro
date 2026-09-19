@@ -6,7 +6,7 @@ export function catalogItemActions(status: string): CatalogItemAction[] {
   if (status === 'draft' || status === 'review') {
     actions.push('approve', 'reject')
   }
-  if (status === 'draft' || status === 'review' || status === 'approved' || status === 'hidden') {
+  if (status === 'approved' || status === 'hidden') {
     actions.push('shelf')
   }
   if (status === 'published') {

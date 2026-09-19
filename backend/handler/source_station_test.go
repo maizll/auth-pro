@@ -60,6 +60,16 @@ func sourceAdminToken(t *testing.T) string {
 	return token
 }
 
+func sourceApproveThenPublishPlugin(t *testing.T, store *memorySourceStore, id string) {
+	t.Helper()
+	if _, err := store.SetPluginStatus(id, sourceItemApproved, "admin", ""); err != nil {
+		t.Fatalf("approve %s: %v", id, err)
+	}
+	if _, err := store.SetPluginStatus(id, sourceItemPublished, "admin", ""); err != nil {
+		t.Fatalf("shelf %s: %v", id, err)
+	}
+}
+
 func sourceBodyCode(t *testing.T, recorder *httptest.ResponseRecorder) int {
 	t.Helper()
 	var body struct {

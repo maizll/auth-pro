@@ -263,13 +263,17 @@ func AdminSourcePackagePublish(c *gin.Context) {
 }
 
 func publishSourcePackageItem(kind, id, version, actor string) error {
-	if _, err := currentSourceStationStore().SetVersionStatus(kind, id, version, sourceVersionPublished, actor, "package publish"); err != nil {
-		return err
-	}
+	_ = version
 	if kind == sourceKindTemplate {
 		item, err := currentSourceStationStore().GetTemplate(id)
 		if err != nil {
 			return err
+		}
+		if item.Status == sourceItemDraft || item.Status == sourceItemReview {
+			item, err = currentSourceStationStore().SetTemplateStatus(id, sourceItemApproved, actor, "package publish")
+			if err != nil {
+				return err
+			}
 		}
 		if item.Status != sourceItemPublished {
 			_, err = currentSourceStationStore().SetTemplateStatus(id, sourceItemPublished, actor, "package publish")
@@ -280,6 +284,12 @@ func publishSourcePackageItem(kind, id, version, actor string) error {
 	item, err := currentSourceStationStore().GetPlugin(id)
 	if err != nil {
 		return err
+	}
+	if item.Status == sourceItemDraft || item.Status == sourceItemReview {
+		item, err = currentSourceStationStore().SetPluginStatus(id, sourceItemApproved, actor, "package publish")
+		if err != nil {
+			return err
+		}
 	}
 	if item.Status != sourceItemPublished {
 		_, err = currentSourceStationStore().SetPluginStatus(id, sourceItemPublished, actor, "package publish")

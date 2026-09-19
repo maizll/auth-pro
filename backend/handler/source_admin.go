@@ -69,12 +69,20 @@ func AdminSourceRegisterPlugin(c *gin.Context) {
 		return
 	}
 	if req.Shelf {
-		saved, err = currentSourceStationStore().SetPluginStatus(saved.ID, sourceItemPublished, c.GetString("username"), "admin register")
+		actor := c.GetString("username")
+		if saved.Status == sourceItemDraft || saved.Status == sourceItemReview {
+			saved, err = currentSourceStationStore().SetPluginStatus(saved.ID, sourceItemApproved, actor, "admin register")
+			if err != nil {
+				writeSourceDeveloperStoreError(c, err)
+				return
+			}
+		}
+		saved, err = currentSourceStationStore().SetPluginStatus(saved.ID, sourceItemPublished, actor, "admin register")
 		if err != nil {
 			writeSourceDeveloperStoreError(c, err)
 			return
 		}
-		persistIndexSnapshot(c.GetString("username"))
+		persistIndexSnapshot(actor)
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已登记外部插件地址（未上传源码）", "data": sourcePluginView(saved)})
 }
@@ -129,12 +137,20 @@ func AdminSourceRegisterTemplate(c *gin.Context) {
 		return
 	}
 	if req.Shelf {
-		saved, err = currentSourceStationStore().SetTemplateStatus(saved.ID, sourceItemPublished, c.GetString("username"), "admin register")
+		actor := c.GetString("username")
+		if saved.Status == sourceItemDraft || saved.Status == sourceItemReview {
+			saved, err = currentSourceStationStore().SetTemplateStatus(saved.ID, sourceItemApproved, actor, "admin register")
+			if err != nil {
+				writeSourceDeveloperStoreError(c, err)
+				return
+			}
+		}
+		saved, err = currentSourceStationStore().SetTemplateStatus(saved.ID, sourceItemPublished, actor, "admin register")
 		if err != nil {
 			writeSourceDeveloperStoreError(c, err)
 			return
 		}
-		persistIndexSnapshot(c.GetString("username"))
+		persistIndexSnapshot(actor)
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已登记外部模板地址（未上传源码）", "data": sourceTemplateView(saved)})
 }

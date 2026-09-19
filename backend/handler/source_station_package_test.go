@@ -549,9 +549,17 @@ func TestSourcePackageRepublishDeprecatedPluginResetsDraft(t *testing.T) {
 		t.Fatalf("want reupload_reset and url_change after admin re-upload, audits=%+v", audits)
 	}
 
+	blocked := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/shelf", admin, "{}")
+	if sourceBodyCode(t, blocked) == 200 {
+		t.Fatal("draft after re-upload must not shelf without approve")
+	}
+	approve := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/approve", admin, "{}")
+	if sourceBodyCode(t, approve) != 200 {
+		t.Fatalf("approve after re-upload=%s", approve.Body.String())
+	}
 	shelf := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/shelf", admin, "{}")
 	if sourceBodyCode(t, shelf) != 200 {
-		t.Fatalf("draft after re-upload must be shelfable: %s", shelf.Body.String())
+		t.Fatalf("approved after re-upload must be shelfable: %s", shelf.Body.String())
 	}
 }
 
@@ -573,6 +581,15 @@ func TestSourceTransitionAllowedDraftCanApproveReject(t *testing.T) {
 	}
 	if sourceTransitionAllowed(sourceItemDeprecated, sourceItemApproved) {
 		t.Fatal("deprecated must not approve")
+	}
+	if sourceTransitionAllowed(sourceItemDraft, sourceItemPublished) {
+		t.Fatal("draft must not publish; shelf requires prior approve")
+	}
+	if sourceTransitionAllowed(sourceItemReview, sourceItemPublished) {
+		t.Fatal("review must not publish; shelf requires prior approve")
+	}
+	if !sourceTransitionAllowed(sourceItemApproved, sourceItemPublished) {
+		t.Fatal("approved must be shelfable")
 	}
 }
 
@@ -623,9 +640,7 @@ func TestAdminDraftPluginCanApproveAndReject(t *testing.T) {
 	}, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.SetPluginStatus("pub-no-approve", sourceItemPublished, "admin", ""); err != nil {
-		t.Fatal(err)
-	}
+	sourceApproveThenPublishPlugin(t, store, "pub-no-approve")
 	blocked := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/pub-no-approve/approve", admin, "{}")
 	if sourceBodyCode(t, blocked) == 200 {
 		t.Fatal("published must not approve")
@@ -687,9 +702,7 @@ func TestAdminUpsertVersionResetsPublishedToDraft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.SetPluginStatus(created.ID, sourceItemPublished, "admin", ""); err != nil {
-		t.Fatal(err)
-	}
+	sourceApproveThenPublishPlugin(t, store, created.ID)
 	before, err := store.GetVersion(sourceKindPlugin, "ver-reset", "1.0.0")
 	if err != nil {
 		t.Fatal(err)
@@ -738,9 +751,7 @@ func TestAdminUpsertExistingPluginResetsDraft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.SetPluginStatus(created.ID, sourceItemPublished, "admin", ""); err != nil {
-		t.Fatal(err)
-	}
+	sourceApproveThenPublishPlugin(t, store, created.ID)
 	if _, err := store.SetPluginStatus(created.ID, sourceItemDeprecated, "admin", "旧包作废"); err != nil {
 		t.Fatal(err)
 	}
@@ -772,7 +783,8 @@ func TestDeveloperUpsertPreservesPublishedStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	published, err := store.SetPluginStatus(created.ID, sourceItemPublished, "admin", "")
+	sourceApproveThenPublishPlugin(t, store, created.ID)
+	published, err := store.GetPlugin(created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
