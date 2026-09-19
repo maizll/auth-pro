@@ -52,14 +52,6 @@ export const globalComponentsConfig: GlobalComponentConfig[] = [
       () => import('@/components/core/others/art-watermark/index.vue')
     ),
     enabled: true
-  },
-  {
-    name: '弹出广告',
-    key: 'ad-popup',
-    component: defineAsyncComponent(
-      () => import('@/components/core/banners/art-ad-popup/index.vue')
-    ),
-    enabled: true
   }
 ]
 

@@ -24,15 +24,57 @@ const advertisementMaxBytes = int64(256 << 10)
 
 // advertisementRecord 的字段与上游、前端完全一致，代理层原样透传，前端不需要再做映射。
 type advertisementRecord struct {
-	ID             string `json:"id"`
-	Title          string `json:"title"`
-	ImageURL       string `json:"imageUrl"`
-	DestinationURL string `json:"destinationUrl"`
-	Position       string `json:"position"`
-	Weight         int    `json:"weight"`
-	StartAt        string `json:"startAt"`
-	EndAt          string `json:"endAt"`
-	Description    string `json:"description"`
+	ID             string   `json:"id"`
+	Title          string   `json:"title"`
+	ImageURL       string   `json:"imageUrl"`
+	DestinationURL string   `json:"destinationUrl"`
+	Position       string   `json:"position"`
+	Positions      []string `json:"positions,omitempty"`
+	Weight         int      `json:"weight"`
+	StartAt        string   `json:"startAt"`
+	EndAt          string   `json:"endAt"`
+	Description    string   `json:"description"`
+}
+
+func (record *advertisementRecord) UnmarshalJSON(data []byte) error {
+	type decoded struct {
+		ID             string          `json:"id"`
+		Title          string          `json:"title"`
+		ImageURL       string          `json:"imageUrl"`
+		DestinationURL string          `json:"destinationUrl"`
+		Position       json.RawMessage `json:"position"`
+		Positions      []string        `json:"positions"`
+		Weight         int             `json:"weight"`
+		StartAt        string          `json:"startAt"`
+		EndAt          string          `json:"endAt"`
+		Description    string          `json:"description"`
+	}
+	var parsed decoded
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return err
+	}
+	record.ID = parsed.ID
+	record.Title = parsed.Title
+	record.ImageURL = parsed.ImageURL
+	record.DestinationURL = parsed.DestinationURL
+	record.Weight = parsed.Weight
+	record.StartAt = parsed.StartAt
+	record.EndAt = parsed.EndAt
+	record.Description = parsed.Description
+	record.Positions = parsed.Positions
+	if len(parsed.Position) > 0 && string(parsed.Position) != "null" {
+		var asString string
+		if err := json.Unmarshal(parsed.Position, &asString); err == nil {
+			record.Position = asString
+		} else {
+			var asList []string
+			if err := json.Unmarshal(parsed.Position, &asList); err == nil {
+				record.Positions = append(record.Positions, asList...)
+			}
+		}
+	}
+	hydrateAdvertisementRecord(record)
+	return nil
 }
 
 const (
@@ -245,12 +287,13 @@ func resolveAdvertisementPlaceholder(remote *advertisementPlaceholder) advertise
 func normalizeAdvertisements(records []advertisementRecord, position string, now time.Time) []advertisementRecord {
 	normalized := make([]advertisementRecord, 0, len(records))
 	for _, record := range records {
-		if record.Position != "" && record.Position != position {
+		if !advertisementMatchesPosition(record, position) {
 			continue
 		}
 		if !advertisementInWindow(record, now) {
 			continue
 		}
+		hydrateAdvertisementRecord(&record)
 		normalized = append(normalized, record)
 	}
 	sort.SliceStable(normalized, func(i, j int) bool {
@@ -268,6 +311,90 @@ func advertisementInWindow(record advertisementRecord, now time.Time) bool {
 		return false
 	}
 	return true
+}
+
+func parseAdvertisementPositionField(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if strings.HasPrefix(raw, "[") {
+		var slots []string
+		if err := json.Unmarshal([]byte(raw), &slots); err == nil {
+			return normalizeAdvertisementSlotList(slots)
+		}
+	}
+	if strings.Contains(raw, ",") {
+		return normalizeAdvertisementSlotList(strings.Split(raw, ","))
+	}
+	return normalizeAdvertisementSlotList([]string{raw})
+}
+
+func normalizeAdvertisementSlotList(slots []string) []string {
+	seen := make(map[string]bool, len(slots))
+	result := make([]string, 0, len(slots))
+	for _, slot := range slots {
+		slot = strings.TrimSpace(slot)
+		if slot == "" || advertisementLocks[slot] == nil || seen[slot] {
+			continue
+		}
+		seen[slot] = true
+		result = append(result, slot)
+	}
+	return result
+}
+
+func advertisementSlots(record advertisementRecord) []string {
+	collected := append([]string{}, record.Positions...)
+	collected = append(collected, parseAdvertisementPositionField(record.Position)...)
+	return normalizeAdvertisementSlotList(collected)
+}
+
+func advertisementMatchesPosition(record advertisementRecord, position string) bool {
+	slots := advertisementSlots(record)
+	if len(slots) == 0 {
+		return true
+	}
+	for _, slot := range slots {
+		if slot == position {
+			return true
+		}
+	}
+	return false
+}
+
+func encodeAdvertisementPosition(slots []string) string {
+	slots = normalizeAdvertisementSlotList(slots)
+	if len(slots) == 0 {
+		return ""
+	}
+	if len(slots) == 1 {
+		return slots[0]
+	}
+	raw, err := json.Marshal(slots)
+	if err != nil {
+		return strings.Join(slots, ",")
+	}
+	return string(raw)
+}
+
+func hydrateAdvertisementRecord(record *advertisementRecord) {
+	if record == nil {
+		return
+	}
+	slots := advertisementSlots(*record)
+	record.Positions = slots
+	if len(slots) == 0 {
+		return
+	}
+	record.Position = slots[0]
+}
+
+func prepareAdvertisementForStore(record *advertisementRecord) []string {
+	slots := advertisementSlots(*record)
+	record.Positions = slots
+	record.Position = encodeAdvertisementPosition(slots)
+	return slots
 }
 
 // localAdvertisements 是本站自托管投放。未配置远程广告源时读本站广告表，不访问外网。

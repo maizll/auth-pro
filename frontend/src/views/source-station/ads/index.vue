@@ -44,7 +44,7 @@
           <div>
             <span class="card-title">广告投放（共 {{ tableData.length }} 条）</span>
             <p class="card-hint"
-              >图片与跳转必须是外部 https:// 地址。广告位：首页横幅 / 侧栏 / 弹窗。</p
+              >图片与跳转必须是外部 https:// 地址。广告位可多选：工作台跑马灯（home-banner）/ 侧栏（sidebar）/ 弹窗（popup），同一条会同时出现在所选位置。</p
             >
           </div>
           <el-button type="primary" @click="openEdit()">新增广告</el-button>
@@ -53,9 +53,9 @@
       <el-table :data="tableData" stripe v-loading="loading">
         <el-table-column prop="id" label="标识" width="140" />
         <el-table-column prop="title" label="标题" min-width="140" show-overflow-tooltip />
-        <el-table-column label="广告位" width="120">
+        <el-table-column label="广告位" min-width="180">
           <template #default="{ row }">
-            {{ positionLabel(row.position) }}
+            {{ positionLabels(row) }}
           </template>
         </el-table-column>
         <el-table-column prop="weight" label="权重" width="80" align="center" />
@@ -83,8 +83,15 @@
         <el-form-item label="标题" prop="title">
           <el-input v-model="form.title" />
         </el-form-item>
-        <el-form-item label="广告位" prop="position">
-          <el-select v-model="form.position" style="width: 100%">
+        <el-form-item label="广告位" prop="positions">
+          <el-select
+            v-model="form.positions"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="可多选，至少选一处"
+            style="width: 100%"
+          >
             <el-option
               v-for="item in AD_POSITIONS"
               :key="item.value"
@@ -127,6 +134,7 @@
   import { DEFAULT_AD_PLACEHOLDER } from '@/api/advertisement'
   import {
     AD_POSITIONS,
+    advertisementPositionList,
     deleteSourceAdvertisement,
     fetchSourceAdvertisements,
     saveSourceAdPlaceholder,
@@ -149,6 +157,7 @@
     imageUrl: '',
     destinationUrl: '',
     position: 'home-banner',
+    positions: ['home-banner'],
     weight: 0,
     startAt: '',
     endAt: '',
@@ -157,11 +166,24 @@
   const rules: FormRules = {
     id: [{ required: true, message: '请填写标识', trigger: 'blur' }],
     title: [{ required: true, message: '请填写标题', trigger: 'blur' }],
-    position: [{ required: true, message: '请选择广告位', trigger: 'change' }]
+    positions: [
+      {
+        type: 'array',
+        required: true,
+        min: 1,
+        message: '请至少选择一个广告位',
+        trigger: 'change'
+      }
+    ]
   }
 
   function positionLabel(value: string) {
     return AD_POSITIONS.find((item) => item.value === value)?.label || value
+  }
+
+  function positionLabels(row: SourceAdvertisement) {
+    const slots = advertisementPositionList(row)
+    return slots.length ? slots.map(positionLabel).join('、') : '—'
   }
 
   async function loadAds() {
@@ -200,7 +222,8 @@
     form.title = row?.title || ''
     form.imageUrl = row?.imageUrl || ''
     form.destinationUrl = row?.destinationUrl || ''
-    form.position = row?.position || 'home-banner'
+    form.positions = row ? advertisementPositionList(row) : ['home-banner']
+    form.position = form.positions[0] || 'home-banner'
     form.weight = row?.weight || 0
     form.startAt = row?.startAt || ''
     form.endAt = row?.endAt || ''
@@ -212,7 +235,12 @@
     await formRef.value?.validate()
     saving.value = true
     try {
-      await saveSourceAdvertisement({ ...form })
+      const positions = advertisementPositionList(form)
+      await saveSourceAdvertisement({
+        ...form,
+        positions,
+        position: positions[0] || ''
+      })
       ElMessage.success('广告已保存')
       visible.value = false
       await loadAds()

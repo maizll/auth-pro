@@ -334,6 +334,69 @@ func TestSourceAdvertisementCRUDFeedsLocalEndpoint(t *testing.T) {
 	}
 }
 
+func TestSourceAdvertisementMultiPositionFeedsAllPublicSlots(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	resetAdvertisementCache(t)
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", "")
+	admin := sourceAdminToken(t)
+
+	save := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements", admin,
+		`{"id":"everywhere","title":"全站投放","imageUrl":"https://example.com/a.png","destinationUrl":"https://example.com","positions":["home-banner","sidebar","popup"],"weight":8}`)
+	if sourceBodyCode(t, save) != 200 {
+		t.Fatalf("save multi ad=%s", save.Body.String())
+	}
+
+	var saved advertisementRecord
+	if err := json.Unmarshal(save.Body.Bytes(), &struct {
+		Data *advertisementRecord `json:"data"`
+	}{Data: &saved}); err != nil {
+		t.Fatalf("save body=%s err=%v", save.Body.String(), err)
+	}
+	if saved.ID != "everywhere" || len(saved.Positions) != 3 {
+		t.Fatalf("管理端应回写 positions：%+v body=%s", saved, save.Body.String())
+	}
+
+	listed := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/advertisements", admin, "")
+	listedBody := decodeAdvertisementPublic(t, listed)
+	if listedBody.Code != 200 || len(listedBody.Data.Records) != 1 {
+		t.Fatalf("list=%s", listed.Body.String())
+	}
+	if got := listedBody.Data.Records[0].Positions; len(got) != 3 {
+		t.Fatalf("列表应带 positions：%+v", listedBody.Data.Records[0])
+	}
+
+	for _, slot := range []string{"home-banner", "sidebar", "popup"} {
+		public := sourceJSON(t, router, http.MethodGet, "/api/v1/public/advertisements?position="+slot, "", "")
+		if sourceBodyCode(t, public) != 200 || !strings.Contains(public.Body.String(), `"id":"everywhere"`) {
+			t.Fatalf("公开接口 %s 应返回同一条广告：%s", slot, public.Body.String())
+		}
+		proxied := sourceJSON(t, router, http.MethodGet, "/api/advertisements?position="+slot, "", "")
+		if sourceBodyCode(t, proxied) != 200 || !strings.Contains(proxied.Body.String(), `"id":"everywhere"`) {
+			t.Fatalf("代理接口 %s 应读本站目录：%s", slot, proxied.Body.String())
+		}
+	}
+
+	legacy := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements", admin,
+		`{"id":"banner-only","title":"仅横幅","imageUrl":"https://example.com/b.png","destinationUrl":"https://example.com","position":"home-banner","weight":1}`)
+	if sourceBodyCode(t, legacy) != 200 {
+		t.Fatalf("legacy save=%s", legacy.Body.String())
+	}
+	sidebar := sourceJSON(t, router, http.MethodGet, "/api/v1/public/advertisements?position=sidebar", "", "")
+	if strings.Contains(sidebar.Body.String(), `"id":"banner-only"`) {
+		t.Fatalf("只选一个位置时不应出现在其他槽：%s", sidebar.Body.String())
+	}
+	banner := sourceJSON(t, router, http.MethodGet, "/api/v1/public/advertisements?position=home-banner", "", "")
+	if !strings.Contains(banner.Body.String(), `"id":"banner-only"`) {
+		t.Fatalf("单位置广告仍应出现在所选槽：%s", banner.Body.String())
+	}
+
+	invalid := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements", admin,
+		`{"id":"bad","title":"坏","positions":["footer"]}`)
+	if sourceBodyCode(t, invalid) != 400 {
+		t.Fatalf("非法广告位应拒绝：%s", invalid.Body.String())
+	}
+}
+
 func decodeAdvertisementPublic(t *testing.T, recorder *httptest.ResponseRecorder) advertisementPublicBody {
 	t.Helper()
 	var body advertisementPublicBody

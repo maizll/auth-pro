@@ -132,6 +132,9 @@ func AdminSourceAdvertisements(c *gin.Context) {
 	if records == nil {
 		records = []advertisementRecord{}
 	}
+	for i := range records {
+		hydrateAdvertisementRecord(&records[i])
+	}
 	placeholder, err := currentSourceStationStore().GetAdvertisementPlaceholder()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取招租占位失败"})
@@ -174,8 +177,8 @@ func AdminSourceAdvertisementUpsert(c *gin.Context) {
 		return
 	}
 	record.ID = strings.TrimSpace(record.ID)
-	record.Position = strings.TrimSpace(record.Position)
-	if record.ID == "" || advertisementLocks[record.Position] == nil {
+	slots := prepareAdvertisementForStore(&record)
+	if record.ID == "" || len(slots) == 0 {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告标识或广告位不合法"})
 		return
 	}
@@ -200,6 +203,7 @@ func AdminSourceAdvertisementUpsert(c *gin.Context) {
 		return
 	}
 	resetLocalAdvertisementCache()
+	hydrateAdvertisementRecord(&record)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "广告已保存", "data": record})
 }
 

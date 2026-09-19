@@ -209,6 +209,68 @@ func TestNormalizeAdvertisementsKeepsRecordsWithoutTimeWindow(t *testing.T) {
 	}
 }
 
+func TestParseAdvertisementPositionsAcceptsLegacyAndList(t *testing.T) {
+	cases := []struct {
+		name    string
+		record  advertisementRecord
+		want    []string
+		match   string
+		noMatch string
+	}{
+		{name: "legacy-string", record: advertisementRecord{Position: "sidebar"}, want: []string{"sidebar"}, match: "sidebar", noMatch: "popup"},
+		{name: "json-array", record: advertisementRecord{Position: `["home-banner","popup"]`}, want: []string{"home-banner", "popup"}, match: "popup", noMatch: "sidebar"},
+		{name: "positions-field", record: advertisementRecord{Positions: []string{"sidebar", "popup"}}, want: []string{"sidebar", "popup"}, match: "sidebar", noMatch: "home-banner"},
+		{name: "comma-separated", record: advertisementRecord{Position: "home-banner,sidebar"}, want: []string{"home-banner", "sidebar"}, match: "home-banner", noMatch: "popup"},
+		{name: "empty-matches-all", record: advertisementRecord{}, want: nil, match: "popup"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := advertisementSlots(tc.record)
+			if tc.want == nil {
+				if len(got) != 0 {
+					t.Fatalf("slots=%v", got)
+				}
+			} else if len(got) != len(tc.want) {
+				t.Fatalf("slots=%v want %v", got, tc.want)
+			} else {
+				for i := range tc.want {
+					if got[i] != tc.want[i] {
+						t.Fatalf("slots=%v want %v", got, tc.want)
+					}
+				}
+			}
+			if !advertisementMatchesPosition(tc.record, tc.match) {
+				t.Fatalf("应命中 %s：%+v", tc.match, tc.record)
+			}
+			if tc.noMatch != "" && advertisementMatchesPosition(tc.record, tc.noMatch) {
+				t.Fatalf("不应命中 %s：%+v", tc.noMatch, tc.record)
+			}
+		})
+	}
+}
+
+func TestNormalizeAdvertisementsMatchesMultiPosition(t *testing.T) {
+	now := time.Now()
+	records := normalizeAdvertisements([]advertisementRecord{
+		{ID: "multi-json", Position: `["home-banner","sidebar","popup"]`, Weight: 3},
+		{ID: "multi-field", Positions: []string{"sidebar", "popup"}, Weight: 2},
+		{ID: "legacy", Position: "home-banner", Weight: 1},
+		{ID: "other", Position: "popup", Weight: 9},
+	}, "sidebar", now)
+
+	if len(records) != 2 || records[0].ID != "multi-json" || records[1].ID != "multi-field" {
+		t.Fatalf("多位置广告应出现在所选侧栏，实际 %v", records)
+	}
+
+	popup := normalizeAdvertisements([]advertisementRecord{
+		{ID: "multi-json", Position: `["home-banner","sidebar","popup"]`, Weight: 3},
+		{ID: "legacy", Position: "home-banner", Weight: 1},
+	}, "popup", now)
+	if len(popup) != 1 || popup[0].ID != "multi-json" {
+		t.Fatalf("同一条多位置广告也应出现在弹窗，实际 %v", popup)
+	}
+}
+
 func TestPublicAdvertisementsUsesLocalSourceByDefault(t *testing.T) {
 	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", "")
 	resetAdvertisementCache(t)
