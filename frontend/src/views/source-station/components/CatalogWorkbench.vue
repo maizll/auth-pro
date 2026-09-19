@@ -64,21 +64,49 @@
         </el-table-column>
         <el-table-column prop="sha256" label="SHA256" min-width="160" show-overflow-tooltip />
         <el-table-column prop="updatedAt" label="更新时间" width="170" />
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="runStatus(row, 'approve')"
+            <span v-if="isDeprecatedCatalogStatus(row.status)" class="deprecated-hint"
+              >已弃用，请重新上传</span
+            >
+            <el-button
+              v-if="canCatalogItemAction(row.status, 'approve')"
+              link
+              type="primary"
+              size="small"
+              @click="runStatus(row, 'approve')"
               >通过</el-button
             >
-            <el-button link type="warning" size="small" @click="runStatus(row, 'reject')"
-              >驳回</el-button
+            <el-button
+              v-if="canCatalogItemAction(row.status, 'reject')"
+              link
+              type="warning"
+              size="small"
+              @click="runStatus(row, 'reject')"
+              >拒绝</el-button
             >
-            <el-button link type="success" size="small" @click="runStatus(row, 'shelf')"
+            <el-button
+              v-if="canCatalogItemAction(row.status, 'shelf')"
+              link
+              type="success"
+              size="small"
+              @click="runStatus(row, 'shelf')"
               >上架</el-button
             >
-            <el-button link type="info" size="small" @click="runStatus(row, 'unshelf')"
+            <el-button
+              v-if="canCatalogItemAction(row.status, 'unshelf')"
+              link
+              type="info"
+              size="small"
+              @click="runStatus(row, 'unshelf')"
               >下架</el-button
             >
-            <el-button link type="danger" size="small" @click="runStatus(row, 'deprecate')"
+            <el-button
+              v-if="canCatalogItemAction(row.status, 'deprecate')"
+              link
+              type="danger"
+              size="small"
+              @click="runStatus(row, 'deprecate')"
               >弃用</el-button
             >
             <el-button link type="primary" size="small" @click="openVersions(row)">版本</el-button>
@@ -237,18 +265,45 @@
           show-overflow-tooltip
         />
         <el-table-column prop="changelog" label="说明" min-width="140" show-overflow-tooltip />
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
-            <el-button link type="success" size="small" @click="runVersion(row, 'approve')"
+            <span v-if="isDeprecatedCatalogStatus(row.status)" class="deprecated-hint">已弃用</span>
+            <el-button
+              v-if="canCatalogVersionAction(row.status, 'approve')"
+              link
+              type="success"
+              size="small"
+              @click="runVersion(row, 'approve')"
               >通过</el-button
             >
-            <el-button link type="warning" size="small" @click="runVersion(row, 'reject')"
-              >驳回</el-button
+            <el-button
+              v-if="canCatalogVersionAction(row.status, 'reject')"
+              link
+              type="warning"
+              size="small"
+              @click="runVersion(row, 'reject')"
+              >拒绝</el-button
             >
-            <el-button link type="primary" size="small" @click="runVersion(row, 'latest')"
+            <el-button
+              v-if="
+                canCatalogVersionAction(
+                  row.status,
+                  'latest',
+                  row.version === currentItem?.latestVersion
+                )
+              "
+              link
+              type="primary"
+              size="small"
+              @click="runVersion(row, 'latest')"
               >设为 latest</el-button
             >
-            <el-button link type="danger" size="small" @click="runVersion(row, 'deprecate')"
+            <el-button
+              v-if="canCatalogVersionAction(row.status, 'deprecate')"
+              link
+              type="danger"
+              size="small"
+              @click="runVersion(row, 'deprecate')"
               >弃用</el-button
             >
           </template>
@@ -313,6 +368,11 @@
     type SourceTemplate,
     type SourceVersion
   } from '@/api/source-station'
+  import {
+    canCatalogItemAction,
+    canCatalogVersionAction,
+    isDeprecatedCatalogStatus
+  } from './catalog-actions'
 
   const props = defineProps<{ kind: 'plugin' | 'template' }>()
 
@@ -530,7 +590,7 @@
     if (action === 'reject' || action === 'deprecate') {
       const { value } = await ElMessageBox.prompt(
         '备注（可选）',
-        action === 'reject' ? '驳回' : '弃用',
+        action === 'reject' ? '拒绝' : '弃用',
         {
           inputPlaceholder: '审核说明',
           confirmButtonText: '确定',
@@ -672,5 +732,11 @@
 
   .filter-panel :deep(.el-form) {
     margin-bottom: -18px;
+  }
+
+  .deprecated-hint {
+    margin-right: 8px;
+    font-size: 12px;
+    color: var(--art-gray-500);
   }
 </style>

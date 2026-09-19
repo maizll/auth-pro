@@ -163,10 +163,14 @@ func AdminSourcePackagePublish(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": convErr.Error()})
 			return
 		}
-		saved, upsertErr := currentSourceStationStore().UpsertTemplate(item, true)
+		previous, _ := currentSourceStationStore().GetTemplate(item.ID)
+		saved, upsertErr := currentSourceStationStore().ReplaceTemplateFromPackage(item, actor)
 		if upsertErr != nil {
 			writeSourceDeveloperStoreError(c, upsertErr)
 			return
+		}
+		if previous.Status == sourceItemPublished {
+			persistIndexSnapshot(actor)
 		}
 		if formFlag(c, "submit") && !shelf {
 			saved, upsertErr = currentSourceStationStore().SetTemplateStatus(saved.ID, sourceItemReview, actor, "package submit")
@@ -198,10 +202,14 @@ func AdminSourcePackagePublish(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": convErr.Error()})
 			return
 		}
-		saved, upsertErr := currentSourceStationStore().UpsertPlugin(item, true)
+		previous, _ := currentSourceStationStore().GetPlugin(item.ID)
+		saved, upsertErr := currentSourceStationStore().ReplacePluginFromPackage(item, actor)
 		if upsertErr != nil {
 			writeSourceDeveloperStoreError(c, upsertErr)
 			return
+		}
+		if previous.Status == sourceItemPublished {
+			persistIndexSnapshot(actor)
 		}
 		if formFlag(c, "submit") && !shelf {
 			saved, upsertErr = currentSourceStationStore().SetPluginStatus(saved.ID, sourceItemReview, actor, "package submit")

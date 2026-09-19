@@ -140,6 +140,42 @@ func (store *memorySourceStore) upsertVersionLocked(rel sourceRelease, developer
 	return rel, nil
 }
 
+func (store *memorySourceStore) replaceVersionLocked(rel sourceRelease, developerID int64) (sourceRelease, error) {
+	if rel.Kind == "" {
+		rel.Kind = sourceKindPlugin
+	}
+	if err := store.assertVersionOwnerLocked(rel.Kind, rel.ItemID, developerID, true); err != nil {
+		return sourceRelease{}, err
+	}
+	version, err := normalizeSourceVersion(rel.Version)
+	if err != nil {
+		return sourceRelease{}, err
+	}
+	rel.Version = version
+	rel.Changelog = truncateText(rel.Changelog, 2000)
+	rel.Location = strings.TrimSpace(rel.Location)
+	rel.SHA256 = strings.ToLower(strings.TrimSpace(rel.SHA256))
+	now := time.Now().UTC()
+	bucket := store.versionMap(rel.Kind)
+	if bucket[rel.ItemID] == nil {
+		bucket[rel.ItemID] = map[string]sourceRelease{}
+	}
+	if existing, exists := bucket[rel.ItemID][rel.Version]; exists {
+		rel.CreatedAt = existing.CreatedAt
+	} else {
+		rel.CreatedAt = now
+	}
+	rel.Status = sourceVersionDraft
+	rel.ReviewNote = ""
+	rel.ReviewedBy = ""
+	rel.UpdatedAt = now
+	bucket[rel.ItemID][rel.Version] = rel
+	if err := store.denormalizeLatestLocked(rel.Kind, rel.ItemID); err != nil {
+		return sourceRelease{}, err
+	}
+	return bucket[rel.ItemID][rel.Version], nil
+}
+
 func (store *memorySourceStore) SetVersionStatus(kind, itemID, version, status, actor, note string) (sourceRelease, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -316,13 +352,7 @@ func (store *memorySourceStore) applyItemStatusToVersionsLocked(kind, itemID, st
 			store.versionMap(kind)[itemID][rel.Version] = rel
 		}
 	case sourceItemPublished:
-		rel, ok := store.pickVersionLocked(kind, itemID, preferred, sourceVersionPublished)
-		if !ok {
-			rel, ok = store.pickVersionLocked(kind, itemID, preferred, sourceVersionPending)
-		}
-		if !ok {
-			rel, ok = store.pickVersionLocked(kind, itemID, preferred, sourceVersionDraft)
-		}
+		rel, ok := store.pickVersionLocked(kind, itemID, preferred, "")
 		if !ok {
 			return errSourceNotFound
 		}
@@ -487,6 +517,32 @@ func (mysqlSourceStore) UpsertVersion(rel sourceRelease, developerID int64, asAd
 	return (mysqlSourceStore{}).GetVersion(rel.Kind, rel.ItemID, rel.Version)
 }
 
+func (mysqlSourceStore) replaceVersionFromPackage(rel sourceRelease) (sourceRelease, error) {
+	if rel.Kind == "" {
+		rel.Kind = sourceKindPlugin
+	}
+	version, err := normalizeSourceVersion(rel.Version)
+	if err != nil {
+		return sourceRelease{}, err
+	}
+	rel.Version = version
+	rel.Changelog = truncateText(rel.Changelog, 2000)
+	rel.Location = strings.TrimSpace(rel.Location)
+	rel.SHA256 = strings.ToLower(strings.TrimSpace(rel.SHA256))
+	rel.Status = sourceVersionDraft
+	rel.ReviewNote = ""
+	rel.ReviewedBy = ""
+	db, err := config.DB()
+	if err != nil {
+		return sourceRelease{}, err
+	}
+	if err := mysqlWriteVersion(db, rel.Kind, rel.ItemID, rel.Version, rel, sourceVersionDraft); err != nil {
+		return sourceRelease{}, err
+	}
+	_ = (mysqlSourceStore{}).denormalizeLatest(rel.Kind, rel.ItemID)
+	return (mysqlSourceStore{}).GetVersion(rel.Kind, rel.ItemID, rel.Version)
+}
+
 func (mysqlSourceStore) SetVersionStatus(kind, itemID, version, status, actor, note string) (sourceRelease, error) {
 	item, err := (mysqlSourceStore{}).GetVersion(kind, itemID, version)
 	if err != nil {
@@ -644,13 +700,7 @@ func (mysqlSourceStore) applyItemStatusToVersions(kind, itemID, status, actor, n
 			}
 		}
 	case sourceItemPublished:
-		rel, ok := pick(sourceVersionPublished)
-		if !ok {
-			rel, ok = pick(sourceVersionPending)
-		}
-		if !ok {
-			rel, ok = pick(sourceVersionDraft)
-		}
+		rel, ok := pick("")
 		if !ok {
 			return errSourceNotFound
 		}

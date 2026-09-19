@@ -472,6 +472,73 @@ func TestSourceLockedPipelineUploadToPublicIndex(t *testing.T) {
 	}
 }
 
+func TestSourcePackageRepublishDeprecatedPluginResetsDraft(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	payload := sourcePluginTestZIP(t)
+
+	first := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", payload, map[string]string{
+		"kind": "plugin", "push": "0", "shelf": "1",
+		"downloadUrl": "https://cdn.example.com/demo-plugin-1.0.0.zip",
+		"changelog":   "首发",
+	})
+	if sourceBodyCode(t, first) != 200 {
+		t.Fatalf("first publish=%s", first.Body.String())
+	}
+	deprecated := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/deprecate", admin, `{"note":"旧包作废"}`)
+	if sourceBodyCode(t, deprecated) != 200 {
+		t.Fatalf("deprecate=%s", deprecated.Body.String())
+	}
+	before, err := store.GetPlugin("demo-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Status != sourceItemDeprecated {
+		t.Fatalf("setup status=%s", before.Status)
+	}
+	if before.ReviewNote != "旧包作废" {
+		t.Fatalf("setup reviewNote=%q", before.ReviewNote)
+	}
+
+	reupload := sourcePluginTestZIP(t)
+	second := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", reupload, map[string]string{
+		"kind": "plugin", "push": "0",
+		"downloadUrl": "https://cdn.example.com/demo-plugin-1.0.0-reupload.zip",
+		"changelog":   "重新上传",
+	})
+	if sourceBodyCode(t, second) != 200 {
+		t.Fatalf("re-upload=%s", second.Body.String())
+	}
+	plugin, err := store.GetPlugin("demo-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plugin.Status != sourceItemDraft {
+		t.Fatalf("re-upload deprecated must reset to draft, got %s", plugin.Status)
+	}
+	if plugin.ReviewNote != "" || plugin.ReviewedBy != "" {
+		t.Fatalf("re-upload must clear review notes: note=%q by=%q", plugin.ReviewNote, plugin.ReviewedBy)
+	}
+	if plugin.DownloadURL != "https://cdn.example.com/demo-plugin-1.0.0-reupload.zip" {
+		t.Fatalf("re-upload must overwrite package url, got %s", plugin.DownloadURL)
+	}
+	if plugin.SHA256 != sha256Hex(reupload) || plugin.Changelog != "重新上传" {
+		t.Fatalf("re-upload must overwrite package fields: sha=%s changelog=%q", plugin.SHA256, plugin.Changelog)
+	}
+	rel, err := store.GetVersion(sourceKindPlugin, "demo-plugin", plugin.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.Status != sourceVersionDraft {
+		t.Fatalf("re-upload must reset version to draft, got %s", rel.Status)
+	}
+
+	shelf := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/shelf", admin, "{}")
+	if sourceBodyCode(t, shelf) != 200 {
+		t.Fatalf("draft after re-upload must be shelfable: %s", shelf.Body.String())
+	}
+}
+
 func sha256Hex(payload []byte) string {
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
