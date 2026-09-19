@@ -26,7 +26,7 @@ func AdminSourceDevelopers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": list, "total": len(list)}})
 }
 
-func AdminSourceFreezeDeveloper(c *gin.Context) {
+func AdminSourceCancelDeveloper(c *gin.Context) {
 	id, err := parseSourceApplicationID(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "开发者标识不合法"})
@@ -36,7 +36,7 @@ func AdminSourceFreezeDeveloper(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "开发者已冻结"})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已取消该开发者资格，对方无法再登录开发者端或发布内容"})
 }
 
 func AdminSourcePlugins(c *gin.Context) {

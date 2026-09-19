@@ -36,6 +36,10 @@
           <el-icon><iconify-icon icon="ri:settings-3-line" /></el-icon>
           <template #title>个人设置</template>
         </el-menu-item>
+        <el-menu-item index="/agent-panel/become-developer">
+          <el-icon><iconify-icon icon="ri:code-s-slash-line" /></el-icon>
+          <template #title>开发者入驻</template>
+        </el-menu-item>
       </el-menu>
     </aside>
 
@@ -75,9 +79,11 @@
       <main
         class="panel-content"
         :class="{
-          'is-panel-surface': ['/agent-panel/dashboard', '/agent-panel/profile'].includes(
-            currentRoute
-          )
+          'is-panel-surface': [
+            '/agent-panel/dashboard',
+            '/agent-panel/profile',
+            '/agent-panel/become-developer'
+          ].includes(currentRoute)
         }"
       >
         <router-view />
@@ -136,7 +142,8 @@
     '/agent-panel/purchase': '开通授权',
     '/agent-panel/finance': '我的财务',
     '/agent-panel/tickets': '我的工单',
-    '/agent-panel/profile': '个人设置'
+    '/agent-panel/profile': '个人设置',
+    '/agent-panel/become-developer': '开发者入驻'
   }
 
   const currentTitle = computed(() => titleMap[route.path] || '概览')

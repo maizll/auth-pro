@@ -353,6 +353,9 @@ func SourceDeveloperSubmitTemplateVersion(c *gin.Context) {
 
 func AdminSourceDeveloperApplications(c *gin.Context) {
 	status := strings.TrimSpace(c.Query("status"))
+	if status == "cancelled" {
+		status = sourceApplicationFrozen
+	}
 	if status != "" && status != sourceApplicationPending && status != sourceApplicationApproved &&
 		status != sourceApplicationRejected && status != sourceApplicationFrozen {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "状态不合法"})
@@ -399,7 +402,7 @@ func AdminSourceDeveloperReject(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已拒绝入驻申请"})
 }
 
-func AdminSourceDeveloperFreeze(c *gin.Context) {
+func AdminSourceDeveloperCancel(c *gin.Context) {
 	id, err := parseSourceApplicationID(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "申请标识不合法"})
@@ -409,7 +412,7 @@ func AdminSourceDeveloperFreeze(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已冻结该入驻账号"})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已取消该开发者资格，对方无法再登录开发者端或发布内容"})
 }
 
 func currentSourceDeveloper(c *gin.Context) (sourceDeveloper, error) {
@@ -596,6 +599,7 @@ func writeSourceDeveloperStoreError(c *gin.Context, err error) {
 	case errors.Is(err, errSourceNotFound):
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": err.Error()})
 	case errors.Is(err, errSourceConflict), errors.Is(err, errApplicationPending), errors.Is(err, errApplicationReviewed),
+		errors.Is(err, errApplicationNotCancellable), errors.Is(err, errDeveloperAlreadyCancelled),
 		errors.Is(err, errSourcePublishIncomplete), errors.Is(err, errSourceInvalidStatus),
 		errors.Is(err, errSourceVersionImmutable), errors.Is(err, errSourceVersionNotLatest):
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})

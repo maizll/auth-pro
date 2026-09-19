@@ -237,7 +237,18 @@ export const SOURCE_ITEM_STATUS: Record<
   rejected: { label: '已驳回', type: 'danger' },
   deprecated: { label: '已弃用', type: 'warning' },
   pending: { label: '待处理', type: 'warning' },
-  frozen: { label: '已冻结', type: 'danger' }
+  frozen: { label: '已取消', type: 'danger' }
+}
+
+export const SOURCE_APPLICATION_STATUS: Record<
+  string,
+  { label: string; type: 'primary' | 'success' | 'warning' | 'info' | 'danger' }
+> = {
+  pending: { label: '待审核', type: 'warning' },
+  approved: { label: '已通过', type: 'success' },
+  rejected: { label: '已拒绝', type: 'danger' },
+  frozen: { label: '已取消', type: 'danger' },
+  cancelled: { label: '已取消', type: 'danger' }
 }
 
 export const SOURCE_VERSION_STATUS: Record<
@@ -275,16 +286,24 @@ export function rejectSourceApplication(id: number, note?: string) {
   return request.post({ url: `${BASE}/applications/${id}/reject`, data: noteBody(note) })
 }
 
+export function cancelSourceApplication(id: number, note?: string) {
+  return request.post({ url: `${BASE}/applications/${id}/cancel`, data: noteBody(note) })
+}
+
 export function freezeSourceApplication(id: number, note?: string) {
-  return request.post({ url: `${BASE}/applications/${id}/freeze`, data: noteBody(note) })
+  return cancelSourceApplication(id, note)
 }
 
 export function fetchSourceDevelopers() {
   return request.get<SourceListResponse<SourceDeveloper>>({ url: `${BASE}/developers` })
 }
 
+export function cancelSourceDeveloper(id: number, note?: string) {
+  return request.post({ url: `${BASE}/developers/${id}/cancel`, data: noteBody(note) })
+}
+
 export function freezeSourceDeveloper(id: number, note?: string) {
-  return request.post({ url: `${BASE}/developers/${id}/freeze`, data: noteBody(note) })
+  return cancelSourceDeveloper(id, note)
 }
 
 export function fetchSourcePlugins(status?: string) {

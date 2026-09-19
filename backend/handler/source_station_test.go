@@ -420,6 +420,47 @@ func TestSourceStationPluginVersionUpdateUnshelfAndRollback(t *testing.T) {
 	}
 }
 
+func TestSourceDeveloperCancelBlocksLogin(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin, _, appID := sourceApproveDeveloper(t, router, "dev-carol", "secret1")
+
+	pendingApply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", "",
+		`{"username":"dev-pending","password":"secret1","reason":"wait"}`)
+	var pendingBody struct {
+		Data struct {
+			ID int64 `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(pendingApply.Body.Bytes(), &pendingBody); err != nil {
+		t.Fatal(err)
+	}
+	cancelPending := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(pendingBody.Data.ID)+"/cancel",
+		admin, `{}`)
+	if sourceBodyCode(t, cancelPending) != 400 || !strings.Contains(cancelPending.Body.String(), "只能取消已通过") {
+		t.Fatalf("cancel pending=%s", cancelPending.Body.String())
+	}
+
+	cancel := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(appID)+"/cancel",
+		admin, `{"note":"违规发布"}`)
+	if sourceBodyCode(t, cancel) != 200 || !strings.Contains(cancel.Body.String(), "已取消该开发者资格") {
+		t.Fatalf("cancel=%s", cancel.Body.String())
+	}
+	login := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/login", "",
+		`{"username":"dev-carol","password":"secret1"}`)
+	if sourceBodyCode(t, login) != 403 {
+		t.Fatalf("cancelled developer login=%s", login.Body.String())
+	}
+	status := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply/status", "", `{"username":"dev-carol"}`)
+	if sourceBodyCode(t, status) != 200 || !strings.Contains(status.Body.String(), `"frozen"`) {
+		t.Fatalf("cancelled apply status=%s", status.Body.String())
+	}
+	again := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(appID)+"/freeze",
+		admin, `{}`)
+	if sourceBodyCode(t, again) != 400 {
+		t.Fatalf("cancel twice=%s", again.Body.String())
+	}
+}
+
 func itoa64(value int64) string {
 	if value == 0 {
 		return "0"

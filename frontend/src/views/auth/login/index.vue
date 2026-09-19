@@ -134,7 +134,9 @@
       targetPath === '/user' ||
       targetPath.startsWith('/user/') ||
       targetPath === '/agent-panel' ||
-      targetPath.startsWith('/agent-panel/')
+      targetPath.startsWith('/agent-panel/') ||
+      targetPath === '/developer-panel' ||
+      targetPath.startsWith('/developer-panel/')
     ) {
       return '/dashboard/console'
     }
