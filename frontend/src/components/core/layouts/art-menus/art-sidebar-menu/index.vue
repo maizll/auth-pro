@@ -111,6 +111,10 @@
         </ElMenu>
       </ElScrollbar>
 
+      <div v-show="showSidebarAd" class="sidebar-ad">
+        <ArtAdSlot position="sidebar" height="120px" />
+      </div>
+
       <!-- 双列菜单右侧折叠按钮 -->
       <div class="dual-menu-collapse-btn" v-if="isDualMenu" @click="toggleMenuVisibility">
         <ArtSvgIcon
@@ -179,6 +183,7 @@
 
   // 移动端屏幕判断（使用 computed 避免重复计算）
   const isMobileScreen = computed(() => width.value < MOBILE_BREAKPOINT)
+  const showSidebarAd = computed(() => menuOpen.value && !isMobileScreen.value)
 
   // 路由相关
   const firstLevelMenuPath = computed(() => route.matched[0]?.path)
@@ -228,9 +233,10 @@
       }
     }
 
+    const adOffset = showSidebarAd.value ? 148 : 0
     return {
       transform: 'translateY(0)',
-      height: 'calc(100% - 60px)',
+      height: `calc(100% - 60px - ${adOffset}px)`,
       transition: 'transform 0.3s ease'
     }
   })

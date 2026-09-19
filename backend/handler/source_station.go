@@ -92,12 +92,9 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 
 		admin.GET("/advertisements", AdminSourceAdvertisements)
 		admin.PUT("/advertisements", AdminSourceAdvertisementUpsert)
-		admin.POST("/advertisements/image", AdminSourceAdvertisementImageUpload)
 		admin.PUT("/advertisements/placeholder", AdminSourceAdvertisementPlaceholderSave)
 		admin.DELETE("/advertisements/:id", AdminSourceAdvertisementDelete)
 	}
-
-	api.GET("/v1/public/advertisement-files/:name", PublicAdvertisementFile)
 
 	adminAlias := engine.Group("/api/admin/source")
 	adminAlias.Use(middleware.JWTAuth(), middleware.RequireAdmin())
@@ -134,6 +131,9 @@ func AdminSourceAdvertisements(c *gin.Context) {
 	}
 	if records == nil {
 		records = []advertisementRecord{}
+	}
+	for i := range records {
+		hydrateAdvertisementRecord(&records[i])
 	}
 	placeholder, err := currentSourceStationStore().GetAdvertisementPlaceholder()
 	if err != nil {
@@ -177,25 +177,14 @@ func AdminSourceAdvertisementUpsert(c *gin.Context) {
 		return
 	}
 	record.ID = strings.TrimSpace(record.ID)
-	record.Position = strings.TrimSpace(record.Position)
-	if advertisementLocks[record.Position] == nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告位不合法"})
-		return
-	}
-	if record.ID == "" {
-		generated, err := generateAdvertisementID()
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "生成广告标识失败"})
-			return
-		}
-		record.ID = generated
-	} else if !advertisementIDPattern.MatchString(record.ID) {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告标识不合法"})
+	slots := prepareAdvertisementForStore(&record)
+	if record.ID == "" || len(slots) == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告标识或广告位不合法"})
 		return
 	}
 	if record.ImageURL != "" {
-		if err := validateAdvertisementImageURL(record.ImageURL); err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告图片须为本站上传地址或 https:// 外部地址"})
+		if err := validateExternalHTTPS(record.ImageURL); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告图片必须是 https:// 外部地址"})
 			return
 		}
 	}
@@ -214,6 +203,7 @@ func AdminSourceAdvertisementUpsert(c *gin.Context) {
 		return
 	}
 	resetLocalAdvertisementCache()
+	hydrateAdvertisementRecord(&record)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "广告已保存", "data": record})
 }
 

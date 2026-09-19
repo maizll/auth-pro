@@ -1,12 +1,10 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -317,87 +315,6 @@ func TestSourceDeveloperRejectBlocksLogin(t *testing.T) {
 	}
 }
 
-func TestSourceAdvertisementUpsertGeneratesIDWhenEmpty(t *testing.T) {
-	router, store := sourceStationRouter(t)
-	admin := sourceAdminToken(t)
-	save := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements", admin,
-		`{"title":"自动标识","position":"sidebar","weight":1}`)
-	if sourceBodyCode(t, save) != 200 {
-		t.Fatalf("save without id=%s", save.Body.String())
-	}
-	var body struct {
-		Data advertisementRecord `json:"data"`
-	}
-	if err := json.Unmarshal(save.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body.Data.ID == "" || !strings.HasPrefix(body.Data.ID, "ad-") {
-		t.Fatalf("应自动生成广告标识，实际 %q", body.Data.ID)
-	}
-	listed, err := store.ListAdvertisements("")
-	if err != nil || len(listed) != 1 || listed[0].ID != body.Data.ID {
-		t.Fatalf("store=%v err=%v", listed, err)
-	}
-}
-
-func TestSourceAdvertisementImageUploadAndLocalURL(t *testing.T) {
-	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
-	router, _ := sourceStationRouter(t)
-	admin := sourceAdminToken(t)
-
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("file", "banner.png")
-	if err != nil {
-		t.Fatal(err)
-	}
-	png := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0}
-	if _, err := part.Write(png); err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/source/admin/advertisements/image", &body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("Authorization", "Bearer "+admin)
-	upload := httptest.NewRecorder()
-	router.ServeHTTP(upload, req)
-	if sourceBodyCode(t, upload) != 200 {
-		t.Fatalf("upload=%s", upload.Body.String())
-	}
-	var uploaded struct {
-		Data struct {
-			URL string `json:"url"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(upload.Body.Bytes(), &uploaded); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(uploaded.Data.URL, "/api/v1/public/advertisement-files/") {
-		t.Fatalf("上传后应返回本站图片地址，实际 %q", uploaded.Data.URL)
-	}
-
-	save := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements", admin,
-		`{"title":"本地图","position":"popup","imageUrl":"`+uploaded.Data.URL+`"}`)
-	if sourceBodyCode(t, save) != 200 {
-		t.Fatalf("save local image=%s", save.Body.String())
-	}
-
-	fileReq := httptest.NewRequest(http.MethodGet, uploaded.Data.URL, nil)
-	fileRec := httptest.NewRecorder()
-	router.ServeHTTP(fileRec, fileReq)
-	if fileRec.Code != http.StatusOK || !bytes.Equal(fileRec.Body.Bytes()[:8], png[:8]) {
-		t.Fatalf("公开图片 status=%d len=%d", fileRec.Code, fileRec.Body.Len())
-	}
-
-	reject := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements", admin,
-		`{"title":"坏图","position":"popup","imageUrl":"javascript:alert(1)"}`)
-	if sourceBodyCode(t, reject) != 400 {
-		t.Fatalf("非法图片地址应拒绝：%s", reject.Body.String())
-	}
-}
-
 func TestSourceAdvertisementCRUDFeedsLocalEndpoint(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	resetAdvertisementCache(t)
@@ -414,6 +331,69 @@ func TestSourceAdvertisementCRUDFeedsLocalEndpoint(t *testing.T) {
 	del := sourceJSON(t, router, http.MethodDelete, "/api/v1/source/admin/advertisements/welcome", admin, "")
 	if sourceBodyCode(t, del) != 200 {
 		t.Fatalf("delete ad=%s", del.Body.String())
+	}
+}
+
+func TestSourceAdvertisementMultiPositionFeedsAllPublicSlots(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	resetAdvertisementCache(t)
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", "")
+	admin := sourceAdminToken(t)
+
+	save := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements", admin,
+		`{"id":"everywhere","title":"全站投放","imageUrl":"https://example.com/a.png","destinationUrl":"https://example.com","positions":["home-banner","sidebar","popup"],"weight":8}`)
+	if sourceBodyCode(t, save) != 200 {
+		t.Fatalf("save multi ad=%s", save.Body.String())
+	}
+
+	var saved advertisementRecord
+	if err := json.Unmarshal(save.Body.Bytes(), &struct {
+		Data *advertisementRecord `json:"data"`
+	}{Data: &saved}); err != nil {
+		t.Fatalf("save body=%s err=%v", save.Body.String(), err)
+	}
+	if saved.ID != "everywhere" || len(saved.Positions) != 3 {
+		t.Fatalf("管理端应回写 positions：%+v body=%s", saved, save.Body.String())
+	}
+
+	listed := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/advertisements", admin, "")
+	listedBody := decodeAdvertisementPublic(t, listed)
+	if listedBody.Code != 200 || len(listedBody.Data.Records) != 1 {
+		t.Fatalf("list=%s", listed.Body.String())
+	}
+	if got := listedBody.Data.Records[0].Positions; len(got) != 3 {
+		t.Fatalf("列表应带 positions：%+v", listedBody.Data.Records[0])
+	}
+
+	for _, slot := range []string{"home-banner", "sidebar", "popup"} {
+		public := sourceJSON(t, router, http.MethodGet, "/api/v1/public/advertisements?position="+slot, "", "")
+		if sourceBodyCode(t, public) != 200 || !strings.Contains(public.Body.String(), `"id":"everywhere"`) {
+			t.Fatalf("公开接口 %s 应返回同一条广告：%s", slot, public.Body.String())
+		}
+		proxied := sourceJSON(t, router, http.MethodGet, "/api/advertisements?position="+slot, "", "")
+		if sourceBodyCode(t, proxied) != 200 || !strings.Contains(proxied.Body.String(), `"id":"everywhere"`) {
+			t.Fatalf("代理接口 %s 应读本站目录：%s", slot, proxied.Body.String())
+		}
+	}
+
+	legacy := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements", admin,
+		`{"id":"banner-only","title":"仅横幅","imageUrl":"https://example.com/b.png","destinationUrl":"https://example.com","position":"home-banner","weight":1}`)
+	if sourceBodyCode(t, legacy) != 200 {
+		t.Fatalf("legacy save=%s", legacy.Body.String())
+	}
+	sidebar := sourceJSON(t, router, http.MethodGet, "/api/v1/public/advertisements?position=sidebar", "", "")
+	if strings.Contains(sidebar.Body.String(), `"id":"banner-only"`) {
+		t.Fatalf("只选一个位置时不应出现在其他槽：%s", sidebar.Body.String())
+	}
+	banner := sourceJSON(t, router, http.MethodGet, "/api/v1/public/advertisements?position=home-banner", "", "")
+	if !strings.Contains(banner.Body.String(), `"id":"banner-only"`) {
+		t.Fatalf("单位置广告仍应出现在所选槽：%s", banner.Body.String())
+	}
+
+	invalid := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements", admin,
+		`{"id":"bad","title":"坏","positions":["footer"]}`)
+	if sourceBodyCode(t, invalid) != 400 {
+		t.Fatalf("非法广告位应拒绝：%s", invalid.Body.String())
 	}
 }
 

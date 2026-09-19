@@ -168,6 +168,8 @@ export interface SourceAdvertisement {
   imageUrl: string
   destinationUrl: string
   position: string
+  /** 多选广告位；缺省时回退到单个 position */
+  positions?: string[]
   weight: number
   startAt: string
   endAt: string
@@ -257,10 +259,17 @@ export const SOURCE_VERSION_STATUS: Record<
 }
 
 export const AD_POSITIONS = [
-  { value: 'home-banner', label: '首页横幅' },
+  { value: 'home-banner', label: '工作台跑马灯' },
   { value: 'sidebar', label: '侧栏' },
   { value: 'popup', label: '弹窗' }
 ] as const
+
+export function advertisementPositionList(item: Pick<SourceAdvertisement, 'position' | 'positions'>) {
+  if (item.positions?.length) {
+    return [...new Set(item.positions.filter(Boolean))]
+  }
+  return item.position ? [item.position] : []
+}
 
 function noteBody(note?: string) {
   return note ? { note } : {}
@@ -496,13 +505,6 @@ export function fetchSourceAdvertisements() {
 
 export function saveSourceAdvertisement(payload: SourceAdvertisement) {
   return request.put<SourceAdvertisement>({ url: `${BASE}/advertisements`, data: payload })
-}
-
-export function uploadSourceAdvertisementImage(data: FormData) {
-  return request.post<{ url: string }>({
-    url: `${BASE}/advertisements/image`,
-    data
-  })
 }
 
 export function saveSourceAdPlaceholder(payload: SourceAdPlaceholder) {
