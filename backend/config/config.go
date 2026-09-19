@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -243,26 +244,37 @@ func GetHomeTemplateDir() string {
 	return dir
 }
 
-// 官方软件源连接信息随后端编译，不从环境变量、配置文件或管理页面读取。
-// 固定 Key 仅用于目录读取；内置不代表保密，不能用于管理写权限。
-const (
-	softwareSourceURL    = "https://plug.91ani.cn"
-	softwareSourceAPIKey = "317e605c32344a416c907b9fad0a26b9adf87410554707c7f09d447b2de61cff"
-)
+// LocalSoftwareSourceAdminPath 是未配置远程软件源管理后台时，旧 /admin/app-store 的本站入口。
+const LocalSoftwareSourceAdminPath = "/plugin-store"
 
+// GetSoftwareSourceURL 返回远程软件源地址。本分叉默认空（不连接官方源），
+// 可用 AUTO_PRO_SOFTWARE_SOURCE_URL 指向自建或可选的远程源。
 func GetSoftwareSourceURL() string {
-	return softwareSourceURL
+	return strings.TrimRight(strings.TrimSpace(os.Getenv("AUTO_PRO_SOFTWARE_SOURCE_URL")), "/")
 }
 
+// GetSoftwareSourceAPIKey 返回远程软件源目录 Key。默认空，不内置任何官方密钥。
 func GetSoftwareSourceAPIKey() string {
-	return softwareSourceAPIKey
+	return strings.TrimSpace(os.Getenv("AUTO_PRO_SOFTWARE_SOURCE_API_KEY"))
 }
 
 func GetSoftwareSourceAdminURL() string {
 	if value := strings.TrimSpace(os.Getenv("AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL")); value != "" {
 		return strings.TrimRight(value, "/") + "/"
 	}
-	return GetSoftwareSourceURL() + "/admin/"
+	if base := GetSoftwareSourceURL(); base != "" {
+		return base + "/admin/"
+	}
+	return ""
+}
+
+// GetSoftwareSourceAdminRedirect 是旧 /admin/app-store 的跳转目标。
+// 未配置远程管理后台时落到本站应用商店，避免跳转到官方域名。
+func GetSoftwareSourceAdminRedirect() string {
+	if value := GetSoftwareSourceAdminURL(); value != "" {
+		return value
+	}
+	return LocalSoftwareSourceAdminPath
 }
 
 func GetSoftwareSourceTimeout() time.Duration {
@@ -279,11 +291,30 @@ func GetSoftwareSourceCacheDir() string {
 	return dir
 }
 
-// DefaultAdvertisementURL 是默认的广告投放接口地址，可用 AUTO_PRO_ADVERTISEMENT_URL 覆盖。
-const DefaultAdvertisementURL = "https://plug.91ani.cn/api/v1/public/advertisements"
+// DefaultAdvertisementURL 是本站自托管广告接口（相对路径，不发起外网请求）。
+// 需要代理到其他投放服务时，用 AUTO_PRO_ADVERTISEMENT_URL 覆盖为绝对 http(s) 地址。
+const DefaultAdvertisementURL = "/api/v1/public/advertisements"
 
 func GetAdvertisementURL() string {
-	return strings.TrimRight(strings.TrimSpace(envOrDefault("AUTO_PRO_ADVERTISEMENT_URL", DefaultAdvertisementURL)), "/")
+	value := strings.TrimSpace(os.Getenv("AUTO_PRO_ADVERTISEMENT_URL"))
+	if value == "" {
+		value = DefaultAdvertisementURL
+	}
+	return strings.TrimRight(value, "/")
+}
+
+// AdvertisementURLIsRemote 表示广告代理需要 HTTP 拉取外部投放接口。
+// 空值或相对路径视为本进程自托管，不得访问官方域名。
+func AdvertisementURLIsRemote() bool {
+	return isRemoteHTTPURL(GetAdvertisementURL())
+}
+
+func isRemoteHTTPURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	return parsed.Scheme == "http" || parsed.Scheme == "https"
 }
 
 func GetAdvertisementTimeout() time.Duration {
@@ -299,13 +330,6 @@ func GetAdvertisementCacheTTL() time.Duration {
 // GetAdvertisementStaleTTL 是上游不可用时旧内容的容忍期，超出后广告位改回占位。
 func GetAdvertisementStaleTTL() time.Duration {
 	return durationEnv("AUTO_PRO_ADVERTISEMENT_STALE_TTL", time.Hour)
-}
-
-func envOrDefault(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
 }
 
 func durationEnv(key string, fallback time.Duration) time.Duration {

@@ -122,8 +122,13 @@ func Default() (*Client, error) {
 		return override, nil
 	}
 	defaultOnce.Do(func() {
+		baseURL := strings.TrimSpace(config.GetSoftwareSourceURL())
+		if baseURL == "" {
+			defaultErr = errors.New("未配置远程软件源")
+			return
+		}
 		defaultClient, defaultErr = NewClient(ClientConfig{
-			BaseURL: config.GetSoftwareSourceURL(), CatalogKey: config.GetSoftwareSourceAPIKey(),
+			BaseURL: baseURL, CatalogKey: config.GetSoftwareSourceAPIKey(),
 			Timeout:  config.GetSoftwareSourceTimeout(),
 			StaleTTL: config.GetSoftwareSourceStaleTTL(),
 			CacheDir: config.GetSoftwareSourceCacheDir(),

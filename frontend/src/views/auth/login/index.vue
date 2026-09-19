@@ -123,13 +123,14 @@
     if (!redirect.startsWith('/') || redirect.startsWith('//')) return '/dashboard/console'
 
     const targetPath = redirect.split(/[?#]/, 1)[0]
-    const isAppStoreRedirect = isAppStorePath(targetPath)
+    // 旧软件源管理后台入口改到本站应用商店，避免登录后跳到官方域名。
+    if (isAppStorePath(targetPath)) return '/plugin-store'
     if (
       targetPath === '/' ||
       targetPath === '/install' ||
       targetPath.startsWith('/install/') ||
       targetPath === '/admin' ||
-      (targetPath.startsWith('/admin/') && !isAppStoreRedirect) ||
+      targetPath.startsWith('/admin/') ||
       targetPath === '/user' ||
       targetPath.startsWith('/user/') ||
       targetPath === '/agent-panel' ||

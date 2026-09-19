@@ -61,7 +61,7 @@ func init() {
 	}
 }
 
-// PublicAdvertisements 代理外部广告投放接口。
+// PublicAdvertisements 默认返回本站广告；仅当 AUTO_PRO_ADVERTISEMENT_URL 指向 http(s) 时才代理外部投放。
 // 前端直连上游会被 CORS 拦截，且共用的 axios 实例会附带后台 JWT，所以统一从这里转发。
 func PublicAdvertisements(c *gin.Context) {
 	position := strings.TrimSpace(c.Query("position"))
@@ -111,6 +111,9 @@ func writeAdvertisementCache(position string, records []advertisementRecord) {
 }
 
 func fetchAdvertisementsUpstream(ctx context.Context, position string) ([]advertisementRecord, error) {
+	if !config.AdvertisementURLIsRemote() {
+		return localAdvertisements(position), nil
+	}
 	endpoint, err := url.Parse(config.GetAdvertisementURL())
 	if err != nil || endpoint.Scheme == "" || endpoint.Host == "" {
 		return nil, errors.New("广告接口地址不合法")
@@ -180,4 +183,20 @@ func advertisementInWindow(record advertisementRecord, now time.Time) bool {
 		return false
 	}
 	return true
+}
+
+// localAdvertisements 是本站自托管投放。未配置远程广告源时返回空列表，不访问外网。
+func localAdvertisements(position string) []advertisementRecord {
+	_ = position
+	return []advertisementRecord{}
+}
+
+// PublicLocalAdvertisements 是与上游协议兼容的本站广告接口。
+func PublicLocalAdvertisements(c *gin.Context) {
+	position := strings.TrimSpace(c.Query("position"))
+	if advertisementLocks[position] == nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告位标识不合法"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": gin.H{"records": localAdvertisements(position)}})
 }

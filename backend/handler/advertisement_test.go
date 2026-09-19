@@ -191,6 +191,39 @@ func TestNormalizeAdvertisementsKeepsRecordsWithoutTimeWindow(t *testing.T) {
 	}
 }
 
+func TestPublicAdvertisementsUsesLocalSourceByDefault(t *testing.T) {
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", "")
+	resetAdvertisementCache(t)
+
+	code, records := callAdvertisements(t, "home-banner")
+	if code != 200 || records == nil || len(records) != 0 {
+		t.Fatalf("本站默认广告应返回空列表且不报错，code=%d records=%v", code, records)
+	}
+}
+
+func TestPublicLocalAdvertisementsMatchesProxyShape(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/public/advertisements?position=sidebar", nil)
+	PublicLocalAdvertisements(c)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("HTTP 状态 = %d", recorder.Code)
+	}
+	var body struct {
+		Code int `json:"code"`
+		Data struct {
+			Records []advertisementRecord `json:"records"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != 200 || body.Data.Records == nil || len(body.Data.Records) != 0 {
+		t.Fatalf("本站广告接口形状不兼容：%s", recorder.Body.String())
+	}
+}
+
 func TestPublicAdvertisementsRejectsUnknownPosition(t *testing.T) {
 	calls := upstreamStub(t, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, upstreamPayload(""))

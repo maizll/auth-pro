@@ -144,8 +144,9 @@ func main() {
 		api.GET("/software-source/templates/:id/preview", handler.PublicSoftwareSourceTemplatePreview)
 		api.POST("/internal/software-source/cache/invalidate", handler.InternalSoftwareSourceCacheInvalidate)
 
-		// 外部广告投放（上游未开放 CORS，由后端代理转发并缓存）
+		// 广告投放：默认读本站 /api/v1/public/advertisements；需要时可用环境变量代理到其他源。
 		api.GET("/advertisements", handler.PublicAdvertisements)
+		api.GET("/v1/public/advertisements", handler.PublicLocalAdvertisements)
 
 		// 用户端（需鉴权）
 		userSecured := api.Group("/user-panel")
@@ -384,9 +385,17 @@ func main() {
 	}
 	softwareSourceAdminURL := config.GetSoftwareSourceAdminURL()
 	r.GET(appstore.PagePrefix, func(c *gin.Context) {
+		if softwareSourceAdminURL == "" {
+			c.Redirect(http.StatusFound, config.LocalSoftwareSourceAdminPath)
+			return
+		}
 		c.Redirect(http.StatusFound, softwareSourceAdminURL)
 	})
 	r.GET(appstore.PagePrefix+"/*filepath", func(c *gin.Context) {
+		if softwareSourceAdminURL == "" {
+			c.Redirect(http.StatusFound, config.LocalSoftwareSourceAdminPath)
+			return
+		}
 		target := softwareSourceAdminURL
 		requestedPath := strings.Trim(strings.TrimSpace(c.Param("filepath")), "/")
 		if requestedPath == "dashboard" || requestedPath == "templates" || requestedPath == "apps" || requestedPath == "sources" {

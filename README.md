@@ -93,17 +93,7 @@ pnpm dev
 
 开发环境下，前端通过 Vite 代理将 `/api` 请求转发到 `http://localhost:19127`。
 
-软件源管理后台已独立到 `software-source-system/`：
-
-```bash
-cd software-source-system/frontend
-pnpm install --frozen-lockfile
-pnpm run build
-cd ../backend
-go run ./cmd/server
-```
-
-访问软件源服务 `/admin/` 使用独立管理员登录。授权侧旧 `/admin/app-store` 会跳转到该入口。详见 [`docs/app-store-management.md`](docs/app-store-management.md)。
+本分叉默认**不连接**官方软件源 `plug.91ani.cn`。旧路径 `/admin/app-store` 会跳转到本站 `/plugin-store`。若要对接自建软件源服务，再设置下面的环境变量。
 
 ### 3. 首次安装
 
@@ -265,11 +255,12 @@ releases.json
 | `PORT`                | 后端服务端口                                     | `19127`                                                                       |
 | `AUTO_PRO_DATA_DIR`   | 后端运行数据目录，用于保存配置、更新包和运行数据 | 当前运行目录                                                                  |
 | `AUTO_PRO_UPDATE_URL` | 在线更新清单地址；默认值为 Gitee 最新 Release API | `https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest`              |
-| `AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL` | 旧 `/admin/app-store/*` 跳转目标 | `<软件源地址>/admin/` |
+| `AUTO_PRO_SOFTWARE_SOURCE_URL` | 远程软件源地址；默认空，不连接官方源 | （空，本站自托管） |
+| `AUTO_PRO_SOFTWARE_SOURCE_API_KEY` | 远程软件源目录 Key；默认空，仓库不内置密钥 | （空） |
+| `AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL` | 旧 `/admin/app-store/*` 跳转目标；未设置时落到本站 `/plugin-store` | `/plugin-store` |
 | `AUTO_PRO_SOFTWARE_SOURCE_TIMEOUT` | 目录 HTTP 请求超时 | `5s` |
 | `AUTO_PRO_SOFTWARE_SOURCE_STALE_TTL` | 最后成功目录快照最大降级时间 | `24h` |
-
-软件源连接信息（服务地址 `https://plug.91ani.cn` 和目录只读 Key）已固定编译进后端二进制，不再读取 `AUTO_PRO_SOFTWARE_SOURCE_URL` / `AUTO_PRO_SOFTWARE_SOURCE_API_KEY` 环境变量。
+| `AUTO_PRO_ADVERTISEMENT_URL` | 广告投放接口；相对路径走本进程，http(s) 才代理外网 | `/api/v1/public/advertisements` |
 | `VITE_API_PROXY_URL`  | 前端开发代理目标地址                             | `http://localhost:19127`                                                      |
 
 ## API 入口
@@ -283,24 +274,47 @@ releases.json
 - `/api/user-panel/*`：用户端接口。
 - `/api/app-store/*`：独立应用商店管理接口，要求管理员 JWT。
 - `/api/home-template/active`：当前首页模板公开读取接口。
+- `/api/advertisements`：前端广告位代理；默认读本站投放。
+- `/api/v1/public/advertisements`：本站广告接口（`home-banner` / `sidebar` / `popup`）。
 - `/api/*`：后台管理接口，除公开接口外默认需要 JWT 鉴权。
 
 ## 部署说明
 
 生产环境推荐同源部署：前端构建后放入 `backend/static`，由 Go 后端统一提供静态资源和 `/api` 接口。这样可以减少跨域配置，并保持授权校验、管理后台和前端页面的一致部署入口。
 
-## 从 auth-pro-plug 安装首页模板
+## 自托管软件源与广告
 
-软件源服务地址和目录 Key 已固定编译进 auth-pro 后端，**无需在环境变量中配置** `AUTO_PRO_SOFTWARE_SOURCE_URL` / `AUTO_PRO_SOFTWARE_SOURCE_API_KEY`；默认连接 `https://plug.91ani.cn`。
+本分叉默认**不连接** `plug.91ani.cn`，仓库中也不再内置官方目录 Key。
 
-分发后台（auth-pro-plug）侧的 `SOFTWARE_SOURCE_API_KEY` 必须与 auth-pro 后端内置的目录 Key 保持一致，否则目录请求会被拒绝。密钥只由服务端发送，不进入前端环境变量、浏览器代码或模板文件。
+- 不设环境变量即可完成本地启动：软件源客户端不会访问外网，广告位走本站 `/api/v1/public/advertisements`（当前返回空列表，前端显示占位）。
+- 若要对接自建软件源，再设置：
 
-首次升级需部署两个项目的新版本。auth-pro 已包含黑金首页的布局、玻璃卡片、移动端导航、查询入口和登录弹窗，仍复用主应用的用户登录、代理账号转换和代登录流程，默认及蓝色模板不受影响。
+```bash
+export AUTO_PRO_SOFTWARE_SOURCE_URL="http://127.0.0.1:19128"
+export AUTO_PRO_SOFTWARE_SOURCE_API_KEY="your-catalog-key"
+# 可选：旧 /admin/app-store 跳转到远程管理后台；不设则跳到本站 /plugin-store
+export AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL="http://127.0.0.1:19128/admin"
+```
 
-1. 在 auth-pro-plug 的首页模板管理中上传 `templates/fintech-gold.json`，填写 `fintech-gold` 标识、版本与作者；可附预览图，保存并上架。
-2. 在本系统「应用商店」的首页模板分区点击刷新。显式刷新会重新读取目录，不必等待 5 分钟缓存。
-3. 点击启用：后端下载 JSON、校验 SHA-256、验证 schema，并原子保存安装文件后切换首页。访问路径仍为 `/user/login`。
-4. 已安装模板内容更新后会显示「待更新 / 更新并启用」；预览图 URL 带更新时间，避免继续使用旧封面缓存。恢复默认模板沿用原有操作。
+- 若要把广告代理到其他投放服务（可选）：
+
+```bash
+export AUTO_PRO_ADVERTISEMENT_URL="https://ads.example.com/api/v1/public/advertisements"
+```
+
+重启后端后可用 `ss`/`tcpdump` 或代理日志确认没有对 `plug.91ani.cn` 的出站请求。
+
+## 从自建软件源安装首页模板
+
+远程软件源默认关闭。指向自建源并配置目录 Key 后，管理后台「应用商店」可刷新目录并启用模板。密钥只由服务端发送，不进入前端环境变量、浏览器代码或模板文件。
+
+本系统已包含黑金首页的布局、玻璃卡片、移动端导航、查询入口和登录弹窗，仍复用主应用的用户登录、代理账号转换和代登录流程，默认及蓝色模板不受影响。
+
+指向自建软件源并配置目录 Key 后：
+
+1. 在本系统「应用商店」的首页模板分区点击刷新。显式刷新会重新读取目录，不必等待 5 分钟缓存。
+2. 点击启用：后端下载 JSON、校验 SHA-256、验证 schema，并原子保存安装文件后切换首页。访问路径仍为 `/user/login`。
+3. 已安装模板内容更新后会显示「待更新 / 更新并启用」；预览图 URL 带更新时间，避免继续使用旧封面缓存。恢复默认模板沿用原有操作。
 
 上传入口统一放在 auth-pro-plug 的「模板管理」，本系统隐藏「上传首页模板 ZIP」按钮，保留既有上传接口与已安装模板的兼容。软件源可分发 JSON 或 ZIP；两端需一起升级 ZIP 目录协议后再发布 ZIP。分发端下架不等于远程卸载已安装文件。
 

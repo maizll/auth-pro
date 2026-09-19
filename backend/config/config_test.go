@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -36,11 +37,15 @@ func TestGetDSN(t *testing.T) {
 
 func TestSoftwareSourceConfig(t *testing.T) {
 	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_URL", "http://127.0.0.1:19128/")
+	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_API_KEY", "self-hosted-catalog-key")
 	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL", "https://source.example.com/admin")
 	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_TIMEOUT", "3s")
 	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_STALE_TTL", "12h")
-	if got := GetSoftwareSourceURL(); got != "https://plug.91ani.cn" {
+	if got := GetSoftwareSourceURL(); got != "http://127.0.0.1:19128" {
 		t.Fatalf("software source URL = %q", got)
+	}
+	if got := GetSoftwareSourceAPIKey(); got != "self-hosted-catalog-key" {
+		t.Fatalf("software source API key = %q", got)
 	}
 	if got := GetSoftwareSourceAdminURL(); got != "https://source.example.com/admin/" {
 		t.Fatalf("software source admin URL = %q", got)
@@ -50,22 +55,42 @@ func TestSoftwareSourceConfig(t *testing.T) {
 	}
 }
 
-func TestSoftwareSourceConnectionIsBuiltin(t *testing.T) {
-	for _, value := range []string{"", "   ", "deployment-override"} {
-		t.Run(value, func(t *testing.T) {
+func TestSoftwareSourceDefaultsAreSelfHosted(t *testing.T) {
+	for _, value := range []string{"", "   "} {
+		t.Run("empty-"+value, func(t *testing.T) {
 			t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_URL", value)
 			t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_API_KEY", value)
 			t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL", "")
-			if GetSoftwareSourceURL() != "https://plug.91ani.cn" {
-				t.Fatal("software source URL must not depend on environment variables")
+			if got := GetSoftwareSourceURL(); got != "" {
+				t.Fatalf("default software source URL must be empty, got %q", got)
 			}
-			if len(GetSoftwareSourceAPIKey()) != 64 || GetSoftwareSourceAPIKey() == value {
-				t.Fatal("software source key must be built in, not supplied by the environment")
+			if got := GetSoftwareSourceAPIKey(); got != "" {
+				t.Fatalf("default software source key must be empty, got %q", got)
 			}
-			if GetSoftwareSourceAdminURL() != "https://plug.91ani.cn/admin/" {
-				t.Fatal("default software source admin URL must use the built-in host")
+			if got := GetSoftwareSourceAdminURL(); got != "" {
+				t.Fatalf("default software source admin URL must be empty, got %q", got)
+			}
+			if got := GetSoftwareSourceAdminRedirect(); got != LocalSoftwareSourceAdminPath {
+				t.Fatalf("unconfigured admin redirect = %q", got)
+			}
+			joined := GetSoftwareSourceURL() + GetSoftwareSourceAPIKey() + GetSoftwareSourceAdminURL()
+			if strings.Contains(joined, "91ani") {
+				t.Fatal("defaults must not mention the official host")
 			}
 		})
+	}
+
+	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_URL", "https://source.example.com")
+	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_API_KEY", "deployment-override")
+	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL", "")
+	if got := GetSoftwareSourceURL(); got != "https://source.example.com" {
+		t.Fatalf("software source URL override = %q", got)
+	}
+	if got := GetSoftwareSourceAPIKey(); got != "deployment-override" {
+		t.Fatalf("software source key override = %q", got)
+	}
+	if got := GetSoftwareSourceAdminURL(); got != "https://source.example.com/admin/" {
+		t.Fatalf("derived admin URL = %q", got)
 	}
 }
 
@@ -74,13 +99,22 @@ func TestAdvertisementConfig(t *testing.T) {
 	if got := GetAdvertisementURL(); got != DefaultAdvertisementURL {
 		t.Fatalf("默认广告接口地址 = %q", got)
 	}
+	if AdvertisementURLIsRemote() {
+		t.Fatal("默认广告地址必须是本进程相对路径，不能走外网")
+	}
+	if strings.Contains(GetAdvertisementURL(), "91ani") {
+		t.Fatal("默认广告地址不得指向官方域名")
+	}
 	// 投放方给出的地址常带多余的尾斜杠，拼 query 前必须归一化
-	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", " https://plug.example.com/api/v1/public/advertisements// ")
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", " https://ads.example.com/api/v1/public/advertisements// ")
 	t.Setenv("AUTO_PRO_ADVERTISEMENT_TIMEOUT", "2s")
 	t.Setenv("AUTO_PRO_ADVERTISEMENT_CACHE_TTL", "30s")
 	t.Setenv("AUTO_PRO_ADVERTISEMENT_STALE_TTL", "6h")
-	if got := GetAdvertisementURL(); got != "https://plug.example.com/api/v1/public/advertisements" {
+	if got := GetAdvertisementURL(); got != "https://ads.example.com/api/v1/public/advertisements" {
 		t.Fatalf("广告接口地址 = %q", got)
+	}
+	if !AdvertisementURLIsRemote() {
+		t.Fatal("绝对 http(s) 广告地址应走远程代理")
 	}
 	if GetAdvertisementTimeout() != 2*time.Second || GetAdvertisementCacheTTL() != 30*time.Second ||
 		GetAdvertisementStaleTTL() != 6*time.Hour {

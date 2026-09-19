@@ -15,7 +15,7 @@ import (
 )
 
 func TestInternalSoftwareSourceCacheInvalidate(t *testing.T) {
-	// 目录 Key 已内置于后端，测试直接使用 config 中的固定值。
+	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_API_KEY", "handler-key")
 	handlerKey := config.GetSoftwareSourceAPIKey()
 	var requests atomic.Int32
 	remote := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
