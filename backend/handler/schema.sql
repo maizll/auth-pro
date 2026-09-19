@@ -809,7 +809,7 @@ CREATE TABLE `source_developers` (
 DROP TABLE IF EXISTS `source_catalog_plugins`;
 CREATE TABLE `source_catalog_plugins` (
   `id` VARCHAR(60) NOT NULL,
-  `developer_id` BIGINT UNSIGNED NOT NULL,
+  `developer_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `category` VARCHAR(30) NOT NULL DEFAULT 'other',
   `name` VARCHAR(100) NOT NULL,
   `description` VARCHAR(500) NOT NULL DEFAULT '',
@@ -818,39 +818,41 @@ CREATE TABLE `source_catalog_plugins` (
   `author_name` VARCHAR(100) NOT NULL DEFAULT '',
   `author_url` VARCHAR(300) NOT NULL DEFAULT '',
   `author_email` VARCHAR(200) NOT NULL DEFAULT '',
-  `sha256` CHAR(64) NOT NULL,
-  `file_path` VARCHAR(500) NOT NULL DEFAULT '',
-  `published` TINYINT(1) NOT NULL DEFAULT 1,
+  `sha256` CHAR(64) NOT NULL DEFAULT '',
+  `download_url` VARCHAR(500) NOT NULL DEFAULT '',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'draft',
+  `review_note` VARCHAR(500) NOT NULL DEFAULT '',
+  `reviewed_by` VARCHAR(50) NOT NULL DEFAULT '',
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  KEY `idx_source_catalog_plugin_status` (`status`),
   KEY `idx_source_catalog_plugin_developer` (`developer_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源已发布插件';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源插件元数据（不含源码）';
 
 DROP TABLE IF EXISTS `source_catalog_templates`;
 CREATE TABLE `source_catalog_templates` (
   `id` VARCHAR(60) NOT NULL,
-  `developer_id` BIGINT UNSIGNED NOT NULL,
+  `developer_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `template_key` VARCHAR(60) NOT NULL,
   `name` VARCHAR(100) NOT NULL,
   `description` VARCHAR(500) NOT NULL DEFAULT '',
   `version` VARCHAR(40) NOT NULL,
-  `format` VARCHAR(10) NOT NULL DEFAULT 'json',
   `schema_version` INT NOT NULL DEFAULT 1,
-  `sha256` CHAR(64) NOT NULL,
+  `sha256` CHAR(64) NOT NULL DEFAULT '',
+  `template_url` VARCHAR(500) NOT NULL DEFAULT '',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'draft',
+  `review_note` VARCHAR(500) NOT NULL DEFAULT '',
+  `reviewed_by` VARCHAR(50) NOT NULL DEFAULT '',
   `author_name` VARCHAR(100) NOT NULL DEFAULT '',
   `author_url` VARCHAR(300) NOT NULL DEFAULT '',
   `author_email` VARCHAR(200) NOT NULL DEFAULT '',
-  `file_path` VARCHAR(500) NOT NULL DEFAULT '',
-  `preview_path` VARCHAR(500) NOT NULL DEFAULT '',
-  `preview_content_type` VARCHAR(80) NOT NULL DEFAULT '',
-  `published` TINYINT(1) NOT NULL DEFAULT 1,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_source_catalog_template_key` (`template_key`),
-  KEY `idx_source_catalog_template_developer` (`developer_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源已发布首页模板';
+  KEY `idx_source_catalog_template_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源首页模板元数据（不含源码）';
 
 DROP TABLE IF EXISTS `source_advertisements`;
 CREATE TABLE `source_advertisements` (
@@ -868,11 +870,28 @@ CREATE TABLE `source_advertisements` (
   KEY `idx_source_advertisement_position` (`position`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='本站广告投放';
 
-DROP TABLE IF EXISTS `source_station_settings`;
-CREATE TABLE `source_station_settings` (
-  `setting_key` VARCHAR(50) NOT NULL,
-  `setting_value` VARCHAR(255) NOT NULL DEFAULT '',
-  PRIMARY KEY (`setting_key`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源源站设置';
+DROP TABLE IF EXISTS `source_audit_logs`;
+CREATE TABLE `source_audit_logs` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `actor_type` VARCHAR(20) NOT NULL DEFAULT 'admin',
+  `actor_name` VARCHAR(80) NOT NULL DEFAULT '',
+  `action` VARCHAR(40) NOT NULL,
+  `target_type` VARCHAR(40) NOT NULL,
+  `target_id` VARCHAR(80) NOT NULL DEFAULT '',
+  `detail` VARCHAR(500) NOT NULL DEFAULT '',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_source_audit_created` (`created_at`),
+  KEY `idx_source_audit_target` (`target_type`, `target_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源控制面审计';
+
+DROP TABLE IF EXISTS `source_index_snapshots`;
+CREATE TABLE `source_index_snapshots` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `payload` MEDIUMTEXT NOT NULL,
+  `generated_by` VARCHAR(80) NOT NULL DEFAULT '',
+  `generated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公开 index.json 快照';
 
 SET FOREIGN_KEY_CHECKS = 1;

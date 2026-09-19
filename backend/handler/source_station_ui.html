@@ -3,41 +3,59 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>本站软件源</title>
+  <title>本站软件源控制面</title>
   <style>
     :root { color-scheme: light; --bg:#f4f7f6; --card:#fff; --line:#d7e2dd; --text:#17352d; --muted:#5b746c; --accent:#0f8a6a; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: "Segoe UI", "PingFang SC", sans-serif; background: var(--bg); color: var(--text); }
-    main { max-width: 920px; margin: 24px auto; padding: 0 16px 48px; }
+    main { max-width: 1080px; margin: 24px auto; padding: 0 16px 48px; }
     h1 { font-size: 24px; margin: 0 0 8px; }
-    p.lead { color: var(--muted); margin: 0 0 20px; }
+    p.lead { color: var(--muted); margin: 0 0 16px; line-height: 1.5; }
     section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; }
     h2 { font-size: 16px; margin: 0 0 12px; }
     label { display: block; font-size: 13px; margin: 8px 0 4px; color: var(--muted); }
     input, textarea, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
-    textarea { min-height: 72px; }
-    button { margin-top: 12px; background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+    textarea { min-height: 64px; }
+    button { margin: 8px 8px 0 0; background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
     button.secondary { background: #4b635c; }
+    button.warn { background: #9a3412; }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    pre { background: #10231e; color: #d6fff2; padding: 12px; border-radius: 8px; overflow: auto; font-size: 12px; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .tabs button { margin: 0; background: #d7e2dd; color: var(--text); }
+    .tabs button.active { background: var(--accent); color: #fff; }
+    pre { background: #10231e; color: #d6fff2; padding: 12px; border-radius: 8px; overflow: auto; font-size: 12px; max-height: 360px; }
     .ok { color: #0f8a6a; } .err { color: #b42318; }
+    .note { font-size: 13px; color: var(--muted); line-height: 1.5; }
     @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
 <main>
-  <h1>本站软件源工作台</h1>
-  <p class="lead">这台授权系统同时作为自托管软件源（源站）。其它实例在「软件源管理」添加本站 <code>/auth-pro/index.json</code>。源站本身不需要设置 <code>AUTO_PRO_SOFTWARE_SOURCE_*</code>。</p>
+  <h1>本站软件源控制面</h1>
+  <p class="lead">
+    本实例作为<strong>源站</strong>只保存目录元数据与外部 HTTPS 地址，<strong>从不存储插件/模板源码</strong>。
+    消费者在「软件源管理」添加 <code>https://&lt;host&gt;/software-source/index.json</code>（兼容 <code>/auth-pro/index.json</code>）。
+    <strong>下架 ≠ 远程卸载</strong>：下架只是从公开目录隐藏，已安装到其它实例的包不会被删除。
+  </p>
+  <div class="tabs">
+    <button type="button" class="active" data-tab="catalog" onclick="showTab('catalog')">公开目录</button>
+    <button type="button" data-tab="developer" onclick="showTab('developer')">开发者</button>
+    <button type="button" data-tab="applications" onclick="showTab('applications')">入驻申请</button>
+    <button type="button" data-tab="plugins" onclick="showTab('plugins')">插件上架</button>
+    <button type="button" data-tab="templates" onclick="showTab('templates')">模板上架</button>
+    <button type="button" data-tab="index" onclick="showTab('index')">index 快照</button>
+    <button type="button" data-tab="ads" onclick="showTab('ads')">广告</button>
+  </div>
 
-  <section>
+  <section data-panel="catalog">
     <h2>公开目录</h2>
-    <p>其它授权实例在「软件源管理」添加 <code>/auth-pro/index.json</code>（JSON 清单，含 <code>plugins</code> 与 <code>homeTemplates</code>）。</p>
-    <button type="button" class="secondary" onclick="loadCatalog()">查看当前目录</button>
+    <p class="note">GET <code>/software-source/index.json</code> 无鉴权、无信封；仅 <code>status=published</code> 的条目会出现。</p>
+    <button type="button" class="secondary" onclick="loadCatalog()">查看当前 index.json</button>
     <pre id="catalog">尚未加载</pre>
   </section>
 
-  <section>
-    <h2>开发者入驻</h2>
+  <section data-panel="developer" hidden>
+    <h2>开发者入驻 / 草稿</h2>
     <div class="row">
       <div>
         <label>用户名</label><input id="applyUser" placeholder="dev-alice" />
@@ -46,61 +64,122 @@
         <label>显示名</label><input id="applyName" />
         <label>申请说明</label><textarea id="applyReason"></textarea>
         <button type="button" onclick="applyDev()">提交申请</button>
+        <button type="button" class="secondary" onclick="statusDev()">查询状态</button>
       </div>
       <div>
         <label>已通过账号</label><input id="loginUser" />
         <label>密码</label><input id="loginPass" type="password" />
         <button type="button" onclick="loginDev()">开发者登录</button>
         <p id="devToken" class="ok"></p>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <h2>发布到目录</h2>
-    <p>需要已通过审核的开发者 token。可发布一个插件 ZIP 和一个 schemaVersion=1 的首页模板（JSON 或 ZIP）。</p>
-    <div class="row">
-      <div>
         <label>插件 ID</label><input id="pluginId" placeholder="demo-plugin" />
         <label>名称</label><input id="pluginName" value="示例插件" />
         <label>版本</label><input id="pluginVersion" value="1.0.0" />
-        <label>ZIP 文件</label><input id="pluginFile" type="file" />
-        <button type="button" onclick="publishPlugin()">发布插件</button>
-      </div>
-      <div>
-        <label>模板标识</label><input id="tplKey" placeholder="demo-home" />
+        <label>外部 downloadUrl（https）</label><input id="pluginUrl" placeholder="https://cdn.example.com/demo-plugin.zip" />
+        <label>sha256（64 hex）</label><input id="pluginSha" />
+        <button type="button" onclick="savePlugin()">保存插件草稿</button>
+        <button type="button" class="secondary" onclick="submitPlugin()">提交审核</button>
+        <label>模板 ID</label><input id="tplKey" placeholder="demo-home" />
         <label>名称</label><input id="tplName" value="示例首页" />
-        <label>版本</label><input id="tplVersion" value="1.0.0" />
-        <label>JSON / ZIP</label><input id="tplFile" type="file" />
-        <label>预览图（可选）</label><input id="tplPreview" type="file" />
-        <button type="button" onclick="publishTemplate()">发布首页模板</button>
+        <label>templateUrl（https 或相对路径）</label><input id="tplUrl" placeholder="https://cdn.example.com/templates/demo-home.json" />
+        <label>sha256</label><input id="tplSha" />
+        <button type="button" onclick="saveTemplate()">保存模板草稿</button>
+        <button type="button" class="secondary" onclick="submitTemplate()">提交审核</button>
       </div>
     </div>
   </section>
 
-  <section>
-    <h2>管理员审核 / 广告</h2>
-    <p>使用后台管理员 JWT（本页可登录，或从管理后台复制 token）。</p>
+  <section data-panel="applications" hidden>
+    <h2>入驻申请</h2>
+    <p class="note">管理员 JWT 可从本页登录，或从管理后台复制。</p>
     <div class="row">
       <div>
         <label>管理员用户名</label><input id="adminUser" />
         <label>密码</label><input id="adminPass" type="password" />
         <button type="button" onclick="loginAdmin()">管理员登录</button>
         <button type="button" class="secondary" onclick="loadApps()">刷新申请</button>
-        <pre id="apps">尚未加载</pre>
+      </div>
+      <div>
         <label>申请 ID</label><input id="appId" />
+        <label>备注</label><input id="appNote" />
         <button type="button" onclick="approveApp()">通过</button>
         <button type="button" class="secondary" onclick="rejectApp()">拒绝</button>
+        <button type="button" class="warn" onclick="freezeApp()">冻结</button>
       </div>
+    </div>
+    <pre id="apps">尚未加载</pre>
+  </section>
+
+  <section data-panel="plugins" hidden>
+    <h2>插件列表与上架</h2>
+    <p class="note">管理员可直接登记外部 HTTPS + sha256，无需上传源码。上架后进入 index；下架只隐藏目录。</p>
+    <div class="row">
+      <div>
+        <label>插件 ID</label><input id="admPluginId" placeholder="demo-plugin" />
+        <label>名称</label><input id="admPluginName" value="外部插件" />
+        <label>downloadUrl</label><input id="admPluginUrl" placeholder="https://cdn.example.com/plugin.zip" />
+        <label>sha256</label><input id="admPluginSha" />
+        <button type="button" onclick="registerPlugin()">登记外部地址</button>
+        <button type="button" onclick="shelfPlugin()">上架</button>
+        <button type="button" class="secondary" onclick="unshelfPlugin()">下架</button>
+        <button type="button" class="warn" onclick="deprecatePlugin()">弃用</button>
+        <button type="button" class="secondary" onclick="approvePlugin()">审核通过</button>
+        <button type="button" class="secondary" onclick="rejectPlugin()">驳回</button>
+      </div>
+      <div>
+        <button type="button" class="secondary" onclick="loadPlugins()">刷新插件列表</button>
+        <pre id="pluginList">尚未加载</pre>
+      </div>
+    </div>
+  </section>
+
+  <section data-panel="templates" hidden>
+    <h2>首页模板列表</h2>
+    <div class="row">
+      <div>
+        <label>模板 ID</label><input id="admTplId" placeholder="clean-home" />
+        <label>名称</label><input id="admTplName" value="清新首页" />
+        <label>templateUrl</label><input id="admTplUrl" placeholder="https://cdn.example.com/templates/clean-home.json" />
+        <label>sha256</label><input id="admTplSha" />
+        <button type="button" onclick="registerTemplate()">登记外部地址</button>
+        <button type="button" onclick="shelfTemplate()">上架</button>
+        <button type="button" class="secondary" onclick="unshelfTemplate()">下架</button>
+        <button type="button" class="warn" onclick="deprecateTemplate()">弃用</button>
+        <button type="button" class="secondary" onclick="approveTemplate()">审核通过</button>
+        <button type="button" class="secondary" onclick="rejectTemplate()">驳回</button>
+      </div>
+      <div>
+        <button type="button" class="secondary" onclick="loadTemplates()">刷新模板列表</button>
+        <pre id="tplList">尚未加载</pre>
+      </div>
+    </div>
+  </section>
+
+  <section data-panel="index" hidden>
+    <h2>公开 index 快照</h2>
+    <p class="note">公开 GET 始终从数据库现算 published 条目。此处可查看最近一次上架/下架生成的快照，并手动再生成。</p>
+    <button type="button" onclick="loadIndex()">查看 live + 快照</button>
+    <button type="button" class="secondary" onclick="regenIndex()">从数据库重新生成</button>
+    <button type="button" class="secondary" onclick="loadAudit()">审计日志</button>
+    <pre id="indexSnap">尚未加载</pre>
+  </section>
+
+  <section data-panel="ads" hidden>
+    <h2>本站广告</h2>
+    <p class="note">公开接口仍是 <code>/api/v1/public/advertisements</code>。图片与跳转必须是外部 https URL。</p>
+    <div class="row">
       <div>
         <label>广告 ID</label><input id="adId" value="welcome-banner" />
         <label>标题</label><input id="adTitle" value="欢迎使用本站软件源" />
-        <label>图片 URL</label><input id="adImage" />
-        <label>跳转 URL</label><input id="adDest" />
+        <label>图片 URL</label><input id="adImage" placeholder="https://cdn.example.com/ad.png" />
+        <label>跳转 URL</label><input id="adDest" placeholder="https://example.com" />
         <label>位置</label>
         <select id="adPos"><option>home-banner</option><option>sidebar</option><option>popup</option></select>
         <label>权重</label><input id="adWeight" type="number" value="10" />
         <button type="button" onclick="saveAd()">保存广告</button>
+        <button type="button" class="secondary" onclick="loadAds()">刷新广告</button>
+      </div>
+      <div>
+        <pre id="ads">尚未加载</pre>
       </div>
     </div>
   </section>
@@ -110,15 +189,20 @@
   let devToken = "";
   let adminToken = "";
   const msg = (text, ok=true) => { const el = document.getElementById("msg"); el.textContent = text; el.className = ok ? "ok" : "err"; };
+  function showTab(name) {
+    document.querySelectorAll("[data-panel]").forEach(el => el.hidden = el.getAttribute("data-panel") !== name);
+    document.querySelectorAll(".tabs button").forEach(btn => btn.classList.toggle("active", btn.getAttribute("data-tab") === name));
+  }
   async function api(path, options={}) {
     const headers = Object.assign({"Accept":"application/json"}, options.headers||{});
     const res = await fetch(path, Object.assign({}, options, {headers}));
     const text = await res.text();
     try { return {status: res.status, body: JSON.parse(text)}; } catch { return {status: res.status, body: text}; }
   }
+  function auth(token) { return token ? {Authorization:"Bearer "+token, "Content-Type":"application/json"} : {"Content-Type":"application/json"}; }
   async function loadCatalog() {
-    const index = await api("/auth-pro/index.json");
-    document.getElementById("catalog").textContent = JSON.stringify(index, null, 2);
+    const index = await api("/software-source/index.json");
+    document.getElementById("catalog").textContent = JSON.stringify(index.body, null, 2);
   }
   async function applyDev() {
     const r = await api("/api/v1/source/developer/apply", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({
@@ -130,6 +214,12 @@
     })});
     msg(r.body.msg || JSON.stringify(r.body), r.body.code===200);
   }
+  async function statusDev() {
+    const r = await api("/api/v1/source/developer/apply/status", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({
+      username: document.getElementById("applyUser").value || document.getElementById("loginUser").value,
+    })});
+    msg(JSON.stringify(r.body), r.body.code===200);
+  }
   async function loginDev() {
     const r = await api("/api/v1/source/developer/login", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({
       username: document.getElementById("loginUser").value, password: document.getElementById("loginPass").value,
@@ -137,28 +227,34 @@
     if (r.body.code===200) { devToken = r.body.data.token; document.getElementById("devToken").textContent = "已登录 "+r.body.data.username; }
     msg(r.body.msg || JSON.stringify(r.body), r.body.code===200);
   }
-  async function publishPlugin() {
-    const file = document.getElementById("pluginFile").files[0];
-    if (!file || !devToken) { msg("需要开发者登录并选择插件 ZIP", false); return; }
-    const form = new FormData();
-    form.set("id", document.getElementById("pluginId").value);
-    form.set("name", document.getElementById("pluginName").value);
-    form.set("version", document.getElementById("pluginVersion").value);
-    form.set("file", file);
-    const r = await api("/api/v1/source/developer/plugins", {method:"POST", headers:{Authorization:"Bearer "+devToken}, body: form});
+  async function savePlugin() {
+    const r = await api("/api/v1/source/developer/plugins", {method:"POST", headers:auth(devToken), body: JSON.stringify({
+      id: document.getElementById("pluginId").value,
+      name: document.getElementById("pluginName").value,
+      version: document.getElementById("pluginVersion").value,
+      downloadUrl: document.getElementById("pluginUrl").value,
+      sha256: document.getElementById("pluginSha").value,
+    })});
     msg(r.body.msg || JSON.stringify(r.body), r.body.code===200);
   }
-  async function publishTemplate() {
-    const file = document.getElementById("tplFile").files[0];
-    if (!file || !devToken) { msg("需要开发者登录并选择模板文件", false); return; }
-    const form = new FormData();
-    form.set("templateKey", document.getElementById("tplKey").value);
-    form.set("name", document.getElementById("tplName").value);
-    form.set("version", document.getElementById("tplVersion").value);
-    form.set("file", file);
-    const preview = document.getElementById("tplPreview").files[0];
-    if (preview) form.set("preview", preview);
-    const r = await api("/api/v1/source/developer/templates", {method:"POST", headers:{Authorization:"Bearer "+devToken}, body: form});
+  async function submitPlugin() {
+    const id = document.getElementById("pluginId").value;
+    const r = await api("/api/v1/source/developer/plugins/"+id+"/submit", {method:"POST", headers:auth(devToken), body:"{}"});
+    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200);
+  }
+  async function saveTemplate() {
+    const r = await api("/api/v1/source/developer/templates", {method:"POST", headers:auth(devToken), body: JSON.stringify({
+      templateKey: document.getElementById("tplKey").value,
+      name: document.getElementById("tplName").value,
+      templateUrl: document.getElementById("tplUrl").value,
+      sha256: document.getElementById("tplSha").value,
+      schemaVersion: 1,
+    })});
+    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200);
+  }
+  async function submitTemplate() {
+    const id = document.getElementById("tplKey").value;
+    const r = await api("/api/v1/source/developer/templates/"+id+"/submit", {method:"POST", headers:auth(devToken), body:"{}"});
     msg(r.body.msg || JSON.stringify(r.body), r.body.code===200);
   }
   async function loginAdmin() {
@@ -170,22 +266,91 @@
   }
   async function loadApps() {
     if (!adminToken) { msg("请先管理员登录", false); return; }
-    const r = await api("/api/v1/source/admin/applications", {headers:{Authorization:"Bearer "+adminToken}});
+    const r = await api("/api/v1/source/admin/applications", {headers:auth(adminToken)});
     document.getElementById("apps").textContent = JSON.stringify(r.body, null, 2);
   }
   async function approveApp() {
     const id = document.getElementById("appId").value;
-    const r = await api("/api/v1/source/admin/applications/"+id+"/approve", {method:"POST", headers:{Authorization:"Bearer "+adminToken, "Content-Type":"application/json"}, body:"{}"});
+    const r = await api("/api/v1/source/admin/applications/"+id+"/approve", {method:"POST", headers:auth(adminToken), body:"{}"});
     msg(r.body.msg || JSON.stringify(r.body), r.body.code===200); await loadApps();
   }
   async function rejectApp() {
     const id = document.getElementById("appId").value;
-    const r = await api("/api/v1/source/admin/applications/"+id+"/reject", {method:"POST", headers:{Authorization:"Bearer "+adminToken, "Content-Type":"application/json"}, body: JSON.stringify({note:"rejected"})});
+    const r = await api("/api/v1/source/admin/applications/"+id+"/reject", {method:"POST", headers:auth(adminToken), body: JSON.stringify({note: document.getElementById("appNote").value||"rejected"})});
     msg(r.body.msg || JSON.stringify(r.body), r.body.code===200); await loadApps();
+  }
+  async function freezeApp() {
+    const id = document.getElementById("appId").value;
+    const r = await api("/api/v1/source/admin/applications/"+id+"/freeze", {method:"POST", headers:auth(adminToken), body: JSON.stringify({note: document.getElementById("appNote").value||"frozen"})});
+    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200); await loadApps();
+  }
+  async function loadPlugins() {
+    const r = await api("/api/v1/source/admin/plugins", {headers:auth(adminToken)});
+    document.getElementById("pluginList").textContent = JSON.stringify(r.body, null, 2);
+  }
+  async function registerPlugin() {
+    const r = await api("/api/v1/source/admin/plugins", {method:"PUT", headers:auth(adminToken), body: JSON.stringify({
+      id: document.getElementById("admPluginId").value,
+      name: document.getElementById("admPluginName").value,
+      downloadUrl: document.getElementById("admPluginUrl").value,
+      sha256: document.getElementById("admPluginSha").value,
+    })});
+    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200); await loadPlugins();
+  }
+  async function actPlugin(action) {
+    const id = document.getElementById("admPluginId").value;
+    const r = await api("/api/v1/source/admin/plugins/"+id+"/"+action, {method:"POST", headers:auth(adminToken), body:"{}"});
+    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200); await loadPlugins();
+  }
+  const approvePlugin = () => actPlugin("approve");
+  const rejectPlugin = () => actPlugin("reject");
+  const shelfPlugin = () => actPlugin("shelf");
+  const unshelfPlugin = () => actPlugin("unshelf");
+  const deprecatePlugin = () => actPlugin("deprecate");
+  async function loadTemplates() {
+    const r = await api("/api/v1/source/admin/templates", {headers:auth(adminToken)});
+    document.getElementById("tplList").textContent = JSON.stringify(r.body, null, 2);
+  }
+  async function registerTemplate() {
+    const r = await api("/api/v1/source/admin/templates", {method:"PUT", headers:auth(adminToken), body: JSON.stringify({
+      id: document.getElementById("admTplId").value,
+      name: document.getElementById("admTplName").value,
+      templateUrl: document.getElementById("admTplUrl").value,
+      sha256: document.getElementById("admTplSha").value,
+      schemaVersion: 1,
+    })});
+    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200); await loadTemplates();
+  }
+  async function actTemplate(action) {
+    const id = document.getElementById("admTplId").value;
+    const r = await api("/api/v1/source/admin/templates/"+id+"/"+action, {method:"POST", headers:auth(adminToken), body:"{}"});
+    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200); await loadTemplates();
+  }
+  const approveTemplate = () => actTemplate("approve");
+  const rejectTemplate = () => actTemplate("reject");
+  const shelfTemplate = () => actTemplate("shelf");
+  const unshelfTemplate = () => actTemplate("unshelf");
+  const deprecateTemplate = () => actTemplate("deprecate");
+  async function loadIndex() {
+    const r = await api("/api/v1/source/admin/index", {headers:auth(adminToken)});
+    document.getElementById("indexSnap").textContent = JSON.stringify(r.body, null, 2);
+  }
+  async function regenIndex() {
+    const r = await api("/api/v1/source/admin/index/regenerate", {method:"POST", headers:auth(adminToken), body:"{}"});
+    document.getElementById("indexSnap").textContent = JSON.stringify(r.body, null, 2);
+    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200);
+  }
+  async function loadAudit() {
+    const r = await api("/api/v1/source/admin/audit", {headers:auth(adminToken)});
+    document.getElementById("indexSnap").textContent = JSON.stringify(r.body, null, 2);
+  }
+  async function loadAds() {
+    const r = await api("/api/v1/source/admin/advertisements", {headers:auth(adminToken)});
+    document.getElementById("ads").textContent = JSON.stringify(r.body, null, 2);
   }
   async function saveAd() {
     if (!adminToken) { msg("请先管理员登录", false); return; }
-    const r = await api("/api/v1/source/admin/advertisements", {method:"PUT", headers:{Authorization:"Bearer "+adminToken, "Content-Type":"application/json"}, body: JSON.stringify({
+    const r = await api("/api/v1/source/admin/advertisements", {method:"PUT", headers:auth(adminToken), body: JSON.stringify({
       id: document.getElementById("adId").value,
       title: document.getElementById("adTitle").value,
       imageUrl: document.getElementById("adImage").value,
@@ -193,8 +358,9 @@
       position: document.getElementById("adPos").value,
       weight: Number(document.getElementById("adWeight").value||0),
     })});
-    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200);
+    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200); await loadAds();
   }
+  showTab("catalog");
 </script>
 </body>
 </html>

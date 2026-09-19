@@ -1,14 +1,11 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -49,37 +46,6 @@ func sourceJSON(t *testing.T, router http.Handler, method, path, token, body str
 	return recorder
 }
 
-func sourceMultipart(t *testing.T, router http.Handler, path, token string, fields map[string]string, fileField, filename string, content []byte) *httptest.ResponseRecorder {
-	t.Helper()
-	var buffer bytes.Buffer
-	writer := multipart.NewWriter(&buffer)
-	for key, value := range fields {
-		if err := writer.WriteField(key, value); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if filename != "" {
-		part, err := writer.CreateFormFile(fileField, filename)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := part.Write(content); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(http.MethodPost, path, &buffer)
-	request.Header.Set("Content-Type", writer.FormDataContentType())
-	if token != "" {
-		request.Header.Set("Authorization", "Bearer "+token)
-	}
-	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, request)
-	return recorder
-}
-
 func sourceAdminToken(t *testing.T) string {
 	t.Helper()
 	claims := middleware.Claims{
@@ -104,35 +70,15 @@ func sourceBodyCode(t *testing.T, recorder *httptest.ResponseRecorder) int {
 	return body.Code
 }
 
-func TestSourceStationIndexMatchesPluginSourceClient(t *testing.T) {
-	router, _ := sourceStationRouter(t)
-	server := httptest.NewServer(router)
-	t.Cleanup(server.Close)
-
-	index, payload, sourceType, err := fetchPluginSourceManifest(context.Background(), server.URL+"/auth-pro/index.json")
-	if err != nil || sourceType != "json" {
-		t.Fatalf("type=%q err=%v body=%s", sourceType, err, payload)
-	}
-	if index.Name != sourceStationSourceName || index.Plugins == nil || index.HomeTemplates == nil {
-		t.Fatalf("empty index=%+v body=%s", index, payload)
-	}
-	if len(index.Plugins) != 0 || len(index.HomeTemplates) != 0 {
-		t.Fatalf("unpublished catalog must be empty: %s", payload)
-	}
-	var raw map[string]any
-	if err := json.Unmarshal(payload, &raw); err != nil {
-		t.Fatal(err)
-	}
-	if _, exists := raw["data"]; exists {
-		t.Fatalf("index.json must be a raw manifest, not an API envelope: %s", payload)
-	}
+func sourceTestSHA256() string {
+	return strings.Repeat("ab", 32)
 }
 
-func TestSourceStationPublishFeedsIndexJSONAndRelativeTemplateURL(t *testing.T) {
-	router, _ := sourceStationRouter(t)
-	admin := sourceAdminToken(t)
+func sourceApproveDeveloper(t *testing.T, router http.Handler, username, password string) (adminToken, devToken string, appID int64) {
+	t.Helper()
+	adminToken = sourceAdminToken(t)
 	apply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", "",
-		`{"username":"dev-alice","password":"secret1","displayName":"Alice","reason":"publish demo"}`)
+		`{"username":"`+username+`","password":"`+password+`","displayName":"`+username+`","reason":"publish demo"}`)
 	if sourceBodyCode(t, apply) != 200 {
 		t.Fatalf("apply=%s", apply.Body.String())
 	}
@@ -144,12 +90,13 @@ func TestSourceStationPublishFeedsIndexJSONAndRelativeTemplateURL(t *testing.T) 
 	if err := json.Unmarshal(apply.Body.Bytes(), &applyBody); err != nil {
 		t.Fatal(err)
 	}
-	approve := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(applyBody.Data.ID)+"/approve", admin, "{}")
+	appID = applyBody.Data.ID
+	approve := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(appID)+"/approve", adminToken, "{}")
 	if sourceBodyCode(t, approve) != 200 || !strings.Contains(approve.Body.String(), sourceDeveloperRoleCode) {
 		t.Fatalf("approve=%s", approve.Body.String())
 	}
 	login := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/login", "",
-		`{"username":"dev-alice","password":"secret1"}`)
+		`{"username":"`+username+`","password":"`+password+`"}`)
 	if sourceBodyCode(t, login) != 200 {
 		t.Fatalf("login=%s", login.Body.String())
 	}
@@ -161,89 +108,184 @@ func TestSourceStationPublishFeedsIndexJSONAndRelativeTemplateURL(t *testing.T) 
 	if err := json.Unmarshal(login.Body.Bytes(), &loginBody); err != nil {
 		t.Fatal(err)
 	}
+	return adminToken, loginBody.Data.Token, appID
+}
 
-	pluginZIP := makeTestZIP(t,
-		testZIPEntry{name: "plugin.json", data: `{"id":"demo-plugin","name":"Demo"}`},
-		testZIPEntry{name: "readme.txt", data: "demo plugin"},
-	)
-	pluginResp := sourceMultipart(t, router, "/api/v1/source/developer/plugins", loginBody.Data.Token, map[string]string{
-		"id": "demo-plugin", "name": "Demo Plugin", "version": "1.0.0", "description": "授权本地插件源测试", "category": "other",
-	}, "file", "demo-plugin.zip", pluginZIP)
-	if sourceBodyCode(t, pluginResp) != 200 {
-		t.Fatalf("publish plugin=%s", pluginResp.Body.String())
+func TestSourceStationIndexJSONShape(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	server := httptest.NewServer(router)
+	t.Cleanup(server.Close)
+
+	for _, path := range []string{"/software-source/index.json", "/auth-pro/index.json"} {
+		index, payload, sourceType, err := fetchPluginSourceManifest(context.Background(), server.URL+path)
+		if err != nil || sourceType != "json" {
+			t.Fatalf("%s type=%q err=%v body=%s", path, sourceType, err, payload)
+		}
+		if index.Name != sourceStationSourceName || index.Plugins == nil || index.HomeTemplates == nil {
+			t.Fatalf("%s empty index=%+v body=%s", path, index, payload)
+		}
+		if len(index.Plugins) != 0 || len(index.HomeTemplates) != 0 {
+			t.Fatalf("%s unpublished catalog must be empty: %s", path, payload)
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(payload, &raw); err != nil {
+			t.Fatal(err)
+		}
+		if _, exists := raw["data"]; exists {
+			t.Fatalf("index.json must be a raw manifest, not an API envelope: %s", payload)
+		}
+		if _, ok := raw["plugins"].([]any); !ok {
+			t.Fatalf("plugins must be array: %s", payload)
+		}
+		if _, ok := raw["homeTemplates"].([]any); !ok {
+			t.Fatalf("homeTemplates must be array: %s", payload)
+		}
+	}
+}
+
+func TestSourceStationApproveFlowFeedsPublishedIndex(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin, dev, _ := sourceApproveDeveloper(t, router, "dev-alice", "secret1")
+	sha := sourceTestSHA256()
+	pluginBody := `{"id":"demo-plugin","name":"Demo Plugin","version":"1.0.0","description":"授权本地插件源测试","category":"other","downloadUrl":"https://cdn.example.com/demo-plugin.zip","sha256":"` + sha + `"}`
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins", dev, pluginBody); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("save plugin=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins/demo-plugin/submit", dev, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("submit plugin=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/approve", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("approve plugin=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/shelf", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("shelf plugin=%s", rec.Body.String())
 	}
 
-	templateJSON := []byte(`{"schemaVersion":1,"hero":{"title":"源站首页"}}`)
-	templateResp := sourceMultipart(t, router, "/api/v1/source/developer/templates", loginBody.Data.Token, map[string]string{
-		"templateKey": "source-home", "name": "源站首页", "version": "1.0.0", "description": "最小首页模板",
-	}, "file", "source-home.json", templateJSON)
-	if sourceBodyCode(t, templateResp) != 200 {
-		t.Fatalf("publish template=%s", templateResp.Body.String())
+	templateBody := `{"templateKey":"source-home","name":"源站首页","version":"1.0.0","description":"最小首页模板","schemaVersion":1,"templateUrl":"https://cdn.example.com/templates/source-home.json","sha256":"` + sha + `"}`
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/templates", dev, templateBody); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("save template=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/templates/source-home/submit", dev, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("submit template=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/templates/source-home/approve", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("approve template=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/templates/source-home/shelf", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("shelf template=%s", rec.Body.String())
 	}
 
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
-	indexURL := server.URL + "/auth-pro/index.json"
-	index, payload, sourceType, err := fetchPluginSourceManifest(context.Background(), indexURL)
+	index, payload, sourceType, err := fetchPluginSourceManifest(context.Background(), server.URL+"/software-source/index.json")
 	if err != nil || sourceType != "json" || len(index.Plugins) != 1 || len(index.HomeTemplates) != 1 {
 		t.Fatalf("index=%+v err=%v body=%s", index, err, payload)
 	}
-	if index.Plugins[0].ID != "demo-plugin" || !strings.HasSuffix(index.Plugins[0].DownloadURL, "/auth-pro/plugins/demo-plugin.zip") {
+	if index.Plugins[0].ID != "demo-plugin" || index.Plugins[0].DownloadURL != "https://cdn.example.com/demo-plugin.zip" {
 		t.Fatalf("plugin=%+v", index.Plugins[0])
 	}
-
 	var manifest struct {
+		Name          string `json:"name"`
 		HomeTemplates []struct {
 			ID            string `json:"id"`
 			Name          string `json:"name"`
+			Description   string `json:"description"`
+			Version       string `json:"version"`
 			SchemaVersion int    `json:"schemaVersion"`
 			SHA256        string `json:"sha256"`
 			TemplateURL   string `json:"templateUrl"`
-			TemplatePath  string `json:"templatePath"`
 		} `json:"homeTemplates"`
 	}
 	if err := json.Unmarshal(payload, &manifest); err != nil {
 		t.Fatal(err)
 	}
 	item := manifest.HomeTemplates[0]
-	if item.ID != "source-home" || item.SchemaVersion != 1 || item.TemplateURL != "templates/source-home.json" || item.TemplatePath != "" {
+	if item.ID != "source-home" || item.Name == "" || item.Version != "1.0.0" || item.SchemaVersion != 1 {
 		t.Fatalf("homeTemplate=%+v body=%s", item, payload)
 	}
-	if len(item.SHA256) != 64 || item.SHA256 != sourceContentSHA256(templateJSON) {
-		t.Fatalf("sha256=%q", item.SHA256)
+	if item.SHA256 != sha || item.TemplateURL != "https://cdn.example.com/templates/source-home.json" {
+		t.Fatalf("homeTemplate location=%+v", item)
 	}
 
-	resolved, err := url.Parse(indexURL)
-	if err != nil {
-		t.Fatal(err)
+	status := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply/status", "", `{"username":"dev-alice"}`)
+	if sourceBodyCode(t, status) != 200 || !strings.Contains(status.Body.String(), `"approved"`) {
+		t.Fatalf("apply status=%s", status.Body.String())
 	}
-	relative, err := url.Parse(item.TemplateURL)
-	if err != nil {
-		t.Fatal(err)
+}
+
+func TestSourceStationUnshelvedItemsAbsentFromIndex(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	sha := sourceTestSHA256()
+	register := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
+		`{"id":"ext-plugin","name":"外部插件","downloadUrl":"https://cdn.example.com/ext.zip","sha256":"`+sha+`","shelf":true}`)
+	if sourceBodyCode(t, register) != 200 {
+		t.Fatalf("register=%s", register.Body.String())
 	}
-	templateURL := resolved.ResolveReference(relative).String()
-	if !strings.HasSuffix(templateURL, "/auth-pro/templates/source-home.json") {
-		t.Fatalf("resolved templateUrl=%s", templateURL)
-	}
-	content, err := fetchPluginHTTP(context.Background(), templateURL, homeTemplateMaxBytes, time.Second)
-	if err != nil || string(content) != string(templateJSON) {
-		t.Fatalf("template file=%s err=%v", content, err)
-	}
-	if err := validateHomeTemplateDocument(content); err != nil {
-		t.Fatal(err)
+	tpl := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/templates", admin,
+		`{"id":"ext-home","name":"外部首页","templateUrl":"templates/ext-home.json","sha256":"`+sha+`","schemaVersion":1,"shelf":true}`)
+	if sourceBodyCode(t, tpl) != 200 {
+		t.Fatalf("register template=%s", tpl.Body.String())
 	}
 
-	pkg, err := downloadPluginPackage(index.Plugins[0].DownloadURL)
-	if err != nil || len(pkg) == 0 {
-		t.Fatalf("plugin package err=%v", err)
+	live := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	if live.Code != http.StatusOK || !strings.Contains(live.Body.String(), `"ext-plugin"`) || !strings.Contains(live.Body.String(), `"ext-home"`) {
+		t.Fatalf("published index=%s", live.Body.String())
 	}
 
-	missing := sourceJSON(t, router, http.MethodGet, "/auth-pro/templates/missing-home.json", "", "")
-	if missing.Code != http.StatusNotFound {
-		t.Fatalf("missing template status=%d body=%s", missing.Code, missing.Body.String())
+	unshelf := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/ext-plugin/unshelf", admin, "{}")
+	if sourceBodyCode(t, unshelf) != 200 {
+		t.Fatalf("unshelf plugin=%s", unshelf.Body.String())
 	}
-	if _, err := sourceStationFileID("../clean-home.json"); err == nil {
-		t.Fatal("path escape must be rejected")
+	unshelfTpl := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/templates/ext-home/unshelf", admin, "{}")
+	if sourceBodyCode(t, unshelfTpl) != 200 {
+		t.Fatalf("unshelf template=%s", unshelfTpl.Body.String())
+	}
+
+	hidden := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	if strings.Contains(hidden.Body.String(), "ext-plugin") || strings.Contains(hidden.Body.String(), "ext-home") {
+		t.Fatalf("unshelved items must be absent: %s", hidden.Body.String())
+	}
+	if !strings.Contains(hidden.Body.String(), `"plugins":[]`) || !strings.Contains(hidden.Body.String(), `"homeTemplates":[]`) {
+		t.Fatalf("empty arrays expected: %s", hidden.Body.String())
+	}
+
+	audit := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/audit", admin, "")
+	if sourceBodyCode(t, audit) != 200 || !strings.Contains(audit.Body.String(), `"unshelf"`) {
+		t.Fatalf("audit=%s", audit.Body.String())
+	}
+}
+
+func TestSourceStationPublishRequiresSHA256AndURL(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	incomplete := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
+		`{"id":"no-hash","name":"缺校验","downloadUrl":"https://cdn.example.com/x.zip","shelf":true}`)
+	if sourceBodyCode(t, incomplete) != 400 || !strings.Contains(incomplete.Body.String(), "sha256") {
+		t.Fatalf("missing sha256=%s", incomplete.Body.String())
+	}
+	noURL := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
+		`{"id":"no-url","name":"缺地址","sha256":"`+sourceTestSHA256()+`","shelf":true}`)
+	if sourceBodyCode(t, noURL) != 400 {
+		t.Fatalf("missing url=%s", noURL.Body.String())
+	}
+	httpURL := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
+		`{"id":"plain-http","name":"明文","downloadUrl":"http://cdn.example.com/x.zip","sha256":"`+sourceTestSHA256()+`"}`)
+	if sourceBodyCode(t, httpURL) != 400 {
+		t.Fatalf("http url=%s", httpURL.Body.String())
+	}
+	draft := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/templates", admin,
+		`{"id":"draft-home","name":"草稿首页"}`)
+	if sourceBodyCode(t, draft) != 200 {
+		t.Fatalf("draft template=%s", draft.Body.String())
+	}
+	shelf := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/templates/draft-home/shelf", admin, "{}")
+	if sourceBodyCode(t, shelf) != 400 {
+		t.Fatalf("shelf without sha/url=%s", shelf.Body.String())
+	}
+	live := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	if strings.Contains(live.Body.String(), "no-hash") || strings.Contains(live.Body.String(), "draft-home") {
+		t.Fatalf("incomplete items leaked into index: %s", live.Body.String())
 	}
 }
 
@@ -289,35 +331,15 @@ func TestSourceAdvertisementCRUDFeedsLocalEndpoint(t *testing.T) {
 	}
 }
 
-func TestSourceStationPageAndInvalidTemplateRejected(t *testing.T) {
+func TestSourceStationPageDocumentsMetadataOnlyCatalog(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	page := sourceJSON(t, router, http.MethodGet, "/source", "", "")
-	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "/auth-pro/index.json") {
-		t.Fatalf("source page=%d %s", page.Code, page.Body.String())
+	body := page.Body.String()
+	if page.Code != http.StatusOK || !strings.Contains(body, "/software-source/index.json") {
+		t.Fatalf("source page=%d %s", page.Code, body)
 	}
-	admin := sourceAdminToken(t)
-	apply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", "",
-		`{"username":"dev-cara","password":"secret1"}`)
-	var applyBody struct {
-		Data struct {
-			ID int64 `json:"id"`
-		} `json:"data"`
-	}
-	_ = json.Unmarshal(apply.Body.Bytes(), &applyBody)
-	sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(applyBody.Data.ID)+"/approve", admin, "{}")
-	login := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/login", "",
-		`{"username":"dev-cara","password":"secret1"}`)
-	var loginBody struct {
-		Data struct {
-			Token string `json:"token"`
-		} `json:"data"`
-	}
-	_ = json.Unmarshal(login.Body.Bytes(), &loginBody)
-	bad := sourceMultipart(t, router, "/api/v1/source/developer/templates", loginBody.Data.Token, map[string]string{
-		"templateKey": "bad-home", "name": "坏模板",
-	}, "file", "bad.json", []byte(`{"schemaVersion":2,"hero":{"title":"x"}}`))
-	if sourceBodyCode(t, bad) != 400 {
-		t.Fatalf("invalid template=%s", bad.Body.String())
+	if !strings.Contains(body, "从不存储") || !strings.Contains(body, "下架") {
+		t.Fatalf("page should document metadata-only and unshelf semantics")
 	}
 }
 

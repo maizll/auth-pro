@@ -4,9 +4,9 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,24 +16,35 @@ import (
 )
 
 const (
-	sourceStationSourceID   = "local"
 	sourceStationSourceName = "本站软件源"
-	sourceStationSourceType = "json"
 	sourceDeveloperRoleCode = "R_DEVELOPER"
 	sourceDeveloperRoleName = "开发者"
 
 	sourceApplicationPending  = "pending"
 	sourceApplicationApproved = "approved"
 	sourceApplicationRejected = "rejected"
+	sourceApplicationFrozen   = "frozen"
+
+	sourceItemDraft      = "draft"
+	sourceItemReview     = "review"
+	sourceItemApproved   = "approved"
+	sourceItemPublished  = "published"
+	sourceItemHidden     = "hidden"
+	sourceItemRejected   = "rejected"
+	sourceItemDeprecated = "deprecated"
 )
 
 var (
-	errSourceNotFound      = errors.New("目录项不存在")
-	errSourceConflict      = errors.New("标识已被占用")
-	errSourceForbidden     = errors.New("只能修改自己发布的目录项")
-	errApplicationPending  = errors.New("入驻申请正在审核中")
-	errApplicationReviewed = errors.New("入驻申请已处理")
-	errDeveloperDisabled   = errors.New("开发者账号已禁用")
+	errSourceNotFound          = errors.New("目录项不存在")
+	errSourceConflict          = errors.New("标识已被占用")
+	errSourceForbidden         = errors.New("只能修改自己的草稿或已驳回条目")
+	errApplicationPending      = errors.New("入驻申请正在审核中")
+	errApplicationReviewed     = errors.New("入驻申请已处理")
+	errDeveloperDisabled       = errors.New("开发者账号已冻结")
+	errSourcePublishIncomplete = errors.New("上架需要 64 位 sha256 和外部下载/模板地址")
+	errSourceInvalidStatus     = errors.New("当前状态不允许该操作")
+
+	sha256HexPattern = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
 
 	sourceStationOverride   sourceStationStore
 	sourceStationOverrideMu sync.RWMutex
@@ -46,36 +57,39 @@ type sourceAuthor struct {
 }
 
 type sourcePlugin struct {
-	ID          string
-	DeveloperID int64
-	Category    string
-	Name        string
-	Description string
-	Icon        string
-	Version     string
-	Author      sourceAuthor
-	SHA256      string
-	Published   bool
-	UpdatedAt   time.Time
-	CreatedAt   time.Time
+	ID          string       `json:"id"`
+	DeveloperID int64        `json:"developerId"`
+	Category    string       `json:"category"`
+	Name        string       `json:"name"`
+	Description string       `json:"description"`
+	Icon        string       `json:"icon"`
+	Version     string       `json:"version"`
+	Author      sourceAuthor `json:"author"`
+	SHA256      string       `json:"sha256"`
+	DownloadURL string       `json:"downloadUrl"`
+	Status      string       `json:"status"`
+	ReviewNote  string       `json:"reviewNote"`
+	ReviewedBy  string       `json:"reviewedBy"`
+	UpdatedAt   time.Time    `json:"updatedAt"`
+	CreatedAt   time.Time    `json:"createdAt"`
 }
 
 type sourceTemplate struct {
-	ID                 string
-	DeveloperID        int64
-	TemplateKey        string
-	Name               string
-	Description        string
-	Version            string
-	Format             string
-	SchemaVersion      int
-	SHA256             string
-	Author             sourceAuthor
-	PreviewContentType string
-	HasPreview         bool
-	Published          bool
-	UpdatedAt          time.Time
-	CreatedAt          time.Time
+	ID            string       `json:"id"`
+	DeveloperID   int64        `json:"developerId"`
+	TemplateKey   string       `json:"templateKey"`
+	Name          string       `json:"name"`
+	Description   string       `json:"description"`
+	Version       string       `json:"version"`
+	SchemaVersion int          `json:"schemaVersion"`
+	SHA256        string       `json:"sha256"`
+	TemplateURL   string       `json:"templateUrl"`
+	Status        string       `json:"status"`
+	ReviewNote    string       `json:"reviewNote"`
+	ReviewedBy    string       `json:"reviewedBy"`
+	Author        sourceAuthor `json:"author"`
+	UpdatedAt     time.Time    `json:"updatedAt"`
+	CreatedAt     time.Time    `json:"createdAt"`
 }
 
 type sourceApplication struct {
@@ -103,31 +117,55 @@ type sourceDeveloper struct {
 	CreatedAt     time.Time
 }
 
+type sourceAuditEntry struct {
+	ID         int64     `json:"id"`
+	ActorType  string    `json:"actorType"`
+	ActorName  string    `json:"actorName"`
+	Action     string    `json:"action"`
+	TargetType string    `json:"targetType"`
+	TargetID   string    `json:"targetId"`
+	Detail     string    `json:"detail"`
+	CreatedAt  time.Time `json:"createdAt"`
+}
+
+type sourceIndexSnapshot struct {
+	Payload     string    `json:"payload"`
+	GeneratedAt time.Time `json:"generatedAt"`
+	GeneratedBy string    `json:"generatedBy"`
+}
+
 type sourceStationStore interface {
 	Ensure() error
-	CatalogKey() (string, error)
-	SetCatalogKey(key string) error
-	Revision() (int64, error)
 
-	ListPlugins() ([]sourcePlugin, error)
-	GetPlugin(id string) (sourcePlugin, []byte, error)
-	PutPlugin(plugin sourcePlugin, payload []byte) error
+	ListPlugins(status string) ([]sourcePlugin, error)
+	GetPlugin(id string) (sourcePlugin, error)
+	UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourcePlugin, error)
+	SetPluginStatus(id, status, actor, note string) (sourcePlugin, error)
 
-	ListTemplates() ([]sourceTemplate, error)
-	GetTemplate(id string) (sourceTemplate, []byte, []byte, error)
-	PutTemplate(item sourceTemplate, content, preview []byte) error
+	ListTemplates(status string) ([]sourceTemplate, error)
+	GetTemplate(id string) (sourceTemplate, error)
+	UpsertTemplate(item sourceTemplate, asAdmin bool) (sourceTemplate, error)
+	SetTemplateStatus(id, status, actor, note string) (sourceTemplate, error)
 
 	CreateApplication(app sourceApplication) (sourceApplication, error)
 	ListApplications(status string) ([]sourceApplication, error)
 	GetApplication(id int64) (sourceApplication, error)
 	ApproveApplication(id int64, reviewer string) (sourceDeveloper, error)
 	RejectApplication(id int64, reviewer, note string) error
+	FreezeApplication(id int64, reviewer, note string) error
 	GetDeveloperByUsername(username string) (sourceDeveloper, error)
 	GetDeveloperByID(id int64) (sourceDeveloper, error)
+	FreezeDeveloper(id int64, actor, note string) error
+	ListDevelopers() ([]sourceDeveloper, error)
 
 	ListAdvertisements(position string) ([]advertisementRecord, error)
 	UpsertAdvertisement(record advertisementRecord) error
 	DeleteAdvertisement(id string) error
+
+	AppendAudit(entry sourceAuditEntry) error
+	ListAudit(limit int) ([]sourceAuditEntry, error)
+	SaveIndexSnapshot(payload, actor string) error
+	LatestIndexSnapshot() (sourceIndexSnapshot, error)
 }
 
 func SetSourceStationStoreForTest(store sourceStationStore) func() {
@@ -157,34 +195,76 @@ func sourceContentSHA256(payload []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func sourceItemReady(sha256Value, location string) bool {
+	return sha256HexPattern.MatchString(strings.TrimSpace(sha256Value)) && strings.TrimSpace(location) != ""
+}
+
+func sourceCatalogAuditAction(status string) string {
+	switch status {
+	case sourceItemPublished:
+		return "shelf"
+	case sourceItemHidden:
+		return "unshelf"
+	case sourceItemApproved:
+		return "approve"
+	case sourceItemRejected:
+		return "reject"
+	case sourceItemDeprecated:
+		return "deprecate"
+	case sourceItemReview:
+		return "submit"
+	default:
+		return status
+	}
+}
+
+func sourceTransitionAllowed(from, to string) bool {
+	if from == to {
+		return true
+	}
+	switch to {
+	case sourceItemReview:
+		return from == sourceItemDraft || from == sourceItemRejected
+	case sourceItemApproved:
+		return from == sourceItemReview
+	case sourceItemRejected:
+		return from == sourceItemReview
+	case sourceItemPublished:
+		return from == sourceItemApproved || from == sourceItemHidden || from == sourceItemDraft || from == sourceItemReview
+	case sourceItemHidden:
+		return from == sourceItemPublished
+	case sourceItemDeprecated:
+		return from == sourceItemPublished || from == sourceItemHidden || from == sourceItemApproved
+	default:
+		return false
+	}
+}
+
 type memorySourceStore struct {
-	mu            sync.Mutex
-	revision      atomic.Int64
-	catalogKey    string
-	plugins       map[string]sourcePlugin
-	pluginBytes   map[string][]byte
-	templates     map[string]sourceTemplate
-	templateBytes map[string][]byte
-	previewBytes  map[string][]byte
-	applications  map[int64]sourceApplication
-	developers    map[int64]sourceDeveloper
-	ads           map[string]advertisementRecord
-	nextAppID     int64
-	nextDevID     int64
+	mu           sync.Mutex
+	revision     atomic.Int64
+	plugins      map[string]sourcePlugin
+	templates    map[string]sourceTemplate
+	applications map[int64]sourceApplication
+	developers   map[int64]sourceDeveloper
+	ads          map[string]advertisementRecord
+	audits       []sourceAuditEntry
+	snapshot     sourceIndexSnapshot
+	nextAppID    int64
+	nextDevID    int64
+	nextAuditID  int64
 }
 
 func newMemorySourceStore() *memorySourceStore {
 	store := &memorySourceStore{
-		plugins:       map[string]sourcePlugin{},
-		pluginBytes:   map[string][]byte{},
-		templates:     map[string]sourceTemplate{},
-		templateBytes: map[string][]byte{},
-		previewBytes:  map[string][]byte{},
-		applications:  map[int64]sourceApplication{},
-		developers:    map[int64]sourceDeveloper{},
-		ads:           map[string]advertisementRecord{},
-		nextAppID:     1,
-		nextDevID:     1,
+		plugins:      map[string]sourcePlugin{},
+		templates:    map[string]sourceTemplate{},
+		applications: map[int64]sourceApplication{},
+		developers:   map[int64]sourceDeveloper{},
+		ads:          map[string]advertisementRecord{},
+		nextAppID:    1,
+		nextDevID:    1,
+		nextAuditID:  1,
 	}
 	store.revision.Store(1)
 	return store
@@ -192,129 +272,174 @@ func newMemorySourceStore() *memorySourceStore {
 
 func (store *memorySourceStore) Ensure() error { return nil }
 
-func (store *memorySourceStore) CatalogKey() (string, error) {
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	return store.catalogKey, nil
-}
-
-func (store *memorySourceStore) SetCatalogKey(key string) error {
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	store.catalogKey = strings.TrimSpace(key)
-	return nil
-}
-
-func (store *memorySourceStore) Revision() (int64, error) {
-	value := store.revision.Load()
-	if value < 1 {
-		return 1, nil
+func (store *memorySourceStore) auditLocked(action, targetType, targetID, actor, detail string) {
+	store.audits = append([]sourceAuditEntry{{
+		ID: store.nextAuditID, ActorType: "admin", ActorName: actor, Action: action,
+		TargetType: targetType, TargetID: targetID, Detail: detail, CreatedAt: time.Now().UTC(),
+	}}, store.audits...)
+	store.nextAuditID++
+	if actor == "" {
+		store.audits[0].ActorType = "system"
 	}
-	return value, nil
 }
 
-func (store *memorySourceStore) bump() {
-	if store.revision.Load() < 1 {
-		store.revision.Store(1)
-	}
-	store.revision.Add(1)
-}
-
-func (store *memorySourceStore) ListPlugins() ([]sourcePlugin, error) {
+func (store *memorySourceStore) ListPlugins(status string) ([]sourcePlugin, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	result := make([]sourcePlugin, 0, len(store.plugins))
 	for _, item := range store.plugins {
-		if item.Published {
+		if status == "" || item.Status == status {
 			result = append(result, item)
 		}
 	}
 	return result, nil
 }
 
-func (store *memorySourceStore) GetPlugin(id string) (sourcePlugin, []byte, error) {
+func (store *memorySourceStore) GetPlugin(id string) (sourcePlugin, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	item, ok := store.plugins[id]
-	if !ok || !item.Published {
-		return sourcePlugin{}, nil, errSourceNotFound
+	if !ok {
+		return sourcePlugin{}, errSourceNotFound
 	}
-	return item, append([]byte(nil), store.pluginBytes[id]...), nil
+	return item, nil
 }
 
-func (store *memorySourceStore) PutPlugin(plugin sourcePlugin, payload []byte) error {
+func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourcePlugin, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if existing, ok := store.plugins[plugin.ID]; ok && existing.DeveloperID != plugin.DeveloperID {
-		return errSourceForbidden
+	existing, exists := store.plugins[plugin.ID]
+	if exists && !asAdmin && existing.DeveloperID != plugin.DeveloperID {
+		return sourcePlugin{}, errSourceForbidden
 	}
-	plugin.SHA256 = sourceContentSHA256(payload)
-	plugin.Published = true
+	if exists && !asAdmin && existing.Status != sourceItemDraft && existing.Status != sourceItemRejected {
+		return sourcePlugin{}, errSourceForbidden
+	}
 	now := time.Now().UTC()
-	if plugin.CreatedAt.IsZero() {
-		if existing, ok := store.plugins[plugin.ID]; ok {
-			plugin.CreatedAt = existing.CreatedAt
-		} else {
-			plugin.CreatedAt = now
+	if exists {
+		plugin.CreatedAt = existing.CreatedAt
+		plugin.Status = existing.Status
+		plugin.ReviewNote = existing.ReviewNote
+		plugin.ReviewedBy = existing.ReviewedBy
+		if existing.DownloadURL != plugin.DownloadURL {
+			actor := "developer"
+			if asAdmin {
+				actor = "admin"
+			}
+			store.auditLocked("url_change", "plugin", plugin.ID, actor, plugin.DownloadURL)
+		}
+	} else {
+		plugin.CreatedAt = now
+		if plugin.Status == "" {
+			plugin.Status = sourceItemDraft
 		}
 	}
 	plugin.UpdatedAt = now
 	store.plugins[plugin.ID] = plugin
-	store.pluginBytes[plugin.ID] = append([]byte(nil), payload...)
-	store.bump()
-	return nil
+	return plugin, nil
 }
 
-func (store *memorySourceStore) ListTemplates() ([]sourceTemplate, error) {
+func (store *memorySourceStore) SetPluginStatus(id, status, actor, note string) (sourcePlugin, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	item, ok := store.plugins[id]
+	if !ok {
+		return sourcePlugin{}, errSourceNotFound
+	}
+	if !sourceTransitionAllowed(item.Status, status) {
+		return sourcePlugin{}, errSourceInvalidStatus
+	}
+	if status == sourceItemPublished && !sourceItemReady(item.SHA256, item.DownloadURL) {
+		return sourcePlugin{}, errSourcePublishIncomplete
+	}
+	item.Status = status
+	item.ReviewNote = truncateText(note, 500)
+	item.ReviewedBy = actor
+	item.UpdatedAt = time.Now().UTC()
+	store.plugins[id] = item
+	store.auditLocked(sourceCatalogAuditAction(status), "plugin", id, actor, note)
+	return item, nil
+}
+
+func (store *memorySourceStore) ListTemplates(status string) ([]sourceTemplate, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	result := make([]sourceTemplate, 0, len(store.templates))
 	for _, item := range store.templates {
-		if item.Published {
+		if status == "" || item.Status == status {
 			result = append(result, item)
 		}
 	}
 	return result, nil
 }
 
-func (store *memorySourceStore) GetTemplate(id string) (sourceTemplate, []byte, []byte, error) {
+func (store *memorySourceStore) GetTemplate(id string) (sourceTemplate, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	item, ok := store.templates[id]
-	if !ok || !item.Published {
-		return sourceTemplate{}, nil, nil, errSourceNotFound
+	if !ok {
+		return sourceTemplate{}, errSourceNotFound
 	}
-	return item, append([]byte(nil), store.templateBytes[id]...), append([]byte(nil), store.previewBytes[id]...), nil
+	return item, nil
 }
 
-func (store *memorySourceStore) PutTemplate(template sourceTemplate, content, preview []byte) error {
+func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourceTemplate, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if existing, ok := store.templates[template.ID]; ok && existing.DeveloperID != template.DeveloperID {
-		return errSourceForbidden
+	existing, exists := store.templates[item.ID]
+	if exists && !asAdmin && existing.DeveloperID != item.DeveloperID {
+		return sourceTemplate{}, errSourceForbidden
 	}
-	for id, existing := range store.templates {
-		if existing.TemplateKey == template.TemplateKey && id != template.ID && existing.DeveloperID != template.DeveloperID {
-			return errSourceConflict
-		}
+	if exists && !asAdmin && existing.Status != sourceItemDraft && existing.Status != sourceItemRejected {
+		return sourceTemplate{}, errSourceForbidden
 	}
-	template.SHA256 = sourceContentSHA256(content)
-	template.Published = true
-	template.HasPreview = len(preview) > 0
 	now := time.Now().UTC()
-	if template.CreatedAt.IsZero() {
-		if existing, ok := store.templates[template.ID]; ok {
-			template.CreatedAt = existing.CreatedAt
-		} else {
-			template.CreatedAt = now
+	if exists {
+		item.CreatedAt = existing.CreatedAt
+		item.Status = existing.Status
+		item.ReviewNote = existing.ReviewNote
+		item.ReviewedBy = existing.ReviewedBy
+		if existing.TemplateURL != item.TemplateURL {
+			actor := "developer"
+			if asAdmin {
+				actor = "admin"
+			}
+			store.auditLocked("url_change", "template", item.ID, actor, item.TemplateURL)
+		}
+	} else {
+		item.CreatedAt = now
+		if item.Status == "" {
+			item.Status = sourceItemDraft
 		}
 	}
-	template.UpdatedAt = now
-	store.templates[template.ID] = template
-	store.templateBytes[template.ID] = append([]byte(nil), content...)
-	store.previewBytes[template.ID] = append([]byte(nil), preview...)
-	store.bump()
-	return nil
+	if item.SchemaVersion == 0 {
+		item.SchemaVersion = homeTemplateSchemaVersion
+	}
+	item.UpdatedAt = now
+	store.templates[item.ID] = item
+	return item, nil
+}
+
+func (store *memorySourceStore) SetTemplateStatus(id, status, actor, note string) (sourceTemplate, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	item, ok := store.templates[id]
+	if !ok {
+		return sourceTemplate{}, errSourceNotFound
+	}
+	if !sourceTransitionAllowed(item.Status, status) {
+		return sourceTemplate{}, errSourceInvalidStatus
+	}
+	if status == sourceItemPublished && !sourceItemReady(item.SHA256, item.TemplateURL) {
+		return sourceTemplate{}, errSourcePublishIncomplete
+	}
+	item.Status = status
+	item.ReviewNote = truncateText(note, 500)
+	item.ReviewedBy = actor
+	item.UpdatedAt = time.Now().UTC()
+	store.templates[id] = item
+	store.auditLocked(sourceCatalogAuditAction(status), "template", id, actor, note)
+	return item, nil
 }
 
 func (store *memorySourceStore) CreateApplication(app sourceApplication) (sourceApplication, error) {
@@ -382,17 +507,12 @@ func (store *memorySourceStore) ApproveApplication(id int64, reviewer string) (s
 	app.ReviewedAt = &now
 	store.applications[id] = app
 	dev := sourceDeveloper{
-		ID:            store.nextDevID,
-		ApplicationID: app.ID,
-		Username:      app.Username,
-		PasswordHash:  app.PasswordHash,
-		Email:         app.Email,
-		DisplayName:   app.DisplayName,
-		Enabled:       true,
-		CreatedAt:     now,
+		ID: store.nextDevID, ApplicationID: app.ID, Username: app.Username, PasswordHash: app.PasswordHash,
+		Email: app.Email, DisplayName: app.DisplayName, Enabled: true, CreatedAt: now,
 	}
 	store.nextDevID++
 	store.developers[dev.ID] = dev
+	store.auditLocked("approve", "application", itoaSourceID(id), reviewer, "")
 	return dev, nil
 }
 
@@ -412,6 +532,30 @@ func (store *memorySourceStore) RejectApplication(id int64, reviewer, note strin
 	app.ReviewNote = note
 	app.ReviewedAt = &now
 	store.applications[id] = app
+	store.auditLocked("reject", "application", itoaSourceID(id), reviewer, note)
+	return nil
+}
+
+func (store *memorySourceStore) FreezeApplication(id int64, reviewer, note string) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	app, ok := store.applications[id]
+	if !ok {
+		return errSourceNotFound
+	}
+	now := time.Now().UTC()
+	app.Status = sourceApplicationFrozen
+	app.ReviewedBy = reviewer
+	app.ReviewNote = note
+	app.ReviewedAt = &now
+	store.applications[id] = app
+	for idKey, dev := range store.developers {
+		if dev.ApplicationID == app.ID || strings.EqualFold(dev.Username, app.Username) {
+			dev.Enabled = false
+			store.developers[idKey] = dev
+		}
+	}
+	store.auditLocked("freeze", "application", itoaSourceID(id), reviewer, note)
 	return nil
 }
 
@@ -435,6 +579,31 @@ func (store *memorySourceStore) GetDeveloperByID(id int64) (sourceDeveloper, err
 		return sourceDeveloper{}, errSourceNotFound
 	}
 	return item, nil
+}
+
+func (store *memorySourceStore) FreezeDeveloper(id int64, actor, note string) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	item, ok := store.developers[id]
+	if !ok {
+		return errSourceNotFound
+	}
+	item.Enabled = false
+	store.developers[id] = item
+	store.auditLocked("freeze", "developer", itoaSourceID(id), actor, note)
+	return nil
+}
+
+func (store *memorySourceStore) ListDevelopers() ([]sourceDeveloper, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	result := make([]sourceDeveloper, 0, len(store.developers))
+	for _, item := range store.developers {
+		copyItem := item
+		copyItem.PasswordHash = ""
+		result = append(result, copyItem)
+	}
+	return result, nil
 }
 
 func (store *memorySourceStore) ListAdvertisements(position string) ([]advertisementRecord, error) {
@@ -464,6 +633,56 @@ func (store *memorySourceStore) DeleteAdvertisement(id string) error {
 	}
 	delete(store.ads, id)
 	return nil
+}
+
+func (store *memorySourceStore) AppendAudit(entry sourceAuditEntry) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if entry.CreatedAt.IsZero() {
+		entry.CreatedAt = time.Now().UTC()
+	}
+	entry.ID = store.nextAuditID
+	store.nextAuditID++
+	store.audits = append([]sourceAuditEntry{entry}, store.audits...)
+	return nil
+}
+
+func (store *memorySourceStore) ListAudit(limit int) ([]sourceAuditEntry, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if limit <= 0 || limit > len(store.audits) {
+		limit = len(store.audits)
+	}
+	return append([]sourceAuditEntry(nil), store.audits[:limit]...), nil
+}
+
+func (store *memorySourceStore) SaveIndexSnapshot(payload, actor string) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.snapshot = sourceIndexSnapshot{Payload: payload, GeneratedAt: time.Now().UTC(), GeneratedBy: actor}
+	store.auditLocked("regenerate", "index", "index.json", actor, "")
+	return nil
+}
+
+func (store *memorySourceStore) LatestIndexSnapshot() (sourceIndexSnapshot, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.snapshot, nil
+}
+
+func itoaSourceID(value int64) string {
+	if value == 0 {
+		return "0"
+	}
+	var digits [20]byte
+	i := len(digits)
+	n := value
+	for n > 0 {
+		i--
+		digits[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(digits[i:])
 }
 
 type mysqlSourceStore struct{}
@@ -506,7 +725,7 @@ func ensureSourceStationStorage(db *sql.DB) error {
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源开发者'`,
 		`CREATE TABLE IF NOT EXISTS source_catalog_plugins (
 			id VARCHAR(60) NOT NULL PRIMARY KEY,
-			developer_id BIGINT UNSIGNED NOT NULL,
+			developer_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			category VARCHAR(30) NOT NULL DEFAULT 'other',
 			name VARCHAR(100) NOT NULL,
 			description VARCHAR(500) NOT NULL DEFAULT '',
@@ -515,35 +734,37 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			author_name VARCHAR(100) NOT NULL DEFAULT '',
 			author_url VARCHAR(300) NOT NULL DEFAULT '',
 			author_email VARCHAR(200) NOT NULL DEFAULT '',
-			sha256 CHAR(64) NOT NULL,
-			file_path VARCHAR(500) NOT NULL DEFAULT '',
-			published TINYINT(1) NOT NULL DEFAULT 1,
+			sha256 CHAR(64) NOT NULL DEFAULT '',
+			download_url VARCHAR(500) NOT NULL DEFAULT '',
+			status VARCHAR(20) NOT NULL DEFAULT 'draft',
+			review_note VARCHAR(500) NOT NULL DEFAULT '',
+			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			KEY idx_source_catalog_plugin_status (status),
 			KEY idx_source_catalog_plugin_developer (developer_id)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源已发布插件'`,
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源插件元数据（不含源码）'`,
 		`CREATE TABLE IF NOT EXISTS source_catalog_templates (
 			id VARCHAR(60) NOT NULL PRIMARY KEY,
-			developer_id BIGINT UNSIGNED NOT NULL,
+			developer_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			template_key VARCHAR(60) NOT NULL,
 			name VARCHAR(100) NOT NULL,
 			description VARCHAR(500) NOT NULL DEFAULT '',
 			version VARCHAR(40) NOT NULL,
-			format VARCHAR(10) NOT NULL DEFAULT 'json',
 			schema_version INT NOT NULL DEFAULT 1,
-			sha256 CHAR(64) NOT NULL,
+			sha256 CHAR(64) NOT NULL DEFAULT '',
+			template_url VARCHAR(500) NOT NULL DEFAULT '',
+			status VARCHAR(20) NOT NULL DEFAULT 'draft',
+			review_note VARCHAR(500) NOT NULL DEFAULT '',
+			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
 			author_name VARCHAR(100) NOT NULL DEFAULT '',
 			author_url VARCHAR(300) NOT NULL DEFAULT '',
 			author_email VARCHAR(200) NOT NULL DEFAULT '',
-			file_path VARCHAR(500) NOT NULL DEFAULT '',
-			preview_path VARCHAR(500) NOT NULL DEFAULT '',
-			preview_content_type VARCHAR(80) NOT NULL DEFAULT '',
-			published TINYINT(1) NOT NULL DEFAULT 1,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE KEY uk_source_catalog_template_key (template_key),
-			KEY idx_source_catalog_template_developer (developer_id)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源已发布首页模板'`,
+			KEY idx_source_catalog_template_status (status)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源首页模板元数据（不含源码）'`,
 		`CREATE TABLE IF NOT EXISTS source_advertisements (
 			id VARCHAR(60) NOT NULL PRIMARY KEY,
 			title VARCHAR(120) NOT NULL DEFAULT '',
@@ -557,121 +778,79 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			KEY idx_source_advertisement_position (position)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='本站广告投放'`,
-		`CREATE TABLE IF NOT EXISTS source_station_settings (
-			setting_key VARCHAR(50) NOT NULL PRIMARY KEY,
-			setting_value VARCHAR(255) NOT NULL DEFAULT ''
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源源站设置'`,
+		`CREATE TABLE IF NOT EXISTS source_audit_logs (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+			actor_type VARCHAR(20) NOT NULL DEFAULT 'admin',
+			actor_name VARCHAR(80) NOT NULL DEFAULT '',
+			action VARCHAR(40) NOT NULL,
+			target_type VARCHAR(40) NOT NULL,
+			target_id VARCHAR(80) NOT NULL DEFAULT '',
+			detail VARCHAR(500) NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			KEY idx_source_audit_created (created_at),
+			KEY idx_source_audit_target (target_type, target_id)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源控制面审计'`,
+		`CREATE TABLE IF NOT EXISTS source_index_snapshots (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+			payload MEDIUMTEXT NOT NULL,
+			generated_by VARCHAR(80) NOT NULL DEFAULT '',
+			generated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公开 index.json 快照'`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
 			return err
 		}
 	}
+	alters := []string{
+		"ALTER TABLE source_catalog_plugins ADD COLUMN download_url VARCHAR(500) NOT NULL DEFAULT '' AFTER sha256",
+		"ALTER TABLE source_catalog_plugins ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'draft' AFTER download_url",
+		"ALTER TABLE source_catalog_plugins ADD COLUMN review_note VARCHAR(500) NOT NULL DEFAULT '' AFTER status",
+		"ALTER TABLE source_catalog_plugins ADD COLUMN reviewed_by VARCHAR(50) NOT NULL DEFAULT '' AFTER review_note",
+		"ALTER TABLE source_catalog_templates ADD COLUMN template_url VARCHAR(500) NOT NULL DEFAULT '' AFTER sha256",
+		"ALTER TABLE source_catalog_templates ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'draft' AFTER template_url",
+		"ALTER TABLE source_catalog_templates ADD COLUMN review_note VARCHAR(500) NOT NULL DEFAULT '' AFTER status",
+		"ALTER TABLE source_catalog_templates ADD COLUMN reviewed_by VARCHAR(50) NOT NULL DEFAULT '' AFTER review_note",
+		"ALTER TABLE source_catalog_plugins DROP COLUMN file_path",
+		"ALTER TABLE source_catalog_plugins DROP COLUMN published",
+		"ALTER TABLE source_catalog_templates DROP COLUMN file_path",
+		"ALTER TABLE source_catalog_templates DROP COLUMN preview_path",
+		"ALTER TABLE source_catalog_templates DROP COLUMN preview_content_type",
+		"ALTER TABLE source_catalog_templates DROP COLUMN format",
+		"ALTER TABLE source_catalog_templates DROP COLUMN published",
+	}
+	for _, statement := range alters {
+		_, _ = db.Exec(statement)
+	}
 	_, _ = db.Exec(`INSERT IGNORE INTO roles (role_name, role_code, description, discount, enabled)
-		VALUES (?, ?, '软件源开发者，可向本站目录发布插件与首页模板', 10.0, 1)`,
+		VALUES (?, ?, '软件源开发者，可提交插件与首页模板元数据', 10.0, 1)`,
 		sourceDeveloperRoleName, sourceDeveloperRoleCode)
 	return nil
 }
 
-func sourceCatalogDir(kind string) string {
-	dir := filepath.Join(config.GetDataDir(), "source-catalog", kind)
-	_ = os.MkdirAll(dir, 0750)
-	return dir
+func mysqlAppendAudit(db *sql.DB, action, targetType, targetID, actor, detail string) {
+	actorType := "admin"
+	if actor == "" {
+		actorType = "system"
+	}
+	_, _ = db.Exec(`INSERT INTO source_audit_logs (actor_type, actor_name, action, target_type, target_id, detail)
+		VALUES (?, ?, ?, ?, ?, ?)`, actorType, actor, action, targetType, targetID, truncateText(detail, 500))
 }
 
-func sourceCatalogPath(kind, id string) string {
-	return filepath.Join(sourceCatalogDir(kind), id)
-}
-
-func writeSourceCatalogFile(kind, id string, payload []byte) (string, error) {
-	path := sourceCatalogPath(kind, id)
-	if err := os.WriteFile(path, payload, 0640); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-func readSourceCatalogFile(path string) ([]byte, error) {
-	if strings.TrimSpace(path) == "" {
-		return nil, nil
-	}
-	payload, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, errSourceNotFound
-	}
-	return payload, err
-}
-
-func (mysqlSourceStore) CatalogKey() (string, error) {
-	db, err := config.DB()
-	if err != nil {
-		return "", err
-	}
-	if err := ensureSourceStationStorage(db); err != nil {
-		return "", err
-	}
-	var value string
-	err = db.QueryRow(`SELECT setting_value FROM source_station_settings WHERE setting_key='catalog_key'`).Scan(&value)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
-	return strings.TrimSpace(value), err
-}
-
-func (mysqlSourceStore) SetCatalogKey(key string) error {
-	db, err := config.DB()
-	if err != nil {
-		return err
-	}
-	if err := ensureSourceStationStorage(db); err != nil {
-		return err
-	}
-	_, err = db.Exec(`INSERT INTO source_station_settings (setting_key, setting_value) VALUES ('catalog_key', ?)
-		ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)`, strings.TrimSpace(key))
-	return err
-}
-
-func (mysqlSourceStore) Revision() (int64, error) {
-	db, err := config.DB()
-	if err != nil {
-		return 1, err
-	}
-	if err := ensureSourceStationStorage(db); err != nil {
-		return 1, err
-	}
-	var pluginUnix, templateUnix sql.NullInt64
-	_ = db.QueryRow(`SELECT UNIX_TIMESTAMP(MAX(updated_at)) FROM source_catalog_plugins WHERE published=1`).Scan(&pluginUnix)
-	_ = db.QueryRow(`SELECT UNIX_TIMESTAMP(MAX(updated_at)) FROM source_catalog_templates WHERE published=1`).Scan(&templateUnix)
-	revision := int64(1)
-	if pluginUnix.Valid && pluginUnix.Int64 > revision {
-		revision = pluginUnix.Int64
-	}
-	if templateUnix.Valid && templateUnix.Int64 > revision {
-		revision = templateUnix.Int64
-	}
-	return revision, nil
-}
-
-func scanSourcePlugin(scanner interface {
-	Scan(dest ...any) error
-}) (sourcePlugin, string, error) {
+func scanSourcePlugin(scanner interface{ Scan(dest ...any) error }) (sourcePlugin, error) {
 	var item sourcePlugin
-	var filePath string
-	var published int
 	var updatedAt, createdAt time.Time
 	err := scanner.Scan(&item.ID, &item.DeveloperID, &item.Category, &item.Name, &item.Description, &item.Icon,
-		&item.Version, &item.Author.Name, &item.Author.URL, &item.Author.Email, &item.SHA256, &filePath,
-		&published, &updatedAt, &createdAt)
+		&item.Version, &item.Author.Name, &item.Author.URL, &item.Author.Email, &item.SHA256, &item.DownloadURL,
+		&item.Status, &item.ReviewNote, &item.ReviewedBy, &updatedAt, &createdAt)
 	if err != nil {
-		return sourcePlugin{}, "", err
+		return sourcePlugin{}, err
 	}
-	item.Published = published == 1
-	item.UpdatedAt = updatedAt.UTC()
-	item.CreatedAt = createdAt.UTC()
-	return item, filePath, nil
+	item.UpdatedAt, item.CreatedAt = updatedAt.UTC(), createdAt.UTC()
+	return item, nil
 }
 
-func (mysqlSourceStore) ListPlugins() ([]sourcePlugin, error) {
+func (mysqlSourceStore) ListPlugins(status string) ([]sourcePlugin, error) {
 	db, err := config.DB()
 	if err != nil {
 		return nil, err
@@ -679,16 +858,22 @@ func (mysqlSourceStore) ListPlugins() ([]sourcePlugin, error) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(`SELECT id, developer_id, category, name, description, icon, version, author_name, author_url,
-		author_email, sha256, file_path, published, updated_at, created_at
-		FROM source_catalog_plugins WHERE published=1 ORDER BY updated_at DESC, id ASC`)
+	query := `SELECT id, developer_id, category, name, description, icon, version, author_name, author_url, author_email,
+		sha256, download_url, status, review_note, reviewed_by, updated_at, created_at FROM source_catalog_plugins`
+	args := []any{}
+	if status != "" {
+		query += ` WHERE status=?`
+		args = append(args, status)
+	}
+	query += ` ORDER BY updated_at DESC, id ASC`
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	result := make([]sourcePlugin, 0)
 	for rows.Next() {
-		item, _, err := scanSourcePlugin(rows)
+		item, err := scanSourcePlugin(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -697,84 +882,102 @@ func (mysqlSourceStore) ListPlugins() ([]sourcePlugin, error) {
 	return result, rows.Err()
 }
 
-func (mysqlSourceStore) GetPlugin(id string) (sourcePlugin, []byte, error) {
+func (mysqlSourceStore) GetPlugin(id string) (sourcePlugin, error) {
 	db, err := config.DB()
 	if err != nil {
-		return sourcePlugin{}, nil, err
+		return sourcePlugin{}, err
 	}
 	if err := ensureSourceStationStorage(db); err != nil {
-		return sourcePlugin{}, nil, err
+		return sourcePlugin{}, err
 	}
-	row := db.QueryRow(`SELECT id, developer_id, category, name, description, icon, version, author_name, author_url,
-		author_email, sha256, file_path, published, updated_at, created_at
-		FROM source_catalog_plugins WHERE id=? AND published=1`, id)
-	item, filePath, err := scanSourcePlugin(row)
+	item, err := scanSourcePlugin(db.QueryRow(`SELECT id, developer_id, category, name, description, icon, version, author_name, author_url, author_email,
+		sha256, download_url, status, review_note, reviewed_by, updated_at, created_at FROM source_catalog_plugins WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
-		return sourcePlugin{}, nil, errSourceNotFound
+		return sourcePlugin{}, errSourceNotFound
 	}
-	if err != nil {
-		return sourcePlugin{}, nil, err
-	}
-	payload, err := readSourceCatalogFile(filePath)
-	if err != nil {
-		return sourcePlugin{}, nil, err
-	}
-	return item, payload, nil
+	return item, err
 }
 
-func (mysqlSourceStore) PutPlugin(plugin sourcePlugin, payload []byte) error {
+func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourcePlugin, error) {
 	db, err := config.DB()
 	if err != nil {
-		return err
+		return sourcePlugin{}, err
 	}
 	if err := ensureSourceStationStorage(db); err != nil {
-		return err
+		return sourcePlugin{}, err
 	}
-	var existingDeveloper sql.NullInt64
-	err = db.QueryRow(`SELECT developer_id FROM source_catalog_plugins WHERE id=?`, plugin.ID).Scan(&existingDeveloper)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+	existing, err := (mysqlSourceStore{}).GetPlugin(plugin.ID)
+	if err != nil && !errors.Is(err, errSourceNotFound) {
+		return sourcePlugin{}, err
 	}
-	if existingDeveloper.Valid && existingDeveloper.Int64 != plugin.DeveloperID {
-		return errSourceForbidden
-	}
-	plugin.SHA256 = sourceContentSHA256(payload)
-	filePath, err := writeSourceCatalogFile("plugins", plugin.ID, payload)
-	if err != nil {
-		return err
+	if err == nil {
+		if !asAdmin && (existing.DeveloperID != plugin.DeveloperID || (existing.Status != sourceItemDraft && existing.Status != sourceItemRejected)) {
+			return sourcePlugin{}, errSourceForbidden
+		}
+		plugin.Status = existing.Status
+		plugin.ReviewNote = existing.ReviewNote
+		plugin.ReviewedBy = existing.ReviewedBy
+		if existing.DownloadURL != plugin.DownloadURL {
+			actor := "developer"
+			if asAdmin {
+				actor = "admin"
+			}
+			mysqlAppendAudit(db, "url_change", "plugin", plugin.ID, actor, plugin.DownloadURL)
+		}
+	} else if plugin.Status == "" {
+		plugin.Status = sourceItemDraft
 	}
 	_, err = db.Exec(`INSERT INTO source_catalog_plugins
-		(id, developer_id, category, name, description, icon, version, author_name, author_url, author_email, sha256, file_path, published)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-		ON DUPLICATE KEY UPDATE category=VALUES(category), name=VALUES(name), description=VALUES(description),
-			icon=VALUES(icon), version=VALUES(version), author_name=VALUES(author_name), author_url=VALUES(author_url),
-			author_email=VALUES(author_email), sha256=VALUES(sha256), file_path=VALUES(file_path), published=1`,
+		(id, developer_id, category, name, description, icon, version, author_name, author_url, author_email, sha256, download_url, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE category=VALUES(category), name=VALUES(name), description=VALUES(description), icon=VALUES(icon),
+			version=VALUES(version), author_name=VALUES(author_name), author_url=VALUES(author_url), author_email=VALUES(author_email),
+			sha256=VALUES(sha256), download_url=VALUES(download_url)`,
 		plugin.ID, plugin.DeveloperID, plugin.Category, plugin.Name, plugin.Description, plugin.Icon, plugin.Version,
-		plugin.Author.Name, plugin.Author.URL, plugin.Author.Email, plugin.SHA256, filePath)
-	return err
+		plugin.Author.Name, plugin.Author.URL, plugin.Author.Email, plugin.SHA256, plugin.DownloadURL, plugin.Status)
+	if err != nil {
+		return sourcePlugin{}, err
+	}
+	return (mysqlSourceStore{}).GetPlugin(plugin.ID)
 }
 
-func scanSourceTemplate(scanner interface {
-	Scan(dest ...any) error
-}) (sourceTemplate, string, string, error) {
+func (mysqlSourceStore) SetPluginStatus(id, status, actor, note string) (sourcePlugin, error) {
+	item, err := (mysqlSourceStore{}).GetPlugin(id)
+	if err != nil {
+		return sourcePlugin{}, err
+	}
+	if !sourceTransitionAllowed(item.Status, status) {
+		return sourcePlugin{}, errSourceInvalidStatus
+	}
+	if status == sourceItemPublished && !sourceItemReady(item.SHA256, item.DownloadURL) {
+		return sourcePlugin{}, errSourcePublishIncomplete
+	}
+	db, err := config.DB()
+	if err != nil {
+		return sourcePlugin{}, err
+	}
+	if _, err := db.Exec(`UPDATE source_catalog_plugins SET status=?, review_note=?, reviewed_by=? WHERE id=?`,
+		status, truncateText(note, 500), actor, id); err != nil {
+		return sourcePlugin{}, err
+	}
+	mysqlAppendAudit(db, sourceCatalogAuditAction(status), "plugin", id, actor, note)
+	return (mysqlSourceStore{}).GetPlugin(id)
+}
+
+func scanSourceTemplateRow(scanner interface{ Scan(dest ...any) error }) (sourceTemplate, error) {
 	var item sourceTemplate
-	var filePath, previewPath string
-	var published int
 	var updatedAt, createdAt time.Time
 	err := scanner.Scan(&item.ID, &item.DeveloperID, &item.TemplateKey, &item.Name, &item.Description, &item.Version,
-		&item.Format, &item.SchemaVersion, &item.SHA256, &item.Author.Name, &item.Author.URL, &item.Author.Email,
-		&filePath, &previewPath, &item.PreviewContentType, &published, &updatedAt, &createdAt)
+		&item.SchemaVersion, &item.SHA256, &item.TemplateURL, &item.Status, &item.ReviewNote, &item.ReviewedBy,
+		&item.Author.Name, &item.Author.URL, &item.Author.Email, &updatedAt, &createdAt)
 	if err != nil {
-		return sourceTemplate{}, "", "", err
+		return sourceTemplate{}, err
 	}
-	item.Published = published == 1
-	item.HasPreview = strings.TrimSpace(previewPath) != ""
-	item.UpdatedAt = updatedAt.UTC()
-	item.CreatedAt = createdAt.UTC()
-	return item, filePath, previewPath, nil
+	item.UpdatedAt, item.CreatedAt = updatedAt.UTC(), createdAt.UTC()
+	return item, nil
 }
 
-func (mysqlSourceStore) ListTemplates() ([]sourceTemplate, error) {
+func (mysqlSourceStore) ListTemplates(status string) ([]sourceTemplate, error) {
 	db, err := config.DB()
 	if err != nil {
 		return nil, err
@@ -782,16 +985,22 @@ func (mysqlSourceStore) ListTemplates() ([]sourceTemplate, error) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(`SELECT id, developer_id, template_key, name, description, version, format, schema_version,
-		sha256, author_name, author_url, author_email, file_path, preview_path, preview_content_type, published, updated_at, created_at
-		FROM source_catalog_templates WHERE published=1 ORDER BY updated_at DESC, id ASC`)
+	query := `SELECT id, developer_id, template_key, name, description, version, schema_version, sha256, template_url,
+		status, review_note, reviewed_by, author_name, author_url, author_email, updated_at, created_at FROM source_catalog_templates`
+	args := []any{}
+	if status != "" {
+		query += ` WHERE status=?`
+		args = append(args, status)
+	}
+	query += ` ORDER BY updated_at DESC, id ASC`
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	result := make([]sourceTemplate, 0)
 	for rows.Next() {
-		item, _, _, err := scanSourceTemplate(rows)
+		item, err := scanSourceTemplateRow(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -800,92 +1009,92 @@ func (mysqlSourceStore) ListTemplates() ([]sourceTemplate, error) {
 	return result, rows.Err()
 }
 
-func (mysqlSourceStore) GetTemplate(id string) (sourceTemplate, []byte, []byte, error) {
+func (mysqlSourceStore) GetTemplate(id string) (sourceTemplate, error) {
 	db, err := config.DB()
 	if err != nil {
-		return sourceTemplate{}, nil, nil, err
+		return sourceTemplate{}, err
 	}
 	if err := ensureSourceStationStorage(db); err != nil {
-		return sourceTemplate{}, nil, nil, err
+		return sourceTemplate{}, err
 	}
-	row := db.QueryRow(`SELECT id, developer_id, template_key, name, description, version, format, schema_version,
-		sha256, author_name, author_url, author_email, file_path, preview_path, preview_content_type, published, updated_at, created_at
-		FROM source_catalog_templates WHERE id=? AND published=1`, id)
-	item, filePath, previewPath, err := scanSourceTemplate(row)
+	item, err := scanSourceTemplateRow(db.QueryRow(`SELECT id, developer_id, template_key, name, description, version, schema_version, sha256, template_url,
+		status, review_note, reviewed_by, author_name, author_url, author_email, updated_at, created_at FROM source_catalog_templates WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
-		return sourceTemplate{}, nil, nil, errSourceNotFound
+		return sourceTemplate{}, errSourceNotFound
 	}
-	if err != nil {
-		return sourceTemplate{}, nil, nil, err
-	}
-	content, err := readSourceCatalogFile(filePath)
-	if err != nil {
-		return sourceTemplate{}, nil, nil, err
-	}
-	var preview []byte
-	if item.HasPreview {
-		preview, err = readSourceCatalogFile(previewPath)
-		if err != nil && !errors.Is(err, errSourceNotFound) {
-			return sourceTemplate{}, nil, nil, err
-		}
-	}
-	return item, content, preview, nil
+	return item, err
 }
 
-func (mysqlSourceStore) PutTemplate(template sourceTemplate, content, preview []byte) error {
+func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourceTemplate, error) {
 	db, err := config.DB()
 	if err != nil {
-		return err
+		return sourceTemplate{}, err
 	}
 	if err := ensureSourceStationStorage(db); err != nil {
-		return err
+		return sourceTemplate{}, err
 	}
-	var existingID string
-	var existingDeveloper sql.NullInt64
-	err = db.QueryRow(`SELECT id, developer_id FROM source_catalog_templates WHERE template_key=?`, template.TemplateKey).
-		Scan(&existingID, &existingDeveloper)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+	if item.SchemaVersion == 0 {
+		item.SchemaVersion = homeTemplateSchemaVersion
 	}
-	if existingDeveloper.Valid && existingDeveloper.Int64 != template.DeveloperID {
-		return errSourceConflict
+	existing, err := (mysqlSourceStore{}).GetTemplate(item.ID)
+	if err != nil && !errors.Is(err, errSourceNotFound) {
+		return sourceTemplate{}, err
 	}
-	if existingID != "" && existingID != template.ID && existingDeveloper.Valid && existingDeveloper.Int64 != template.DeveloperID {
-		return errSourceConflict
-	}
-	var owner sql.NullInt64
-	err = db.QueryRow(`SELECT developer_id FROM source_catalog_templates WHERE id=?`, template.ID).Scan(&owner)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	if owner.Valid && owner.Int64 != template.DeveloperID {
-		return errSourceForbidden
-	}
-	template.SHA256 = sourceContentSHA256(content)
-	filePath, err := writeSourceCatalogFile("templates", template.ID, content)
-	if err != nil {
-		return err
-	}
-	previewPath := ""
-	if len(preview) > 0 {
-		previewPath, err = writeSourceCatalogFile("previews", template.ID, preview)
-		if err != nil {
-			return err
+	if err == nil {
+		if !asAdmin && (existing.DeveloperID != item.DeveloperID || (existing.Status != sourceItemDraft && existing.Status != sourceItemRejected)) {
+			return sourceTemplate{}, errSourceForbidden
 		}
+		item.Status = existing.Status
+		item.ReviewNote = existing.ReviewNote
+		item.ReviewedBy = existing.ReviewedBy
+		if existing.TemplateURL != item.TemplateURL {
+			actor := "developer"
+			if asAdmin {
+				actor = "admin"
+			}
+			mysqlAppendAudit(db, "url_change", "template", item.ID, actor, item.TemplateURL)
+		}
+	} else if item.Status == "" {
+		item.Status = sourceItemDraft
 	}
 	_, err = db.Exec(`INSERT INTO source_catalog_templates
-		(id, developer_id, template_key, name, description, version, format, schema_version, sha256, author_name,
-		 author_url, author_email, file_path, preview_path, preview_content_type, published)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+		(id, developer_id, template_key, name, description, version, schema_version, sha256, template_url, status, author_name, author_url, author_email)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), version=VALUES(version),
-			format=VALUES(format), schema_version=VALUES(schema_version), sha256=VALUES(sha256),
-			author_name=VALUES(author_name), author_url=VALUES(author_url), author_email=VALUES(author_email),
-			file_path=VALUES(file_path), preview_path=VALUES(preview_path),
-			preview_content_type=VALUES(preview_content_type), published=1`,
-		template.ID, template.DeveloperID, template.TemplateKey, template.Name, template.Description, template.Version,
-		template.Format, template.SchemaVersion, template.SHA256, template.Author.Name, template.Author.URL,
-		template.Author.Email, filePath, previewPath, template.PreviewContentType)
-	return err
+			schema_version=VALUES(schema_version), sha256=VALUES(sha256), template_url=VALUES(template_url),
+			author_name=VALUES(author_name), author_url=VALUES(author_url), author_email=VALUES(author_email)`,
+		item.ID, item.DeveloperID, item.TemplateKey, item.Name, item.Description, item.Version, item.SchemaVersion,
+		item.SHA256, item.TemplateURL, item.Status, item.Author.Name, item.Author.URL, item.Author.Email)
+	if err != nil {
+		if strings.Contains(err.Error(), "Duplicate") {
+			return sourceTemplate{}, errSourceConflict
+		}
+		return sourceTemplate{}, err
+	}
+	return (mysqlSourceStore{}).GetTemplate(item.ID)
+}
+
+func (mysqlSourceStore) SetTemplateStatus(id, status, actor, note string) (sourceTemplate, error) {
+	item, err := (mysqlSourceStore{}).GetTemplate(id)
+	if err != nil {
+		return sourceTemplate{}, err
+	}
+	if !sourceTransitionAllowed(item.Status, status) {
+		return sourceTemplate{}, errSourceInvalidStatus
+	}
+	if status == sourceItemPublished && !sourceItemReady(item.SHA256, item.TemplateURL) {
+		return sourceTemplate{}, errSourcePublishIncomplete
+	}
+	db, err := config.DB()
+	if err != nil {
+		return sourceTemplate{}, err
+	}
+	if _, err := db.Exec(`UPDATE source_catalog_templates SET status=?, review_note=?, reviewed_by=? WHERE id=?`,
+		status, truncateText(note, 500), actor, id); err != nil {
+		return sourceTemplate{}, err
+	}
+	mysqlAppendAudit(db, sourceCatalogAuditAction(status), "template", id, actor, note)
+	return (mysqlSourceStore{}).GetTemplate(id)
 }
 
 func (mysqlSourceStore) CreateApplication(app sourceApplication) (sourceApplication, error) {
@@ -958,9 +1167,7 @@ func (mysqlSourceStore) ListApplications(status string) ([]sourceApplication, er
 	return result, rows.Err()
 }
 
-func scanSourceApplication(scanner interface {
-	Scan(dest ...any) error
-}, withPassword bool) (sourceApplication, error) {
+func scanSourceApplication(scanner interface{ Scan(dest ...any) error }, withPassword bool) (sourceApplication, error) {
 	var item sourceApplication
 	var reviewedAt sql.NullTime
 	var err error
@@ -990,9 +1197,8 @@ func (mysqlSourceStore) GetApplication(id int64) (sourceApplication, error) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return sourceApplication{}, err
 	}
-	row := db.QueryRow(`SELECT id, username, password_hash, email, display_name, reason, status, review_note, reviewed_by, reviewed_at, created_at
-		FROM source_developer_applications WHERE id=?`, id)
-	item, err := scanSourceApplication(row, true)
+	item, err := scanSourceApplication(db.QueryRow(`SELECT id, username, password_hash, email, display_name, reason, status, review_note, reviewed_by, reviewed_at, created_at
+		FROM source_developer_applications WHERE id=?`, id), true)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceApplication{}, errSourceNotFound
 	}
@@ -1012,9 +1218,8 @@ func (mysqlSourceStore) ApproveApplication(id int64, reviewer string) (sourceDev
 		return sourceDeveloper{}, err
 	}
 	defer tx.Rollback()
-	row := tx.QueryRow(`SELECT id, username, password_hash, email, display_name, reason, status, review_note, reviewed_by, reviewed_at, created_at
-		FROM source_developer_applications WHERE id=? FOR UPDATE`, id)
-	app, err := scanSourceApplication(row, true)
+	app, err := scanSourceApplication(tx.QueryRow(`SELECT id, username, password_hash, email, display_name, reason, status, review_note, reviewed_by, reviewed_at, created_at
+		FROM source_developer_applications WHERE id=? FOR UPDATE`, id), true)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceDeveloper{}, errSourceNotFound
 	}
@@ -1024,8 +1229,7 @@ func (mysqlSourceStore) ApproveApplication(id int64, reviewer string) (sourceDev
 	if app.Status != sourceApplicationPending {
 		return sourceDeveloper{}, errApplicationReviewed
 	}
-	if _, err := tx.Exec(`UPDATE source_developer_applications SET status='approved', reviewed_by=?, reviewed_at=NOW() WHERE id=?`,
-		reviewer, id); err != nil {
+	if _, err := tx.Exec(`UPDATE source_developer_applications SET status='approved', reviewed_by=?, reviewed_at=NOW() WHERE id=?`, reviewer, id); err != nil {
 		return sourceDeveloper{}, err
 	}
 	result, err := tx.Exec(`INSERT INTO source_developers (application_id, username, password_hash, email, display_name, enabled)
@@ -1038,24 +1242,17 @@ func (mysqlSourceStore) ApproveApplication(id int64, reviewer string) (sourceDev
 	}
 	developerID, _ := result.LastInsertId()
 	if _, err := tx.Exec(`INSERT IGNORE INTO roles (role_name, role_code, description, discount, enabled)
-		VALUES (?, ?, '软件源开发者，可向本站目录发布插件与首页模板', 10.0, 1)`,
-		sourceDeveloperRoleName, sourceDeveloperRoleCode); err != nil {
+		VALUES (?, ?, '软件源开发者，可提交插件与首页模板元数据', 10.0, 1)`, sourceDeveloperRoleName, sourceDeveloperRoleCode); err != nil {
 		return sourceDeveloper{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return sourceDeveloper{}, err
 	}
+	mysqlAppendAudit(db, "approve", "application", itoaSourceID(id), reviewer, "")
 	return (mysqlSourceStore{}).GetDeveloperByID(developerID)
 }
 
 func (mysqlSourceStore) RejectApplication(id int64, reviewer, note string) error {
-	db, err := config.DB()
-	if err != nil {
-		return err
-	}
-	if err := ensureSourceStationStorage(db); err != nil {
-		return err
-	}
 	app, err := (mysqlSourceStore{}).GetApplication(id)
 	if err != nil {
 		return err
@@ -1063,18 +1260,40 @@ func (mysqlSourceStore) RejectApplication(id int64, reviewer, note string) error
 	if app.Status != sourceApplicationPending {
 		return errApplicationReviewed
 	}
-	_, err = db.Exec(`UPDATE source_developer_applications SET status='rejected', reviewed_by=?, review_note=?, reviewed_at=NOW() WHERE id=?`,
-		reviewer, truncateText(note, 500), id)
-	return err
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE source_developer_applications SET status='rejected', reviewed_by=?, review_note=?, reviewed_at=NOW() WHERE id=?`,
+		reviewer, truncateText(note, 500), id); err != nil {
+		return err
+	}
+	mysqlAppendAudit(db, "reject", "application", itoaSourceID(id), reviewer, note)
+	return nil
 }
 
-func scanSourceDeveloper(scanner interface {
-	Scan(dest ...any) error
-}) (sourceDeveloper, error) {
+func (mysqlSourceStore) FreezeApplication(id int64, reviewer, note string) error {
+	app, err := (mysqlSourceStore{}).GetApplication(id)
+	if err != nil {
+		return err
+	}
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE source_developer_applications SET status='frozen', reviewed_by=?, review_note=?, reviewed_at=NOW() WHERE id=?`,
+		reviewer, truncateText(note, 500), id); err != nil {
+		return err
+	}
+	_, _ = db.Exec(`UPDATE source_developers SET enabled=0 WHERE application_id=? OR username=?`, id, app.Username)
+	mysqlAppendAudit(db, "freeze", "application", itoaSourceID(id), reviewer, note)
+	return nil
+}
+
+func scanSourceDeveloper(scanner interface{ Scan(dest ...any) error }) (sourceDeveloper, error) {
 	var item sourceDeveloper
 	var enabled int
-	if err := scanner.Scan(&item.ID, &item.ApplicationID, &item.Username, &item.PasswordHash, &item.Email,
-		&item.DisplayName, &enabled, &item.CreatedAt); err != nil {
+	if err := scanner.Scan(&item.ID, &item.ApplicationID, &item.Username, &item.PasswordHash, &item.Email, &item.DisplayName, &enabled, &item.CreatedAt); err != nil {
 		return sourceDeveloper{}, err
 	}
 	item.Enabled = enabled == 1
@@ -1090,9 +1309,8 @@ func (mysqlSourceStore) GetDeveloperByUsername(username string) (sourceDeveloper
 	if err := ensureSourceStationStorage(db); err != nil {
 		return sourceDeveloper{}, err
 	}
-	row := db.QueryRow(`SELECT id, COALESCE(application_id, 0), username, password_hash, email, display_name, enabled, created_at
-		FROM source_developers WHERE username=?`, username)
-	item, err := scanSourceDeveloper(row)
+	item, err := scanSourceDeveloper(db.QueryRow(`SELECT id, COALESCE(application_id, 0), username, password_hash, email, display_name, enabled, created_at
+		FROM source_developers WHERE username=?`, username))
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceDeveloper{}, errSourceNotFound
 	}
@@ -1107,13 +1325,51 @@ func (mysqlSourceStore) GetDeveloperByID(id int64) (sourceDeveloper, error) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return sourceDeveloper{}, err
 	}
-	row := db.QueryRow(`SELECT id, COALESCE(application_id, 0), username, password_hash, email, display_name, enabled, created_at
-		FROM source_developers WHERE id=?`, id)
-	item, err := scanSourceDeveloper(row)
+	item, err := scanSourceDeveloper(db.QueryRow(`SELECT id, COALESCE(application_id, 0), username, password_hash, email, display_name, enabled, created_at
+		FROM source_developers WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceDeveloper{}, errSourceNotFound
 	}
 	return item, err
+}
+
+func (mysqlSourceStore) FreezeDeveloper(id int64, actor, note string) error {
+	if _, err := (mysqlSourceStore{}).GetDeveloperByID(id); err != nil {
+		return err
+	}
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE source_developers SET enabled=0 WHERE id=?`, id); err != nil {
+		return err
+	}
+	mysqlAppendAudit(db, "freeze", "developer", itoaSourceID(id), actor, note)
+	return nil
+}
+
+func (mysqlSourceStore) ListDevelopers() ([]sourceDeveloper, error) {
+	db, err := config.DB()
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`SELECT id, COALESCE(application_id, 0), username, '' AS password_hash, email, display_name, enabled, created_at FROM source_developers ORDER BY id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]sourceDeveloper, 0)
+	for rows.Next() {
+		item, err := scanSourceDeveloper(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
 }
 
 func (mysqlSourceStore) ListAdvertisements(position string) ([]advertisementRecord, error) {
@@ -1124,8 +1380,7 @@ func (mysqlSourceStore) ListAdvertisements(position string) ([]advertisementReco
 	if err := ensureSourceStationStorage(db); err != nil {
 		return nil, err
 	}
-	query := `SELECT id, title, image_url, destination_url, position, weight, start_at, end_at, description
-		FROM source_advertisements`
+	query := `SELECT id, title, image_url, destination_url, position, weight, start_at, end_at, description FROM source_advertisements`
 	args := []any{}
 	if position != "" {
 		query += ` WHERE position=?`
@@ -1140,8 +1395,7 @@ func (mysqlSourceStore) ListAdvertisements(position string) ([]advertisementReco
 	result := make([]advertisementRecord, 0)
 	for rows.Next() {
 		var item advertisementRecord
-		if err := rows.Scan(&item.ID, &item.Title, &item.ImageURL, &item.DestinationURL, &item.Position,
-			&item.Weight, &item.StartAt, &item.EndAt, &item.Description); err != nil {
+		if err := rows.Scan(&item.ID, &item.Title, &item.ImageURL, &item.DestinationURL, &item.Position, &item.Weight, &item.StartAt, &item.EndAt, &item.Description); err != nil {
 			return nil, err
 		}
 		result = append(result, item)
@@ -1157,14 +1411,11 @@ func (mysqlSourceStore) UpsertAdvertisement(record advertisementRecord) error {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return err
 	}
-	_, err = db.Exec(`INSERT INTO source_advertisements
-		(id, title, image_url, destination_url, position, weight, start_at, end_at, description)
+	_, err = db.Exec(`INSERT INTO source_advertisements (id, title, image_url, destination_url, position, weight, start_at, end_at, description)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE title=VALUES(title), image_url=VALUES(image_url), destination_url=VALUES(destination_url),
-			position=VALUES(position), weight=VALUES(weight), start_at=VALUES(start_at), end_at=VALUES(end_at),
-			description=VALUES(description)`,
-		record.ID, record.Title, record.ImageURL, record.DestinationURL, record.Position, record.Weight,
-		record.StartAt, record.EndAt, record.Description)
+			position=VALUES(position), weight=VALUES(weight), start_at=VALUES(start_at), end_at=VALUES(end_at), description=VALUES(description)`,
+		record.ID, record.Title, record.ImageURL, record.DestinationURL, record.Position, record.Weight, record.StartAt, record.EndAt, record.Description)
 	return err
 }
 
@@ -1185,4 +1436,125 @@ func (mysqlSourceStore) DeleteAdvertisement(id string) error {
 		return errSourceNotFound
 	}
 	return nil
+}
+
+func (mysqlSourceStore) AppendAudit(entry sourceAuditEntry) error {
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return err
+	}
+	if entry.ActorType == "" {
+		entry.ActorType = "admin"
+	}
+	_, err = db.Exec(`INSERT INTO source_audit_logs (actor_type, actor_name, action, target_type, target_id, detail)
+		VALUES (?, ?, ?, ?, ?, ?)`, entry.ActorType, entry.ActorName, entry.Action, entry.TargetType, entry.TargetID, truncateText(entry.Detail, 500))
+	return err
+}
+
+func (mysqlSourceStore) ListAudit(limit int) ([]sourceAuditEntry, error) {
+	db, err := config.DB()
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	rows, err := db.Query(`SELECT id, actor_type, actor_name, action, target_type, target_id, detail, created_at
+		FROM source_audit_logs ORDER BY id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]sourceAuditEntry, 0)
+	for rows.Next() {
+		var item sourceAuditEntry
+		if err := rows.Scan(&item.ID, &item.ActorType, &item.ActorName, &item.Action, &item.TargetType, &item.TargetID, &item.Detail, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		item.CreatedAt = item.CreatedAt.UTC()
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (mysqlSourceStore) SaveIndexSnapshot(payload, actor string) error {
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`INSERT INTO source_index_snapshots (payload, generated_by) VALUES (?, ?)`, payload, actor); err != nil {
+		return err
+	}
+	mysqlAppendAudit(db, "regenerate", "index", "index.json", actor, "")
+	return nil
+}
+
+func (mysqlSourceStore) LatestIndexSnapshot() (sourceIndexSnapshot, error) {
+	db, err := config.DB()
+	if err != nil {
+		return sourceIndexSnapshot{}, err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return sourceIndexSnapshot{}, err
+	}
+	var item sourceIndexSnapshot
+	err = db.QueryRow(`SELECT payload, generated_by, generated_at FROM source_index_snapshots ORDER BY id DESC LIMIT 1`).
+		Scan(&item.Payload, &item.GeneratedBy, &item.GeneratedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return sourceIndexSnapshot{}, nil
+	}
+	if err != nil {
+		return sourceIndexSnapshot{}, err
+	}
+	item.GeneratedAt = item.GeneratedAt.UTC()
+	return item, nil
+}
+
+func sourceCatalogJSON() ([]byte, ginHCatalog, error) {
+	plugins, err := currentSourceStationStore().ListPlugins(sourceItemPublished)
+	if err != nil {
+		plugins = nil
+	}
+	templates, err := currentSourceStationStore().ListTemplates(sourceItemPublished)
+	if err != nil {
+		templates = nil
+	}
+	pluginItems := make([]map[string]any, 0, len(plugins))
+	for _, plugin := range plugins {
+		pluginItems = append(pluginItems, map[string]any{
+			"id": plugin.ID, "category": plugin.Category, "name": plugin.Name, "description": plugin.Description,
+			"icon": plugin.Icon, "version": plugin.Version, "author": plugin.Author, "downloadUrl": plugin.DownloadURL,
+			"sha256": plugin.SHA256,
+		})
+	}
+	homeTemplates := make([]map[string]any, 0, len(templates))
+	for _, template := range templates {
+		schemaVersion := template.SchemaVersion
+		if schemaVersion == 0 {
+			schemaVersion = homeTemplateSchemaVersion
+		}
+		homeTemplates = append(homeTemplates, map[string]any{
+			"id": template.TemplateKey, "name": template.Name, "description": template.Description,
+			"version": template.Version, "schemaVersion": schemaVersion, "sha256": template.SHA256,
+			"templateUrl": template.TemplateURL,
+		})
+	}
+	catalog := ginHCatalog{Name: sourceStationSourceName, Plugins: pluginItems, HomeTemplates: homeTemplates}
+	payload, err := json.Marshal(catalog)
+	return payload, catalog, err
+}
+
+type ginHCatalog struct {
+	Name          string           `json:"name"`
+	Plugins       []map[string]any `json:"plugins"`
+	HomeTemplates []map[string]any `json:"homeTemplates"`
 }

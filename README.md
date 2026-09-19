@@ -108,7 +108,7 @@ pnpm dev
 
 管理后台的“应用商店”提供“首页模板”分区。管理员可以在“软件源管理”中添加以下两类 HTTP(S) 地址：
 
-- JSON 清单 URL，例如 `https://example.com/auth-pro/index.json`。
+- JSON 清单 URL，例如 `https://example.com/software-source/index.json` 或 `https://example.com/auth-pro/index.json`。
 - Git 仓库 URL，例如 `https://git.example.com/team/auth-pro-templates.git`。服务端需要在 `PATH` 中安装 `git`，仓库根目录必须包含 `index.json`。
 
 软件源允许使用内网地址。请仅添加可信仓库：服务端会拉取清单和模板文件，但声明式模板不会执行仓库中的 JavaScript。清单缓存 5 分钟；可在软件源管理中手动刷新，源暂时不可用时会保留已有缓存并显示错误状态。
@@ -276,7 +276,8 @@ releases.json
 - `/api/home-template/active`：当前首页模板公开读取接口。
 - `/api/advertisements`：前端广告位代理；默认读本站投放。
 - `/api/v1/public/advertisements`：本站广告接口（`home-banner` / `sidebar` / `popup`）。
-- `/auth-pro/index.json`：本实例作为软件源源站时的公开清单（见下方「作为软件源源站」）。
+- `/software-source/index.json`：本实例作为软件源源站时的公开清单（兼容 `/auth-pro/index.json`，见下方「作为软件源源站」）。
+- `/source`：源站控制面（入驻、审核、上架/下架、index 快照）。
 - `/api/*`：后台管理接口，除公开接口外默认需要 JWT 鉴权。
 
 ## 部署说明
@@ -307,13 +308,17 @@ export AUTO_PRO_ADVERTISEMENT_URL="https://ads.example.com/api/v1/public/adverti
 
 ## 作为软件源源站
 
-本实例可以直接当软件源（源站）用。协议与管理后台「软件源管理」一致：公开一个可 HTTP GET 的 `index.json`（以及清单里的插件包 / 模板文件）。源站主机**不需要**设置 `AUTO_PRO_SOFTWARE_SOURCE_*`（那是客户端用来可选对接独立目录服务的，cut-1 已改成环境变量、默认关闭）。
+本实例可以直接当软件源（源站）用。协议与管理后台「软件源管理」一致：公开一个可 HTTP GET 的 `index.json`。源站主机**不需要**设置 `AUTO_PRO_SOFTWARE_SOURCE_*`（那是客户端用来可选对接独立目录服务的，cut-1 已改成环境变量、默认关闭）。
+
+**源站只保存目录元数据，从不保存插件或模板源码。** 目录字段为 id、name、version、description、author、status、sha256、外部 `downloadUrl` / `templateUrl`、审核信息与时间戳。发布包必须放在外部 HTTPS（或后续 OSS 对象键），不要把 git 源码树写入后端 data 目录。
 
 其它授权实例在「软件源管理」里添加：
 
 ```text
-http://源站主机:19127/auth-pro/index.json
+https://<host>/software-source/index.json
 ```
+
+兼容路径：`/auth-pro/index.json`（同样的 JSON）。清单缓存由消费者侧完成（约 5 分钟，可手动刷新）；源站在上架/下架时从数据库重新生成公开目录。
 
 清单形状：
 
@@ -329,20 +334,31 @@ http://源站主机:19127/auth-pro/index.json
       "version": "1.0.0",
       "schemaVersion": 1,
       "sha256": "<模板文件 64 位 hex>",
-      "templateUrl": "templates/clean-home.json"
+      "templateUrl": "https://cdn.example.com/templates/clean-home.json"
     }
   ]
 }
 ```
 
-`templateUrl` 为相对路径，解析到 `/auth-pro/templates/...`。插件 `downloadUrl` 为绝对地址，指向 `/auth-pro/plugins/{id}.zip`。
+`templateUrl` 可以是 `https://` 绝对地址，或相对路径（由消费者相对 `index.json` URL 解析）。插件 `downloadUrl` 必须是外部 `https://` 地址。上架要求 64 位 sha256 与下载/模板地址同时存在。
 
-开发者入驻与发布：浏览器打开 `/source`，或直接调 API。管理员审核通过后会创建 `R_DEVELOPER` 角色记录和开发者账号，随后即可把插件和首页模板写入上述清单。
+**下架 ≠ 远程卸载。** 下架只是把条目从公开 `index.json` 隐藏（status=`hidden`）。已经安装到其它授权实例本地的插件/模板不会被源站删除或停用。
+
+工作流：
+
+1. 启动本仓库后端（源站无需 `AUTO_PRO_SOFTWARE_SOURCE_*`）。
+2. 浏览器打开 `/source`：开发者申请入驻 → 管理员通过/拒绝/冻结。
+3. 开发者保存插件/模板**元数据草稿**（外部 URL + sha256），提交审核；管理员通过或驳回。
+4. 管理员上架（写入 index）/下架（从 index 隐藏）/弃用。也可直接登记外部 HTTPS + sha256，无需上传文件。
+5. 消费者实例在「软件源管理」添加 `https://<host>/software-source/index.json`。
 
 ```bash
 # 源站本机（无需软件源环境变量）
+curl -s http://127.0.0.1:19127/software-source/index.json
 curl -s http://127.0.0.1:19127/auth-pro/index.json
 ```
+
+本 PR 不包含：OSS 直传发布包、Git 软件源充当源站、代码签名、按客户可见性、完整 Vue 控制台改版。后续可把发布包对象键记入目录，仍不入库 git 源码树。
 
 ## 从自建软件源安装首页模板
 

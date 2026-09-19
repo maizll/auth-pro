@@ -3,9 +3,8 @@ package handler
 import (
 	"errors"
 	"net/http"
-	"path"
-	"path/filepath"
-	"sort"
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -14,17 +13,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const sourceStationPublicPrefix = "/auth-pro"
-
 func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
-	public := engine.Group(sourceStationPublicPrefix)
-	{
-		public.GET("/index.json", SourceStationIndex)
-		public.GET("/templates/:file", SourceStationTemplateFile)
-		public.GET("/plugins/:file", SourceStationPluginFile)
-	}
+	engine.GET("/software-source/index.json", SourceStationIndex)
+	engine.GET("/auth-pro/index.json", SourceStationIndex)
 
 	api.POST("/v1/source/developer/apply", SourceDeveloperApply)
+	api.POST("/v1/source/developer/apply/status", SourceDeveloperApplyStatus)
 	api.POST("/v1/source/developer/login", SourceDeveloperLogin)
 
 	developer := api.Group("/v1/source/developer")
@@ -32,8 +26,12 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 	{
 		developer.GET("/me", SourceDeveloperMe)
 		developer.GET("/items", SourceDeveloperItems)
-		developer.POST("/plugins", SourceDeveloperPublishPlugin)
-		developer.POST("/templates", SourceDeveloperPublishTemplate)
+		developer.POST("/plugins", SourceDeveloperUpsertPlugin)
+		developer.PUT("/plugins/:id", SourceDeveloperUpsertPlugin)
+		developer.POST("/plugins/:id/submit", SourceDeveloperSubmitPlugin)
+		developer.POST("/templates", SourceDeveloperUpsertTemplate)
+		developer.PUT("/templates/:id", SourceDeveloperUpsertTemplate)
+		developer.POST("/templates/:id/submit", SourceDeveloperSubmitTemplate)
 	}
 
 	admin := api.Group("/v1/source/admin")
@@ -42,123 +40,53 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		admin.GET("/applications", AdminSourceDeveloperApplications)
 		admin.POST("/applications/:id/approve", AdminSourceDeveloperApprove)
 		admin.POST("/applications/:id/reject", AdminSourceDeveloperReject)
+		admin.POST("/applications/:id/freeze", AdminSourceDeveloperFreeze)
+		admin.GET("/developers", AdminSourceDevelopers)
+		admin.POST("/developers/:id/freeze", AdminSourceFreezeDeveloper)
+
+		admin.GET("/plugins", AdminSourcePlugins)
+		admin.PUT("/plugins", AdminSourceRegisterPlugin)
+		admin.POST("/plugins/:id/approve", AdminSourcePluginApprove)
+		admin.POST("/plugins/:id/reject", AdminSourcePluginReject)
+		admin.POST("/plugins/:id/shelf", AdminSourcePluginShelf)
+		admin.POST("/plugins/:id/unshelf", AdminSourcePluginUnshelf)
+		admin.POST("/plugins/:id/deprecate", AdminSourcePluginDeprecate)
+
+		admin.GET("/templates", AdminSourceTemplates)
+		admin.PUT("/templates", AdminSourceRegisterTemplate)
+		admin.POST("/templates/:id/approve", AdminSourceTemplateApprove)
+		admin.POST("/templates/:id/reject", AdminSourceTemplateReject)
+		admin.POST("/templates/:id/shelf", AdminSourceTemplateShelf)
+		admin.POST("/templates/:id/unshelf", AdminSourceTemplateUnshelf)
+		admin.POST("/templates/:id/deprecate", AdminSourceTemplateDeprecate)
+
+		admin.GET("/index", AdminSourceIndexSnapshot)
+		admin.POST("/index/regenerate", AdminSourceIndexRegenerate)
+		admin.GET("/audit", AdminSourceAudit)
+
 		admin.GET("/advertisements", AdminSourceAdvertisements)
 		admin.PUT("/advertisements", AdminSourceAdvertisementUpsert)
 		admin.DELETE("/advertisements/:id", AdminSourceAdvertisementDelete)
 	}
 }
 
-func sourcePublicBase(c *gin.Context) string {
-	scheme := "http"
-	if proto := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")); proto != "" {
-		scheme = proto
-	} else if c.Request.TLS != nil {
-		scheme = "https"
-	}
-	host := strings.TrimSpace(c.Request.Host)
-	if host == "" {
-		host = "127.0.0.1"
-	}
-	return scheme + "://" + host
-}
-
-func sourceStationFileID(raw string) (string, error) {
-	if strings.Contains(raw, "..") || (strings.ContainsAny(raw, `/\`) && path.Base(raw) != raw) {
-		return "", errSourceNotFound
-	}
-	name := path.Base(strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/")))
-	if name == "" || name == "." || name == string(filepath.Separator) {
-		return "", errSourceNotFound
-	}
-	id := strings.TrimSuffix(name, path.Ext(name))
-	if !pluginIDPattern.MatchString(id) {
-		return "", errSourceNotFound
-	}
-	return id, nil
-}
-
-func sourceTemplatePublicPath(item sourceTemplate) string {
-	ext := ".json"
-	if strings.EqualFold(item.Format, "zip") {
-		ext = ".zip"
-	}
-	return "templates/" + item.TemplateKey + ext
-}
-
 func SourceStationIndex(c *gin.Context) {
-	base := sourcePublicBase(c) + sourceStationPublicPrefix
-	plugins, _ := currentSourceStationStore().ListPlugins()
-	templates, _ := currentSourceStationStore().ListTemplates()
-	pluginItems := make([]gin.H, 0, len(plugins))
-	sort.SliceStable(plugins, func(i, j int) bool { return plugins[i].ID < plugins[j].ID })
-	for _, plugin := range plugins {
-		pluginItems = append(pluginItems, gin.H{
-			"id": plugin.ID, "category": plugin.Category, "name": plugin.Name,
-			"description": plugin.Description, "icon": plugin.Icon, "version": plugin.Version,
-			"author":      plugin.Author,
-			"downloadUrl": base + "/plugins/" + plugin.ID + ".zip",
-		})
+	payload, catalog, err := sourceCatalogJSON()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"name": sourceStationSourceName, "plugins": []any{}, "homeTemplates": []any{}})
+		return
 	}
-	homeTemplates := make([]gin.H, 0, len(templates))
-	sort.SliceStable(templates, func(i, j int) bool { return templates[i].TemplateKey < templates[j].TemplateKey })
-	for _, template := range templates {
-		schemaVersion := template.SchemaVersion
-		if schemaVersion == 0 {
-			schemaVersion = homeTemplateSchemaVersion
-		}
-		homeTemplates = append(homeTemplates, gin.H{
-			"id": template.TemplateKey, "name": template.Name, "description": template.Description,
-			"version": template.Version, "schemaVersion": schemaVersion, "sha256": template.SHA256,
-			"templateUrl": sourceTemplatePublicPath(template),
-		})
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"name":          sourceStationSourceName,
-		"plugins":       pluginItems,
-		"homeTemplates": homeTemplates,
-	})
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, "application/json; charset=utf-8", payload)
+	_ = catalog
 }
 
-func SourceStationTemplateFile(c *gin.Context) {
-	id, err := sourceStationFileID(c.Param("file"))
+func persistIndexSnapshot(actor string) {
+	payload, _, err := sourceCatalogJSON()
 	if err != nil {
-		c.Status(http.StatusNotFound)
 		return
 	}
-	item, content, _, err := currentSourceStationStore().GetTemplate(id)
-	if err != nil {
-		status := http.StatusNotFound
-		if !errors.Is(err, errSourceNotFound) {
-			status = http.StatusInternalServerError
-		}
-		c.Status(status)
-		return
-	}
-	contentType := "application/json"
-	if item.Format == "zip" {
-		contentType = "application/zip"
-	}
-	c.Header("X-Checksum-SHA256", item.SHA256)
-	c.Data(http.StatusOK, contentType, content)
-}
-
-func SourceStationPluginFile(c *gin.Context) {
-	id, err := sourceStationFileID(c.Param("file"))
-	if err != nil {
-		c.Status(http.StatusNotFound)
-		return
-	}
-	item, payload, err := currentSourceStationStore().GetPlugin(id)
-	if err != nil {
-		status := http.StatusNotFound
-		if !errors.Is(err, errSourceNotFound) {
-			status = http.StatusInternalServerError
-		}
-		c.Status(status)
-		return
-	}
-	c.Header("X-Checksum-SHA256", item.SHA256)
-	c.Data(http.StatusOK, "application/zip", payload)
+	_ = currentSourceStationStore().SaveIndexSnapshot(string(payload), actor)
 }
 
 func AdminSourceAdvertisements(c *gin.Context) {
@@ -184,6 +112,18 @@ func AdminSourceAdvertisementUpsert(c *gin.Context) {
 	if record.ID == "" || advertisementLocks[record.Position] == nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告标识或广告位不合法"})
 		return
+	}
+	if record.ImageURL != "" {
+		if err := validateExternalHTTPS(record.ImageURL); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告图片必须是 https:// 外部地址"})
+			return
+		}
+	}
+	if record.DestinationURL != "" {
+		if err := validateExternalHTTPS(record.DestinationURL); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告跳转必须是 https:// 外部地址"})
+			return
+		}
 	}
 	record.Title = truncateText(record.Title, 120)
 	record.ImageURL = truncateText(record.ImageURL, 500)
@@ -225,7 +165,49 @@ func localSourceAdvertisements(position string) []advertisementRecord {
 	return normalizeAdvertisements(records, position, time.Now())
 }
 
-// EnsureSourceStationSchema 在进程启动时补齐源站表；数据库未就绪时忽略。
 func EnsureSourceStationSchema() {
 	_ = currentSourceStationStore().Ensure()
+}
+
+var relativeTemplateURLPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`)
+
+func validateExternalHTTPS(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Host == "" || !strings.EqualFold(parsed.Scheme, "https") {
+		return errors.New("必须是 https:// 外部地址，源站不保存插件或模板源码")
+	}
+	if strings.Contains(parsed.Path, "..") {
+		return errors.New("地址不合法")
+	}
+	return nil
+}
+
+func validatePluginDownloadURL(raw string) error {
+	return validateExternalHTTPS(raw)
+}
+
+func validateTemplateLocation(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(strings.ToLower(raw), "https://") {
+		return validateExternalHTTPS(raw)
+	}
+	if strings.Contains(raw, "..") || strings.HasPrefix(raw, "/") || !relativeTemplateURLPattern.MatchString(raw) {
+		return errors.New("templateUrl 须为 https:// 或相对路径（如 templates/clean-home.json）")
+	}
+	return nil
+}
+
+func validateSHA256(raw string) error {
+	if !sha256HexPattern.MatchString(strings.TrimSpace(raw)) {
+		return errors.New("sha256 必须是 64 位十六进制")
+	}
+	return nil
+}
+
+func sourceNoteFromBody(c *gin.Context) string {
+	var req struct {
+		Note string `json:"note"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	return strings.TrimSpace(req.Note)
 }

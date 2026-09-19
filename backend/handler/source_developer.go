@@ -1,13 +1,8 @@
 package handler
 
 import (
-	"archive/zip"
-	"bytes"
-	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +20,32 @@ type sourceDeveloperApplyRequest struct {
 	Email       string `json:"email"`
 	DisplayName string `json:"displayName"`
 	Reason      string `json:"reason"`
+}
+
+type sourcePluginDraftRequest struct {
+	ID          string       `json:"id"`
+	Category    string       `json:"category"`
+	Name        string       `json:"name"`
+	Description string       `json:"description"`
+	Icon        string       `json:"icon"`
+	Version     string       `json:"version"`
+	SHA256      string       `json:"sha256"`
+	DownloadURL string       `json:"downloadUrl"`
+	Author      sourceAuthor `json:"author"`
+	Shelf       bool         `json:"shelf"`
+}
+
+type sourceTemplateDraftRequest struct {
+	ID            string       `json:"id"`
+	TemplateKey   string       `json:"templateKey"`
+	Name          string       `json:"name"`
+	Description   string       `json:"description"`
+	Version       string       `json:"version"`
+	SchemaVersion int          `json:"schemaVersion"`
+	SHA256        string       `json:"sha256"`
+	TemplateURL   string       `json:"templateUrl"`
+	Author        sourceAuthor `json:"author"`
+	Shelf         bool         `json:"shelf"`
 }
 
 func SourceDeveloperApply(c *gin.Context) {
@@ -65,6 +86,41 @@ func SourceDeveloperApply(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "入驻申请已提交，等待管理员审核", "data": gin.H{
 		"id": app.ID, "username": app.Username, "status": app.Status,
 	}})
+}
+
+func SourceDeveloperApplyStatus(c *gin.Context) {
+	var req struct {
+		Username string `json:"username"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Username) == "" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请提供用户名"})
+		return
+	}
+	username := strings.ToLower(strings.TrimSpace(req.Username))
+	if developer, err := currentSourceStationStore().GetDeveloperByUsername(username); err == nil {
+		status := sourceApplicationApproved
+		if !developer.Enabled {
+			status = sourceApplicationFrozen
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
+			"username": developer.Username, "status": status, "enabled": developer.Enabled,
+		}})
+		return
+	}
+	apps, err := currentSourceStationStore().ListApplications("")
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "查询申请失败"})
+		return
+	}
+	for _, app := range apps {
+		if strings.EqualFold(app.Username, username) {
+			c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
+				"id": app.ID, "username": app.Username, "status": app.Status, "reviewNote": app.ReviewNote,
+			}})
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "未找到入驻申请"})
 }
 
 func SourceDeveloperLogin(c *gin.Context) {
@@ -128,186 +184,111 @@ func SourceDeveloperItems(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
 		return
 	}
-	plugins, _ := currentSourceStationStore().ListPlugins()
-	templates, _ := currentSourceStationStore().ListTemplates()
+	plugins, _ := currentSourceStationStore().ListPlugins("")
+	templates, _ := currentSourceStationStore().ListTemplates("")
 	ownedPlugins := make([]gin.H, 0)
 	for _, plugin := range plugins {
 		if plugin.DeveloperID == developer.ID {
-			ownedPlugins = append(ownedPlugins, gin.H{
-				"id": plugin.ID, "name": plugin.Name, "version": plugin.Version, "category": plugin.Category,
-			})
+			ownedPlugins = append(ownedPlugins, sourcePluginView(plugin))
 		}
 	}
 	ownedTemplates := make([]gin.H, 0)
 	for _, template := range templates {
 		if template.DeveloperID == developer.ID {
-			ownedTemplates = append(ownedTemplates, gin.H{
-				"id": template.ID, "templateKey": template.TemplateKey, "name": template.Name,
-				"version": template.Version, "format": template.Format,
-			})
+			ownedTemplates = append(ownedTemplates, sourceTemplateView(template))
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"plugins": ownedPlugins, "homeTemplates": ownedTemplates}})
 }
 
-func SourceDeveloperPublishPlugin(c *gin.Context) {
+func SourceDeveloperUpsertPlugin(c *gin.Context) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
 		return
 	}
-	payload, err := readSourceUpload(c, "file", pluginPackageMaxSize)
+	plugin, err := bindSourcePluginDraft(c, developer)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
-	if _, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload))); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "插件包必须是有效 ZIP"})
-		return
-	}
-	pluginID := strings.TrimSpace(c.PostForm("id"))
-	if pluginID == "" {
-		pluginID = strings.TrimSpace(c.PostForm("pluginId"))
-	}
-	if !pluginIDPattern.MatchString(pluginID) {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "插件标识不合法"})
-		return
-	}
-	if _, builtin := findCatalogPlugin(pluginID); builtin {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "不能覆盖内置插件标识"})
-		return
-	}
-	if err := validatePublishedPluginZIP(payload, pluginID); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
-		return
-	}
-	name := truncateText(c.PostForm("name"), 100)
-	if name == "" {
-		name = pluginID
-	}
-	version := truncateText(c.PostForm("version"), 40)
-	if version == "" {
-		version = "1.0.0"
-	}
-	category := normalizePluginCategory(strings.TrimSpace(c.PostForm("category")))
-	icon := truncateText(c.PostForm("icon"), 80)
-	if icon == "" {
-		icon = "ri:puzzle-line"
-	}
-	plugin := sourcePlugin{
-		ID:          pluginID,
-		DeveloperID: developer.ID,
-		Category:    category,
-		Name:        name,
-		Description: truncateText(c.PostForm("description"), 500),
-		Icon:        icon,
-		Version:     version,
-		Author: sourceAuthor{
-			Name:  sourceFirstNonEmpty(truncateText(c.PostForm("authorName"), 100), developer.DisplayName, developer.Username),
-			URL:   truncateText(c.PostForm("authorUrl"), 300),
-			Email: sourceFirstNonEmpty(truncateText(c.PostForm("authorEmail"), 200), developer.Email),
-		},
-	}
-	if err := currentSourceStationStore().PutPlugin(plugin, payload); err != nil {
+	saved, err := currentSourceStationStore().UpsertPlugin(plugin, false)
+	if err != nil {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "插件已写入本站目录", "data": gin.H{"id": plugin.ID, "sha256": sourceContentSHA256(payload)}})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "插件元数据已保存（源站不存储源码）", "data": sourcePluginView(saved)})
 }
 
-func SourceDeveloperPublishTemplate(c *gin.Context) {
+func SourceDeveloperSubmitPlugin(c *gin.Context) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
 		return
 	}
-	payload, err := readSourceUpload(c, "file", pluginPackageMaxSize)
+	item, err := currentSourceStationStore().GetPlugin(strings.TrimSpace(c.Param("id")))
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	if item.DeveloperID != developer.ID {
+		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": errSourceForbidden.Error()})
+		return
+	}
+	saved, err := currentSourceStationStore().SetPluginStatus(item.ID, sourceItemReview, developer.Username, sourceNoteFromBody(c))
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已提交审核", "data": sourcePluginView(saved)})
+}
+
+func SourceDeveloperUpsertTemplate(c *gin.Context) {
+	developer, err := currentSourceDeveloper(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		return
+	}
+	item, err := bindSourceTemplateDraft(c, developer)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
-	templateKey := strings.TrimSpace(c.PostForm("templateKey"))
-	if templateKey == "" {
-		templateKey = strings.TrimSpace(c.PostForm("id"))
-	}
-	if !pluginIDPattern.MatchString(templateKey) {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "模板标识不合法"})
-		return
-	}
-	filename := strings.ToLower(c.Request.FormValue("filename"))
-	if header, headerErr := c.FormFile("file"); headerErr == nil {
-		filename = strings.ToLower(header.Filename)
-	}
-	format := strings.ToLower(strings.TrimSpace(c.PostForm("format")))
-	if format == "" {
-		if strings.HasSuffix(filename, ".zip") || looksLikeZIP(payload) {
-			format = "zip"
-		} else {
-			format = "json"
-		}
-	}
-	schemaVersion := homeTemplateSchemaVersion
-	switch format {
-	case "json":
-		if err := validateHomeTemplateDocument(payload); err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
-			return
-		}
-	case "zip":
-		if _, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload))); err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "模板包必须是有效 ZIP"})
-			return
-		}
-	default:
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "模板格式只支持 json 或 zip"})
-		return
-	}
-	name := truncateText(c.PostForm("name"), 100)
-	if name == "" {
-		name = templateKey
-	}
-	version := truncateText(c.PostForm("version"), 40)
-	if version == "" {
-		version = "1.0.0"
-	}
-	var preview []byte
-	previewType := ""
-	if previewPayload, previewErr := readOptionalSourceUpload(c, "preview", previewMaxBytesForSource()); previewErr != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": previewErr.Error()})
-		return
-	} else if len(previewPayload) > 0 {
-		preview = previewPayload
-		previewType = http.DetectContentType(preview)
-	}
-	template := sourceTemplate{
-		ID:            templateKey,
-		DeveloperID:   developer.ID,
-		TemplateKey:   templateKey,
-		Name:          name,
-		Description:   truncateText(c.PostForm("description"), 500),
-		Version:       version,
-		Format:        format,
-		SchemaVersion: schemaVersion,
-		Author: sourceAuthor{
-			Name:  sourceFirstNonEmpty(truncateText(c.PostForm("authorName"), 100), developer.DisplayName, developer.Username),
-			URL:   truncateText(c.PostForm("authorUrl"), 300),
-			Email: sourceFirstNonEmpty(truncateText(c.PostForm("authorEmail"), 200), developer.Email),
-		},
-		PreviewContentType: previewType,
-		HasPreview:         len(preview) > 0,
-	}
-	if err := currentSourceStationStore().PutTemplate(template, payload, preview); err != nil {
+	saved, err := currentSourceStationStore().UpsertTemplate(item, false)
+	if err != nil {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "首页模板已写入本站目录", "data": gin.H{
-		"id": template.ID, "templateKey": template.TemplateKey, "format": format, "sha256": sourceContentSHA256(payload),
-	}})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "模板元数据已保存（源站不存储源码）", "data": sourceTemplateView(saved)})
+}
+
+func SourceDeveloperSubmitTemplate(c *gin.Context) {
+	developer, err := currentSourceDeveloper(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		return
+	}
+	item, err := currentSourceStationStore().GetTemplate(strings.TrimSpace(c.Param("id")))
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	if item.DeveloperID != developer.ID {
+		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": errSourceForbidden.Error()})
+		return
+	}
+	saved, err := currentSourceStationStore().SetTemplateStatus(item.ID, sourceItemReview, developer.Username, sourceNoteFromBody(c))
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已提交审核", "data": sourceTemplateView(saved)})
 }
 
 func AdminSourceDeveloperApplications(c *gin.Context) {
 	status := strings.TrimSpace(c.Query("status"))
-	if status != "" && status != sourceApplicationPending && status != sourceApplicationApproved && status != sourceApplicationRejected {
+	if status != "" && status != sourceApplicationPending && status != sourceApplicationApproved &&
+		status != sourceApplicationRejected && status != sourceApplicationFrozen {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "状态不合法"})
 		return
 	}
@@ -345,15 +326,24 @@ func AdminSourceDeveloperReject(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "申请标识不合法"})
 		return
 	}
-	var req struct {
-		Note string `json:"note"`
-	}
-	_ = c.ShouldBindJSON(&req)
-	if err := currentSourceStationStore().RejectApplication(id, c.GetString("username"), req.Note); err != nil {
+	if err := currentSourceStationStore().RejectApplication(id, c.GetString("username"), sourceNoteFromBody(c)); err != nil {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已拒绝入驻申请"})
+}
+
+func AdminSourceDeveloperFreeze(c *gin.Context) {
+	id, err := parseSourceApplicationID(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "申请标识不合法"})
+		return
+	}
+	if err := currentSourceStationStore().FreezeApplication(id, c.GetString("username"), sourceNoteFromBody(c)); err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已冻结该入驻账号"})
 }
 
 func currentSourceDeveloper(c *gin.Context) (sourceDeveloper, error) {
@@ -379,13 +369,148 @@ func sourceApplicationView(item sourceApplication) gin.H {
 	}
 }
 
+func sourcePluginView(item sourcePlugin) gin.H {
+	return gin.H{
+		"id": item.ID, "developerId": item.DeveloperID, "category": item.Category, "name": item.Name,
+		"description": item.Description, "icon": item.Icon, "version": item.Version, "author": item.Author,
+		"sha256": item.SHA256, "downloadUrl": item.DownloadURL, "status": item.Status,
+		"reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
+		"updatedAt": item.UpdatedAt.Format(time.RFC3339), "createdAt": item.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func sourceTemplateView(item sourceTemplate) gin.H {
+	return gin.H{
+		"id": item.ID, "developerId": item.DeveloperID, "templateKey": item.TemplateKey, "name": item.Name,
+		"description": item.Description, "version": item.Version, "schemaVersion": item.SchemaVersion,
+		"sha256": item.SHA256, "templateUrl": item.TemplateURL, "status": item.Status, "author": item.Author,
+		"reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
+		"updatedAt": item.UpdatedAt.Format(time.RFC3339), "createdAt": item.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlugin, error) {
+	var req sourcePluginDraftRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		return sourcePlugin{}, errors.New("参数错误")
+	}
+	pluginID := strings.TrimSpace(req.ID)
+	if pluginID == "" {
+		pluginID = strings.TrimSpace(c.Param("id"))
+	}
+	if !pluginIDPattern.MatchString(pluginID) {
+		return sourcePlugin{}, errors.New("插件标识不合法")
+	}
+	if _, builtin := findCatalogPlugin(pluginID); builtin {
+		return sourcePlugin{}, errors.New("不能覆盖内置插件标识")
+	}
+	if req.DownloadURL != "" {
+		if err := validatePluginDownloadURL(req.DownloadURL); err != nil {
+			return sourcePlugin{}, err
+		}
+	}
+	if req.SHA256 != "" {
+		if err := validateSHA256(req.SHA256); err != nil {
+			return sourcePlugin{}, err
+		}
+	}
+	name := truncateText(req.Name, 100)
+	if name == "" {
+		name = pluginID
+	}
+	version := truncateText(req.Version, 40)
+	if version == "" {
+		version = "1.0.0"
+	}
+	icon := truncateText(req.Icon, 80)
+	if icon == "" {
+		icon = "ri:puzzle-line"
+	}
+	authorName := sourceFirstNonEmpty(truncateText(req.Author.Name, 100), developer.DisplayName, developer.Username)
+	return sourcePlugin{
+		ID:          pluginID,
+		DeveloperID: developer.ID,
+		Category:    normalizePluginCategory(strings.TrimSpace(req.Category)),
+		Name:        name,
+		Description: truncateText(req.Description, 500),
+		Icon:        icon,
+		Version:     version,
+		SHA256:      strings.ToLower(strings.TrimSpace(req.SHA256)),
+		DownloadURL: strings.TrimSpace(req.DownloadURL),
+		Author: sourceAuthor{
+			Name:  authorName,
+			URL:   truncateText(req.Author.URL, 300),
+			Email: sourceFirstNonEmpty(truncateText(req.Author.Email, 200), developer.Email),
+		},
+	}, nil
+}
+
+func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceTemplate, error) {
+	var req sourceTemplateDraftRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		return sourceTemplate{}, errors.New("参数错误")
+	}
+	templateKey := strings.TrimSpace(req.TemplateKey)
+	if templateKey == "" {
+		templateKey = strings.TrimSpace(req.ID)
+	}
+	if templateKey == "" {
+		templateKey = strings.TrimSpace(c.Param("id"))
+	}
+	if !pluginIDPattern.MatchString(templateKey) {
+		return sourceTemplate{}, errors.New("模板标识不合法")
+	}
+	if req.TemplateURL != "" {
+		if err := validateTemplateLocation(req.TemplateURL); err != nil {
+			return sourceTemplate{}, err
+		}
+	}
+	if req.SHA256 != "" {
+		if err := validateSHA256(req.SHA256); err != nil {
+			return sourceTemplate{}, err
+		}
+	}
+	name := truncateText(req.Name, 100)
+	if name == "" {
+		name = templateKey
+	}
+	version := truncateText(req.Version, 40)
+	if version == "" {
+		version = "1.0.0"
+	}
+	schemaVersion := req.SchemaVersion
+	if schemaVersion == 0 {
+		schemaVersion = homeTemplateSchemaVersion
+	}
+	if schemaVersion != homeTemplateSchemaVersion {
+		return sourceTemplate{}, errors.New("schemaVersion 必须为 1")
+	}
+	return sourceTemplate{
+		ID:            templateKey,
+		DeveloperID:   developer.ID,
+		TemplateKey:   templateKey,
+		Name:          name,
+		Description:   truncateText(req.Description, 500),
+		Version:       version,
+		SchemaVersion: schemaVersion,
+		SHA256:        strings.ToLower(strings.TrimSpace(req.SHA256)),
+		TemplateURL:   strings.TrimSpace(req.TemplateURL),
+		Author: sourceAuthor{
+			Name:  sourceFirstNonEmpty(truncateText(req.Author.Name, 100), developer.DisplayName, developer.Username),
+			URL:   truncateText(req.Author.URL, 300),
+			Email: sourceFirstNonEmpty(truncateText(req.Author.Email, 200), developer.Email),
+		},
+	}, nil
+}
+
 func writeSourceDeveloperStoreError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, errSourceNotFound):
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": err.Error()})
-	case errors.Is(err, errSourceConflict), errors.Is(err, errApplicationPending), errors.Is(err, errApplicationReviewed):
+	case errors.Is(err, errSourceConflict), errors.Is(err, errApplicationPending), errors.Is(err, errApplicationReviewed),
+		errors.Is(err, errSourcePublishIncomplete), errors.Is(err, errSourceInvalidStatus):
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
-	case errors.Is(err, errSourceForbidden):
+	case errors.Is(err, errSourceForbidden), errors.Is(err, errDeveloperDisabled):
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": err.Error()})
 	default:
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "源站存储失败"})
@@ -398,79 +523,6 @@ func parseSourceApplicationID(raw string) (int64, error) {
 		return 0, errors.New("invalid id")
 	}
 	return id, nil
-}
-
-func readSourceUpload(c *gin.Context, field string, maxBytes int64) ([]byte, error) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes+(1<<20))
-	header, err := c.FormFile(field)
-	if err != nil || header.Size <= 0 {
-		return nil, errors.New("请上传文件")
-	}
-	if header.Size > maxBytes {
-		return nil, errors.New("文件超过大小限制")
-	}
-	file, err := header.Open()
-	if err != nil {
-		return nil, errors.New("读取上传文件失败")
-	}
-	defer file.Close()
-	return readPluginReader(file, maxBytes)
-}
-
-func readOptionalSourceUpload(c *gin.Context, field string, maxBytes int64) ([]byte, error) {
-	header, err := c.FormFile(field)
-	if err != nil {
-		return nil, nil
-	}
-	if header.Size <= 0 {
-		return nil, nil
-	}
-	if header.Size > maxBytes {
-		return nil, errors.New("预览图超过大小限制")
-	}
-	file, err := header.Open()
-	if err != nil {
-		return nil, errors.New("读取预览图失败")
-	}
-	defer file.Close()
-	return readPluginReader(file, maxBytes)
-}
-
-func previewMaxBytesForSource() int64 {
-	return 5 << 20
-}
-
-func looksLikeZIP(payload []byte) bool {
-	return len(payload) >= 4 && payload[0] == 'P' && payload[1] == 'K'
-}
-
-func validatePublishedPluginZIP(payload []byte, pluginID string) error {
-	reader, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
-	if err != nil {
-		return errors.New("插件包必须是有效 ZIP")
-	}
-	for _, entry := range reader.File {
-		if filepath.Base(entry.Name) != "plugin.json" {
-			continue
-		}
-		file, err := entry.Open()
-		if err != nil {
-			return errors.New("读取 plugin.json 失败")
-		}
-		body, err := io.ReadAll(io.LimitReader(file, pluginManifestMaxSize))
-		file.Close()
-		if err != nil {
-			return errors.New("读取 plugin.json 失败")
-		}
-		var metadata struct {
-			ID string `json:"id"`
-		}
-		if json.Unmarshal(body, &metadata) != nil || metadata.ID != pluginID {
-			return errors.New("plugin.json 的插件 ID 必须与发布标识一致")
-		}
-		return nil
-	}
-	return nil
 }
 
 func sourceFirstNonEmpty(values ...string) string {
