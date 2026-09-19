@@ -244,7 +244,7 @@ releases.json
 
 `releases.json` 会保留历史版本，并自动把上一版本标签到当前标签之间的 Git 提交标题写入本次版本的 `notes`，作为在线更新页面展示的更新内容。需要人工整理发布说明时，可在构建环境中通过 `AUTO_PRO_RELEASE_NOTES` 提供 JSON 字符串数组或按行分隔文本覆盖自动内容。
 
-服务器可通过 `AUTO_PRO_UPDATE_URL` 改用自建 HTTPS 镜像清单。Gitee 默认源会限制 API、清单、更新包和下载重定向只能使用指定仓库及 Gitee 官方附件存储。
+服务器可通过 `AUTO_PRO_UPDATE_URL` 改用自建 HTTPS 镜像清单。Gitee 默认源会限制 API、清单、更新包和下载重定向只能使用指定仓库及 Gitee 官方附件存储。本仓库 GitHub 源只信任 `github.com/maizll/auth-pro/releases/...` 与 `api.github.com/repos/maizll/auth-pro/releases...`，可把更新地址设为 `https://github.com/maizll/auth-pro/releases/latest/download/latest.json` 或 `https://api.github.com/repos/maizll/auth-pro/releases/latest`；历史记录既可读取 Release 附件里的 `releases.json`，也可直接映射 GitHub Releases API 列表。
 
 当前更新包只校验文件大小和 SHA256；该机制可发现下载损坏，但如果仓库或 Release 发布权限被攻破，攻击者仍可同时替换更新包和 SHA256，不能替代离线数字签名。
 

@@ -30,11 +30,12 @@ import (
 )
 
 const (
-	maxOnlineUpdatePackageSize = int64(512 << 20)
-	githubUpdateRepositoryPath = "/cy70923167/auth_pro/releases/"
-	giteeUpdateRepositoryPath  = "/zcy-sa/auth-pro/releases/"
-	giteeUpdateAttachmentPath  = "/zcy-sa/auth-pro/attach_files/"
-	giteeUpdateAPIReleasesPath = "/api/v5/repos/zcy-sa/auth-pro/releases/"
+	maxOnlineUpdatePackageSize  = int64(512 << 20)
+	githubUpdateRepositoryPath  = "/maizll/auth-pro/releases/"
+	githubUpdateAPIReleasesPath = "/repos/maizll/auth-pro/releases"
+	giteeUpdateRepositoryPath   = "/zcy-sa/auth-pro/releases/"
+	giteeUpdateAttachmentPath   = "/zcy-sa/auth-pro/attach_files/"
+	giteeUpdateAPIReleasesPath  = "/api/v5/repos/zcy-sa/auth-pro/releases/"
 )
 
 var onlineUpdateVersionPattern = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
@@ -262,12 +263,12 @@ func parseOnlineUpdateURL(rawURL string) (*url.URL, error) {
 	if err != nil || parsed.Host == "" || parsed.Scheme != "https" || parsed.User != nil {
 		return nil, errors.New("更新地址必须是有效的 HTTPS 地址")
 	}
-	if strings.EqualFold(parsed.Hostname(), "github.com") {
+	if isGitHubUpdateHost(parsed.Hostname()) {
 		if parsed.Port() != "" && parsed.Port() != "443" {
 			return nil, errors.New("GitHub 更新地址只能使用 HTTPS 默认端口")
 		}
 		if !isGitHubRepositoryReleaseURL(parsed) {
-			return nil, errors.New("GitHub 更新地址不属于受信任的发布仓库")
+			return nil, githubTrustError(parsed)
 		}
 	}
 	if strings.EqualFold(parsed.Hostname(), "gitee.com") {
@@ -281,9 +282,37 @@ func parseOnlineUpdateURL(rawURL string) (*url.URL, error) {
 	return parsed, nil
 }
 
+func isGitHubUpdateHost(hostname string) bool {
+	return strings.EqualFold(hostname, "github.com") || strings.EqualFold(hostname, "api.github.com")
+}
+
+func githubTrustError(parsed *url.URL) error {
+	if parsed != nil && strings.EqualFold(parsed.Hostname(), "api.github.com") {
+		return errors.New("GitHub API 更新地址不属于受信任的发布仓库")
+	}
+	return errors.New("GitHub 更新地址不属于受信任的发布仓库")
+}
+
 func isGitHubRepositoryReleaseURL(parsed *url.URL) bool {
+	return isGitHubWebsiteReleaseURL(parsed) || isGitHubAPIReleaseURL(parsed)
+}
+
+func isGitHubWebsiteReleaseURL(parsed *url.URL) bool {
 	return parsed != nil && strings.EqualFold(parsed.Hostname(), "github.com") &&
 		strings.HasPrefix(strings.ToLower(parsed.EscapedPath()), githubUpdateRepositoryPath)
+}
+
+func isGitHubAPIReleaseURL(parsed *url.URL) bool {
+	if parsed == nil || !strings.EqualFold(parsed.Hostname(), "api.github.com") {
+		return false
+	}
+	path := strings.ToLower(parsed.EscapedPath())
+	return path == githubUpdateAPIReleasesPath || strings.HasPrefix(path, githubUpdateAPIReleasesPath+"/")
+}
+
+func isGitHubLatestReleaseAPIURL(parsed *url.URL) bool {
+	return isGitHubAPIReleaseURL(parsed) &&
+		strings.TrimSuffix(strings.ToLower(parsed.EscapedPath()), "/") == githubUpdateAPIReleasesPath+"/latest"
 }
 
 func isGitHubReleaseAssetHost(hostname string) bool {
@@ -373,6 +402,12 @@ func fetchOnlineUpdateManifest() (*onlineUpdateManifest, error) {
 			return nil, err
 		}
 	}
+	if isGitHubLatestReleaseAPIURL(parsedManifestURL) {
+		manifestURL, err = fetchGitHubLatestManifestURL(manifestURL)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	client, err := newOnlineUpdateHTTPClient(manifestURL, 15*time.Second)
 	if err != nil {
@@ -404,6 +439,50 @@ func fetchOnlineUpdateManifest() (*onlineUpdateManifest, error) {
 	}
 	normalizeOnlineUpdateManifest(&manifest)
 	return &manifest, nil
+}
+
+func fetchGitHubLatestManifestURL(releaseURL string) (string, error) {
+	client, err := newOnlineUpdateHTTPClient(releaseURL, 15*time.Second)
+	if err != nil {
+		return "", err
+	}
+	request, err := http.NewRequest(http.MethodGet, releaseURL, nil)
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("Cache-Control", "no-cache")
+	request.Header.Set("User-Agent", "auth_pro-updater/"+config.AppVersion)
+
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("连接 GitHub 更新服务器失败：%w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub 最新发行版接口返回状态码 %d", response.StatusCode)
+	}
+
+	var release struct {
+		Assets []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&release); err != nil {
+		return "", errors.New("GitHub 最新发行版数据格式不正确")
+	}
+	for _, asset := range release.Assets {
+		if asset.Name != "latest.json" {
+			continue
+		}
+		parsedAssetURL, parseErr := parseOnlineUpdateURL(asset.BrowserDownloadURL)
+		if parseErr != nil || !isGitHubWebsiteReleaseURL(parsedAssetURL) {
+			return "", errors.New("GitHub latest.json 附件地址不受信任")
+		}
+		return asset.BrowserDownloadURL, nil
+	}
+	return "", errors.New("GitHub 最新发行版缺少 latest.json 附件")
 }
 
 func fetchGiteeLatestManifestURL(releaseURL string) (string, error) {
@@ -516,8 +595,8 @@ func fetchOnlineUpdateReleases(manifest *onlineUpdateManifest, forceRefresh bool
 		return nil, "", errors.New("历史版本清单超过 1MB 限制")
 	}
 	var payload onlineUpdateReleases
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, "", errors.New("历史版本清单不是有效的 JSON")
+	if err := decodeOnlineUpdateReleases(body, releasesURL, &payload); err != nil {
+		return nil, "", err
 	}
 	if err := normalizeOnlineUpdateReleases(&payload); err != nil {
 		return nil, "", err
@@ -541,7 +620,11 @@ func resolveOnlineUpdateReleasesURL(manifest *onlineUpdateManifest) (string, err
 
 	releasesRef := strings.TrimSpace(manifest.ReleasesURL)
 	if releasesRef == "" {
-		releasesRef = "releases.json"
+		if isGitHubAPIReleaseURL(manifestURL) {
+			releasesRef = githubAPIReleasesListURL(manifestURL)
+		} else {
+			releasesRef = "releases.json"
+		}
 	}
 	parsedRef, err := url.Parse(releasesRef)
 	if err != nil {
@@ -551,10 +634,133 @@ func resolveOnlineUpdateReleasesURL(manifest *onlineUpdateManifest) (string, err
 	if _, err := parseOnlineUpdateURL(releasesURL.String()); err != nil {
 		return "", errors.New("历史版本清单地址格式不正确：" + err.Error())
 	}
-	if releasesURL.Scheme != manifestURL.Scheme || !strings.EqualFold(releasesURL.Host, manifestURL.Host) {
+	if !onlineUpdateURLsSameTrustOrigin(manifestURL, releasesURL) {
 		return "", errors.New("历史版本清单必须与更新清单同源")
 	}
 	return releasesURL.String(), nil
+}
+
+func githubAPIReleasesListURL(manifestURL *url.URL) string {
+	return manifestURL.Scheme + "://" + manifestURL.Host + githubUpdateAPIReleasesPath
+}
+
+func onlineUpdateURLsSameTrustOrigin(left, right *url.URL) bool {
+	if left == nil || right == nil || left.Scheme != right.Scheme {
+		return false
+	}
+	if strings.EqualFold(left.Host, right.Host) {
+		return true
+	}
+	return isGitHubRepositoryReleaseURL(left) && isGitHubRepositoryReleaseURL(right)
+}
+
+func decodeOnlineUpdateReleases(body []byte, releasesURL string, payload *onlineUpdateReleases) error {
+	trimmed := bytes.TrimSpace(body)
+	parsedReleasesURL, _ := url.Parse(releasesURL)
+	if isGitHubAPIReleaseURL(parsedReleasesURL) && !isAppReleasesJSON(trimmed) {
+		mapped, err := mapGitHubAPIReleases(trimmed)
+		if err != nil {
+			return err
+		}
+		*payload = *mapped
+		return nil
+	}
+	if err := json.Unmarshal(trimmed, payload); err != nil {
+		return errors.New("历史版本清单不是有效的 JSON")
+	}
+	return nil
+}
+
+func isAppReleasesJSON(body []byte) bool {
+	var probe struct {
+		Releases json.RawMessage `json:"releases"`
+	}
+	return json.Unmarshal(body, &probe) == nil && len(bytes.TrimSpace(probe.Releases)) > 0
+}
+
+type githubReleaseAPIItem struct {
+	TagName     string `json:"tag_name"`
+	Body        string `json:"body"`
+	PublishedAt string `json:"published_at"`
+	Draft       bool   `json:"draft"`
+	Prerelease  bool   `json:"prerelease"`
+}
+
+func mapGitHubAPIReleases(body []byte) (*onlineUpdateReleases, error) {
+	var items []githubReleaseAPIItem
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) > 0 && trimmed[0] == '{' {
+		var item githubReleaseAPIItem
+		if err := json.Unmarshal(trimmed, &item); err != nil {
+			return nil, errors.New("GitHub 历史版本数据格式不正确")
+		}
+		items = []githubReleaseAPIItem{item}
+	} else if err := json.Unmarshal(trimmed, &items); err != nil {
+		return nil, errors.New("GitHub 历史版本数据格式不正确")
+	}
+
+	payload := &onlineUpdateReleases{Releases: make([]onlineUpdateRelease, 0, len(items))}
+	for _, item := range items {
+		if item.Draft {
+			continue
+		}
+		version := normalizeGitHubReleaseVersion(item.TagName)
+		if _, ok := parseOnlineUpdateVersion(version); !ok {
+			continue
+		}
+		channel := "stable"
+		if item.Prerelease {
+			channel = "beta"
+		}
+		payload.Releases = append(payload.Releases, onlineUpdateRelease{
+			Version:    version,
+			Channel:    channel,
+			ReleasedAt: strings.TrimSpace(item.PublishedAt),
+			Notes:      notesFromGitHubReleaseBody(item.Body),
+		})
+	}
+	return payload, nil
+}
+
+func normalizeGitHubReleaseVersion(tag string) string {
+	version := strings.TrimSpace(tag)
+	version = strings.TrimPrefix(version, "v")
+	version = strings.TrimPrefix(version, "V")
+	return version
+}
+
+func notesFromGitHubReleaseBody(body string) []string {
+	var bullets []string
+	var lines []string
+	for _, raw := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if note, ok := stripMarkdownListMarker(line); ok {
+			if note != "" {
+				bullets = append(bullets, note)
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if len(bullets) > 0 {
+		return bullets
+	}
+	return lines
+}
+
+func stripMarkdownListMarker(line string) (string, bool) {
+	for _, prefix := range []string{"- ", "* ", "+ "} {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(line[len(prefix):]), true
+		}
+	}
+	return line, false
 }
 
 func normalizeOnlineUpdateReleases(payload *onlineUpdateReleases) error {
