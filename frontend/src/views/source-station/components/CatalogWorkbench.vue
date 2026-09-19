@@ -4,7 +4,6 @@
       <el-form :model="searchForm" inline>
         <el-form-item :label="isPlugin ? '插件状态' : '模板状态'">
           <el-select v-model="searchForm.status" placeholder="全部" clearable style="width: 140px">
-            <el-option label="草稿" value="draft" />
             <el-option label="待审核" value="review" />
             <el-option label="已通过" value="approved" />
             <el-option label="已上架" value="published" />
@@ -169,7 +168,7 @@
             "
           />
         </el-form-item>
-        <p class="card-hint">保存为草稿。审核请在列表中点通过，再上架。</p>
+        <p class="card-hint">保存为待审核。列表中点通过后再上架。</p>
       </el-form>
       <template #footer>
         <el-button @click="uploadVisible = false">取消</el-button>

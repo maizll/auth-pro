@@ -371,10 +371,20 @@ func (store *memorySourceStore) GetPlugin(id string) (sourcePlugin, error) {
 	return item, nil
 }
 
+func applyAdminCatalogCreateStatus(status string, asAdmin bool) string {
+	if asAdmin {
+		return sourceItemReview
+	}
+	if status == "" {
+		return sourceItemDraft
+	}
+	return status
+}
+
 func applyAdminPluginReupload(plugin *sourcePlugin, existing sourcePlugin, version, url, sha, changelog string) {
 	plugin.CreatedAt = existing.CreatedAt
 	plugin.DeveloperID = existing.DeveloperID
-	plugin.Status = sourceItemDraft
+	plugin.Status = sourceItemReview
 	plugin.ReviewNote = ""
 	plugin.ReviewedBy = ""
 	plugin.LatestVersion = ""
@@ -403,7 +413,7 @@ func applyAdminPluginReupload(plugin *sourcePlugin, existing sourcePlugin, versi
 func applyAdminTemplateReupload(item *sourceTemplate, existing sourceTemplate, version, url, sha, changelog string) {
 	item.CreatedAt = existing.CreatedAt
 	item.DeveloperID = existing.DeveloperID
-	item.Status = sourceItemDraft
+	item.Status = sourceItemReview
 	item.ReviewNote = ""
 	item.ReviewedBy = ""
 	item.LatestVersion = ""
@@ -455,7 +465,7 @@ func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) 
 			if incomingURL != "" && incomingURL != existing.DownloadURL {
 				store.auditLocked("url_change", "plugin", plugin.ID, actor, incomingURL)
 			}
-			store.auditLocked("reupload_reset", "plugin", plugin.ID, actor, "status reset to draft")
+			store.auditLocked("reupload_reset", "plugin", plugin.ID, actor, "status reset to review")
 		} else {
 			plugin.Status = existing.Status
 			plugin.ReviewNote = existing.ReviewNote
@@ -473,9 +483,7 @@ func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) 
 		}
 	} else {
 		plugin.CreatedAt = now
-		if plugin.Status == "" {
-			plugin.Status = sourceItemDraft
-		}
+		plugin.Status = applyAdminCatalogCreateStatus(plugin.Status, asAdmin)
 	}
 	plugin.UpdatedAt = now
 	store.plugins[plugin.ID] = plugin
@@ -577,7 +585,7 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 			if incomingURL != "" && incomingURL != existing.TemplateURL {
 				store.auditLocked("url_change", "template", item.ID, actor, incomingURL)
 			}
-			store.auditLocked("reupload_reset", "template", item.ID, actor, "status reset to draft")
+			store.auditLocked("reupload_reset", "template", item.ID, actor, "status reset to review")
 		} else {
 			item.Status = existing.Status
 			item.ReviewNote = existing.ReviewNote
@@ -595,9 +603,7 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 		}
 	} else {
 		item.CreatedAt = now
-		if item.Status == "" {
-			item.Status = sourceItemDraft
-		}
+		item.Status = applyAdminCatalogCreateStatus(item.Status, asAdmin)
 	}
 	if item.SchemaVersion == 0 {
 		item.SchemaVersion = homeTemplateSchemaVersion
@@ -1233,7 +1239,7 @@ func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourceP
 			if incomingURL != "" && incomingURL != existing.DownloadURL {
 				mysqlAppendAudit(db, "url_change", "plugin", plugin.ID, actor, incomingURL)
 			}
-			mysqlAppendAudit(db, "reupload_reset", "plugin", plugin.ID, actor, "status reset to draft")
+			mysqlAppendAudit(db, "reupload_reset", "plugin", plugin.ID, actor, "status reset to review")
 		} else {
 			plugin.Status = existing.Status
 			plugin.ReviewNote = existing.ReviewNote
@@ -1249,8 +1255,8 @@ func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourceP
 				mysqlAppendAudit(db, "url_change", "plugin", plugin.ID, actor, incomingURL)
 			}
 		}
-	} else if plugin.Status == "" {
-		plugin.Status = sourceItemDraft
+	} else {
+		plugin.Status = applyAdminCatalogCreateStatus(plugin.Status, asAdmin)
 	}
 	_, err = db.Exec(`INSERT INTO source_catalog_plugins
 		(id, developer_id, category, name, description, icon, version, latest_version, min_version, force_update, author_name, author_url, author_email, sha256, download_url, changelog, status, review_note, reviewed_by)
@@ -1280,7 +1286,7 @@ func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourceP
 		}
 	}
 	if adminReset {
-		if _, err := db.Exec(`UPDATE source_catalog_plugins SET version=?, sha256=?, download_url=?, changelog=?, latest_version='', status='draft', review_note='', reviewed_by='' WHERE id=?`,
+		if _, err := db.Exec(`UPDATE source_catalog_plugins SET version=?, sha256=?, download_url=?, changelog=?, latest_version='', status='review', review_note='', reviewed_by='' WHERE id=?`,
 			sourceFirstNonEmpty(incomingVersion, plugin.Version), sourceFirstNonEmpty(incomingSHA, plugin.SHA256),
 			sourceFirstNonEmpty(incomingURL, plugin.DownloadURL), sourceFirstNonEmpty(incomingLog, plugin.Changelog), plugin.ID); err != nil {
 			return sourcePlugin{}, err
@@ -1421,7 +1427,7 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 			if incomingURL != "" && incomingURL != existing.TemplateURL {
 				mysqlAppendAudit(db, "url_change", "template", item.ID, actor, incomingURL)
 			}
-			mysqlAppendAudit(db, "reupload_reset", "template", item.ID, actor, "status reset to draft")
+			mysqlAppendAudit(db, "reupload_reset", "template", item.ID, actor, "status reset to review")
 		} else {
 			item.Status = existing.Status
 			item.ReviewNote = existing.ReviewNote
@@ -1437,8 +1443,8 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 				mysqlAppendAudit(db, "url_change", "template", item.ID, actor, incomingURL)
 			}
 		}
-	} else if item.Status == "" {
-		item.Status = sourceItemDraft
+	} else {
+		item.Status = applyAdminCatalogCreateStatus(item.Status, asAdmin)
 	}
 	_, err = db.Exec(`INSERT INTO source_catalog_templates
 		(id, developer_id, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog, status, review_note, reviewed_by, author_name, author_url, author_email)
@@ -1470,7 +1476,7 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 		}
 	}
 	if adminReset {
-		if _, err := db.Exec(`UPDATE source_catalog_templates SET version=?, sha256=?, template_url=?, changelog=?, latest_version='', status='draft', review_note='', reviewed_by='' WHERE id=?`,
+		if _, err := db.Exec(`UPDATE source_catalog_templates SET version=?, sha256=?, template_url=?, changelog=?, latest_version='', status='review', review_note='', reviewed_by='' WHERE id=?`,
 			sourceFirstNonEmpty(incomingVersion, item.Version), sourceFirstNonEmpty(incomingSHA, item.SHA256),
 			sourceFirstNonEmpty(incomingURL, item.TemplateURL), sourceFirstNonEmpty(incomingLog, item.Changelog), item.ID); err != nil {
 			return sourceTemplate{}, err

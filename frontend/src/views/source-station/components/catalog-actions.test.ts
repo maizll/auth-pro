@@ -8,7 +8,7 @@ import {
 } from './catalog-actions.ts'
 
 test('catalog item actions follow sourceTransitionAllowed without no-ops', () => {
-  assert.deepEqual(catalogItemActions('draft'), ['approve', 'reject'])
+  assert.deepEqual(catalogItemActions('draft'), [])
   assert.deepEqual(catalogItemActions('review'), ['approve', 'reject'])
   assert.deepEqual(catalogItemActions('approved'), ['shelf', 'deprecate'])
   assert.deepEqual(catalogItemActions('published'), ['unshelf', 'deprecate'])

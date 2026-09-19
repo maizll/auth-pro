@@ -172,7 +172,7 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		if previous.Status == sourceItemPublished {
 			persistIndexSnapshot(actor)
 		}
-		if formFlag(c, "submit") && !shelf {
+		if formFlag(c, "submit") && !shelf && saved.Status != sourceItemReview {
 			saved, upsertErr = currentSourceStationStore().SetTemplateStatus(saved.ID, sourceItemReview, actor, "package submit")
 			if upsertErr != nil {
 				writeSourceDeveloperStoreError(c, upsertErr)
@@ -211,7 +211,7 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		if previous.Status == sourceItemPublished {
 			persistIndexSnapshot(actor)
 		}
-		if formFlag(c, "submit") && !shelf {
+		if formFlag(c, "submit") && !shelf && saved.Status != sourceItemReview {
 			saved, upsertErr = currentSourceStationStore().SetPluginStatus(saved.ID, sourceItemReview, actor, "package submit")
 			if upsertErr != nil {
 				writeSourceDeveloperStoreError(c, upsertErr)
@@ -252,9 +252,9 @@ func AdminSourcePackagePublish(c *gin.Context) {
 	} else {
 		data["item"] = pluginView
 	}
-	msg := "校验通过，已保存为草稿（包已丢弃，源站不保存源码）。请走审核/上架"
+	msg := "校验通过，已保存为待审核（包已丢弃，源站不保存源码）。请走审核/上架"
 	if pushed {
-		msg = "校验通过，已推送到 " + provider + " Release 并保存为草稿（包已丢弃）"
+		msg = "校验通过，已推送到 " + provider + " Release 并保存为待审核（包已丢弃）"
 	}
 	if shelf {
 		msg = "校验通过，已保存并上架（包已丢弃）"
