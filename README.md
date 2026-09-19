@@ -276,6 +276,7 @@ releases.json
 - `/api/home-template/active`：当前首页模板公开读取接口。
 - `/api/advertisements`：前端广告位代理；默认读本站投放。
 - `/api/v1/public/advertisements`：本站广告接口（`home-banner` / `sidebar` / `popup`）。
+- `/api/v1/catalog/*`：本实例作为软件源源站时的公开目录（见下方「作为软件源源站」）。
 - `/api/*`：后台管理接口，除公开接口外默认需要 JWT 鉴权。
 
 ## 部署说明
@@ -303,6 +304,39 @@ export AUTO_PRO_ADVERTISEMENT_URL="https://ads.example.com/api/v1/public/adverti
 ```
 
 重启后端后可用 `ss`/`tcpdump` 或代理日志确认没有对 `plug.91ani.cn` 的出站请求。
+
+## 作为软件源源站
+
+本实例可以直接当软件源（源站）用：把本地数据库/文件里已发布的插件和首页模板，按客户端真实协议吐出去。源站主机**不需要**设置 `AUTO_PRO_SOFTWARE_SOURCE_*`。
+
+其它授权实例对接时，把源站地址填到客户端环境变量：
+
+```bash
+export AUTO_PRO_SOFTWARE_SOURCE_URL="http://源站主机:19127"
+# 客户端构造要求非空 Key。源站默认不校验；若管理员在源站设置了目录 Key，则必须一致。
+export AUTO_PRO_SOFTWARE_SOURCE_API_KEY="any-non-empty-key"
+```
+
+公开目录（与 `softwaresource` 客户端一致，成功响应为 `{code,msg,data}` 信封）：
+
+- `GET /api/v1/catalog/sources`
+- `GET /api/v1/catalog/templates?page=1&pageSize=100`
+- `GET /api/v1/catalog/templates/:id/content`（`X-Checksum-SHA256`）
+- `GET /api/v1/catalog/templates/:id/preview`
+
+插件清单（`plugin_source` 客户端的 `index.json` 形状，无信封）：
+
+- `GET /api/v1/catalog/index.json`（`plugins` + `homeTemplates`，`schemaVersion` 1）
+- `GET /api/v1/catalog/plugins/:id/package`
+
+开发者入驻与发布：浏览器打开 `/source`，或直接调 API。管理员审核通过后会创建 `R_DEVELOPER` 角色记录和开发者账号，随后即可向目录写入至少一个插件和一个首页模板。
+
+```bash
+# 源站本机（无需软件源环境变量）
+curl -s http://127.0.0.1:19127/api/v1/catalog/sources
+curl -s 'http://127.0.0.1:19127/api/v1/catalog/templates?page=1&pageSize=100'
+curl -s http://127.0.0.1:19127/api/v1/catalog/index.json
+```
 
 ## 从自建软件源安装首页模板
 

@@ -763,4 +763,105 @@ INSERT INTO `system_configs` (`group`, `key`, `value`, `description`) VALUES
 ('payment', 'easypay_notify_url', '', '易支付异步通知地址'),
 ('payment', 'easypay_return_url', '', '易支付同步跳转地址');
 
+DROP TABLE IF EXISTS `source_developer_applications`;
+CREATE TABLE `source_developer_applications` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `username` VARCHAR(50) NOT NULL,
+  `password_hash` VARCHAR(255) NOT NULL,
+  `email` VARCHAR(100) NOT NULL DEFAULT '',
+  `display_name` VARCHAR(80) NOT NULL DEFAULT '',
+  `reason` VARCHAR(500) NOT NULL DEFAULT '',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'pending',
+  `review_note` VARCHAR(500) NOT NULL DEFAULT '',
+  `reviewed_by` VARCHAR(50) NOT NULL DEFAULT '',
+  `reviewed_at` DATETIME DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_source_developer_application_username` (`username`),
+  KEY `idx_source_developer_application_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源开发者入驻申请';
+
+DROP TABLE IF EXISTS `source_developers`;
+CREATE TABLE `source_developers` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `application_id` BIGINT UNSIGNED DEFAULT NULL,
+  `username` VARCHAR(50) NOT NULL,
+  `password_hash` VARCHAR(255) NOT NULL,
+  `email` VARCHAR(100) NOT NULL DEFAULT '',
+  `display_name` VARCHAR(80) NOT NULL DEFAULT '',
+  `enabled` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_source_developer_username` (`username`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源开发者';
+
+DROP TABLE IF EXISTS `source_catalog_plugins`;
+CREATE TABLE `source_catalog_plugins` (
+  `id` VARCHAR(60) NOT NULL,
+  `developer_id` BIGINT UNSIGNED NOT NULL,
+  `category` VARCHAR(30) NOT NULL DEFAULT 'other',
+  `name` VARCHAR(100) NOT NULL,
+  `description` VARCHAR(500) NOT NULL DEFAULT '',
+  `icon` VARCHAR(80) NOT NULL DEFAULT 'ri:puzzle-line',
+  `version` VARCHAR(40) NOT NULL,
+  `author_name` VARCHAR(100) NOT NULL DEFAULT '',
+  `author_url` VARCHAR(300) NOT NULL DEFAULT '',
+  `author_email` VARCHAR(200) NOT NULL DEFAULT '',
+  `sha256` CHAR(64) NOT NULL,
+  `file_path` VARCHAR(500) NOT NULL DEFAULT '',
+  `published` TINYINT(1) NOT NULL DEFAULT 1,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_source_catalog_plugin_developer` (`developer_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源已发布插件';
+
+DROP TABLE IF EXISTS `source_catalog_templates`;
+CREATE TABLE `source_catalog_templates` (
+  `id` VARCHAR(60) NOT NULL,
+  `developer_id` BIGINT UNSIGNED NOT NULL,
+  `template_key` VARCHAR(60) NOT NULL,
+  `name` VARCHAR(100) NOT NULL,
+  `description` VARCHAR(500) NOT NULL DEFAULT '',
+  `version` VARCHAR(40) NOT NULL,
+  `format` VARCHAR(10) NOT NULL DEFAULT 'json',
+  `schema_version` INT NOT NULL DEFAULT 1,
+  `sha256` CHAR(64) NOT NULL,
+  `author_name` VARCHAR(100) NOT NULL DEFAULT '',
+  `author_url` VARCHAR(300) NOT NULL DEFAULT '',
+  `author_email` VARCHAR(200) NOT NULL DEFAULT '',
+  `file_path` VARCHAR(500) NOT NULL DEFAULT '',
+  `preview_path` VARCHAR(500) NOT NULL DEFAULT '',
+  `preview_content_type` VARCHAR(80) NOT NULL DEFAULT '',
+  `published` TINYINT(1) NOT NULL DEFAULT 1,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_source_catalog_template_key` (`template_key`),
+  KEY `idx_source_catalog_template_developer` (`developer_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源已发布首页模板';
+
+DROP TABLE IF EXISTS `source_advertisements`;
+CREATE TABLE `source_advertisements` (
+  `id` VARCHAR(60) NOT NULL,
+  `title` VARCHAR(120) NOT NULL DEFAULT '',
+  `image_url` VARCHAR(500) NOT NULL DEFAULT '',
+  `destination_url` VARCHAR(500) NOT NULL DEFAULT '',
+  `position` VARCHAR(30) NOT NULL,
+  `weight` INT NOT NULL DEFAULT 0,
+  `start_at` VARCHAR(40) NOT NULL DEFAULT '',
+  `end_at` VARCHAR(40) NOT NULL DEFAULT '',
+  `description` VARCHAR(500) NOT NULL DEFAULT '',
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_source_advertisement_position` (`position`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='本站广告投放';
+
+DROP TABLE IF EXISTS `source_station_settings`;
+CREATE TABLE `source_station_settings` (
+  `setting_key` VARCHAR(50) NOT NULL,
+  `setting_value` VARCHAR(255) NOT NULL DEFAULT '',
+  PRIMARY KEY (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源源站设置';
+
 SET FOREIGN_KEY_CHECKS = 1;

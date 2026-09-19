@@ -143,7 +143,8 @@ func InstallCreateAdmin(c *gin.Context) {
 		(1, '超级管理员', 'R_SUPER', '系统超级管理员，拥有所有权限', 10.0, 1),
 		(2, '代理商', 'R_AGENT', '代理商角色，可管理下级授权', 8.0, 1),
 		(3, '服务商', 'R_SERVICE', '服务商角色，提供技术服务', 7.0, 1),
-		(4, '合作商', 'R_PARTNER', '合作商角色，合作推广', 6.5, 1)`)
+		(4, '合作商', 'R_PARTNER', '合作商角色，合作推广', 6.5, 1),
+		(5, '开发者', 'R_DEVELOPER', '软件源开发者，可向本站目录发布插件与首页模板', 10.0, 1)`)
 
 	// 哈希密码
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.AdminPassword), bcrypt.DefaultCost)
