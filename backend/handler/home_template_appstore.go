@@ -66,17 +66,13 @@ func listAppStoreTemplates(ctx context.Context) ([]appstore.Template, error) {
 	}
 	client, err := softwaresource.Default()
 	if err != nil {
-		if len(uploaded)+len(stored) > 0 {
-			return append(items, stored...), nil
-		}
-		return nil, appstore.UnavailableError(err.Error(), err)
+		// 本分叉默认无远程源：回退本机内置/已上传/已安装模板，不阻断应用商店首页模板页。
+		return append(items, stored...), nil
 	}
 	remoteCatalog, err := client.Catalog(ctx)
 	if err != nil {
-		if len(uploaded)+len(stored) > 0 {
-			return append(items, stored...), nil
-		}
-		return nil, appstore.UnavailableError(err.Error(), err)
+		// 远程暂不可用时同样回退本机列表，避免整页失败。
+		return append(items, stored...), nil
 	}
 	seen := make(map[string]bool)
 	for _, remote := range remoteCatalog.Templates {

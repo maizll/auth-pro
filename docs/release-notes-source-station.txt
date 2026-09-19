@@ -1,0 +1,6 @@
+新增本实例自托管软件源（源站）：公开 /software-source/index.json，管理后台「源站」菜单支持入驻审核、插件/模板上下架与多版本。
+上传 ZIP 硬校验 plugin.json/template.json，失败不写库、不推 Release；通过后可推送 GitHub/Gitee Release，源站只存元数据与 https 下载地址（不存源码）。
+对接仓库：在「源站 → Release / 仓库 Token」填写 Provider、Owner、仓库、Token、Tag 策略（默认 {id}-{version}）；Gitee 需填分支。
+消费端在「软件源管理」添加 http://<源站>/software-source/index.json 即可拉取已上架插件与首页模板。
+未配置远程软件源时回退本站目录与内置模板，不再整页报错。
+完整对接步骤与常见问题见仓库 CHANGELOG.md「对接 GitHub / Gitee 仓库」。

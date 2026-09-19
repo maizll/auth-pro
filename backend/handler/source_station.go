@@ -47,9 +47,9 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		admin.GET("/applications", AdminSourceDeveloperApplications)
 		admin.POST("/applications/:id/approve", AdminSourceDeveloperApprove)
 		admin.POST("/applications/:id/reject", AdminSourceDeveloperReject)
-		admin.POST("/applications/:id/freeze", AdminSourceDeveloperFreeze)
+		admin.POST("/applications/:id/freeze", AdminSourceDeveloperCancel)
 		admin.GET("/developers", AdminSourceDevelopers)
-		admin.POST("/developers/:id/freeze", AdminSourceFreezeDeveloper)
+		admin.POST("/developers/:id/freeze", AdminSourceCancelDeveloper)
 
 		admin.GET("/plugins", AdminSourcePlugins)
 		admin.PUT("/plugins", AdminSourceRegisterPlugin)
@@ -85,6 +85,7 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 
 		admin.GET("/settings/release", AdminSourceReleaseSettings)
 		admin.PUT("/settings/release", AdminSourceReleaseSettingsSave)
+		admin.POST("/settings/release/test", AdminSourceReleaseSettingsTest)
 		admin.GET("/packages/schema", SourcePackageSchema)
 		admin.POST("/packages/parse", AdminSourcePackageParse)
 		admin.POST("/packages/publish", AdminSourcePackagePublish)

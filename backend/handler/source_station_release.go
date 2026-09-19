@@ -315,6 +315,106 @@ func pushGiteeRelease(ctx context.Context, settings sourceReleaseSettings, manif
 	return location, nil
 }
 
+type gitHubRepoDTO struct {
+	FullName    string `json:"full_name"`
+	HTMLURL     string `json:"html_url"`
+	Private     bool   `json:"private"`
+	Message     string `json:"message"`
+	Permissions struct {
+		Admin bool `json:"admin"`
+		Push  bool `json:"push"`
+		Pull  bool `json:"pull"`
+	} `json:"permissions"`
+}
+
+type giteeRepoDTO struct {
+	FullName   string `json:"full_name"`
+	HTMLURL    string `json:"html_url"`
+	Private    bool   `json:"private"`
+	Message    string `json:"message"`
+	Permission struct {
+		Admin bool `json:"admin"`
+		Push  bool `json:"push"`
+		Pull  bool `json:"pull"`
+	} `json:"permission"`
+}
+
+func testSourceReleaseConnection(ctx context.Context, settings sourceReleaseSettings) (gin.H, int, error) {
+	settings = normalizeReleaseSettings(settings)
+	switch settings.Provider {
+	case "github":
+		return testGitHubRepo(ctx, settings)
+	case "gitee":
+		return testGiteeRepo(ctx, settings)
+	default:
+		return nil, http.StatusBadRequest, errors.New("provider 仅支持 github 或 gitee")
+	}
+}
+
+func testGitHubRepo(ctx context.Context, settings sourceReleaseSettings) (gin.H, int, error) {
+	api := strings.TrimRight(sourceGitHubAPIBase, "/")
+	owner, repo := url.PathEscape(settings.Owner), url.PathEscape(settings.Repo)
+	status, raw, err := sourceReleaseJSON(ctx, http.MethodGet, api+"/repos/"+owner+"/"+repo, githubHeaders(settings.Token), nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	var payload gitHubRepoDTO
+	_ = json.Unmarshal(raw, &payload)
+	if status < 200 || status >= 300 {
+		return nil, status, releaseTestAPIError(status, raw, payload.Message)
+	}
+	return sourceReleaseTestView(settings, payload.FullName, payload.HTMLURL, payload.Private, payload.Permissions.Admin, payload.Permissions.Push, payload.Permissions.Pull), status, nil
+}
+
+func testGiteeRepo(ctx context.Context, settings sourceReleaseSettings) (gin.H, int, error) {
+	api := strings.TrimRight(sourceGiteeAPIBase, "/")
+	owner, repo := url.PathEscape(settings.Owner), url.PathEscape(settings.Repo)
+	getURL := api + "/repos/" + owner + "/" + repo + "?access_token=" + url.QueryEscape(settings.Token)
+	status, raw, err := sourceReleaseJSON(ctx, http.MethodGet, getURL, nil, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	var payload giteeRepoDTO
+	_ = json.Unmarshal(raw, &payload)
+	if status < 200 || status >= 300 {
+		return nil, status, releaseTestAPIError(status, raw, payload.Message)
+	}
+	return sourceReleaseTestView(settings, payload.FullName, payload.HTMLURL, payload.Private, payload.Permission.Admin, payload.Permission.Push, payload.Permission.Pull), status, nil
+}
+
+func sourceReleaseTestView(settings sourceReleaseSettings, fullName, htmlURL string, private, admin, push, pull bool) gin.H {
+	settings = normalizeReleaseSettings(settings)
+	if strings.TrimSpace(fullName) == "" {
+		fullName = settings.Owner + "/" + settings.Repo
+	}
+	return gin.H{
+		"provider": settings.Provider,
+		"owner":    settings.Owner,
+		"repo":     settings.Repo,
+		"fullName": fullName,
+		"htmlUrl":  htmlURL,
+		"private":  private,
+		"permissions": gin.H{
+			"admin": admin,
+			"push":  push,
+			"pull":  pull,
+		},
+	}
+}
+
+func releaseTestAPIError(status int, raw []byte, message string) error {
+	prefix := "连接失败"
+	switch status {
+	case http.StatusUnauthorized:
+		prefix = "连接失败：令牌无效"
+	case http.StatusForbidden:
+		prefix = "连接失败：权限不足"
+	case http.StatusNotFound:
+		prefix = "连接失败：仓库不存在或无权访问"
+	}
+	return githubAPIError(prefix, status, raw, message)
+}
+
 func githubHeaders(token string) map[string]string {
 	return map[string]string{
 		"Accept":               "application/vnd.github+json",

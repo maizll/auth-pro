@@ -97,6 +97,7 @@ const applyDocumentTheme = (theme: SystemThemeEnum): void => {
 
 export function getThemeScope(path: string): ThemeScope {
   if (/^\/user(?:\/|$)/.test(path)) return 'user'
+  if (/^\/(agent-panel|developer-panel)(?:\/|$)/.test(path)) return 'agent'
   if (/^\/agent(?:\/|$)/.test(path)) return 'agent'
   return 'admin'
 }

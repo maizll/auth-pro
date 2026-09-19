@@ -66,19 +66,44 @@
         <el-table-column prop="updatedAt" label="更新时间" width="170" />
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="runStatus(row, 'approve')"
+            <el-button
+              v-if="canAction(row.status, 'approve')"
+              link
+              type="primary"
+              size="small"
+              @click="runStatus(row, 'approve')"
               >通过</el-button
             >
-            <el-button link type="warning" size="small" @click="runStatus(row, 'reject')"
-              >驳回</el-button
+            <el-button
+              v-if="canAction(row.status, 'reject')"
+              link
+              type="warning"
+              size="small"
+              @click="runStatus(row, 'reject')"
+              >拒绝</el-button
             >
-            <el-button link type="success" size="small" @click="runStatus(row, 'shelf')"
+            <el-button
+              v-if="canAction(row.status, 'shelf')"
+              link
+              type="success"
+              size="small"
+              @click="runStatus(row, 'shelf')"
               >上架</el-button
             >
-            <el-button link type="info" size="small" @click="runStatus(row, 'unshelf')"
+            <el-button
+              v-if="canAction(row.status, 'unshelf')"
+              link
+              type="info"
+              size="small"
+              @click="runStatus(row, 'unshelf')"
               >下架</el-button
             >
-            <el-button link type="danger" size="small" @click="runStatus(row, 'deprecate')"
+            <el-button
+              v-if="canAction(row.status, 'deprecate')"
+              link
+              type="danger"
+              size="small"
+              @click="runStatus(row, 'deprecate')"
               >弃用</el-button
             >
             <el-button link type="primary" size="small" @click="openVersions(row)">版本</el-button>
@@ -124,24 +149,25 @@
           </el-descriptions>
         </el-form-item>
         <el-form-item label="changelog">
-          <el-input v-model="uploadForm.changelog" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="外部地址">
           <el-input
-            v-model="uploadForm.location"
-            :placeholder="
-              isPlugin ? 'https://... 下载地址（未配置 Release 时必填）' : 'https://... 或相对路径'
-            "
+            v-model="uploadForm.changelog"
+            type="textarea"
+            :rows="2"
+            placeholder="可选"
           />
-        </el-form-item>
-        <el-form-item label="minVersion">
-          <el-input v-model="uploadForm.minVersion" placeholder="可选" />
         </el-form-item>
         <el-form-item label="选项">
           <el-checkbox v-model="uploadForm.push">推送 GitHub/Gitee Release</el-checkbox>
-          <el-checkbox v-model="uploadForm.submit">保存后提交审核</el-checkbox>
-          <el-checkbox v-model="uploadForm.shelf">保存后直接上架</el-checkbox>
-          <el-checkbox v-model="uploadForm.forceUpdate">forceUpdate</el-checkbox>
+        </el-form-item>
+        <el-form-item v-if="!uploadForm.push" label="外部地址" required>
+          <el-input
+            v-model="uploadForm.location"
+            :placeholder="
+              isPlugin
+                ? 'https://... 下载地址（不推 Release 时必填）'
+                : 'https://... 模板包地址（不推 Release 时必填）'
+            "
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -239,17 +265,37 @@
         <el-table-column prop="changelog" label="说明" min-width="140" show-overflow-tooltip />
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
-            <el-button link type="success" size="small" @click="runVersion(row, 'approve')"
+            <el-button
+              v-if="canVersionAction(row.status, 'approve')"
+              link
+              type="success"
+              size="small"
+              @click="runVersion(row, 'approve')"
               >通过</el-button
             >
-            <el-button link type="warning" size="small" @click="runVersion(row, 'reject')"
+            <el-button
+              v-if="canVersionAction(row.status, 'reject')"
+              link
+              type="warning"
+              size="small"
+              @click="runVersion(row, 'reject')"
               >驳回</el-button
             >
-            <el-button link type="primary" size="small" @click="runVersion(row, 'latest')"
+            <el-button
+              v-if="canVersionAction(row.status, 'latest')"
+              link
+              type="primary"
+              size="small"
+              @click="runVersion(row, 'latest')"
               >设为 latest</el-button
             >
-            <el-button link type="danger" size="small" @click="runVersion(row, 'deprecate')"
-              >弃用</el-button
+            <el-button
+              v-if="canVersionAction(row.status, 'deprecate')"
+              link
+              type="danger"
+              size="small"
+              @click="runVersion(row, 'deprecate')"
+              ></el-button
             >
           </template>
         </el-table-column>
@@ -371,6 +417,56 @@
   const currentItem = ref<CatalogItem | null>(null)
   const versionForm = reactive({ version: '', location: '', sha256: '', changelog: '' })
 
+  /** Mirror backend sourceTransitionAllowed; button order 通过→拒绝→上架→下架→弃用. */
+    function canVersionAction(
+    status: string,
+    action: 'approve' | 'reject' | 'latest' | 'deprecate'
+  ): boolean {
+    // Mirror sourceVersionTransitionAllowed / admin version actions.
+    switch (action) {
+      case 'approve': // → published
+        return status === 'pending' || status === 'draft'
+      case 'reject': // → draft
+        return status === 'pending'
+      case 'latest':
+        return status === 'published'
+      case 'deprecate': // → deprecated
+        return status === 'published'
+      default:
+        return false
+    }
+  }
+
+  function canAction(
+    status: string,
+    action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate'
+  ): boolean {
+    const target = {
+      approve: 'approved',
+      reject: 'rejected',
+      shelf: 'published',
+      unshelf: 'hidden',
+      deprecate: 'deprecated'
+    } as const
+    const to = target[action]
+    if (status === to) return false
+    switch (to) {
+      case 'approved':
+      case 'rejected':
+        // Align with backend: draft (after admin re-upload) and review can approve/reject.
+        return status === 'review' || status === 'draft'
+      case 'published':
+        // Must be approved (or re-shelf from hidden); draft/review cannot skip review.
+        return status === 'approved' || status === 'hidden'
+      case 'hidden':
+        return status === 'published'
+      case 'deprecated':
+        return status === 'published' || status === 'hidden' || status === 'approved'
+      default:
+        return false
+    }
+  }
+
   function statusMeta(status: string) {
     return SOURCE_ITEM_STATUS[status] || { label: status, type: 'info' as const }
   }
@@ -419,14 +515,10 @@
     if (uploadFile.value) form.append('file', uploadFile.value)
     form.append('kind', props.kind)
     if (uploadForm.changelog) form.append('changelog', uploadForm.changelog)
-    if (uploadForm.minVersion) form.append('minVersion', uploadForm.minVersion)
-    if (uploadForm.location) {
+    if (!uploadForm.push && uploadForm.location) {
       form.append(isPlugin.value ? 'downloadUrl' : 'templateUrl', uploadForm.location)
     }
     if (uploadForm.push) form.append('push', 'true')
-    if (uploadForm.submit) form.append('submit', 'true')
-    if (uploadForm.shelf) form.append('shelf', 'true')
-    if (uploadForm.forceUpdate) form.append('forceUpdate', 'true')
     return form
   }
 
@@ -446,6 +538,10 @@
 
   async function handlePublish() {
     if (!uploadFile.value) return
+    if (!uploadForm.push && !String(uploadForm.location || '').trim()) {
+      ElMessage.warning('未推送 Release 时请填写外部地址')
+      return
+    }
     publishing.value = true
     try {
       const result = await publishSourcePackage(buildPackageForm())

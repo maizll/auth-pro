@@ -306,6 +306,13 @@ export AUTO_PRO_ADVERTISEMENT_URL="https://ads.example.com/api/v1/public/adverti
 
 重启后端后可用 `ss`/`tcpdump` 或代理日志确认没有对 `plug.91ani.cn` 的出站请求。
 
+## 更新日志
+
+源站能力、仓库对接教程与版本说明见 [CHANGELOG.md](./CHANGELOG.md)。  
+对接 GitHub/Gitee 发包：后台 **源站 → Release / 仓库 Token**，步骤摘要见 [docs/source-station-repo-setup.md](./docs/source-station-repo-setup.md)。
+
+发布在线更新包时，可将 [docs/release-notes-source-station.txt](./docs/release-notes-source-station.txt) 作为 `AUTO_PRO_RELEASE_NOTES`，写入 `latest.json` / `releases.json` 的 `notes`，供后台「在线更新」页展示。
+
 ## 作为软件源源站
 
 本实例可以直接当软件源（源站）用。协议与管理后台「软件源管理」一致：公开一个可 HTTP GET 的 `index.json`。源站主机**不需要**设置 `AUTO_PRO_SOFTWARE_SOURCE_*`（那是客户端用来可选对接独立目录服务的，cut-1 已改成环境变量、默认关闭）。

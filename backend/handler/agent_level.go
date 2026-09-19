@@ -281,34 +281,54 @@ func AgentLevelList(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": list, "total": total}})
 }
 
-// AgentLevelSelectList 代理商等级下拉列表
+type agentLevelSelectOption struct {
+	Code     string  `json:"code"`
+	Name     string  `json:"name"`
+	Discount float64 `json:"discount"`
+}
+
+func queryAgentLevelSelectOptions(db *sql.DB) ([]agentLevelSelectOption, error) {
+	rows, err := db.Query("SELECT code, name, discount FROM agent_levels WHERE enabled = 1 ORDER BY sort ASC, id ASC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	list := make([]agentLevelSelectOption, 0)
+	for rows.Next() {
+		var item agentLevelSelectOption
+		if err := rows.Scan(&item.Code, &item.Name, &item.Discount); err != nil {
+			return nil, err
+		}
+		list = append(list, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+func writeAgentLevelSelectList(c *gin.Context, list []agentLevelSelectOption) {
+	if list == nil {
+		list = []agentLevelSelectOption{}
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": list})
+}
+
+// AgentLevelSelectList 代理商等级下拉列表。
+// 响应契约：{code:200, data:[{code,name,discount}, ...]}，data 必须是数组而不是 {list,total}。
 func AgentLevelSelectList(c *gin.Context) {
 	db, ok := openAgentLevelDB(c)
 	if !ok {
 		return
 	}
 
-	rows, err := db.Query("SELECT code, name, discount FROM agent_levels WHERE enabled = 1 ORDER BY sort ASC, id ASC")
+	list, err := queryAgentLevelSelectOptions(db)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "查询失败"})
 		return
 	}
-	defer rows.Close()
-
-	type option struct {
-		Code     string  `json:"code"`
-		Name     string  `json:"name"`
-		Discount float64 `json:"discount"`
-	}
-	list := []option{}
-	for rows.Next() {
-		var item option
-		if err := rows.Scan(&item.Code, &item.Name, &item.Discount); err == nil {
-			list = append(list, item)
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": list})
+	writeAgentLevelSelectList(c, list)
 }
 
 // AgentLevelCreate 新增代理商等级

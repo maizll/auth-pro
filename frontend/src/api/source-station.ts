@@ -287,6 +287,28 @@ export function freezeSourceDeveloper(id: number, note?: string) {
   return request.post({ url: `${BASE}/developers/${id}/freeze`, data: noteBody(note) })
 }
 
+export const SOURCE_APPLICATION_STATUS: Record<
+  string,
+  { label: string; type: 'primary' | 'success' | 'warning' | 'info' | 'danger' }
+> = {
+  pending: { label: '待审核', type: 'warning' },
+  approved: { label: '已通过', type: 'success' },
+  rejected: { label: '已拒绝', type: 'danger' },
+  cancelled: { label: '已取消', type: 'info' },
+  frozen: { label: '已冻结', type: 'info' }
+}
+
+/** Alias used by applications admin page (maps to freeze). */
+export function cancelSourceApplication(id: number, note?: string) {
+  return freezeSourceApplication(id, note)
+}
+
+/** Alias used by applications admin page (maps to freeze developer). */
+export function cancelSourceDeveloper(id: number, note?: string) {
+  return freezeSourceDeveloper(id, note)
+}
+
+
 export function fetchSourcePlugins(status?: string) {
   return request.get<SourceListResponse<SourcePlugin>>({
     url: `${BASE}/plugins`,
@@ -409,6 +431,35 @@ export function saveSourceReleaseSettings(payload: {
   branch: string
 }) {
   return request.put<SourceReleaseSettings>({ url: `${BASE}/settings/release`, data: payload })
+}
+
+export interface SourceReleaseTestResult {
+  provider: string
+  owner: string
+  repo: string
+  fullName?: string
+  htmlUrl?: string
+  private?: boolean
+  permissions?: {
+    admin?: boolean
+    push?: boolean
+    pull?: boolean
+  }
+}
+
+export function testSourceReleaseSettings(payload: {
+  provider: string
+  owner: string
+  repo: string
+  token?: string
+  tagStrategy: string
+  branch: string
+}) {
+  return request.post<SourceReleaseTestResult>({
+    url: `${BASE}/settings/release/test`,
+    data: payload,
+    timeout: PACKAGE_TIMEOUT
+  })
 }
 
 export function fetchSourcePackageSchema() {
