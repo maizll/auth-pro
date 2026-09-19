@@ -319,6 +319,7 @@ func TestSourceDeveloperApproveRemovesApplication(t *testing.T) {
 	if sourceBodyCode(t, me) != 200 || !strings.Contains(me.Body.String(), "dev-approved") {
 		t.Fatalf("approved developer must stay logged in: %s", me.Body.String())
 	}
+	sourceMustHaveAudit(t, store, "approve", sourceAuditApproveDeleted)
 }
 
 func TestSourceDeveloperRejectBlocksLogin(t *testing.T) {
@@ -354,6 +355,7 @@ func TestSourceDeveloperRejectBlocksLogin(t *testing.T) {
 	if sourceBodyCode(t, again) != 200 {
 		t.Fatalf("same username must apply again after reject: %s", again.Body.String())
 	}
+	sourceMustHaveAudit(t, store, "reject", sourceAuditRejectDeleted)
 }
 
 func TestSourceAdvertisementCRUDFeedsLocalEndpoint(t *testing.T) {
@@ -544,6 +546,21 @@ func TestSourceDeveloperCancelBlocksLogin(t *testing.T) {
 	if _, err := store.GetApplication(appID); !errors.Is(err, errSourceNotFound) {
 		t.Fatalf("approved/cancelled application row must stay deleted, err=%v", err)
 	}
+	sourceMustHaveAudit(t, store, "cancel", sourceAuditDeveloperDeleted)
+}
+
+func sourceMustHaveAudit(t *testing.T, store *memorySourceStore, action, detail string) {
+	t.Helper()
+	audits, err := store.ListAudit(50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range audits {
+		if entry.Action == action && entry.Detail == detail {
+			return
+		}
+	}
+	t.Fatalf("want audit action=%s detail=%q, got %+v", action, detail, audits)
 }
 
 func itoa64(value int64) string {

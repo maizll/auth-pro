@@ -1,5 +1,18 @@
 <template>
   <div class="source-station-page">
+    <el-card shadow="never" class="art-card mb-4 filter-panel">
+      <el-form inline>
+        <el-form-item label="申请状态">
+          <el-select v-model="status" style="width: 140px">
+            <el-option label="待审核" value="pending" />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="loadApplications">查询</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
     <el-card shadow="never" class="art-card mb-4">
       <template #header>
         <div class="table-header">
@@ -94,6 +107,7 @@
     type SourceDeveloper
   } from '@/api/source-station'
 
+  const status = ref('pending')
   const loading = ref(false)
   const devLoading = ref(false)
   const applications = ref<SourceApplication[]>([])
@@ -106,7 +120,7 @@
   async function loadApplications() {
     loading.value = true
     try {
-      const data = await fetchSourceApplications('pending')
+      const data = await fetchSourceApplications(status.value || 'pending')
       applications.value = data.list || []
     } finally {
       loading.value = false
@@ -203,5 +217,9 @@
     font-size: 16px;
     font-weight: 700;
     color: var(--art-gray-900);
+  }
+
+  .filter-panel :deep(.el-form) {
+    margin-bottom: -18px;
   }
 </style>

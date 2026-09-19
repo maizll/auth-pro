@@ -25,6 +25,10 @@ const (
 	sourceApplicationRejected = "rejected"
 	sourceApplicationFrozen   = "frozen"
 
+	sourceAuditApproveDeleted   = "approved and application deleted"
+	sourceAuditRejectDeleted    = "rejected and application deleted"
+	sourceAuditDeveloperDeleted = "developer deleted"
+
 	sourceItemDraft      = "draft"
 	sourceItemReview     = "review"
 	sourceItemApproved   = "approved"
@@ -727,7 +731,7 @@ func (store *memorySourceStore) ApproveApplication(id int64, reviewer string) (s
 	store.nextDevID++
 	store.developers[dev.ID] = dev
 	delete(store.applications, id)
-	store.auditLocked("approve", "application", itoaSourceID(id), reviewer, "")
+	store.auditLocked("approve", "application", itoaSourceID(id), reviewer, sourceAuditApproveDeleted)
 	return dev, nil
 }
 
@@ -742,7 +746,7 @@ func (store *memorySourceStore) RejectApplication(id int64, reviewer, note strin
 		return errApplicationReviewed
 	}
 	delete(store.applications, id)
-	store.auditLocked("reject", "application", itoaSourceID(id), reviewer, note)
+	store.auditLocked("reject", "application", itoaSourceID(id), reviewer, sourceAuditRejectDeleted)
 	return nil
 }
 
@@ -769,7 +773,7 @@ func (store *memorySourceStore) deleteDeveloperLocked(dev sourceDeveloper, actor
 		}
 	}
 	delete(store.developers, dev.ID)
-	store.auditLocked("cancel", "developer", itoaSourceID(dev.ID), actor, sourceCancelNote(note))
+	store.auditLocked("cancel", "developer", itoaSourceID(dev.ID), actor, sourceAuditDeveloperDeleted)
 }
 
 func (store *memorySourceStore) findDeveloperLocked(match func(sourceDeveloper) bool) (sourceDeveloper, bool) {
@@ -795,7 +799,7 @@ func (store *memorySourceStore) FreezeApplication(id int64, reviewer, note strin
 			return nil
 		}
 		delete(store.applications, id)
-		store.auditLocked("cancel", "application", itoaSourceID(id), reviewer, sourceCancelNote(note))
+		store.auditLocked("cancel", "application", itoaSourceID(id), reviewer, sourceAuditDeveloperDeleted)
 		return nil
 	}
 	if dev, found := store.findDeveloperLocked(func(dev sourceDeveloper) bool {
@@ -1674,7 +1678,7 @@ func (mysqlSourceStore) ApproveApplication(id int64, reviewer string) (sourceDev
 	if err := tx.Commit(); err != nil {
 		return sourceDeveloper{}, err
 	}
-	mysqlAppendAudit(db, "approve", "application", itoaSourceID(id), reviewer, "")
+	mysqlAppendAudit(db, "approve", "application", itoaSourceID(id), reviewer, sourceAuditApproveDeleted)
 	return (mysqlSourceStore{}).GetDeveloperByID(developerID)
 }
 
@@ -1693,7 +1697,7 @@ func (mysqlSourceStore) RejectApplication(id int64, reviewer, note string) error
 	if _, err := db.Exec(`DELETE FROM source_developer_applications WHERE id=?`, id); err != nil {
 		return err
 	}
-	mysqlAppendAudit(db, "reject", "application", itoaSourceID(id), reviewer, note)
+	mysqlAppendAudit(db, "reject", "application", itoaSourceID(id), reviewer, sourceAuditRejectDeleted)
 	return nil
 }
 
@@ -1710,7 +1714,7 @@ func mysqlDeleteDeveloper(db *sql.DB, item sourceDeveloper, actor, note string) 
 	if _, err := db.Exec(`DELETE FROM source_developers WHERE id=?`, item.ID); err != nil {
 		return err
 	}
-	mysqlAppendAudit(db, "cancel", "developer", itoaSourceID(item.ID), actor, sourceCancelNote(note))
+	mysqlAppendAudit(db, "cancel", "developer", itoaSourceID(item.ID), actor, sourceAuditDeveloperDeleted)
 	return nil
 }
 
@@ -1736,7 +1740,7 @@ func (mysqlSourceStore) FreezeApplication(id int64, reviewer, note string) error
 		if _, delErr := db.Exec(`DELETE FROM source_developer_applications WHERE id=?`, id); delErr != nil {
 			return delErr
 		}
-		mysqlAppendAudit(db, "cancel", "application", itoaSourceID(id), reviewer, sourceCancelNote(note))
+		mysqlAppendAudit(db, "cancel", "application", itoaSourceID(id), reviewer, sourceAuditDeveloperDeleted)
 		return nil
 	}
 	if !errors.Is(err, errSourceNotFound) {
