@@ -135,13 +135,13 @@ function closeLoading(): void {
 }
 
 /**
- * 判断是否为代理商/用户面板路径（无需管理后台认证）
+ * 判断是否为代理商/用户/开发者面板路径（无需管理后台认证）
  *
  * 按路径分段精确匹配，避免误伤管理后台菜单：
- * - 命中 /agent-panel、/user（面板），但不命中 /agent（代理商管理）、/user-manage（用户管理）
+ * - 命中 /agent-panel、/user、/developer-panel（面板），但不命中 /agent（代理商管理）、/user-manage（用户管理）
  */
 function isPanelPath(path: string): boolean {
-  return /^\/(agent-panel|user)(\/|$)/.test(path)
+  return /^\/(agent-panel|user|developer-panel)(\/|$)/.test(path)
 }
 
 /**
@@ -151,6 +151,7 @@ function isPanelPath(path: string): boolean {
  */
 const PANEL_PUBLIC_PATHS: { pattern: RegExp }[] = [
   { pattern: /^\/agent-panel\/login$/ },
+  { pattern: /^\/developer-panel\/login$/ },
   { pattern: /^\/user\/login$/ },
   { pattern: /^\/user\/reset-password$/ }
 ]
@@ -166,6 +167,9 @@ function isPanelPublicPath(path: string): boolean {
 function getPanelAuthConfig(path: string): { tokenKey: string; loginPath: string } | null {
   if (path === '/agent-panel' || path.startsWith('/agent-panel/')) {
     return { tokenKey: 'agent_panel_token', loginPath: '/agent-panel/login' }
+  }
+  if (path === '/developer-panel' || path.startsWith('/developer-panel/')) {
+    return { tokenKey: 'developer_panel_token', loginPath: '/developer-panel/login' }
   }
   if (path === '/user' || path.startsWith('/user/')) {
     return { tokenKey: 'user_panel_token', loginPath: '/user/login' }
@@ -236,7 +240,7 @@ async function handleRouteGuard(
     return
   }
 
-  // 代理商/用户面板路径：先做面板自身登录校验，再放行（无需管理后台认证）
+  // 代理商/用户/开发者面板路径：先做面板自身登录校验，再放行（无需管理后台认证）
   if (isPanelPath(to.path)) {
     if (!handlePanelAuth(to, next)) {
       return
@@ -315,7 +319,7 @@ function handleLoginStatus(
     return true
   }
 
-  // 代理商/用户面板相关路径无需管理后台登录
+  // 代理商/用户/开发者面板相关路径无需管理后台登录
   if (isPanelPath(to.path)) {
     return true
   }
