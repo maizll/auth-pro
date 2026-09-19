@@ -27,11 +27,11 @@
 <body>
 <main>
   <h1>本站软件源工作台</h1>
-  <p class="lead">这台授权系统同时作为自托管软件源（源站）。客户端把 <code>AUTO_PRO_SOFTWARE_SOURCE_URL</code> 指到本站即可拉取目录；源站本身不需要设置该环境变量。</p>
+  <p class="lead">这台授权系统同时作为自托管软件源（源站）。其它实例在「软件源管理」添加本站 <code>/auth-pro/index.json</code>。源站本身不需要设置 <code>AUTO_PRO_SOFTWARE_SOURCE_*</code>。</p>
 
   <section>
     <h2>公开目录</h2>
-    <p>首页模板走 <code>/api/v1/catalog/sources</code> 与 <code>/api/v1/catalog/templates</code>；插件清单走 <code>/api/v1/catalog/index.json</code>。</p>
+    <p>其它授权实例在「软件源管理」添加 <code>/auth-pro/index.json</code>（JSON 清单，含 <code>plugins</code> 与 <code>homeTemplates</code>）。</p>
     <button type="button" class="secondary" onclick="loadCatalog()">查看当前目录</button>
     <pre id="catalog">尚未加载</pre>
   </section>
@@ -117,12 +117,8 @@
     try { return {status: res.status, body: JSON.parse(text)}; } catch { return {status: res.status, body: text}; }
   }
   async function loadCatalog() {
-    const [sources, templates, index] = await Promise.all([
-      api("/api/v1/catalog/sources"),
-      api("/api/v1/catalog/templates?page=1&pageSize=100"),
-      api("/api/v1/catalog/index.json"),
-    ]);
-    document.getElementById("catalog").textContent = JSON.stringify({sources, templates, index}, null, 2);
+    const index = await api("/auth-pro/index.json");
+    document.getElementById("catalog").textContent = JSON.stringify(index, null, 2);
   }
   async function applyDev() {
     const r = await api("/api/v1/source/developer/apply", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({

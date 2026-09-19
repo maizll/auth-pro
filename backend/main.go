@@ -149,7 +149,7 @@ func main() {
 		api.GET("/v1/public/advertisements", handler.PublicLocalAdvertisements)
 
 		// 本实例作为软件源源站：目录、开发者入驻/发布、广告 CRUD。
-		handler.RegisterSourceStationRoutes(api)
+		handler.RegisterSourceStationRoutes(r, api)
 
 		// 用户端（需鉴权）
 		userSecured := api.Group("/user-panel")

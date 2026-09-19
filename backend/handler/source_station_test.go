@@ -8,12 +8,12 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"auto_pro/middleware"
-	"auto_pro/softwaresource"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -25,7 +25,7 @@ func sourceStationRouter(t *testing.T) (*gin.Engine, *memorySourceStore) {
 	store := newMemorySourceStore()
 	t.Cleanup(SetSourceStationStoreForTest(store))
 	router := gin.New()
-	RegisterSourceStationRoutes(router.Group("/api"))
+	RegisterSourceStationRoutes(router, router.Group("/api"))
 	router.GET("/source", SourceStationPage)
 	router.GET("/api/v1/public/advertisements", PublicLocalAdvertisements)
 	return router, store
@@ -104,29 +104,31 @@ func sourceBodyCode(t *testing.T, recorder *httptest.ResponseRecorder) int {
 	return body.Code
 }
 
-func TestSourceCatalogEmptyMatchesSoftwareSourceClient(t *testing.T) {
+func TestSourceStationIndexMatchesPluginSourceClient(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
-	client, err := softwaresource.NewClient(softwaresource.ClientConfig{
-		BaseURL: server.URL, CatalogKey: "any-non-empty-key", Timeout: time.Second,
-	})
-	if err != nil {
+
+	index, payload, sourceType, err := fetchPluginSourceManifest(context.Background(), server.URL+"/auth-pro/index.json")
+	if err != nil || sourceType != "json" {
+		t.Fatalf("type=%q err=%v body=%s", sourceType, err, payload)
+	}
+	if index.Name != sourceStationSourceName || index.Plugins == nil || index.HomeTemplates == nil {
+		t.Fatalf("empty index=%+v body=%s", index, payload)
+	}
+	if len(index.Plugins) != 0 || len(index.HomeTemplates) != 0 {
+		t.Fatalf("unpublished catalog must be empty: %s", payload)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(payload, &raw); err != nil {
 		t.Fatal(err)
 	}
-	catalog, err := client.Catalog(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if catalog.Revision < 1 || len(catalog.Sources) != 1 || catalog.Sources[0].ID != sourceStationSourceID {
-		t.Fatalf("empty catalog=%+v", catalog)
-	}
-	if len(catalog.Templates) != 0 {
-		t.Fatalf("empty source should have no templates: %+v", catalog.Templates)
+	if _, exists := raw["data"]; exists {
+		t.Fatalf("index.json must be a raw manifest, not an API envelope: %s", payload)
 	}
 }
 
-func TestSourceCatalogServesPluginAndHomeTemplateForClients(t *testing.T) {
+func TestSourceStationPublishFeedsIndexJSONAndRelativeTemplateURL(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
 	apply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", "",
@@ -179,53 +181,74 @@ func TestSourceCatalogServesPluginAndHomeTemplateForClients(t *testing.T) {
 		t.Fatalf("publish template=%s", templateResp.Body.String())
 	}
 
-	previewPart := sourceMultipart(t, router, "/api/v1/source/developer/templates", loginBody.Data.Token, map[string]string{
-		"templateKey": "source-home", "name": "源站首页", "version": "1.0.1",
-	}, "file", "source-home.json", templateJSON)
-	if sourceBodyCode(t, previewPart) != 200 {
-		t.Fatalf("republish template=%s", previewPart.Body.String())
-	}
-
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
-	client, err := softwaresource.NewClient(softwaresource.ClientConfig{
-		BaseURL: server.URL, CatalogKey: "client-key", Timeout: time.Second,
-	})
-	if err != nil {
-		t.Fatal(err)
+	indexURL := server.URL + "/auth-pro/index.json"
+	index, payload, sourceType, err := fetchPluginSourceManifest(context.Background(), indexURL)
+	if err != nil || sourceType != "json" || len(index.Plugins) != 1 || len(index.HomeTemplates) != 1 {
+		t.Fatalf("index=%+v err=%v body=%s", index, err, payload)
 	}
-	catalog, err := client.Refresh(context.Background())
-	if err != nil || len(catalog.Templates) != 1 {
-		t.Fatalf("catalog=%+v err=%v", catalog, err)
-	}
-	item := catalog.Templates[0]
-	if item.TemplateKey != "source-home" || item.SchemaVersion != 1 || item.Format != "json" || item.Source.ID != sourceStationSourceID {
-		t.Fatalf("template=%+v", item)
-	}
-	content, err := client.TemplateContent(context.Background(), item)
-	if err != nil || string(content) != string(templateJSON) {
-		t.Fatalf("content=%s err=%v", content, err)
+	if index.Plugins[0].ID != "demo-plugin" || !strings.HasSuffix(index.Plugins[0].DownloadURL, "/auth-pro/plugins/demo-plugin.zip") {
+		t.Fatalf("plugin=%+v", index.Plugins[0])
 	}
 
-	index := sourceJSON(t, router, http.MethodGet, "/api/v1/catalog/index.json", "", "")
-	parsed, err := parsePluginSourceManifest(index.Body.Bytes())
+	var manifest struct {
+		HomeTemplates []struct {
+			ID            string `json:"id"`
+			Name          string `json:"name"`
+			SchemaVersion int    `json:"schemaVersion"`
+			SHA256        string `json:"sha256"`
+			TemplateURL   string `json:"templateUrl"`
+			TemplatePath  string `json:"templatePath"`
+		} `json:"homeTemplates"`
+	}
+	if err := json.Unmarshal(payload, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	item := manifest.HomeTemplates[0]
+	if item.ID != "source-home" || item.SchemaVersion != 1 || item.TemplateURL != "templates/source-home.json" || item.TemplatePath != "" {
+		t.Fatalf("homeTemplate=%+v body=%s", item, payload)
+	}
+	if len(item.SHA256) != 64 || item.SHA256 != sourceContentSHA256(templateJSON) {
+		t.Fatalf("sha256=%q", item.SHA256)
+	}
+
+	resolved, err := url.Parse(indexURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsed.Name != sourceStationSourceName || len(parsed.Plugins) != 1 || parsed.Plugins[0].ID != "demo-plugin" {
-		t.Fatalf("plugin index=%s", index.Body.String())
+	relative, err := url.Parse(item.TemplateURL)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(parsed.HomeTemplates) != 1 {
-		t.Fatalf("homeTemplates=%s", index.Body.String())
+	templateURL := resolved.ResolveReference(relative).String()
+	if !strings.HasSuffix(templateURL, "/auth-pro/templates/source-home.json") {
+		t.Fatalf("resolved templateUrl=%s", templateURL)
 	}
-	pkg := sourceJSON(t, router, http.MethodGet, "/api/v1/catalog/plugins/demo-plugin/package", "", "")
-	if pkg.Code != http.StatusOK || pkg.Header().Get("X-Checksum-SHA256") == "" {
-		t.Fatalf("plugin package status=%d headers=%v body=%s", pkg.Code, pkg.Header(), pkg.Body.String())
+	content, err := fetchPluginHTTP(context.Background(), templateURL, homeTemplateMaxBytes, time.Second)
+	if err != nil || string(content) != string(templateJSON) {
+		t.Fatalf("template file=%s err=%v", content, err)
+	}
+	if err := validateHomeTemplateDocument(content); err != nil {
+		t.Fatal(err)
+	}
+
+	pkg, err := downloadPluginPackage(index.Plugins[0].DownloadURL)
+	if err != nil || len(pkg) == 0 {
+		t.Fatalf("plugin package err=%v", err)
+	}
+
+	missing := sourceJSON(t, router, http.MethodGet, "/auth-pro/templates/missing-home.json", "", "")
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("missing template status=%d body=%s", missing.Code, missing.Body.String())
+	}
+	if _, err := sourceStationFileID("../clean-home.json"); err == nil {
+		t.Fatal("path escape must be rejected")
 	}
 }
 
-func TestSourceDeveloperRejectAndCatalogKey(t *testing.T) {
-	router, store := sourceStationRouter(t)
+func TestSourceDeveloperRejectBlocksLogin(t *testing.T) {
+	router, _ := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
 	apply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", "",
 		`{"username":"dev-bob","password":"secret1","reason":"nope"}`)
@@ -244,21 +267,6 @@ func TestSourceDeveloperRejectAndCatalogKey(t *testing.T) {
 		`{"username":"dev-bob","password":"secret1"}`)
 	if sourceBodyCode(t, login) != 401 {
 		t.Fatalf("rejected developer login=%s", login.Body.String())
-	}
-
-	if err := store.SetCatalogKey("locked-key"); err != nil {
-		t.Fatal(err)
-	}
-	unauthorized := sourceJSON(t, router, http.MethodGet, "/api/v1/catalog/sources", "", "")
-	if unauthorized.Code != http.StatusUnauthorized {
-		t.Fatalf("missing catalog key status=%d body=%s", unauthorized.Code, unauthorized.Body.String())
-	}
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/catalog/sources", nil)
-	request.Header.Set("X-Software-Source-Key", "locked-key")
-	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), sourceStationSourceID) {
-		t.Fatalf("valid catalog key=%s", recorder.Body.String())
 	}
 }
 
@@ -284,7 +292,7 @@ func TestSourceAdvertisementCRUDFeedsLocalEndpoint(t *testing.T) {
 func TestSourceStationPageAndInvalidTemplateRejected(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	page := sourceJSON(t, router, http.MethodGet, "/source", "", "")
-	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "本站软件源") {
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "/auth-pro/index.json") {
 		t.Fatalf("source page=%d %s", page.Code, page.Body.String())
 	}
 	admin := sourceAdminToken(t)

@@ -276,7 +276,7 @@ releases.json
 - `/api/home-template/active`：当前首页模板公开读取接口。
 - `/api/advertisements`：前端广告位代理；默认读本站投放。
 - `/api/v1/public/advertisements`：本站广告接口（`home-banner` / `sidebar` / `popup`）。
-- `/api/v1/catalog/*`：本实例作为软件源源站时的公开目录（见下方「作为软件源源站」）。
+- `/auth-pro/index.json`：本实例作为软件源源站时的公开清单（见下方「作为软件源源站」）。
 - `/api/*`：后台管理接口，除公开接口外默认需要 JWT 鉴权。
 
 ## 部署说明
@@ -307,35 +307,41 @@ export AUTO_PRO_ADVERTISEMENT_URL="https://ads.example.com/api/v1/public/adverti
 
 ## 作为软件源源站
 
-本实例可以直接当软件源（源站）用：把本地数据库/文件里已发布的插件和首页模板，按客户端真实协议吐出去。源站主机**不需要**设置 `AUTO_PRO_SOFTWARE_SOURCE_*`。
+本实例可以直接当软件源（源站）用。协议与管理后台「软件源管理」一致：公开一个可 HTTP GET 的 `index.json`（以及清单里的插件包 / 模板文件）。源站主机**不需要**设置 `AUTO_PRO_SOFTWARE_SOURCE_*`（那是客户端用来可选对接独立目录服务的，cut-1 已改成环境变量、默认关闭）。
 
-其它授权实例对接时，把源站地址填到客户端环境变量：
+其它授权实例在「软件源管理」里添加：
 
-```bash
-export AUTO_PRO_SOFTWARE_SOURCE_URL="http://源站主机:19127"
-# 客户端构造要求非空 Key。源站默认不校验；若管理员在源站设置了目录 Key，则必须一致。
-export AUTO_PRO_SOFTWARE_SOURCE_API_KEY="any-non-empty-key"
+```text
+http://源站主机:19127/auth-pro/index.json
 ```
 
-公开目录（与 `softwaresource` 客户端一致，成功响应为 `{code,msg,data}` 信封）：
+清单形状：
 
-- `GET /api/v1/catalog/sources`
-- `GET /api/v1/catalog/templates?page=1&pageSize=100`
-- `GET /api/v1/catalog/templates/:id/content`（`X-Checksum-SHA256`）
-- `GET /api/v1/catalog/templates/:id/preview`
+```json
+{
+  "name": "本站软件源",
+  "plugins": [],
+  "homeTemplates": [
+    {
+      "id": "clean-home",
+      "name": "清新首页",
+      "description": "简洁的授权服务首页",
+      "version": "1.0.0",
+      "schemaVersion": 1,
+      "sha256": "<模板文件 64 位 hex>",
+      "templateUrl": "templates/clean-home.json"
+    }
+  ]
+}
+```
 
-插件清单（`plugin_source` 客户端的 `index.json` 形状，无信封）：
+`templateUrl` 为相对路径，解析到 `/auth-pro/templates/...`。插件 `downloadUrl` 为绝对地址，指向 `/auth-pro/plugins/{id}.zip`。
 
-- `GET /api/v1/catalog/index.json`（`plugins` + `homeTemplates`，`schemaVersion` 1）
-- `GET /api/v1/catalog/plugins/:id/package`
-
-开发者入驻与发布：浏览器打开 `/source`，或直接调 API。管理员审核通过后会创建 `R_DEVELOPER` 角色记录和开发者账号，随后即可向目录写入至少一个插件和一个首页模板。
+开发者入驻与发布：浏览器打开 `/source`，或直接调 API。管理员审核通过后会创建 `R_DEVELOPER` 角色记录和开发者账号，随后即可把插件和首页模板写入上述清单。
 
 ```bash
 # 源站本机（无需软件源环境变量）
-curl -s http://127.0.0.1:19127/api/v1/catalog/sources
-curl -s 'http://127.0.0.1:19127/api/v1/catalog/templates?page=1&pageSize=100'
-curl -s http://127.0.0.1:19127/api/v1/catalog/index.json
+curl -s http://127.0.0.1:19127/auth-pro/index.json
 ```
 
 ## 从自建软件源安装首页模板
