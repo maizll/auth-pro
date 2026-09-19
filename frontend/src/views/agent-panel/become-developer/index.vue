@@ -49,6 +49,13 @@
         <el-button v-else-if="applyStatus.status === 'rejected'" type="primary" @click="resetToForm">
           更换用户名重新申请
         </el-button>
+        <el-button
+          v-else-if="applyStatus.status === 'frozen' || applyStatus.status === 'cancelled'"
+          type="primary"
+          @click="resetToForm"
+        >
+          更换用户名重新申请
+        </el-button>
       </div>
     </section>
 
@@ -126,7 +133,7 @@
         <ul class="tips-list">
           <li>
             <iconify-icon icon="ri:shield-check-line" />
-            管理员在源站「开发者入驻」中审核，通过后即创建开发者账号。
+            管理员在源站「入驻审核」中处理：待审核可选择通过或拒绝；已通过后可取消开发者资格。
           </li>
           <li>
             <iconify-icon icon="ri:lock-line" />
@@ -240,7 +247,8 @@
       case 'rejected':
         return '入驻申请未通过'
       case 'frozen':
-        return '开发者账号已冻结'
+      case 'cancelled':
+        return '开发者资格已取消'
       default:
         return '申请状态'
     }

@@ -43,16 +43,18 @@ const (
 )
 
 var (
-	errSourceNotFound          = errors.New("目录项不存在")
-	errSourceConflict          = errors.New("标识已被占用")
-	errSourceForbidden         = errors.New("只能修改自己的草稿或已驳回条目")
-	errApplicationPending      = errors.New("入驻申请正在审核中")
-	errApplicationReviewed     = errors.New("入驻申请已处理")
-	errDeveloperDisabled       = errors.New("开发者账号已冻结")
-	errSourcePublishIncomplete = errors.New("上架需要 64 位 sha256 和外部下载/模板地址")
-	errSourceInvalidStatus     = errors.New("当前状态不允许该操作")
-	errSourceVersionImmutable  = errors.New("已发布版本不可改包地址，请创建新版本")
-	errSourceVersionNotLatest  = errors.New("只能把 latest 指到已发布且未弃用的版本")
+	errSourceNotFound            = errors.New("目录项不存在")
+	errSourceConflict            = errors.New("标识已被占用")
+	errSourceForbidden           = errors.New("只能修改自己的草稿或已驳回条目")
+	errApplicationPending        = errors.New("入驻申请正在审核中")
+	errApplicationReviewed       = errors.New("入驻申请已处理")
+	errDeveloperDisabled         = errors.New("开发者资格已取消，无法登录")
+	errApplicationNotCancellable = errors.New("只能取消已通过的开发者资格，待审核请使用拒绝")
+	errDeveloperAlreadyCancelled = errors.New("开发者资格已取消")
+	errSourcePublishIncomplete   = errors.New("上架需要 64 位 sha256 和外部下载/模板地址")
+	errSourceInvalidStatus       = errors.New("当前状态不允许该操作")
+	errSourceVersionImmutable    = errors.New("已发布版本不可改包地址，请创建新版本")
+	errSourceVersionNotLatest    = errors.New("只能把 latest 指到已发布且未弃用的版本")
 
 	sha256HexPattern     = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
 	sourceVersionPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$`)
@@ -60,6 +62,14 @@ var (
 	sourceStationOverride   sourceStationStore
 	sourceStationOverrideMu sync.RWMutex
 )
+
+func sourceCancelNote(note string) string {
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return "管理员取消开发者资格"
+	}
+	return truncateText(note, 500)
+}
 
 type sourceAuthor struct {
 	Name  string `json:"name"`
@@ -643,10 +653,16 @@ func (store *memorySourceStore) FreezeApplication(id int64, reviewer, note strin
 	if !ok {
 		return errSourceNotFound
 	}
+	if app.Status == sourceApplicationFrozen {
+		return errDeveloperAlreadyCancelled
+	}
+	if app.Status != sourceApplicationApproved {
+		return errApplicationNotCancellable
+	}
 	now := time.Now().UTC()
 	app.Status = sourceApplicationFrozen
 	app.ReviewedBy = reviewer
-	app.ReviewNote = note
+	app.ReviewNote = sourceCancelNote(note)
 	app.ReviewedAt = &now
 	store.applications[id] = app
 	for idKey, dev := range store.developers {
@@ -655,7 +671,7 @@ func (store *memorySourceStore) FreezeApplication(id int64, reviewer, note strin
 			store.developers[idKey] = dev
 		}
 	}
-	store.auditLocked("freeze", "application", itoaSourceID(id), reviewer, note)
+	store.auditLocked("cancel", "application", itoaSourceID(id), reviewer, app.ReviewNote)
 	return nil
 }
 
@@ -688,9 +704,23 @@ func (store *memorySourceStore) FreezeDeveloper(id int64, actor, note string) er
 	if !ok {
 		return errSourceNotFound
 	}
+	if !item.Enabled {
+		return errDeveloperAlreadyCancelled
+	}
 	item.Enabled = false
 	store.developers[id] = item
-	store.auditLocked("freeze", "developer", itoaSourceID(id), actor, note)
+	note = sourceCancelNote(note)
+	now := time.Now().UTC()
+	for appID, app := range store.applications {
+		if app.ID == item.ApplicationID || strings.EqualFold(app.Username, item.Username) {
+			app.Status = sourceApplicationFrozen
+			app.ReviewedBy = actor
+			app.ReviewNote = note
+			app.ReviewedAt = &now
+			store.applications[appID] = app
+		}
+	}
+	store.auditLocked("cancel", "developer", itoaSourceID(id), actor, note)
 	return nil
 }
 
@@ -1509,6 +1539,13 @@ func (mysqlSourceStore) FreezeApplication(id int64, reviewer, note string) error
 	if err != nil {
 		return err
 	}
+	if app.Status == sourceApplicationFrozen {
+		return errDeveloperAlreadyCancelled
+	}
+	if app.Status != sourceApplicationApproved {
+		return errApplicationNotCancellable
+	}
+	note = sourceCancelNote(note)
 	db, err := config.DB()
 	if err != nil {
 		return err
@@ -1518,7 +1555,7 @@ func (mysqlSourceStore) FreezeApplication(id int64, reviewer, note string) error
 		return err
 	}
 	_, _ = db.Exec(`UPDATE source_developers SET enabled=0 WHERE application_id=? OR username=?`, id, app.Username)
-	mysqlAppendAudit(db, "freeze", "application", itoaSourceID(id), reviewer, note)
+	mysqlAppendAudit(db, "cancel", "application", itoaSourceID(id), reviewer, note)
 	return nil
 }
 
@@ -1566,9 +1603,14 @@ func (mysqlSourceStore) GetDeveloperByID(id int64) (sourceDeveloper, error) {
 }
 
 func (mysqlSourceStore) FreezeDeveloper(id int64, actor, note string) error {
-	if _, err := (mysqlSourceStore{}).GetDeveloperByID(id); err != nil {
+	item, err := (mysqlSourceStore{}).GetDeveloperByID(id)
+	if err != nil {
 		return err
 	}
+	if !item.Enabled {
+		return errDeveloperAlreadyCancelled
+	}
+	note = sourceCancelNote(note)
 	db, err := config.DB()
 	if err != nil {
 		return err
@@ -1576,7 +1618,11 @@ func (mysqlSourceStore) FreezeDeveloper(id int64, actor, note string) error {
 	if _, err := db.Exec(`UPDATE source_developers SET enabled=0 WHERE id=?`, id); err != nil {
 		return err
 	}
-	mysqlAppendAudit(db, "freeze", "developer", itoaSourceID(id), actor, note)
+	if _, err := db.Exec(`UPDATE source_developer_applications SET status='frozen', reviewed_by=?, review_note=?, reviewed_at=NOW() WHERE id=? OR username=?`,
+		actor, truncateText(note, 500), item.ApplicationID, item.Username); err != nil {
+		return err
+	}
+	mysqlAppendAudit(db, "cancel", "developer", itoaSourceID(id), actor, note)
 	return nil
 }
 

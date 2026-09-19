@@ -72,9 +72,14 @@ export const DEVELOPER_APPLY_STATUS: Record<
     description: '入驻申请未通过。同一用户名不可重复申请，请更换用户名后重新提交。'
   },
   frozen: {
-    label: '已冻结',
+    label: '已取消',
     type: 'danger',
-    description: '该开发者账号已被冻结，请联系管理员。'
+    description: '开发者资格已被取消，无法再登录开发者端或发布内容。如需重新入驻，请更换用户名后再次申请。'
+  },
+  cancelled: {
+    label: '已取消',
+    type: 'danger',
+    description: '开发者资格已被取消，无法再登录开发者端或发布内容。如需重新入驻，请更换用户名后再次申请。'
   }
 }
 
