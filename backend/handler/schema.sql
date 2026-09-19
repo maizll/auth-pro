@@ -838,6 +838,7 @@ DROP TABLE IF EXISTS `source_catalog_templates`;
 CREATE TABLE `source_catalog_templates` (
   `id` VARCHAR(60) NOT NULL,
   `developer_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `category` VARCHAR(30) NOT NULL DEFAULT 'home-template',
   `template_key` VARCHAR(60) NOT NULL,
   `name` VARCHAR(100) NOT NULL,
   `description` VARCHAR(500) NOT NULL DEFAULT '',

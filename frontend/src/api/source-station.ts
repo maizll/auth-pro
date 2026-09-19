@@ -58,9 +58,17 @@ export interface SourcePlugin {
   createdAt: string
 }
 
+export interface SourceCatalogCategory {
+  key: string
+  label: string
+  kind: 'plugin' | 'template'
+  builtin: boolean
+}
+
 export interface SourceTemplate {
   id: string
   developerId: number
+  category?: string
   templateKey: string
   name: string
   description: string
@@ -76,6 +84,27 @@ export interface SourceTemplate {
   author: SourceAuthor
   reviewNote: string
   reviewedBy: string
+  updatedAt: string
+  createdAt: string
+}
+
+export interface SourceCatalogItem {
+  kind: 'plugin' | 'template'
+  id: string
+  category: string
+  categoryLabel?: string
+  name: string
+  description: string
+  version: string
+  latestVersion: string
+  status: string
+  sha256: string
+  downloadUrl?: string
+  templateUrl?: string
+  location?: string
+  schemaVersion?: number
+  templateKey?: string
+  author: SourceAuthor
   updatedAt: string
   createdAt: string
 }
@@ -198,6 +227,7 @@ export interface SourcePluginDraft {
 
 export interface SourceTemplateDraft {
   id?: string
+  category?: string
   templateKey: string
   name: string
   description?: string
@@ -314,6 +344,29 @@ export function cancelSourceDeveloper(id: number, note?: string) {
   return freezeSourceDeveloper(id, note)
 }
 
+
+export function fetchSourceCatalogCategories() {
+  return request.get<{ list: SourceCatalogCategory[]; extras: SourceCatalogCategory[] }>({
+    url: `${BASE}/categories`
+  })
+}
+
+export function saveSourceCatalogCategories(extras: Array<Pick<SourceCatalogCategory, 'key' | 'label' | 'kind'>>) {
+  return request.put<{ list: SourceCatalogCategory[]; extras: SourceCatalogCategory[] }>({
+    url: `${BASE}/categories`,
+    data: { extras }
+  })
+}
+
+export function fetchSourceCatalogItems(status?: string, category?: string) {
+  return request.get<SourceListResponse<SourceCatalogItem>>({
+    url: `${BASE}/catalog-items`,
+    params: {
+      ...(status ? { status } : {}),
+      ...(category ? { category } : {})
+    }
+  })
+}
 
 export function fetchSourcePlugins(status?: string) {
   return request.get<SourceListResponse<SourcePlugin>>({
