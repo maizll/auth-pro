@@ -35,7 +35,15 @@ func upstreamStub(t *testing.T, handler http.HandlerFunc) *int32 {
 	return &calls
 }
 
-func callAdvertisements(t *testing.T, position string) (int, []advertisementRecord) {
+type advertisementPublicBody struct {
+	Code int `json:"code"`
+	Data struct {
+		Records     []advertisementRecord    `json:"records"`
+		Placeholder advertisementPlaceholder `json:"placeholder"`
+	} `json:"data"`
+}
+
+func callAdvertisementData(t *testing.T, position string) (int, advertisementPublicBody) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
@@ -46,16 +54,26 @@ func callAdvertisements(t *testing.T, position string) (int, []advertisementReco
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("HTTP 状态应始终为 200，实际 %d", recorder.Code)
 	}
-	var body struct {
-		Code int `json:"code"`
-		Data struct {
-			Records []advertisementRecord `json:"records"`
-		} `json:"data"`
-	}
+	var body advertisementPublicBody
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("响应解析失败：%v，body=%s", err, recorder.Body.String())
 	}
-	return body.Code, body.Data.Records
+	return body.Code, body
+}
+
+func callAdvertisements(t *testing.T, position string) (int, []advertisementRecord) {
+	t.Helper()
+	code, body := callAdvertisementData(t, position)
+	return code, body.Data.Records
+}
+
+func assertSafeDefaultPlaceholder(t *testing.T, placeholder advertisementPlaceholder) {
+	t.Helper()
+	if placeholder.Title != defaultAdPlaceholderTitle ||
+		placeholder.Description != defaultAdPlaceholderDescription ||
+		placeholder.LinkURL != "" {
+		t.Fatalf("占位应为默认文案且无跳转：%+v", placeholder)
+	}
 }
 
 func upstreamPayload(records string) string {
@@ -195,10 +213,11 @@ func TestPublicAdvertisementsUsesLocalSourceByDefault(t *testing.T) {
 	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", "")
 	resetAdvertisementCache(t)
 
-	code, records := callAdvertisements(t, "home-banner")
-	if code != 200 || records == nil || len(records) != 0 {
-		t.Fatalf("本站默认广告应返回空列表且不报错，code=%d records=%v", code, records)
+	code, body := callAdvertisementData(t, "home-banner")
+	if code != 200 || body.Data.Records == nil || len(body.Data.Records) != 0 {
+		t.Fatalf("本站默认广告应返回空列表且不报错，code=%d records=%v", code, body.Data.Records)
 	}
+	assertSafeDefaultPlaceholder(t, body.Data.Placeholder)
 }
 
 func TestPublicLocalAdvertisementsMatchesProxyShape(t *testing.T) {
@@ -210,18 +229,54 @@ func TestPublicLocalAdvertisementsMatchesProxyShape(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("HTTP 状态 = %d", recorder.Code)
 	}
-	var body struct {
-		Code int `json:"code"`
-		Data struct {
-			Records []advertisementRecord `json:"records"`
-		} `json:"data"`
-	}
+	var body advertisementPublicBody
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
 	if body.Code != 200 || body.Data.Records == nil || len(body.Data.Records) != 0 {
 		t.Fatalf("本站广告接口形状不兼容：%s", recorder.Body.String())
 	}
+	assertSafeDefaultPlaceholder(t, body.Data.Placeholder)
+}
+
+func TestPublicAdvertisementsPassesThroughRemotePlaceholder(t *testing.T) {
+	upstreamStub(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"code":200,"msg":"ok","data":{"records":[`+activeRecord("home-banner", "1", 3)+`],`+
+			`"placeholder":{"title":"远程招租","description":"来源站配置","linkUrl":"https://ads.example.com/rent"}}}`)
+	})
+
+	code, body := callAdvertisementData(t, "home-banner")
+	if code != 200 || len(body.Data.Records) != 1 || body.Data.Records[0].ID != "1" {
+		t.Fatalf("远程投放透传失败：code=%d records=%v", code, body.Data.Records)
+	}
+	ph := body.Data.Placeholder
+	if ph.Title != "远程招租" || ph.Description != "来源站配置" || ph.LinkURL != "https://ads.example.com/rent" {
+		t.Fatalf("应透传上游占位配置：%+v", ph)
+	}
+}
+
+func TestPublicAdvertisementsUsesSafeDefaultWhenRemoteOmitsPlaceholder(t *testing.T) {
+	upstreamStub(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, upstreamPayload(activeRecord("sidebar", "1", 0)))
+	})
+
+	code, body := callAdvertisementData(t, "sidebar")
+	if code != 200 || len(body.Data.Records) != 1 {
+		t.Fatalf("旧上游协议仍应返回投放：code=%d records=%v", code, body.Data.Records)
+	}
+	assertSafeDefaultPlaceholder(t, body.Data.Placeholder)
+}
+
+func TestPublicAdvertisementsReturnsEmptyPlaceholderWhenUpstreamDown(t *testing.T) {
+	upstreamStub(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	})
+
+	code, body := callAdvertisementData(t, "home-banner")
+	if code != 200 || len(body.Data.Records) != 0 {
+		t.Fatalf("无缓存且上游挂掉时应返回空列表，code=%d records=%v", code, body.Data.Records)
+	}
+	assertSafeDefaultPlaceholder(t, body.Data.Placeholder)
 }
 
 func TestPublicAdvertisementsRejectsUnknownPosition(t *testing.T) {

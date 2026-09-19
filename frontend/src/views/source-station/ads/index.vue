@@ -1,5 +1,43 @@
 <template>
   <div class="source-station-page">
+    <el-card shadow="never" class="art-card placeholder-card">
+      <template #header>
+        <div class="table-header">
+          <div>
+            <span class="card-title">广告位招租占位</span>
+            <p class="card-hint">
+              跑马灯 / 九宫格空位会用这段文案补齐。跳转留空则不可点击，不会跳到外部链接。
+            </p>
+          </div>
+          <el-button type="primary" :loading="savingPlaceholder" @click="handleSavePlaceholder">
+            保存占位
+          </el-button>
+        </div>
+      </template>
+      <el-form :model="placeholder" label-width="88px" class="placeholder-form">
+        <el-form-item label="标题">
+          <el-input v-model="placeholder.title" maxlength="120" show-word-limit placeholder="广告位出租" />
+        </el-form-item>
+        <el-form-item label="简介">
+          <el-input
+            v-model="placeholder.description"
+            type="textarea"
+            :rows="2"
+            maxlength="500"
+            show-word-limit
+            placeholder="虚位以待，欢迎联系投放"
+          />
+        </el-form-item>
+        <el-form-item label="跳转 URL">
+          <el-input
+            v-model="placeholder.linkUrl"
+            maxlength="500"
+            placeholder="可选，https://... 留空则不可点击"
+          />
+        </el-form-item>
+      </el-form>
+    </el-card>
+
     <el-card shadow="never" class="art-card">
       <template #header>
         <div class="table-header">
@@ -86,19 +124,24 @@
   import { onMounted, reactive, ref } from 'vue'
   import type { FormInstance, FormRules } from 'element-plus'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { DEFAULT_AD_PLACEHOLDER } from '@/api/advertisement'
   import {
     AD_POSITIONS,
     deleteSourceAdvertisement,
     fetchSourceAdvertisements,
+    saveSourceAdPlaceholder,
     saveSourceAdvertisement,
+    type SourceAdPlaceholder,
     type SourceAdvertisement
   } from '@/api/source-station'
 
   const loading = ref(false)
   const saving = ref(false)
+  const savingPlaceholder = ref(false)
   const visible = ref(false)
   const isEdit = ref(false)
   const tableData = ref<SourceAdvertisement[]>([])
+  const placeholder = reactive<SourceAdPlaceholder>({ ...DEFAULT_AD_PLACEHOLDER })
   const formRef = ref<FormInstance>()
   const form = reactive<SourceAdvertisement>({
     id: '',
@@ -126,8 +169,28 @@
     try {
       const data = await fetchSourceAdvertisements()
       tableData.value = data.records || []
+      placeholder.title = data.placeholder?.title || DEFAULT_AD_PLACEHOLDER.title
+      placeholder.description = data.placeholder?.description || DEFAULT_AD_PLACEHOLDER.description
+      placeholder.linkUrl = data.placeholder?.linkUrl || ''
     } finally {
       loading.value = false
+    }
+  }
+
+  async function handleSavePlaceholder() {
+    savingPlaceholder.value = true
+    try {
+      const saved = await saveSourceAdPlaceholder({
+        title: placeholder.title.trim(),
+        description: placeholder.description.trim(),
+        linkUrl: placeholder.linkUrl.trim()
+      })
+      placeholder.title = saved?.title || placeholder.title
+      placeholder.description = saved?.description || placeholder.description
+      placeholder.linkUrl = saved?.linkUrl || ''
+      ElMessage.success('招租占位已保存')
+    } finally {
+      savingPlaceholder.value = false
     }
   }
 
@@ -199,5 +262,13 @@
     font-size: 13px;
     color: var(--art-gray-600);
     line-height: 1.5;
+  }
+
+  .placeholder-card {
+    margin-bottom: 16px;
+  }
+
+  .placeholder-form {
+    max-width: 720px;
   }
 </style>

@@ -222,6 +222,8 @@ type sourceStationStore interface {
 	ListAdvertisements(position string) ([]advertisementRecord, error)
 	UpsertAdvertisement(record advertisementRecord) error
 	DeleteAdvertisement(id string) error
+	GetAdvertisementPlaceholder() (advertisementPlaceholder, error)
+	SaveAdvertisementPlaceholder(placeholder advertisementPlaceholder) error
 
 	AppendAudit(entry sourceAuditEntry) error
 	ListAudit(limit int) ([]sourceAuditEntry, error)
@@ -313,6 +315,7 @@ type memorySourceStore struct {
 	applications     map[int64]sourceApplication
 	developers       map[int64]sourceDeveloper
 	ads              map[string]advertisementRecord
+	adPlaceholder    advertisementPlaceholder
 	audits           []sourceAuditEntry
 	snapshot         sourceIndexSnapshot
 	releaseSettings  sourceReleaseSettings
@@ -807,6 +810,19 @@ func (store *memorySourceStore) DeleteAdvertisement(id string) error {
 		return errSourceNotFound
 	}
 	delete(store.ads, id)
+	return nil
+}
+
+func (store *memorySourceStore) GetAdvertisementPlaceholder() (advertisementPlaceholder, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return normalizeAdvertisementPlaceholder(store.adPlaceholder), nil
+}
+
+func (store *memorySourceStore) SaveAdvertisementPlaceholder(placeholder advertisementPlaceholder) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.adPlaceholder = normalizeAdvertisementPlaceholder(placeholder)
 	return nil
 }
 
@@ -1646,7 +1662,7 @@ func (mysqlSourceStore) FreezeApplication(id int64, reviewer, note string) error
 	if _, err := db.Exec(`DELETE FROM source_developer_applications WHERE id=?`, id); err != nil {
 		return err
 	}
-		mysqlAppendAudit(db, "cancel", "application", itoaSourceID(id), reviewer, note)
+	mysqlAppendAudit(db, "cancel", "application", itoaSourceID(id), reviewer, note)
 	return nil
 }
 
@@ -1887,6 +1903,7 @@ func (mysqlSourceStore) LatestIndexSnapshot() (sourceIndexSnapshot, error) {
 }
 
 const sourceReleaseSettingsKey = "release"
+const sourceAdPlaceholderSettingsKey = "ad_placeholder"
 
 func (mysqlSourceStore) GetReleaseSettings() (sourceReleaseSettings, error) {
 	db, err := config.DB()
@@ -1926,6 +1943,47 @@ func (mysqlSourceStore) SaveReleaseSettings(settings sourceReleaseSettings) erro
 	}
 	_, err = db.Exec(`INSERT INTO source_station_settings (setting_key, setting_value) VALUES (?, ?)
 		ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)`, sourceReleaseSettingsKey, string(payload))
+	return err
+}
+
+func (mysqlSourceStore) GetAdvertisementPlaceholder() (advertisementPlaceholder, error) {
+	db, err := config.DB()
+	if err != nil {
+		return defaultAdvertisementPlaceholder(), err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return defaultAdvertisementPlaceholder(), err
+	}
+	var raw string
+	err = db.QueryRow(`SELECT setting_value FROM source_station_settings WHERE setting_key=?`, sourceAdPlaceholderSettingsKey).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return defaultAdvertisementPlaceholder(), nil
+	}
+	if err != nil {
+		return defaultAdvertisementPlaceholder(), err
+	}
+	var placeholder advertisementPlaceholder
+	if err := json.Unmarshal([]byte(raw), &placeholder); err != nil {
+		return defaultAdvertisementPlaceholder(), nil
+	}
+	return normalizeAdvertisementPlaceholder(placeholder), nil
+}
+
+func (mysqlSourceStore) SaveAdvertisementPlaceholder(placeholder advertisementPlaceholder) error {
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return err
+	}
+	placeholder = normalizeAdvertisementPlaceholder(placeholder)
+	payload, err := json.Marshal(placeholder)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`INSERT INTO source_station_settings (setting_key, setting_value) VALUES (?, ?)
+		ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)`, sourceAdPlaceholderSettingsKey, string(payload))
 	return err
 }
 

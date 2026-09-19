@@ -35,17 +35,36 @@ type advertisementRecord struct {
 	Description    string `json:"description"`
 }
 
+const (
+	defaultAdPlaceholderTitle       = "广告位出租"
+	defaultAdPlaceholderDescription = "虚位以待，欢迎联系投放"
+)
+
+// advertisementPlaceholder 是空广告位的招租文案；linkUrl 为空表示不可点击。
+type advertisementPlaceholder struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	LinkURL     string `json:"linkUrl"`
+}
+
+type advertisementPayload struct {
+	records     []advertisementRecord
+	placeholder advertisementPlaceholder
+}
+
 type advertisementUpstreamResponse struct {
 	Code int    `json:"code"`
 	Msg  string `json:"msg"`
 	Data struct {
-		Records []advertisementRecord `json:"records"`
+		Records     []advertisementRecord     `json:"records"`
+		Placeholder *advertisementPlaceholder `json:"placeholder"`
 	} `json:"data"`
 }
 
 type advertisementCacheEntry struct {
-	fetchedAt time.Time
-	records   []advertisementRecord
+	fetchedAt   time.Time
+	records     []advertisementRecord
+	placeholder advertisementPlaceholder
 }
 
 var (
@@ -69,31 +88,39 @@ func PublicAdvertisements(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告位标识不合法"})
 		return
 	}
-	records := advertisementsForPosition(c.Request.Context(), position)
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": gin.H{"records": records}})
+	payload := advertisementsPayloadForPosition(c.Request.Context(), position)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(payload)})
+}
+
+func advertisementPublicData(payload advertisementPayload) gin.H {
+	return gin.H{"records": payload.records, "placeholder": payload.placeholder}
 }
 
 // advertisementsForPosition 永远返回可渲染的结果：上游异常时退回旧缓存，再不行就是空列表。
 // 广告不是业务功能，不该因为第三方抖动把错误抛给后台界面。
 func advertisementsForPosition(ctx context.Context, position string) []advertisementRecord {
+	return advertisementsPayloadForPosition(ctx, position).records
+}
+
+func advertisementsPayloadForPosition(ctx context.Context, position string) advertisementPayload {
 	lock := advertisementLocks[position]
 	lock.Lock()
 	defer lock.Unlock()
 
 	cached, cachedOK := readAdvertisementCache(position)
 	if cachedOK && time.Since(cached.fetchedAt) < config.GetAdvertisementCacheTTL() {
-		return cached.records
+		return advertisementPayload{records: cached.records, placeholder: cached.placeholder}
 	}
 
-	fresh, err := fetchAdvertisementsUpstream(ctx, position)
+	fresh, err := fetchAdvertisementPayload(ctx, position)
 	if err == nil {
 		writeAdvertisementCache(position, fresh)
 		return fresh
 	}
 	if cachedOK && time.Since(cached.fetchedAt) <= config.GetAdvertisementStaleTTL() {
-		return cached.records
+		return advertisementPayload{records: cached.records, placeholder: cached.placeholder}
 	}
-	return []advertisementRecord{}
+	return advertisementPayload{records: []advertisementRecord{}, placeholder: resolveAdvertisementPlaceholder(nil)}
 }
 
 func readAdvertisementCache(position string) (advertisementCacheEntry, bool) {
@@ -104,19 +131,31 @@ func readAdvertisementCache(position string) (advertisementCacheEntry, bool) {
 }
 
 // 空结果同样入缓存：没有投放的广告位不该每次刷新都去打上游。
-func writeAdvertisementCache(position string, records []advertisementRecord) {
+func writeAdvertisementCache(position string, payload advertisementPayload) {
 	advertisementCacheL.Lock()
 	defer advertisementCacheL.Unlock()
-	advertisementCache[position] = advertisementCacheEntry{fetchedAt: time.Now(), records: records}
+	advertisementCache[position] = advertisementCacheEntry{
+		fetchedAt:   time.Now(),
+		records:     payload.records,
+		placeholder: payload.placeholder,
+	}
 }
 
 func fetchAdvertisementsUpstream(ctx context.Context, position string) ([]advertisementRecord, error) {
+	payload, err := fetchAdvertisementPayload(ctx, position)
+	if err != nil {
+		return nil, err
+	}
+	return payload.records, nil
+}
+
+func fetchAdvertisementPayload(ctx context.Context, position string) (advertisementPayload, error) {
 	if !config.AdvertisementURLIsRemote() {
-		return localAdvertisements(position), nil
+		return localAdvertisementPayload(position), nil
 	}
 	endpoint, err := url.Parse(config.GetAdvertisementURL())
 	if err != nil || endpoint.Scheme == "" || endpoint.Host == "" {
-		return nil, errors.New("广告接口地址不合法")
+		return advertisementPayload{}, errors.New("广告接口地址不合法")
 	}
 	query := endpoint.Query()
 	query.Set("position", position)
@@ -128,31 +167,77 @@ func fetchAdvertisementsUpstream(ctx context.Context, position string) ([]advert
 
 	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		return nil, err
+		return advertisementPayload{}, err
 	}
 	request.Header.Set("Accept", "application/json")
 
 	response, err := (&http.Client{Timeout: timeout}).Do(request)
 	if err != nil {
-		return nil, err
+		return advertisementPayload{}, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, errors.New("广告接口返回异常状态")
+		return advertisementPayload{}, errors.New("广告接口返回异常状态")
 	}
 
 	payload, err := io.ReadAll(io.LimitReader(response.Body, advertisementMaxBytes))
 	if err != nil {
-		return nil, err
+		return advertisementPayload{}, err
 	}
 	var upstream advertisementUpstreamResponse
 	if err := json.Unmarshal(payload, &upstream); err != nil {
-		return nil, err
+		return advertisementPayload{}, err
 	}
 	if upstream.Code != 200 {
-		return nil, errors.New("广告接口返回业务失败")
+		return advertisementPayload{}, errors.New("广告接口返回业务失败")
 	}
-	return normalizeAdvertisements(upstream.Data.Records, position, time.Now()), nil
+	return advertisementPayload{
+		records:     normalizeAdvertisements(upstream.Data.Records, position, time.Now()),
+		placeholder: resolveAdvertisementPlaceholder(upstream.Data.Placeholder),
+	}, nil
+}
+
+func defaultAdvertisementPlaceholder() advertisementPlaceholder {
+	return advertisementPlaceholder{
+		Title:       defaultAdPlaceholderTitle,
+		Description: defaultAdPlaceholderDescription,
+		LinkURL:     "",
+	}
+}
+
+func normalizeAdvertisementPlaceholder(input advertisementPlaceholder) advertisementPlaceholder {
+	normalized := defaultAdvertisementPlaceholder()
+	if title := strings.TrimSpace(input.Title); title != "" {
+		normalized.Title = truncateText(title, 120)
+	}
+	if description := strings.TrimSpace(input.Description); description != "" {
+		normalized.Description = truncateText(description, 500)
+	}
+	normalized.LinkURL = strings.TrimSpace(input.LinkURL)
+	if normalized.LinkURL != "" {
+		normalized.LinkURL = truncateText(normalized.LinkURL, 500)
+	}
+	return normalized
+}
+
+func remotePlaceholderPresent(placeholder *advertisementPlaceholder) bool {
+	if placeholder == nil {
+		return false
+	}
+	return strings.TrimSpace(placeholder.Title) != "" ||
+		strings.TrimSpace(placeholder.Description) != "" ||
+		strings.TrimSpace(placeholder.LinkURL) != ""
+}
+
+func resolveAdvertisementPlaceholder(remote *advertisementPlaceholder) advertisementPlaceholder {
+	if remotePlaceholderPresent(remote) {
+		return normalizeAdvertisementPlaceholder(*remote)
+	}
+	local, err := currentSourceStationStore().GetAdvertisementPlaceholder()
+	if err != nil {
+		return defaultAdvertisementPlaceholder()
+	}
+	return normalizeAdvertisementPlaceholder(local)
 }
 
 // normalizeAdvertisements 丢弃不属于该位置和已过投放窗口的记录，并按权重倒序排列。
@@ -187,7 +272,14 @@ func advertisementInWindow(record advertisementRecord, now time.Time) bool {
 
 // localAdvertisements 是本站自托管投放。未配置远程广告源时读本站广告表，不访问外网。
 func localAdvertisements(position string) []advertisementRecord {
-	return localSourceAdvertisements(position)
+	return localAdvertisementPayload(position).records
+}
+
+func localAdvertisementPayload(position string) advertisementPayload {
+	return advertisementPayload{
+		records:     localSourceAdvertisements(position),
+		placeholder: resolveAdvertisementPlaceholder(nil),
+	}
 }
 
 // PublicLocalAdvertisements 是与上游协议兼容的本站广告接口。
@@ -197,5 +289,5 @@ func PublicLocalAdvertisements(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告位标识不合法"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": gin.H{"records": localAdvertisements(position)}})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(localAdvertisementPayload(position))})
 }

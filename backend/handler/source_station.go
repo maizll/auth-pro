@@ -92,6 +92,7 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 
 		admin.GET("/advertisements", AdminSourceAdvertisements)
 		admin.PUT("/advertisements", AdminSourceAdvertisementUpsert)
+		admin.PUT("/advertisements/placeholder", AdminSourceAdvertisementPlaceholderSave)
 		admin.DELETE("/advertisements/:id", AdminSourceAdvertisementDelete)
 	}
 
@@ -131,7 +132,39 @@ func AdminSourceAdvertisements(c *gin.Context) {
 	if records == nil {
 		records = []advertisementRecord{}
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"records": records}})
+	placeholder, err := currentSourceStationStore().GetAdvertisementPlaceholder()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取招租占位失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
+		"records":     records,
+		"placeholder": normalizeAdvertisementPlaceholder(placeholder),
+	}})
+}
+
+func AdminSourceAdvertisementPlaceholderSave(c *gin.Context) {
+	var placeholder advertisementPlaceholder
+	if err := c.ShouldBindJSON(&placeholder); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+	placeholder.Title = strings.TrimSpace(placeholder.Title)
+	placeholder.Description = strings.TrimSpace(placeholder.Description)
+	placeholder.LinkURL = strings.TrimSpace(placeholder.LinkURL)
+	if placeholder.LinkURL != "" {
+		if err := validateExternalHTTPS(placeholder.LinkURL); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "招租跳转必须是 https:// 外部地址，留空则不可点击"})
+			return
+		}
+	}
+	placeholder = normalizeAdvertisementPlaceholder(placeholder)
+	if err := currentSourceStationStore().SaveAdvertisementPlaceholder(placeholder); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存招租占位失败"})
+		return
+	}
+	resetLocalAdvertisementCache()
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "招租占位已保存", "data": placeholder})
 }
 
 func AdminSourceAdvertisementUpsert(c *gin.Context) {

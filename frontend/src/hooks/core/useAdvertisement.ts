@@ -1,18 +1,25 @@
 import { onMounted, ref } from 'vue'
-import { fetchAdvertisements } from '@/api/advertisement'
-import type { AdPosition, AdvertisementItem } from '@/api/advertisement'
+import { fetchAdvertisements, normalizeAdPlaceholder } from '@/api/advertisement'
+import type { AdPosition, AdvertisementItem, AdvertisementPlaceholder } from '@/api/advertisement'
 
-/** 无投放数据时的占位项，让广告位显示「广告位出租」而不是留一块空白 */
+/** 接口返回前与失败时用安全默认：默认文案、无跳转 */
+let currentPlaceholder: AdvertisementPlaceholder = normalizeAdPlaceholder()
+
+const applyPlaceholder = (input?: Partial<AdvertisementPlaceholder> | null) => {
+  currentPlaceholder = normalizeAdPlaceholder(input)
+}
+
+/** 无投放数据时的占位项，让广告位显示招租文案而不是留一块空白 */
 const placeholderItem = (position: AdPosition): AdvertisementItem => ({
   id: `placeholder-${position}`,
-  title: '广告位出租',
+  title: currentPlaceholder.title,
   imageUrl: '',
-  destinationUrl: '',
+  destinationUrl: currentPlaceholder.linkUrl,
   position,
   weight: 0,
   startAt: '',
   endAt: '',
-  description: '虚位以待，欢迎联系投放',
+  description: currentPlaceholder.description,
   isPlaceholder: true
 })
 
@@ -30,10 +37,12 @@ export function useAdvertisement(position: AdPosition) {
     loading.value = true
     try {
       const result = await fetchAdvertisements(position)
+      applyPlaceholder(result?.placeholder)
       const records = result?.records ?? []
       isPlaceholderOnly.value = records.length === 0
       items.value = records.length > 0 ? records : [placeholderItem(position)]
     } catch {
+      applyPlaceholder()
       isPlaceholderOnly.value = true
       items.value = [placeholderItem(position)]
     } finally {

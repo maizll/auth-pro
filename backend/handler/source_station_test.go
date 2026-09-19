@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +26,7 @@ func sourceStationRouter(t *testing.T) (*gin.Engine, *memorySourceStore) {
 	RegisterSourceStationRoutes(router, router.Group("/api"))
 	router.GET("/source", SourceStationPage)
 	router.GET("/source/", SourceStationPage)
+	router.GET("/api/advertisements", PublicAdvertisements)
 	router.GET("/api/v1/public/advertisements", PublicLocalAdvertisements)
 	return router, store
 }
@@ -329,6 +331,87 @@ func TestSourceAdvertisementCRUDFeedsLocalEndpoint(t *testing.T) {
 	del := sourceJSON(t, router, http.MethodDelete, "/api/v1/source/admin/advertisements/welcome", admin, "")
 	if sourceBodyCode(t, del) != 200 {
 		t.Fatalf("delete ad=%s", del.Body.String())
+	}
+}
+
+func decodeAdvertisementPublic(t *testing.T, recorder *httptest.ResponseRecorder) advertisementPublicBody {
+	t.Helper()
+	var body advertisementPublicBody
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid json: %s", recorder.Body.String())
+	}
+	return body
+}
+
+func TestSourceAdvertisementPlaceholderCRUDFeedsPublicEndpoint(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	resetAdvertisementCache(t)
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", "")
+	admin := sourceAdminToken(t)
+
+	listed := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/advertisements", admin, "")
+	listedBody := decodeAdvertisementPublic(t, listed)
+	if listedBody.Code != 200 {
+		t.Fatalf("list ads=%s", listed.Body.String())
+	}
+	assertSafeDefaultPlaceholder(t, listedBody.Data.Placeholder)
+
+	save := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements/placeholder", admin,
+		`{"title":"广告位招租","description":"欢迎联系本站投放","linkUrl":"https://example.com/rent"}`)
+	if sourceBodyCode(t, save) != 200 {
+		t.Fatalf("save placeholder=%s", save.Body.String())
+	}
+
+	public := decodeAdvertisementPublic(t, sourceJSON(t, router, http.MethodGet, "/api/v1/public/advertisements?position=home-banner", "", ""))
+	if public.Code != 200 || public.Data.Records == nil {
+		t.Fatalf("public after save=%+v", public)
+	}
+	if public.Data.Placeholder.Title != "广告位招租" ||
+		public.Data.Placeholder.Description != "欢迎联系本站投放" ||
+		public.Data.Placeholder.LinkURL != "https://example.com/rent" {
+		t.Fatalf("公开接口应返回已保存占位：%+v", public.Data.Placeholder)
+	}
+
+	emptyLink := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements/placeholder", admin,
+		`{"title":"广告位招租","description":"虚位以待","linkUrl":""}`)
+	if sourceBodyCode(t, emptyLink) != 200 {
+		t.Fatalf("empty link save=%s", emptyLink.Body.String())
+	}
+	cleared := decodeAdvertisementPublic(t, sourceJSON(t, router, http.MethodGet, "/api/v1/public/advertisements?position=sidebar", "", ""))
+	if cleared.Data.Placeholder.LinkURL != "" || cleared.Data.Placeholder.Title != "广告位招租" {
+		t.Fatalf("空跳转应原样保存：%+v", cleared.Data.Placeholder)
+	}
+
+	invalid := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements/placeholder", admin,
+		`{"title":"广告位招租","description":"x","linkUrl":"javascript:alert(1)"}`)
+	if sourceBodyCode(t, invalid) != 400 {
+		t.Fatalf("非法跳转应拒绝：%s", invalid.Body.String())
+	}
+}
+
+func TestSourceAdvertisementPlaceholderFallsBackWhenRemoteOmitsIt(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	resetAdvertisementCache(t)
+	admin := sourceAdminToken(t)
+	save := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements/placeholder", admin,
+		`{"title":"本站招租","description":"本地兜底","linkUrl":"https://local.example.com/ads"}`)
+	if sourceBodyCode(t, save) != 200 {
+		t.Fatalf("save placeholder=%s", save.Body.String())
+	}
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"code":200,"msg":"ok","data":{"records":[]}}`)
+	}))
+	t.Cleanup(upstream.Close)
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", upstream.URL)
+	resetAdvertisementCache(t)
+
+	proxied := decodeAdvertisementPublic(t, sourceJSON(t, router, http.MethodGet, "/api/advertisements?position=home-banner", "", ""))
+	if proxied.Code != 200 {
+		t.Fatalf("proxied=%+v", proxied)
+	}
+	if proxied.Data.Placeholder.Title != "本站招租" || proxied.Data.Placeholder.LinkURL != "https://local.example.com/ads" {
+		t.Fatalf("旧上游无占位时应回落本站配置：%+v", proxied.Data.Placeholder)
 	}
 }
 

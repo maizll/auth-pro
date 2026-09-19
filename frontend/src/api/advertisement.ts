@@ -18,12 +18,35 @@ export interface AdvertisementItem {
   isPlaceholder?: boolean
 }
 
+/** 空广告位招租占位；linkUrl 为空表示不可点击 */
+export interface AdvertisementPlaceholder {
+  title: string
+  description: string
+  linkUrl: string
+}
+
+export const DEFAULT_AD_PLACEHOLDER: AdvertisementPlaceholder = {
+  title: '广告位出租',
+  description: '虚位以待，欢迎联系投放',
+  linkUrl: ''
+}
+
+export function normalizeAdPlaceholder(
+  input?: Partial<AdvertisementPlaceholder> | null
+): AdvertisementPlaceholder {
+  return {
+    title: input?.title?.trim() || DEFAULT_AD_PLACEHOLDER.title,
+    description: input?.description?.trim() || DEFAULT_AD_PLACEHOLDER.description,
+    linkUrl: input?.linkUrl?.trim() || ''
+  }
+}
+
 /**
  * 投放内容走后端代理：上游未开放 CORS，且共用 axios 实例会附带后台 JWT，
  * 不能把它指向第三方域名。失败不弹全局提示——广告位会自行退回占位。
  */
 export function fetchAdvertisements(position: AdPosition) {
-  return request.get<{ records: AdvertisementItem[] }>({
+  return request.get<{ records: AdvertisementItem[]; placeholder?: AdvertisementPlaceholder }>({
     url: '/api/advertisements',
     params: { position },
     showErrorMessage: false
