@@ -82,6 +82,11 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		admin.POST("/index/regenerate", AdminSourceIndexRegenerate)
 		admin.GET("/audit", AdminSourceAudit)
 
+		admin.GET("/settings/release", AdminSourceReleaseSettings)
+		admin.PUT("/settings/release", AdminSourceReleaseSettingsSave)
+		admin.POST("/packages/parse", AdminSourcePackageParse)
+		admin.POST("/packages/publish", AdminSourcePackagePublish)
+
 		admin.GET("/advertisements", AdminSourceAdvertisements)
 		admin.PUT("/advertisements", AdminSourceAdvertisementUpsert)
 		admin.DELETE("/advertisements/:id", AdminSourceAdvertisementDelete)

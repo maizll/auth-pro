@@ -34,6 +34,7 @@
   <h1>本站软件源控制面</h1>
   <p class="lead">
     本实例作为<strong>源站</strong>只保存目录元数据与外部 HTTPS 地址，<strong>从不存储插件/模板源码</strong>。
+    管理员可上传 ZIP 仅作<strong>内存解析</strong>：自动读取 plugin.json / template.json 填表并计算 sha256，随后推送到已配置的 GitHub/Gitee Release 或粘贴外部下载地址；包本身立即丢弃。
     消费者在「软件源管理」添加 <code>https://&lt;host&gt;/software-source/index.json</code>（兼容 <code>/auth-pro/index.json</code>）。
     更新 = 新的外部包 URL + sha256 + 版本元数据，旧版本保留；公开目录只展示 <code>latest</code>。
     <strong>下架 ≠ 远程卸载</strong>：下架只是从公开目录隐藏，已安装到其它实例的包不会被删除。
@@ -42,6 +43,8 @@
     <button type="button" class="active" data-tab="catalog" onclick="showTab('catalog')">公开目录</button>
     <button type="button" data-tab="developer" onclick="showTab('developer')">开发者</button>
     <button type="button" data-tab="applications" onclick="showTab('applications')">入驻申请</button>
+    <button type="button" data-tab="upload" onclick="showTab('upload')">上传解析</button>
+    <button type="button" data-tab="release" onclick="showTab('release')">Release 设置</button>
     <button type="button" data-tab="plugins" onclick="showTab('plugins')">插件上架</button>
     <button type="button" data-tab="templates" onclick="showTab('templates')">模板上架</button>
     <button type="button" data-tab="index" onclick="showTab('index')">index 快照</button>
@@ -110,6 +113,69 @@
       </div>
     </div>
     <pre id="apps">尚未加载</pre>
+  </section>
+
+  <section data-panel="upload" hidden>
+    <h2>上传包 → 解析填表 → 推送 Release / 粘贴地址</h2>
+    <p class="note">
+      服务端只在内存中打开压缩包，读取 <code>plugin.json</code> 或 <code>template.json</code>，计算整个包的 sha256。
+      <strong>不落盘、不入库源码</strong>。配置了 GitHub/Gitee 后会创建/更新 Release 并把 zip 作为附件，目录只保存附件的 https 地址。
+      未配置时可把已有的 https 下载地址粘贴到下方再保存元数据。
+    </p>
+    <div class="row">
+      <div>
+        <label>包文件（zip 或模板 json）</label>
+        <input id="pkgFile" type="file" accept=".zip,.json,application/zip,application/json" />
+        <label>类型</label>
+        <select id="pkgKind">
+          <option value="">自动识别</option>
+          <option value="plugin">插件</option>
+          <option value="template">首页模板</option>
+        </select>
+        <label>changelog</label><input id="pkgLog" placeholder="本次更新说明" />
+        <label>粘贴 downloadUrl / templateUrl（不推送 Release 时必填）</label>
+        <input id="pkgUrl" placeholder="https://github.com/org/repo/releases/download/..." />
+        <label>minVersion（可选）</label><input id="pkgMin" />
+        <label><input id="pkgForce" type="checkbox" style="width:auto;display:inline;margin-right:6px" /> forceUpdate</label>
+        <label><input id="pkgPush" type="checkbox" checked style="width:auto;display:inline;margin-right:6px" /> 推送到 GitHub/Gitee Release</label>
+        <label><input id="pkgShelf" type="checkbox" style="width:auto;display:inline;margin-right:6px" /> 保存后直接上架</label>
+        <button type="button" onclick="parsePackage()">仅解析并填表</button>
+        <button type="button" onclick="publishPackage()">解析并保存元数据</button>
+      </div>
+      <div>
+        <label>识别到的 ID</label><input id="pkgId" readonly />
+        <label>名称</label><input id="pkgName" readonly />
+        <label>版本</label><input id="pkgVer" readonly />
+        <label>作者</label><input id="pkgAuthor" readonly />
+        <label>sha256</label><input id="pkgSha" readonly />
+        <label>解析结果</label>
+        <pre id="pkgOut">尚未解析。请先在「入驻申请」登录管理员。</pre>
+      </div>
+    </div>
+  </section>
+
+  <section data-panel="release" hidden>
+    <h2>GitHub / Gitee Release 推送</h2>
+    <p class="note">
+      令牌只保存在源站数据库，接口 GET 只返回掩码。标签默认 <code>{id}-{version}</code>。
+      Gitee 创建 Release 需要 <code>target_commitish</code>（默认 master）。未配置时仍可解析包并粘贴外部 https 地址保存元数据。
+    </p>
+    <div class="row">
+      <div>
+        <label>provider</label>
+        <select id="relProvider"><option value="github">github</option><option value="gitee">gitee</option></select>
+        <label>owner</label><input id="relOwner" placeholder="org-or-user" />
+        <label>repo</label><input id="relRepo" placeholder="software-packages" />
+        <label>token（留空则保留已保存令牌）</label><input id="relToken" type="password" autocomplete="off" />
+        <label>tag 策略</label><input id="relTag" value="{id}-{version}" />
+        <label>默认分支（Gitee target_commitish）</label><input id="relBranch" value="master" />
+        <button type="button" onclick="saveReleaseSettings()">保存设置</button>
+        <button type="button" class="secondary" onclick="loadReleaseSettings()">刷新</button>
+      </div>
+      <div>
+        <pre id="relOut">尚未加载</pre>
+      </div>
+    </div>
   </section>
 
   <section data-panel="plugins" hidden>
@@ -396,6 +462,94 @@
   async function loadAds() {
     const r = await api("/api/v1/source/admin/advertisements", {headers:auth(adminToken)});
     document.getElementById("ads").textContent = JSON.stringify(r.body, null, 2);
+  }
+  function fillParsedPackage(data) {
+    if (!data) return;
+    document.getElementById("pkgId").value = data.id || "";
+    document.getElementById("pkgName").value = data.name || "";
+    document.getElementById("pkgVer").value = data.version || "";
+    document.getElementById("pkgAuthor").value = (data.author && data.author.name) || "";
+    document.getElementById("pkgSha").value = data.sha256 || "";
+    if (data.kind === "plugin") {
+      document.getElementById("admPluginId").value = data.id || "";
+      document.getElementById("admPluginName").value = data.name || "";
+      document.getElementById("admPluginVer").value = data.version || "";
+      document.getElementById("admPluginSha").value = data.sha256 || "";
+    } else if (data.kind === "template") {
+      document.getElementById("admTplId").value = data.id || "";
+      document.getElementById("admTplName").value = data.name || "";
+      document.getElementById("admTplSha").value = data.sha256 || "";
+    }
+  }
+  async function parsePackage() {
+    if (!adminToken) { msg("请先管理员登录", false); return; }
+    const file = document.getElementById("pkgFile").files[0];
+    if (!file) { msg("请选择要解析的包", false); return; }
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("kind", document.getElementById("pkgKind").value);
+    const res = await fetch("/api/v1/source/admin/packages/parse", {method:"POST", headers:{Authorization:"Bearer "+adminToken}, body: fd});
+    const body = await res.json().catch(() => ({}));
+    document.getElementById("pkgOut").textContent = JSON.stringify(body, null, 2);
+    if (body.code === 200) fillParsedPackage(body.data);
+    msg(body.msg || JSON.stringify(body), body.code===200);
+  }
+  async function publishPackage() {
+    if (!adminToken) { msg("请先管理员登录", false); return; }
+    const file = document.getElementById("pkgFile").files[0];
+    if (!file) { msg("请选择要发布的包", false); return; }
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("kind", document.getElementById("pkgKind").value);
+    fd.append("changelog", document.getElementById("pkgLog").value);
+    fd.append("downloadUrl", document.getElementById("pkgUrl").value);
+    fd.append("templateUrl", document.getElementById("pkgUrl").value);
+    fd.append("minVersion", document.getElementById("pkgMin").value);
+    fd.append("forceUpdate", document.getElementById("pkgForce").checked ? "1" : "0");
+    fd.append("push", document.getElementById("pkgPush").checked ? "1" : "0");
+    fd.append("shelf", document.getElementById("pkgShelf").checked ? "1" : "0");
+    const res = await fetch("/api/v1/source/admin/packages/publish", {method:"POST", headers:{Authorization:"Bearer "+adminToken}, body: fd});
+    const body = await res.json().catch(() => ({}));
+    document.getElementById("pkgOut").textContent = JSON.stringify(body, null, 2);
+    if (body.code === 200 && body.data) {
+      fillParsedPackage(body.data.manifest || body.data);
+      const loc = body.data.downloadUrl || body.data.templateUrl;
+      if (loc) {
+        document.getElementById("pkgUrl").value = loc;
+        if ((body.data.kind || (body.data.manifest||{}).kind) === "template") document.getElementById("admTplUrl").value = loc;
+        else document.getElementById("admPluginUrl").value = loc;
+      }
+    }
+    msg(body.msg || JSON.stringify(body), body.code===200);
+  }
+  async function loadReleaseSettings() {
+    if (!adminToken) { msg("请先管理员登录", false); return; }
+    const r = await api("/api/v1/source/admin/settings/release", {headers:auth(adminToken)});
+    document.getElementById("relOut").textContent = JSON.stringify(r.body, null, 2);
+    const data = r.body && r.body.data;
+    if (data) {
+      document.getElementById("relProvider").value = data.provider || "github";
+      document.getElementById("relOwner").value = data.owner || "";
+      document.getElementById("relRepo").value = data.repo || "";
+      document.getElementById("relTag").value = data.tagStrategy || "{id}-{version}";
+      document.getElementById("relBranch").value = data.branch || "master";
+      document.getElementById("relToken").value = "";
+    }
+    msg(r.body.msg || (data && data.configured ? "Release 已配置" : "尚未配置令牌，可粘贴 downloadUrl"), r.body.code===200);
+  }
+  async function saveReleaseSettings() {
+    if (!adminToken) { msg("请先管理员登录", false); return; }
+    const r = await api("/api/v1/source/admin/settings/release", {method:"PUT", headers:auth(adminToken), body: JSON.stringify({
+      provider: document.getElementById("relProvider").value,
+      owner: document.getElementById("relOwner").value,
+      repo: document.getElementById("relRepo").value,
+      token: document.getElementById("relToken").value,
+      tagStrategy: document.getElementById("relTag").value,
+      branch: document.getElementById("relBranch").value,
+    })});
+    document.getElementById("relOut").textContent = JSON.stringify(r.body, null, 2);
+    document.getElementById("relToken").value = "";
+    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200);
   }
   async function saveAd() {
     if (!adminToken) { msg("请先管理员登录", false); return; }

@@ -894,6 +894,13 @@ CREATE TABLE `source_catalog_template_versions` (
   KEY `idx_source_template_version_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='首页模板版本元数据（不含源码）';
 
+DROP TABLE IF EXISTS `source_station_settings`;
+CREATE TABLE `source_station_settings` (
+  `setting_key` VARCHAR(50) NOT NULL,
+  `setting_value` TEXT NOT NULL,
+  PRIMARY KEY (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源源站设置（含 Release 推送配置）';
+
 DROP TABLE IF EXISTS `source_advertisements`;
 CREATE TABLE `source_advertisements` (
   `id` VARCHAR(60) NOT NULL,

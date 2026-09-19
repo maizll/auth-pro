@@ -167,6 +167,15 @@ type sourceIndexSnapshot struct {
 	GeneratedBy string    `json:"generatedBy"`
 }
 
+type sourceReleaseSettings struct {
+	Provider    string `json:"provider"`
+	Owner       string `json:"owner"`
+	Repo        string `json:"repo"`
+	Token       string `json:"token,omitempty"`
+	TagStrategy string `json:"tagStrategy"`
+	Branch      string `json:"branch"`
+}
+
 type sourceStationStore interface {
 	Ensure() error
 
@@ -185,6 +194,9 @@ type sourceStationStore interface {
 	UpsertVersion(rel sourceRelease, developerID int64, asAdmin bool) (sourceRelease, error)
 	SetVersionStatus(kind, itemID, version, status, actor, note string) (sourceRelease, error)
 	SetLatestVersion(kind, itemID, version, actor, note string) error
+
+	GetReleaseSettings() (sourceReleaseSettings, error)
+	SaveReleaseSettings(settings sourceReleaseSettings) error
 
 	CreateApplication(app sourceApplication) (sourceApplication, error)
 	ListApplications(status string) ([]sourceApplication, error)
@@ -291,6 +303,7 @@ type memorySourceStore struct {
 	ads              map[string]advertisementRecord
 	audits           []sourceAuditEntry
 	snapshot         sourceIndexSnapshot
+	releaseSettings  sourceReleaseSettings
 	nextAppID        int64
 	nextDevID        int64
 	nextAuditID      int64
@@ -757,6 +770,19 @@ func (store *memorySourceStore) LatestIndexSnapshot() (sourceIndexSnapshot, erro
 	return store.snapshot, nil
 }
 
+func (store *memorySourceStore) GetReleaseSettings() (sourceReleaseSettings, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return normalizeReleaseSettings(store.releaseSettings), nil
+}
+
+func (store *memorySourceStore) SaveReleaseSettings(settings sourceReleaseSettings) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.releaseSettings = normalizeReleaseSettings(settings)
+	return nil
+}
+
 func itoaSourceID(value int64) string {
 	if value == 0 {
 		return "0"
@@ -852,6 +878,10 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			UNIQUE KEY uk_source_catalog_template_key (template_key),
 			KEY idx_source_catalog_template_status (status)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源首页模板元数据（不含源码）'`,
+		`CREATE TABLE IF NOT EXISTS source_station_settings (
+			setting_key VARCHAR(50) NOT NULL PRIMARY KEY,
+			setting_value TEXT NOT NULL
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源源站设置（含 Release 推送配置）'`,
 		`CREATE TABLE IF NOT EXISTS source_advertisements (
 			id VARCHAR(60) NOT NULL PRIMARY KEY,
 			title VARCHAR(120) NOT NULL DEFAULT '',
@@ -1719,6 +1749,49 @@ func (mysqlSourceStore) LatestIndexSnapshot() (sourceIndexSnapshot, error) {
 	}
 	item.GeneratedAt = item.GeneratedAt.UTC()
 	return item, nil
+}
+
+const sourceReleaseSettingsKey = "release"
+
+func (mysqlSourceStore) GetReleaseSettings() (sourceReleaseSettings, error) {
+	db, err := config.DB()
+	if err != nil {
+		return sourceReleaseSettings{}, err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return sourceReleaseSettings{}, err
+	}
+	var raw string
+	err = db.QueryRow(`SELECT setting_value FROM source_station_settings WHERE setting_key=?`, sourceReleaseSettingsKey).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return defaultSourceReleaseSettings(), nil
+	}
+	if err != nil {
+		return sourceReleaseSettings{}, err
+	}
+	var settings sourceReleaseSettings
+	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
+		return defaultSourceReleaseSettings(), nil
+	}
+	return normalizeReleaseSettings(settings), nil
+}
+
+func (mysqlSourceStore) SaveReleaseSettings(settings sourceReleaseSettings) error {
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return err
+	}
+	settings = normalizeReleaseSettings(settings)
+	payload, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`INSERT INTO source_station_settings (setting_key, setting_value) VALUES (?, ?)
+		ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)`, sourceReleaseSettingsKey, string(payload))
+	return err
 }
 
 func sourceCatalogJSON() ([]byte, ginHCatalog, error) {

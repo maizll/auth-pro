@@ -349,15 +349,27 @@ https://<host>/software-source/index.json
 1. 启动本仓库后端（源站无需 `AUTO_PRO_SOFTWARE_SOURCE_*`）。
 2. 浏览器打开 `/source`：开发者申请入驻 → 管理员通过/拒绝/冻结。
 3. 开发者保存插件/模板**元数据草稿**（外部 URL + sha256），提交审核；管理员通过或驳回后上架。
-4. **更新**：为同一插件创建新版本行（version / changelog / 外部 URL / sha256）→ 提交审核 → 管理员通过后该版本 `published` 并成为 `latest`。旧版本元数据保留，可弃用，不可删源码（源站本来就不存源码）。
-5. 管理员可将 `latest` 回滚到先前已发布版本；下架只从公开目录隐藏整个插件。公开 `index.json` 只展示当前 `latest`（含 version、downloadUrl、sha256、可选 changelog，以及预留的 `minVersion` / `forceUpdate`）。
-6. 查询历史版本：`GET /api/v1/source/admin/plugins/:id/versions`（兼容 `GET /api/admin/source/plugins/:id/versions`）。
-7. 消费者实例在「软件源管理」添加 `https://<host>/software-source/index.json`。
+4. **管理员上传包**：在 `/source`「上传解析」选择插件 ZIP 或首页模板包。服务端只在内存中读取 `plugin.json` / `template.json`（根目录或一层子目录），自动填 id/name/version/description/author/schemaVersion，并计算整个包的 sha256；缺字段或非法清单返回校验错误。包不落盘、不入库。
+5. **发布地址**：在「Release 设置」填写 provider（`github`|`gitee`）、owner/repo、令牌（仅服务端保存，GET 只返回掩码）、默认 tag 策略（如 `{id}-{version}`）和 Gitee 分支。保存元数据时优先创建/更新 Release 并上传 zip 附件，把 `downloadUrl`/`templateUrl` 设为附件的 https 地址；未配置时可粘贴已有 https 地址。目录只持久化元数据 + URL + sha256。
+6. **更新**：为同一插件创建新版本行（version / changelog / 外部 URL / sha256）→ 提交审核 → 管理员通过后该版本 `published` 并成为 `latest`。旧版本元数据保留，可弃用，不可删源码（源站本来就不存源码）。
+7. 管理员可将 `latest` 回滚到先前已发布版本；下架只从公开目录隐藏整个插件。公开 `index.json` 只展示当前 `latest`（含 version、downloadUrl、sha256、可选 changelog，以及预留的 `minVersion` / `forceUpdate`）。
+8. 查询历史版本：`GET /api/v1/source/admin/plugins/:id/versions`（兼容 `GET /api/admin/source/plugins/:id/versions`）。
+9. 消费者实例在「软件源管理」添加 `https://<host>/software-source/index.json`。
 
 ```bash
 # 源站本机（无需软件源环境变量）
 curl -s http://127.0.0.1:19127/software-source/index.json
 curl -s http://127.0.0.1:19127/auth-pro/index.json
+
+# 管理员：解析包（不入库）
+curl -s -H "Authorization: Bearer <admin-jwt>" \
+  -F "file=@demo-plugin.zip" -F "kind=plugin" \
+  http://127.0.0.1:19127/api/v1/source/admin/packages/parse
+
+# 管理员：解析并保存元数据（已配置 Release 则推送；否则加 downloadUrl）
+curl -s -H "Authorization: Bearer <admin-jwt>" \
+  -F "file=@demo-plugin.zip" -F "kind=plugin" -F "shelf=1" \
+  http://127.0.0.1:19127/api/v1/source/admin/packages/publish
 ```
 
 本 PR 不包含：OSS 直传发布包、Git 软件源充当源站、代码签名、按客户可见性、完整 Vue 控制台改版。后续可把发布包对象键记入目录，仍不入库 git 源码树。
