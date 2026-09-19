@@ -22,6 +22,7 @@
 - 管理员重传覆盖并回到待审核；版本状态与目录项对齐，避免「目录项不存在」。
 - 入驻申请审核后从列表删除，列表默认仅待审核。
 - 在线更新正确解析 GitHub `maizll/auth-pro` Releases：优先 `latest.json`，否则用 `tag_name` 与更新包附件合成清单；历史走 `/releases?per_page=30`，不再拼接不存在的 `releases.json`。
+- 检查更新允许没有 SHA256（仍可比较版本，`canApply` 为 false）；应用更新仍必须有 SHA256。合成清单时会读取同名 `.sha256` / `SHA256SUMS`。
 
 ## [源站] 2026-09-19 — 自托管软件源与仓库对接
 

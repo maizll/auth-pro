@@ -174,14 +174,13 @@ func AdminOnlineUpdateCheck(c *gin.Context) {
 	}
 
 	setCachedOnlineUpdateManifest(manifest)
-	packageErr := validateOnlineUpdateManifest(manifest)
-	available, versionErr := onlineUpdateAvailable(config.AppVersion, manifest)
+	available, versionErr, packageErr, canApply := evaluateOnlineUpdateCheck(config.AppVersion, manifest)
 
 	data := gin.H{
 		"currentVersion": config.AppVersion,
 		"latest":         manifest,
 		"updateUrl":      config.GetUpdateManifestURL(),
-		"canApply":       packageErr == nil && available && versionErr == "",
+		"canApply":       canApply,
 		"packageValid":   packageErr == nil,
 		"packageError":   errorText(packageErr),
 		"versionError":   versionErr,
@@ -237,6 +236,10 @@ func AdminOnlineUpdateApply(c *gin.Context) {
 		return
 	}
 	if err := validateOnlineUpdateManifest(manifest); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "更新包信息不完整：" + err.Error()})
+		return
+	}
+	if err := validateOnlineUpdatePackageIntegrity(manifest); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "更新包信息不完整：" + err.Error()})
 		return
 	}
@@ -648,7 +651,106 @@ func synthesizeGitHubReleaseManifest(release *githubRelease) (*onlineUpdateManif
 		},
 	}
 	normalizeOnlineUpdateManifest(manifest)
+	if err := fillGitHubPackageChecksum(release, manifest); err != nil {
+		return nil, err
+	}
 	return manifest, nil
+}
+
+func fillGitHubPackageChecksum(release *githubRelease, manifest *onlineUpdateManifest) error {
+	if manifest == nil || isHexSHA256(manifest.Package.SHA256) {
+		return nil
+	}
+	asset, ok := findGitHubChecksumAsset(release.Assets, manifest.Package.FileName)
+	if !ok {
+		return nil
+	}
+	parsed, err := parseOnlineUpdateURL(asset.BrowserDownloadURL)
+	if err != nil || !isGitHubRepositoryReleaseURL(parsed) {
+		return errors.New("GitHub SHA256 附件地址不受信任")
+	}
+	body, err := fetchTrustedUpdateBytes(asset.BrowserDownloadURL, 15*time.Second)
+	if err != nil {
+		return fmt.Errorf("读取 GitHub SHA256 附件失败：%w", err)
+	}
+	if hash := parseSHA256ChecksumFile(body, manifest.Package.FileName); hash != "" {
+		manifest.Package.SHA256 = hash
+	}
+	return nil
+}
+
+func findGitHubChecksumAsset(assets []githubReleaseAsset, packageName string) (githubReleaseAsset, bool) {
+	packageName = strings.ToLower(strings.TrimSpace(packageName))
+	var sums githubReleaseAsset
+	var hasSums bool
+	for _, asset := range assets {
+		name := strings.ToLower(strings.TrimSpace(asset.Name))
+		if packageName != "" && (name == packageName+".sha256" || name == packageName+".sha256.txt") {
+			return asset, true
+		}
+		switch name {
+		case "sha256sums", "sha256sums.txt", "sha256sum":
+			sums = asset
+			hasSums = true
+		}
+	}
+	return sums, hasSums
+}
+
+func parseSHA256ChecksumFile(content []byte, packageName string) string {
+	text := strings.TrimSpace(strings.TrimPrefix(string(content), "\ufeff"))
+	if isHexSHA256(strings.ToLower(text)) {
+		return strings.ToLower(text)
+	}
+	packageName = strings.ToLower(strings.TrimSpace(packageName))
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		hash := strings.ToLower(fields[0])
+		if !isHexSHA256(hash) {
+			continue
+		}
+		if len(fields) == 1 || packageName == "" {
+			return hash
+		}
+		name := strings.ToLower(strings.TrimPrefix(fields[1], "*"))
+		if name == packageName || strings.HasSuffix(name, "/"+packageName) {
+			return hash
+		}
+	}
+	return ""
+}
+
+func fetchTrustedUpdateBytes(rawURL string, timeout time.Duration) ([]byte, error) {
+	client, err := newOnlineUpdateHTTPClient(rawURL, timeout)
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Cache-Control", "no-cache")
+	request.Header.Set("User-Agent", "auth_pro-updater/"+config.AppVersion)
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("更新附件返回状态码 %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		return nil, errors.New("读取更新附件失败")
+	}
+	return body, nil
 }
 
 func pickGitHubPackageAsset(assets []githubReleaseAsset) (githubReleaseAsset, bool) {
@@ -950,8 +1052,15 @@ func validateOnlineUpdateManifest(manifest *onlineUpdateManifest) error {
 	if strings.Contains(strings.ToLower(parsed.Host), "your-domain.com") {
 		return errors.New("更新包下载地址仍是示例地址")
 	}
-	if !isHexSHA256(manifest.Package.SHA256) {
+	if manifest.Package.SHA256 != "" && !isHexSHA256(manifest.Package.SHA256) {
 		return errors.New("更新包 SHA256 未配置或格式不正确")
+	}
+	return nil
+}
+
+func validateOnlineUpdatePackageIntegrity(manifest *onlineUpdateManifest) error {
+	if !isHexSHA256(manifest.Package.SHA256) {
+		return errors.New("更新包缺少 SHA256：请在 Release 中提供 latest.json，或附带同名 .sha256 / SHA256SUMS 后才能应用")
 	}
 	if manifest.Package.Size <= 0 {
 		return errors.New("更新包大小未配置")
@@ -960,6 +1069,16 @@ func validateOnlineUpdateManifest(manifest *onlineUpdateManifest) error {
 		return errors.New("更新包超过 512MB 限制")
 	}
 	return nil
+}
+
+func evaluateOnlineUpdateCheck(currentVersion string, manifest *onlineUpdateManifest) (bool, string, error, bool) {
+	available, versionErr := onlineUpdateAvailable(currentVersion, manifest)
+	packageErr := validateOnlineUpdateManifest(manifest)
+	if packageErr == nil {
+		packageErr = validateOnlineUpdatePackageIntegrity(manifest)
+	}
+	canApply := packageErr == nil && available && versionErr == ""
+	return available, versionErr, packageErr, canApply
 }
 
 func onlineUpdateAvailable(currentVersion string, manifest *onlineUpdateManifest) (bool, string) {

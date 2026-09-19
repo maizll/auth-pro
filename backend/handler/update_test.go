@@ -67,6 +67,17 @@ func TestValidateOnlineUpdateManifest(t *testing.T) {
 		}
 	})
 
+	t.Run("empty SHA256 allowed for check", func(t *testing.T) {
+		manifest := validOnlineUpdateManifestForTest()
+		manifest.Package.SHA256 = ""
+		if err := validateOnlineUpdateManifest(manifest); err != nil {
+			t.Fatalf("empty SHA256 should pass basic validate: %v", err)
+		}
+		if err := validateOnlineUpdatePackageIntegrity(manifest); err == nil {
+			t.Fatal("empty SHA256 should fail integrity validate")
+		}
+	})
+
 	t.Run("untrusted Gitee repository", func(t *testing.T) {
 		t.Setenv("AUTO_PRO_UPDATE_URL", "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest")
 		manifest := validOnlineUpdateManifestForTest()
@@ -372,6 +383,56 @@ func TestFetchGitHubLatestManifestSynthesizesPackage(t *testing.T) {
 	}
 	if err := validateOnlineUpdateManifest(got); err != nil {
 		t.Fatalf("synthesized manifest failed validation: %v", err)
+	}
+}
+
+func TestOnlineUpdateCheckReportsMissingChecksum(t *testing.T) {
+	manifest := validOnlineUpdateManifestForTest()
+	manifest.Version = "9.9.9"
+	manifest.Package.SHA256 = ""
+	available, versionErr, packageErr, canApply := evaluateOnlineUpdateCheck("1.2.0", manifest)
+	if !available || versionErr != "" {
+		t.Fatalf("version compare should work without SHA256: available=%v versionErr=%q", available, versionErr)
+	}
+	if canApply {
+		t.Fatal("canApply should be false without SHA256")
+	}
+	if packageErr == nil || !strings.Contains(packageErr.Error(), "latest.json") || !strings.Contains(packageErr.Error(), ".sha256") {
+		t.Fatalf("packageError should mention latest.json or companion .sha256, got %v", packageErr)
+	}
+}
+
+func TestFetchGitHubLatestManifestFillsCompanionSHA256(t *testing.T) {
+	wantHash := strings.Repeat("e", 64)
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = onlineUpdateRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var payload string
+		switch {
+		case request.URL.Host == "api.github.com" && request.URL.Path == "/repos/maizll/auth-pro/releases/latest":
+			payload = `{"tag_name":"v1.2.0","assets":[{"name":"auth_pro-full-v1.2.0.tar.gz","size":4096,"browser_download_url":"https://github.com/maizll/auth-pro/releases/download/v1.2.0/auth_pro-full-v1.2.0.tar.gz"},{"name":"auth_pro-full-v1.2.0.tar.gz.sha256","browser_download_url":"https://github.com/maizll/auth-pro/releases/download/v1.2.0/auth_pro-full-v1.2.0.tar.gz.sha256"}]}`
+		case strings.HasSuffix(request.URL.Path, ".sha256"):
+			payload = wantHash + "  auth_pro-full-v1.2.0.tar.gz\n"
+		default:
+			return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Header: make(http.Header), Request: request}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(payload)),
+			Header:     make(http.Header),
+			Request:    request,
+		}, nil
+	})
+	defer func() { http.DefaultTransport = originalTransport }()
+
+	got, err := fetchGitHubLatestManifest("https://api.github.com/repos/maizll/auth-pro/releases/latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Package.SHA256 != wantHash {
+		t.Fatalf("companion SHA256 = %q, want %q", got.Package.SHA256, wantHash)
+	}
+	if err := validateOnlineUpdatePackageIntegrity(got); err != nil {
+		t.Fatalf("companion checksum should satisfy integrity: %v", err)
 	}
 }
 
