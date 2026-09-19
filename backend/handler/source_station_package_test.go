@@ -371,6 +371,107 @@ func TestSourcePackagePublishGiteeRelease(t *testing.T) {
 	}
 }
 
+func TestSourceLockedPipelineUploadToPublicIndex(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+
+	empty := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	if !strings.Contains(empty.Body.String(), `"plugins":[]`) || !strings.Contains(empty.Body.String(), `"homeTemplates":[]`) {
+		t.Fatalf("empty index=%s", empty.Body.String())
+	}
+
+	rejected := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "bad.zip",
+		makeTestZIP(t, testZIPEntry{name: "readme.txt", data: "no manifest"}),
+		map[string]string{"kind": "plugin", "push": "0", "shelf": "1", "downloadUrl": "https://cdn.example.com/bad.zip"})
+	if sourceBodyCode(t, rejected) != 400 {
+		t.Fatalf("non-compliant must not upload: %s", rejected.Body.String())
+	}
+
+	pluginZIP := sourcePluginTestZIP(t)
+	parsed := sourceMultipart(t, router, "/api/v1/source/admin/packages/parse", admin, "demo-plugin.zip", pluginZIP, map[string]string{"kind": "plugin"})
+	if sourceBodyCode(t, parsed) != 200 || !strings.Contains(parsed.Body.String(), `"id":"demo-plugin"`) || !strings.Contains(parsed.Body.String(), `"stored":false`) {
+		t.Fatalf("autofill=%s", parsed.Body.String())
+	}
+	if plugins, _ := store.ListPlugins(""); len(plugins) != 0 {
+		t.Fatalf("parse must not write DB: %#v", plugins)
+	}
+
+	published := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", pluginZIP, map[string]string{
+		"kind": "plugin", "push": "0", "submit": "1",
+		"downloadUrl": "https://cdn.example.com/demo-plugin-1.0.0.zip",
+	})
+	if sourceBodyCode(t, published) != 200 || !strings.Contains(published.Body.String(), `"storedPackage":false`) {
+		t.Fatalf("publish draft=%s", published.Body.String())
+	}
+	plugin, err := store.GetPlugin("demo-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plugin.DownloadURL != "https://cdn.example.com/demo-plugin-1.0.0.zip" || plugin.SHA256 != sha256Hex(pluginZIP) || plugin.Status != sourceItemReview {
+		t.Fatalf("metadata-only review state=%+v", plugin)
+	}
+	hidden := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	if strings.Contains(hidden.Body.String(), "demo-plugin") {
+		t.Fatalf("unreviewed must not appear in index: %s", hidden.Body.String())
+	}
+
+	approve := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/approve", admin, "{}")
+	if sourceBodyCode(t, approve) != 200 {
+		t.Fatalf("approve=%s", approve.Body.String())
+	}
+	shelf := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/shelf", admin, "{}")
+	if sourceBodyCode(t, shelf) != 200 {
+		t.Fatalf("shelf=%s", shelf.Body.String())
+	}
+
+	templateZIP := makeTestZIP(t, testZIPEntry{name: "template.json", data: `{
+		"id":"clean-home","name":"清新首页","version":"1.0.0","schemaVersion":1,
+		"description":"简洁的授权服务首页","author":"设计组","hero":{"title":"欢迎"}
+	}`})
+	tpl := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "home.zip", templateZIP, map[string]string{
+		"kind": "template", "push": "0", "shelf": "1",
+		"templateUrl": "https://cdn.example.com/templates/clean-home.zip",
+	})
+	if sourceBodyCode(t, tpl) != 200 {
+		t.Fatalf("template publish=%s", tpl.Body.String())
+	}
+
+	index := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	body := index.Body.String()
+	if !strings.Contains(body, `"demo-plugin"`) || !strings.Contains(body, "demo-plugin-1.0.0.zip") || !strings.Contains(body, plugin.SHA256) {
+		t.Fatalf("index missing plugin: %s", body)
+	}
+	if !strings.Contains(body, `"clean-home"`) || !strings.Contains(body, `"schemaVersion":1`) || !strings.Contains(body, "homeTemplates") {
+		t.Fatalf("index missing homeTemplates: %s", body)
+	}
+
+	v2SHA := strings.Repeat("cd", 32)
+	create := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/versions", admin,
+		`{"version":"1.0.1","downloadUrl":"https://cdn.example.com/demo-plugin-1.0.1.zip","sha256":"`+v2SHA+`","changelog":"更新"}`)
+	if sourceBodyCode(t, create) != 200 {
+		t.Fatalf("v1.0.1=%s", create.Body.String())
+	}
+	if sourceBodyCode(t, sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/versions/1.0.1/approve", admin, "{}")) != 200 {
+		t.Fatal("approve 1.0.1")
+	}
+	latest := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	if !strings.Contains(latest.Body.String(), `"version":"1.0.1"`) || strings.Contains(latest.Body.String(), "demo-plugin-1.0.0.zip") {
+		t.Fatalf("index should show latest 1.0.1: %s", latest.Body.String())
+	}
+
+	unshelf := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/unshelf", admin, "{}")
+	if sourceBodyCode(t, unshelf) != 200 {
+		t.Fatalf("unshelf=%s", unshelf.Body.String())
+	}
+	after := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	if strings.Contains(after.Body.String(), "demo-plugin") {
+		t.Fatalf("unshelf must hide plugin: %s", after.Body.String())
+	}
+	if !strings.Contains(after.Body.String(), `"clean-home"`) {
+		t.Fatalf("unshelf plugin must not hide templates: %s", after.Body.String())
+	}
+}
+
 func sha256Hex(payload []byte) string {
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])

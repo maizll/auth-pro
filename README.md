@@ -344,6 +344,8 @@ https://<host>/software-source/index.json
 
 **下架 ≠ 远程卸载。** 下架只是把条目从公开 `index.json` 隐藏（status=`hidden`）。已经安装到其它授权实例本地的插件/模板不会被源站删除或停用。
 
+锁定流水线（方向不再改）：管理员上传 ZIP → 硬规范校验（不合规拒绝，不写库/不推 Release/不留临时文件）→ 从 `plugin.json` / `template.json` 自动填表 → 用设置页令牌推送 Gitee/GitHub Release → **只把元数据 + downloadUrl/templateUrl + SHA256 入库** → 审核 / 多版本更新 / 上架下架 → 公开 `GET /software-source/index.json`（`plugins` + `homeTemplates`）。应用服务器不保存插件源码。
+
 工作流：
 
 1. 启动本仓库后端（源站无需 `AUTO_PRO_SOFTWARE_SOURCE_*`）。
