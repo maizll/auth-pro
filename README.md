@@ -359,7 +359,7 @@ https://<host>/software-source/index.json
    旧地址 `/source` 会 302 到 `/source-station/plugins`。不要再使用独立控制面页面。
 3. 开发者保存插件/模板**元数据草稿**（外部 URL + sha256），提交审核；管理员在后台通过或驳回后上架。
 4. **管理员上传包（失败即拒绝）**：后台「插件管理 / 首页模板」上传，或 `POST /api/v1/source/admin/packages/parse|publish`。只接受 ZIP。包内必须有 `plugin.json`（插件）或 `template.json`（首页模板，schemaVersion=1 且含 `hero.title`），必填 id/name/version/description/author；路径穿越、符号链接等不安全布局直接 400。失败时返回 `error.field` + `error.rule`，不写库、不推 Release、删除临时文件。校验通过后才自动填表、可选推送 Release，并进入草稿/审核（可选上架）。清单规范：`GET /software-source/package-schema.json`（兼容 `GET /api/v1/source/admin/packages/schema`）。
-5. **发布地址**：在管理后台「源站 → Release 设置」填写 provider（`github`|`gitee`）、owner/repo、令牌（仅服务端保存，GET 只返回掩码）、默认 tag 策略（如 `{id}-{version}`）和 Gitee 分支。保存元数据时优先创建/更新 Release 并上传 zip 附件，把 `downloadUrl`/`templateUrl` 设为附件的 https 地址；未配置时可粘贴已有 https 地址。目录只持久化元数据 + URL + sha256。
+5. **发布地址**：在管理后台「源站 → Release 设置」填写 provider（`github`|`gitee`）、owner/repo、令牌（仅服务端保存，GET 只返回掩码）、默认 tag 策略（如 `{id}-{version}`）和 Gitee 分支。可用「测试连接」验证仓库可达与令牌权限（`POST /api/v1/source/admin/settings/release/test`，只 GET 仓库元数据，不创建 Release、不落库）。保存元数据时优先创建/更新 Release 并上传 zip 附件，把 `downloadUrl`/`templateUrl` 设为附件的 https 地址；未配置时可粘贴已有 https 地址。目录只持久化元数据 + URL + sha256。
 6. **更新**：为同一插件创建新版本行（version / changelog / 外部 URL / sha256）→ 提交审核 → 管理员通过后该版本 `published` 并成为 `latest`。旧版本元数据保留，可弃用，不可删源码（源站本来就不存源码）。
 7. 管理员可将 `latest` 回滚到先前已发布版本；下架只从公开目录隐藏整个插件。公开 `index.json` 只展示当前 `latest`（含 version、downloadUrl、sha256、可选 changelog，以及预留的 `minVersion` / `forceUpdate`）。
 8. 查询历史版本：管理后台「插件管理 → 版本」，或 `GET /api/v1/source/admin/plugins/:id/versions`（兼容 `GET /api/admin/source/plugins/:id/versions`）。

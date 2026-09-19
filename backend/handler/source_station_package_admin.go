@@ -44,6 +44,38 @@ func AdminSourceReleaseSettingsSave(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已保存 Release 推送设置（令牌仅保存在服务端，GET 只返回掩码）", "data": saved.publicView()})
 }
 
+func AdminSourceReleaseSettingsTest(c *gin.Context) {
+	var incoming sourceReleaseSettings
+	if err := c.ShouldBindJSON(&incoming); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+	current, err := currentSourceStationStore().GetReleaseSettings()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取 Release 设置失败"})
+		return
+	}
+	merged := mergeReleaseSettings(current, incoming)
+	if err := validateReleaseSettings(merged); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	if !merged.releaseReady() {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请填写完整的 Provider / Owner / 仓库 / Token"})
+		return
+	}
+	result, status, err := testSourceReleaseConnection(c.Request.Context(), merged)
+	if err != nil {
+		code := 502
+		if status >= 400 && status < 500 {
+			code = 400
+		}
+		c.JSON(http.StatusOK, gin.H{"code": code, "msg": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "连接成功", "data": result})
+}
+
 func AdminSourcePackageParse(c *gin.Context) {
 	defer discardSourceMultipart(c)
 	filename, payload, err := readSourcePackageUpload(c)

@@ -7,10 +7,14 @@
             <span class="card-title">Release / 仓库 Token</span>
             <p class="card-hint">
               校验通过的 ZIP 可推送到 GitHub/Gitee Release，源站只保存附件 https 地址与
-              sha256。令牌仅保存在服务端，GET 只返回掩码。
+              sha256。令牌仅保存在服务端，GET 只返回掩码。「测试连接」验证仓库可达与令牌权限（不创建
+              Release）。
             </p>
           </div>
-          <el-button type="primary" :loading="saving" @click="handleSave">保存设置</el-button>
+          <div class="table-actions">
+            <el-button :loading="testing" @click="handleTest">测试连接</el-button>
+            <el-button type="primary" :loading="saving" @click="handleSave">保存设置</el-button>
+          </div>
         </div>
       </template>
 
@@ -66,11 +70,13 @@
   import {
     fetchSourceReleaseSettings,
     saveSourceReleaseSettings,
+    testSourceReleaseSettings,
     type SourceReleaseSettings
   } from '@/api/source-station'
 
   const loading = ref(false)
   const saving = ref(false)
+  const testing = ref(false)
   const settings = ref<SourceReleaseSettings>({
     provider: 'github',
     owner: '',
@@ -106,17 +112,35 @@
     }
   }
 
+  function releasePayload() {
+    return {
+      provider: form.provider,
+      owner: form.owner,
+      repo: form.repo,
+      token: form.token,
+      tagStrategy: form.tagStrategy,
+      branch: form.branch
+    }
+  }
+
+  async function handleTest() {
+    if (!form.owner || !form.repo) {
+      ElMessage.warning('请填写 Owner 与仓库')
+      return
+    }
+    testing.value = true
+    try {
+      const data = await testSourceReleaseSettings(releasePayload())
+      ElMessage.success(data.htmlUrl ? `连接成功 ${data.htmlUrl}` : '连接成功')
+    } finally {
+      testing.value = false
+    }
+  }
+
   async function handleSave() {
     saving.value = true
     try {
-      const data = await saveSourceReleaseSettings({
-        provider: form.provider,
-        owner: form.owner,
-        repo: form.repo,
-        token: form.token,
-        tagStrategy: form.tagStrategy,
-        branch: form.branch
-      })
+      const data = await saveSourceReleaseSettings(releasePayload())
       settings.value = data
       form.token = ''
       ElMessage.success('已保存 Release 推送设置')
@@ -146,6 +170,13 @@
     justify-content: space-between;
     gap: 12px;
     flex-wrap: wrap;
+  }
+
+  .table-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
   }
 
   .card-title {

@@ -85,6 +85,7 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 
 		admin.GET("/settings/release", AdminSourceReleaseSettings)
 		admin.PUT("/settings/release", AdminSourceReleaseSettingsSave)
+		admin.POST("/settings/release/test", AdminSourceReleaseSettingsTest)
 		admin.GET("/packages/schema", SourcePackageSchema)
 		admin.POST("/packages/parse", AdminSourcePackageParse)
 		admin.POST("/packages/publish", AdminSourcePackagePublish)

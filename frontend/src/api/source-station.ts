@@ -411,6 +411,35 @@ export function saveSourceReleaseSettings(payload: {
   return request.put<SourceReleaseSettings>({ url: `${BASE}/settings/release`, data: payload })
 }
 
+export interface SourceReleaseTestResult {
+  provider: string
+  owner: string
+  repo: string
+  fullName?: string
+  htmlUrl?: string
+  private?: boolean
+  permissions?: {
+    admin?: boolean
+    push?: boolean
+    pull?: boolean
+  }
+}
+
+export function testSourceReleaseSettings(payload: {
+  provider: string
+  owner: string
+  repo: string
+  token?: string
+  tagStrategy: string
+  branch: string
+}) {
+  return request.post<SourceReleaseTestResult>({
+    url: `${BASE}/settings/release/test`,
+    data: payload,
+    timeout: PACKAGE_TIMEOUT
+  })
+}
+
 export function fetchSourcePackageSchema() {
   return request.get<Record<string, unknown>>({ url: `${BASE}/packages/schema` })
 }
