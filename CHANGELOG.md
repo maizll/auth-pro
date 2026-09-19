@@ -1,5 +1,29 @@
 # 更新日志
 
+## [1.2.0] - 2026-09-20
+
+### 新增
+
+- 自托管软件源站（源站）能力：插件/首页模板目录、多版本、上架审核流。
+- 代理商面板「开发者入驻」；管理端审核通过/拒绝；取消开发者资格（硬删除，用户名可再申请）。
+- 管理端上传包硬校验（`plugin.json` / 模板清单不合规直接拒绝）。
+- Release 推送（GitHub/Gitee）与「测试连接」；严格遵循是否勾选推送（不勾选必须填外部下载地址）。
+
+### 变更
+
+- 在线更新源默认改为 GitHub：`https://api.github.com/repos/maizll/auth-pro/releases/latest`（可用 `AUTO_PRO_UPDATE_URL` 覆盖）。
+- 广告源默认 `https://auth.maizll.com/api/v1/public/advertisements`（不连官方 91ani）。本地覆盖：`AUTO_PRO_ADVERTISEMENT_URL=/api/v1/public/advertisements`。
+- 软件源默认 `https://auth.maizll.com/software-source`（基路径，不是 `index.json`；不连官方 `plug.91ani.cn`）。设 `AUTO_PRO_SOFTWARE_SOURCE_URL=-` 可关闭；本地覆盖：`AUTO_PRO_SOFTWARE_SOURCE_URL=http://127.0.0.1:19127/software-source`。默认集成源不拼接 `/admin/`，旧 `/admin/app-store` 仍落到本站 `/plugin-store`。
+- 产品版本号调整为 `1.2.0`。
+
+### 修复/体验
+
+- 目录操作按钮按状态显示（草稿/待审仅通过·驳回；通过后才可上架等）。
+- 管理员重传覆盖并回到待审核；版本状态与目录项对齐，避免「目录项不存在」。
+- 入驻申请审核后从列表删除，列表默认仅待审核。
+- 在线更新正确解析 GitHub `maizll/auth-pro` Releases：优先 `latest.json`，否则用 `tag_name` 与更新包附件合成清单；历史走 `/releases?per_page=30`，不再拼接不存在的 `releases.json`。
+- 检查更新允许没有 SHA256（仍可比较版本，`canApply` 为 false）；应用更新仍必须有 SHA256。合成清单时会读取同名 `.sha256` / `SHA256SUMS`。
+
 ## [源站] 2026-09-19 — 自托管软件源与仓库对接
 
 ### 新增

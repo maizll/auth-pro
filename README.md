@@ -93,7 +93,7 @@ pnpm dev
 
 开发环境下，前端通过 Vite 代理将 `/api` 请求转发到 `http://localhost:19127`。
 
-本分叉默认**不连接**官方软件源 `plug.91ani.cn`。旧路径 `/admin/app-store` 会跳转到本站 `/plugin-store`。若要对接自建软件源服务，再设置下面的环境变量。
+默认软件源为生产域 `https://auth.maizll.com/software-source`，**不连接**官方 `plug.91ani.cn`。默认集成源不会拼接 `/admin/`，旧路径 `/admin/app-store` 仍跳转到本站 `/plugin-store`。本地调试可覆盖为自建源站。
 
 ### 3. 首次安装
 
@@ -216,12 +216,12 @@ PORT=19127 ./auth_pro
 ./scripts/restart-backend.sh
 ```
 
-## Gitee Release 发布与在线更新
+## GitHub Release 发布与在线更新
 
-项目默认通过 Gitee API 查询公开仓库 `Zcy-sa/auth-pro` 的最新 Release，并从附件列表读取 `latest.json`：
+项目默认通过 GitHub Releases API 查询公开仓库 `maizll/auth-pro` 的最新 Release，并从附件列表读取 `latest.json`：
 
 ```text
-https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest
+https://api.github.com/repos/maizll/auth-pro/releases/latest
 ```
 
 当前发布和一键整包更新仅支持 `Linux amd64`。创建具有仓库写入权限的 Gitee 私人令牌后，发布严格语义版本 tag：
@@ -244,7 +244,7 @@ releases.json
 
 `releases.json` 会保留历史版本，并自动把上一版本标签到当前标签之间的 Git 提交标题写入本次版本的 `notes`，作为在线更新页面展示的更新内容。需要人工整理发布说明时，可在构建环境中通过 `AUTO_PRO_RELEASE_NOTES` 提供 JSON 字符串数组或按行分隔文本覆盖自动内容。
 
-服务器可通过 `AUTO_PRO_UPDATE_URL` 改用自建 HTTPS 镜像清单。Gitee 默认源会限制 API、清单、更新包和下载重定向只能使用指定仓库及 Gitee 官方附件存储。
+服务器可通过 `AUTO_PRO_UPDATE_URL` 改用自建 HTTPS 镜像清单。GitHub 默认源会限制 API、清单、更新包和下载重定向只能使用 `maizll/auth-pro` 及 GitHub 官方附件存储。
 
 当前更新包只校验文件大小和 SHA256；该机制可发现下载损坏，但如果仓库或 Release 发布权限被攻破，攻击者仍可同时替换更新包和 SHA256，不能替代离线数字签名。
 
@@ -254,13 +254,13 @@ releases.json
 | --------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------- |
 | `PORT`                | 后端服务端口                                     | `19127`                                                                       |
 | `AUTO_PRO_DATA_DIR`   | 后端运行数据目录，用于保存配置、更新包和运行数据 | 当前运行目录                                                                  |
-| `AUTO_PRO_UPDATE_URL` | 在线更新清单地址；默认值为 Gitee 最新 Release API | `https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest`              |
-| `AUTO_PRO_SOFTWARE_SOURCE_URL` | 远程软件源地址；默认空，不连接官方源 | （空，本站自托管） |
+| `AUTO_PRO_UPDATE_URL` | 在线更新清单地址；默认值为 GitHub 最新 Release API | `https://api.github.com/repos/maizll/auth-pro/releases/latest`              |
+| `AUTO_PRO_SOFTWARE_SOURCE_URL` | 远程软件源基路径；空则用生产默认，`-` 强制关闭 | `https://auth.maizll.com/software-source` |
 | `AUTO_PRO_SOFTWARE_SOURCE_API_KEY` | 远程软件源目录 Key；默认空，仓库不内置密钥 | （空） |
-| `AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL` | 旧 `/admin/app-store/*` 跳转目标；未设置时落到本站 `/plugin-store` | `/plugin-store` |
+| `AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL` | 旧 `/admin/app-store/*` 跳转目标；默认集成源或未设置时落到本站 `/plugin-store` | `/plugin-store` |
 | `AUTO_PRO_SOFTWARE_SOURCE_TIMEOUT` | 目录 HTTP 请求超时 | `5s` |
 | `AUTO_PRO_SOFTWARE_SOURCE_STALE_TTL` | 最后成功目录快照最大降级时间 | `24h` |
-| `AUTO_PRO_ADVERTISEMENT_URL` | 广告投放接口；相对路径走本进程，http(s) 才代理外网 | `/api/v1/public/advertisements` |
+| `AUTO_PRO_ADVERTISEMENT_URL` | 广告投放接口；相对路径走本进程，http(s) 才代理外网 | `https://auth.maizll.com/api/v1/public/advertisements` |
 | `VITE_API_PROXY_URL`  | 前端开发代理目标地址                             | `http://localhost:19127`                                                      |
 
 ## API 入口
@@ -274,7 +274,7 @@ releases.json
 - `/api/user-panel/*`：用户端接口。
 - `/api/app-store/*`：独立应用商店管理接口，要求管理员 JWT。
 - `/api/home-template/active`：当前首页模板公开读取接口。
-- `/api/advertisements`：前端广告位代理；默认读本站投放。
+- `/api/advertisements`：前端广告位代理；默认转发生产域 `auth.maizll.com` 投放。
 - `/api/v1/public/advertisements`：本站广告接口（`home-banner` / `sidebar` / `popup`）。
 - `/software-source/index.json`：本实例作为软件源源站时的公开清单（兼容 `/auth-pro/index.json`，见下方「作为软件源源站」）。
 - `/source`：兼容跳转，进入管理后台「源站」菜单（`/source-station/plugins`）。源站管理不再提供独立页面。
@@ -286,22 +286,29 @@ releases.json
 
 ## 自托管软件源与广告
 
-本分叉默认**不连接** `plug.91ani.cn`，仓库中也不再内置官方目录 Key。
+默认连接生产域 `auth.maizll.com`，**不连接**官方 `plug.91ani.cn`，仓库中也不再内置官方目录 Key。
 
-- 不设环境变量即可完成本地启动：软件源客户端不会访问外网，广告位走本站 `/api/v1/public/advertisements`（当前返回空列表，前端显示占位）。
-- 若要对接自建软件源，再设置：
+- 不设环境变量：软件源为 `https://auth.maizll.com/software-source`，广告为 `https://auth.maizll.com/api/v1/public/advertisements`。默认集成源的管理跳转仍是本站 `/plugin-store`。
+- 本地调试覆盖为本机源站与本站广告：
 
 ```bash
-export AUTO_PRO_SOFTWARE_SOURCE_URL="http://127.0.0.1:19128"
-export AUTO_PRO_SOFTWARE_SOURCE_API_KEY="your-catalog-key"
-# 可选：旧 /admin/app-store 跳转到远程管理后台；不设则跳到本站 /plugin-store
-export AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL="http://127.0.0.1:19128/admin"
+export AUTO_PRO_SOFTWARE_SOURCE_URL="http://127.0.0.1:19127/software-source"
+export AUTO_PRO_ADVERTISEMENT_URL="/api/v1/public/advertisements"
 ```
 
-- 若要把广告代理到其他投放服务（可选）：
+- 关闭远程软件源（仅用本站目录/内置模板）：
 
 ```bash
-export AUTO_PRO_ADVERTISEMENT_URL="https://ads.example.com/api/v1/public/advertisements"
+export AUTO_PRO_SOFTWARE_SOURCE_URL="-"
+```
+
+- 若要对接其他自建源并指定目录 Key：
+
+```bash
+export AUTO_PRO_SOFTWARE_SOURCE_URL="http://127.0.0.1:19127/software-source"
+export AUTO_PRO_SOFTWARE_SOURCE_API_KEY="your-catalog-key"
+# 可选：旧 /admin/app-store 跳转到远程管理后台；默认集成源或不设则跳到本站 /plugin-store
+export AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL="http://127.0.0.1:19127/admin"
 ```
 
 重启后端后可用 `ss`/`tcpdump` 或代理日志确认没有对 `plug.91ani.cn` 的出站请求。
@@ -399,7 +406,7 @@ curl -s -H "Authorization: Bearer <admin-jwt>" \
 
 ## 从自建软件源安装首页模板
 
-远程软件源默认关闭。指向自建源并配置目录 Key 后，管理后台「应用商店」可刷新目录并启用模板。密钥只由服务端发送，不进入前端环境变量、浏览器代码或模板文件。
+远程软件源默认指向 `https://auth.maizll.com/software-source`。可用 `AUTO_PRO_SOFTWARE_SOURCE_URL` 改到自建源或设为 `-` 关闭。配置目录 Key 后，管理后台「应用商店」可刷新目录并启用模板。密钥只由服务端发送，不进入前端环境变量、浏览器代码或模板文件。
 
 本系统已包含黑金首页的布局、玻璃卡片、移动端导航、查询入口和登录弹窗，仍复用主应用的用户登录、代理账号转换和代登录流程，默认及蓝色模板不受影响。
 

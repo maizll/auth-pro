@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${1:-1.0.0}"
+VERSION="${1:-1.2.0}"
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Version must match X.Y.Z: $VERSION" >&2
   exit 1
@@ -16,9 +16,9 @@ PACKAGES_DIR="$RELEASE_ROOT/packages"
 PACKAGE_PATH="$PACKAGES_DIR/$DIST_NAME.tar.gz"
 LATEST_PATH="$PACKAGES_DIR/latest.json"
 RELEASES_PATH="$PACKAGES_DIR/releases.json"
-RELEASE_REPOSITORY="${AUTO_PRO_RELEASE_REPOSITORY:-Zcy-sa/auth-pro}"
-UPDATE_PACKAGE_BASE_URL="${AUTO_PRO_UPDATE_PACKAGE_BASE_URL:-https://gitee.com/$RELEASE_REPOSITORY/releases/download/v$VERSION}"
-UPDATE_RELEASES_URL="${AUTO_PRO_UPDATE_RELEASES_URL:-https://gitee.com/$RELEASE_REPOSITORY/releases/download/v$VERSION/releases.json}"
+RELEASE_REPOSITORY="${AUTO_PRO_RELEASE_REPOSITORY:-maizll/auth-pro}"
+UPDATE_PACKAGE_BASE_URL="${AUTO_PRO_UPDATE_PACKAGE_BASE_URL:-https://github.com/$RELEASE_REPOSITORY/releases/download/v$VERSION}"
+UPDATE_RELEASES_URL="${AUTO_PRO_UPDATE_RELEASES_URL:-https://github.com/$RELEASE_REPOSITORY/releases/download/v$VERSION/releases.json}"
 BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 LDFLAGS="-s -w -X auto_pro/config.AppVersion=$VERSION -X auto_pro/config.BuildTime=$BUILD_TIME"
 export GOCACHE="${GOCACHE:-$ROOT_DIR/.cache/go-build}"

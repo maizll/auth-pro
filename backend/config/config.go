@@ -31,13 +31,13 @@ var (
 )
 
 // AppVersion 是当前系统整体版本号。前后端共用该版本，发布时通过 -ldflags 注入。
-var AppVersion = "1.0.0"
+var AppVersion = "1.2.0"
 
 // BuildTime 是二进制构建时间，发布时通过 -ldflags 注入。
 var BuildTime = ""
 
 // DefaultUpdateManifestURL 是默认的在线更新清单地址，可用 AUTO_PRO_UPDATE_URL 覆盖。
-const DefaultUpdateManifestURL = "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest"
+const DefaultUpdateManifestURL = "https://api.github.com/repos/maizll/auth-pro/releases/latest"
 
 // GetDataDir 获取运行数据目录。
 func GetDataDir() string {
@@ -247,10 +247,21 @@ func GetHomeTemplateDir() string {
 // LocalSoftwareSourceAdminPath 是未配置远程软件源管理后台时，旧 /admin/app-store 的本站入口。
 const LocalSoftwareSourceAdminPath = "/plugin-store"
 
-// GetSoftwareSourceURL 返回远程软件源地址。本分叉默认空（不连接官方源），
-// 可用 AUTO_PRO_SOFTWARE_SOURCE_URL 指向自建或可选的远程源。
+// DefaultSoftwareSourceURL 是生产集成软件源基路径（不是 index.json）。
+// 设 AUTO_PRO_SOFTWARE_SOURCE_URL=- 可关闭远程源；本地调试可指向本机源站。
+const DefaultSoftwareSourceURL = "https://auth.maizll.com/software-source"
+
+// GetSoftwareSourceURL 返回远程软件源地址。空环境变量使用 DefaultSoftwareSourceURL；
+// AUTO_PRO_SOFTWARE_SOURCE_URL=- 强制为空。
 func GetSoftwareSourceURL() string {
-	return strings.TrimRight(strings.TrimSpace(os.Getenv("AUTO_PRO_SOFTWARE_SOURCE_URL")), "/")
+	value := strings.TrimSpace(os.Getenv("AUTO_PRO_SOFTWARE_SOURCE_URL"))
+	if value == "-" {
+		return ""
+	}
+	if value == "" {
+		value = DefaultSoftwareSourceURL
+	}
+	return strings.TrimRight(value, "/")
 }
 
 // GetSoftwareSourceAPIKey 返回远程软件源目录 Key。默认空，不内置任何官方密钥。
@@ -262,10 +273,16 @@ func GetSoftwareSourceAdminURL() string {
 	if value := strings.TrimSpace(os.Getenv("AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL")); value != "" {
 		return strings.TrimRight(value, "/") + "/"
 	}
-	if base := GetSoftwareSourceURL(); base != "" {
-		return base + "/admin/"
+	base := GetSoftwareSourceURL()
+	if base == "" || softwareSourceURLIsDefaultIntegrated(base) {
+		return ""
 	}
-	return ""
+	return strings.TrimRight(base, "/") + "/admin/"
+}
+
+func softwareSourceURLIsDefaultIntegrated(raw string) bool {
+	normalized := strings.TrimRight(strings.TrimSpace(raw), "/")
+	return strings.EqualFold(normalized, strings.TrimRight(DefaultSoftwareSourceURL, "/"))
 }
 
 // GetSoftwareSourceAdminRedirect 是旧 /admin/app-store 的跳转目标。
@@ -291,9 +308,8 @@ func GetSoftwareSourceCacheDir() string {
 	return dir
 }
 
-// DefaultAdvertisementURL 是本站自托管广告接口（相对路径，不发起外网请求）。
-// 需要代理到其他投放服务时，用 AUTO_PRO_ADVERTISEMENT_URL 覆盖为绝对 http(s) 地址。
-const DefaultAdvertisementURL = "/api/v1/public/advertisements"
+// DefaultAdvertisementURL 是生产投放接口。本地调试可覆盖为相对路径本站接口。
+const DefaultAdvertisementURL = "https://auth.maizll.com/api/v1/public/advertisements"
 
 func GetAdvertisementURL() string {
 	value := strings.TrimSpace(os.Getenv("AUTO_PRO_ADVERTISEMENT_URL"))

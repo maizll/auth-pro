@@ -61,7 +61,7 @@ func init() {
 	}
 }
 
-// PublicAdvertisements 默认返回本站广告；仅当 AUTO_PRO_ADVERTISEMENT_URL 指向 http(s) 时才代理外部投放。
+// PublicAdvertisements 默认代理生产域投放；AUTO_PRO_ADVERTISEMENT_URL 为相对路径时读本站广告表。
 // 前端直连上游会被 CORS 拦截，且共用的 axios 实例会附带后台 JWT，所以统一从这里转发。
 func PublicAdvertisements(c *gin.Context) {
 	position := strings.TrimSpace(c.Query("position"))

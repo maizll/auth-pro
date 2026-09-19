@@ -192,7 +192,7 @@ func TestNormalizeAdvertisementsKeepsRecordsWithoutTimeWindow(t *testing.T) {
 }
 
 func TestPublicAdvertisementsUsesLocalSourceByDefault(t *testing.T) {
-	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", "")
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", "/api/v1/public/advertisements")
 	resetAdvertisementCache(t)
 
 	code, records := callAdvertisements(t, "home-banner")
