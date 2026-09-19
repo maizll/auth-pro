@@ -138,10 +138,19 @@ func TestLoadDBConfigFromEnv(t *testing.T) {
 	}
 }
 
+func TestAppVersionDefault(t *testing.T) {
+	if AppVersion != "1.2.0" {
+		t.Fatalf("AppVersion = %q, want 1.2.0", AppVersion)
+	}
+}
+
 func TestDefaultUpdateManifestURL(t *testing.T) {
 	t.Setenv("AUTO_PRO_UPDATE_URL", "")
-	if got := GetUpdateManifestURL(); got != "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest" {
+	if got := GetUpdateManifestURL(); got != DefaultUpdateManifestURL {
 		t.Fatalf("GetUpdateManifestURL() = %q", got)
+	}
+	if DefaultUpdateManifestURL != "https://api.github.com/repos/maizll/auth-pro/releases/latest" {
+		t.Fatalf("DefaultUpdateManifestURL = %q", DefaultUpdateManifestURL)
 	}
 }
 
@@ -163,7 +172,7 @@ func TestResolveFrontendDirForWebsiteRoot(t *testing.T) {
 
 func TestGetUpdateManifestURL(t *testing.T) {
 	t.Setenv("AUTO_PRO_UPDATE_URL", "")
-	if got := GetUpdateManifestURL(); got != "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest" {
+	if got := GetUpdateManifestURL(); got != "https://api.github.com/repos/maizll/auth-pro/releases/latest" {
 		t.Fatalf("GetUpdateManifestURL() = %q", got)
 	}
 

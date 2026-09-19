@@ -31,13 +31,13 @@ var (
 )
 
 // AppVersion 是当前系统整体版本号。前后端共用该版本，发布时通过 -ldflags 注入。
-var AppVersion = "1.0.0"
+var AppVersion = "1.2.0"
 
 // BuildTime 是二进制构建时间，发布时通过 -ldflags 注入。
 var BuildTime = ""
 
 // DefaultUpdateManifestURL 是默认的在线更新清单地址，可用 AUTO_PRO_UPDATE_URL 覆盖。
-const DefaultUpdateManifestURL = "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest"
+const DefaultUpdateManifestURL = "https://api.github.com/repos/maizll/auth-pro/releases/latest"
 
 // GetDataDir 获取运行数据目录。
 func GetDataDir() string {

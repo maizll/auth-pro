@@ -49,13 +49,13 @@ auth_pro-full-v1.0.0.tar.gz
 macOS / Linux：
 
 ```bash
-./scripts/build-release.sh 1.0.0
+./scripts/build-release.sh 1.2.0
 ```
 
 Windows PowerShell：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1 -Version 1.0.0
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1 -Version 1.2.0
 ```
 
 输出文件固定为：
@@ -102,13 +102,13 @@ latest.json
 releases.json
 ```
 
-Gitee 不支持 GitHub 风格的 `/releases/latest/download/...` 地址，因此在线更新默认先读取最新 Release API，再定位 `latest.json` 附件：
+在线更新默认先读取 GitHub 最新 Release API，再定位 `latest.json` 附件：
 
 ```text
-https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest
+https://api.github.com/repos/maizll/auth-pro/releases/latest
 ```
 
-服务端可通过 `AUTO_PRO_UPDATE_URL` 指向自建 HTTPS 镜像清单。Gitee 默认源只信任指定仓库的 API、Release 路径及 Gitee 官方附件重定向目标。
+服务端可通过 `AUTO_PRO_UPDATE_URL` 指向自建 HTTPS 镜像清单。GitHub 默认源只信任 `maizll/auth-pro` 的 API、Release 路径及 GitHub 官方附件重定向目标。Gitee 发布脚本仍可作为可选镜像源。
 
 ## 完整性边界
 

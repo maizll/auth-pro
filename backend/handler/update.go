@@ -30,11 +30,12 @@ import (
 )
 
 const (
-	maxOnlineUpdatePackageSize = int64(512 << 20)
-	githubUpdateRepositoryPath = "/cy70923167/auth_pro/releases/"
-	giteeUpdateRepositoryPath  = "/zcy-sa/auth-pro/releases/"
-	giteeUpdateAttachmentPath  = "/zcy-sa/auth-pro/attach_files/"
-	giteeUpdateAPIReleasesPath = "/api/v5/repos/zcy-sa/auth-pro/releases/"
+	maxOnlineUpdatePackageSize  = int64(512 << 20)
+	githubUpdateRepositoryPath  = "/maizll/auth-pro/releases/"
+	githubUpdateAPIReleasesPath = "/repos/maizll/auth-pro/releases/"
+	giteeUpdateRepositoryPath   = "/zcy-sa/auth-pro/releases/"
+	giteeUpdateAttachmentPath   = "/zcy-sa/auth-pro/attach_files/"
+	giteeUpdateAPIReleasesPath  = "/api/v5/repos/zcy-sa/auth-pro/releases/"
 )
 
 var onlineUpdateVersionPattern = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
@@ -262,11 +263,11 @@ func parseOnlineUpdateURL(rawURL string) (*url.URL, error) {
 	if err != nil || parsed.Host == "" || parsed.Scheme != "https" || parsed.User != nil {
 		return nil, errors.New("更新地址必须是有效的 HTTPS 地址")
 	}
-	if strings.EqualFold(parsed.Hostname(), "github.com") {
+	if isGitHubHost(parsed.Hostname()) {
 		if parsed.Port() != "" && parsed.Port() != "443" {
 			return nil, errors.New("GitHub 更新地址只能使用 HTTPS 默认端口")
 		}
-		if !isGitHubRepositoryReleaseURL(parsed) {
+		if !isGitHubUpdateURL(parsed) {
 			return nil, errors.New("GitHub 更新地址不属于受信任的发布仓库")
 		}
 	}
@@ -281,13 +282,36 @@ func parseOnlineUpdateURL(rawURL string) (*url.URL, error) {
 	return parsed, nil
 }
 
+func isGitHubHost(hostname string) bool {
+	return strings.EqualFold(hostname, "github.com") || strings.EqualFold(hostname, "api.github.com")
+}
+
 func isGitHubRepositoryReleaseURL(parsed *url.URL) bool {
 	return parsed != nil && strings.EqualFold(parsed.Hostname(), "github.com") &&
 		strings.HasPrefix(strings.ToLower(parsed.EscapedPath()), githubUpdateRepositoryPath)
 }
 
+func isGitHubAPIURL(parsed *url.URL) bool {
+	return parsed != nil && strings.EqualFold(parsed.Hostname(), "api.github.com") &&
+		strings.HasPrefix(strings.ToLower(parsed.EscapedPath()), githubUpdateAPIReleasesPath)
+}
+
+func isGitHubLatestReleaseAPIURL(parsed *url.URL) bool {
+	return isGitHubAPIURL(parsed) &&
+		strings.TrimSuffix(strings.ToLower(parsed.EscapedPath()), "/") == strings.TrimSuffix(githubUpdateAPIReleasesPath, "/")+"/latest"
+}
+
+func isGitHubUpdateURL(parsed *url.URL) bool {
+	return isGitHubRepositoryReleaseURL(parsed) || isGitHubAPIURL(parsed)
+}
+
 func isGitHubReleaseAssetHost(hostname string) bool {
-	return strings.EqualFold(hostname, "release-assets.githubusercontent.com")
+	switch strings.ToLower(hostname) {
+	case "release-assets.githubusercontent.com", "objects.githubusercontent.com", "github-releases.githubusercontent.com":
+		return true
+	default:
+		return false
+	}
 }
 
 func isGiteeRepositoryReleaseURL(parsed *url.URL) bool {
@@ -323,7 +347,7 @@ func newOnlineUpdateHTTPClient(rawURL string, timeout time.Duration) (*http.Clie
 	if err != nil {
 		return nil, err
 	}
-	githubRelease := isGitHubRepositoryReleaseURL(initialURL)
+	githubRelease := isGitHubUpdateURL(initialURL)
 	giteeRelease := isGiteeRepositoryUpdateURL(initialURL)
 	client := &http.Client{
 		Timeout: timeout,
@@ -338,7 +362,7 @@ func newOnlineUpdateHTTPClient(rawURL string, timeout time.Duration) (*http.Clie
 				if req.URL.Port() != "" && req.URL.Port() != "443" {
 					return errors.New("GitHub 更新地址重定向到非 HTTPS 默认端口")
 				}
-				if isGitHubRepositoryReleaseURL(req.URL) || isGitHubReleaseAssetHost(req.URL.Hostname()) {
+				if isGitHubUpdateURL(req.URL) || isGitHubReleaseAssetHost(req.URL.Hostname()) {
 					return nil
 				}
 				return errors.New("GitHub 更新地址重定向到非受信任域名")
@@ -369,6 +393,12 @@ func fetchOnlineUpdateManifest() (*onlineUpdateManifest, error) {
 	}
 	if isGiteeLatestReleaseAPIURL(parsedManifestURL) {
 		manifestURL, err = fetchGiteeLatestManifestURL(manifestURL)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if isGitHubLatestReleaseAPIURL(parsedManifestURL) {
+		manifestURL, err = fetchGitHubLatestManifestURL(manifestURL)
 		if err != nil {
 			return nil, err
 		}
@@ -473,6 +503,49 @@ func fetchGiteeLatestManifestURL(releaseURL string) (string, error) {
 	return "", errors.New("Gitee 最新发行版缺少 latest.json 附件")
 }
 
+func fetchGitHubLatestManifestURL(releaseURL string) (string, error) {
+	client, err := newOnlineUpdateHTTPClient(releaseURL, 15*time.Second)
+	if err != nil {
+		return "", err
+	}
+	request, err := http.NewRequest(http.MethodGet, releaseURL, nil)
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("Cache-Control", "no-cache")
+	request.Header.Set("User-Agent", "auth_pro-updater/"+config.AppVersion)
+
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("连接 GitHub 更新服务器失败：%w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub 最新发行版接口返回状态码 %d", response.StatusCode)
+	}
+	var release struct {
+		Assets []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&release); err != nil {
+		return "", errors.New("GitHub 最新发行版数据格式不正确")
+	}
+	for _, asset := range release.Assets {
+		if asset.Name != "latest.json" {
+			continue
+		}
+		parsedAssetURL, err := parseOnlineUpdateURL(asset.BrowserDownloadURL)
+		if err != nil || !isGitHubRepositoryReleaseURL(parsedAssetURL) {
+			return "", errors.New("GitHub latest.json 附件地址不受信任")
+		}
+		return asset.BrowserDownloadURL, nil
+	}
+	return "", errors.New("GitHub 最新发行版缺少 latest.json 附件")
+}
+
 func fetchOnlineUpdateReleases(manifest *onlineUpdateManifest, forceRefresh bool) ([]onlineUpdateRelease, string, error) {
 	releasesURL, err := resolveOnlineUpdateReleasesURL(manifest)
 	if err != nil {
@@ -547,14 +620,34 @@ func resolveOnlineUpdateReleasesURL(manifest *onlineUpdateManifest) (string, err
 	if err != nil {
 		return "", errors.New("历史版本清单地址格式不正确")
 	}
+	if isGitHubLatestReleaseAPIURL(manifestURL) && !parsedRef.IsAbs() {
+		name := path.Base(parsedRef.EscapedPath())
+		if name != "releases.json" && name != "latest.json" {
+			return "", errors.New("历史版本清单地址格式不正确")
+		}
+		parsedRef, err = url.Parse("https://github.com/maizll/auth-pro/releases/latest/download/" + name)
+		if err != nil {
+			return "", errors.New("历史版本清单地址格式不正确")
+		}
+	}
 	releasesURL := manifestURL.ResolveReference(parsedRef)
 	if _, err := parseOnlineUpdateURL(releasesURL.String()); err != nil {
 		return "", errors.New("历史版本清单地址格式不正确：" + err.Error())
 	}
-	if releasesURL.Scheme != manifestURL.Scheme || !strings.EqualFold(releasesURL.Host, manifestURL.Host) {
+	if !onlineUpdateURLsShareTrustDomain(manifestURL, releasesURL) {
 		return "", errors.New("历史版本清单必须与更新清单同源")
 	}
 	return releasesURL.String(), nil
+}
+
+func onlineUpdateURLsShareTrustDomain(source, target *url.URL) bool {
+	if source == nil || target == nil || source.Scheme != target.Scheme {
+		return false
+	}
+	if strings.EqualFold(source.Host, target.Host) {
+		return true
+	}
+	return isGitHubUpdateURL(source) && isGitHubUpdateURL(target)
 }
 
 func normalizeOnlineUpdateReleases(payload *onlineUpdateReleases) error {
@@ -662,7 +755,7 @@ func validateOnlineUpdateManifest(manifest *onlineUpdateManifest) error {
 		return errors.New("更新包下载地址不正确：" + err.Error())
 	}
 	manifestSource, sourceErr := parseOnlineUpdateURL(config.GetUpdateManifestURL())
-	if sourceErr == nil && isGitHubRepositoryReleaseURL(manifestSource) && !isGitHubRepositoryReleaseURL(parsed) {
+	if sourceErr == nil && isGitHubUpdateURL(manifestSource) && !isGitHubRepositoryReleaseURL(parsed) {
 		return errors.New("GitHub 更新包地址不属于受信任的发布仓库")
 	}
 	if sourceErr == nil && isGiteeRepositoryUpdateURL(manifestSource) && !isGiteeRepositoryReleaseURL(parsed) {

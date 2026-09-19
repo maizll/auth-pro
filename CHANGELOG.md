@@ -1,5 +1,12 @@
 # 更新日志
 
+## [1.2.0] 2026-09-19 — GitHub 在线更新与自托管默认源
+
+- 产品版本升至 `1.2.0`。
+- 默认在线更新清单改为 GitHub Releases：`https://api.github.com/repos/maizll/auth-pro/releases/latest`（仍可用 `AUTO_PRO_UPDATE_URL` 覆盖）。
+- 广告默认仍为本站 `/api/v1/public/advertisements`，不指向官方 91ani。
+- 远程软件源默认仍为空，由本站自托管，不内置官方源地址。
+
 ## [源站] 2026-09-19 — 自托管软件源与仓库对接
 
 ### 新增

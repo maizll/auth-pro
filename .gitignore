@@ -19,6 +19,7 @@ backend/software-source-cache/
 # Generated backend embedded static assets
 backend/static/*
 !backend/static/.gitkeep
+!backend/static/version.json
 
 # Release packages
 release/

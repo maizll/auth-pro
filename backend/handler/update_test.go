@@ -31,7 +31,7 @@ func validOnlineUpdateManifestForTest() *onlineUpdateManifest {
 			OS:       runtime.GOOS,
 			Arch:     runtime.GOARCH,
 			FileName: "auth_pro-full-v1.0.1.tar.gz",
-			URL:      "https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz",
+			URL:      "https://github.com/maizll/auth-pro/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz",
 			SHA256:   strings.Repeat("a", 64),
 			Size:     1024,
 		},
@@ -68,10 +68,37 @@ func TestValidateOnlineUpdateManifest(t *testing.T) {
 	})
 
 	t.Run("untrusted Gitee repository", func(t *testing.T) {
+		t.Setenv("AUTO_PRO_UPDATE_URL", "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest")
 		manifest := validOnlineUpdateManifestForTest()
 		manifest.Package.URL = "https://gitee.com/another/repository/releases/download/v1.0.1/update.tar.gz"
 		if err := validateOnlineUpdateManifest(manifest); err == nil {
 			t.Fatal("package from another Gitee repository was accepted")
+		}
+	})
+
+	t.Run("trusted Gitee package with Gitee source", func(t *testing.T) {
+		t.Setenv("AUTO_PRO_UPDATE_URL", "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest")
+		manifest := validOnlineUpdateManifestForTest()
+		manifest.Package.URL = "https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz"
+		if err := validateOnlineUpdateManifest(manifest); err != nil {
+			t.Fatalf("trusted Gitee package was rejected: %v", err)
+		}
+	})
+
+	t.Run("untrusted GitHub repository", func(t *testing.T) {
+		manifest := validOnlineUpdateManifestForTest()
+		manifest.Package.URL = "https://github.com/another/repository/releases/download/v1.0.1/update.tar.gz"
+		if err := validateOnlineUpdateManifest(manifest); err == nil {
+			t.Fatal("package from another GitHub repository was accepted")
+		}
+	})
+
+	t.Run("Gitee package rejected when default source is GitHub", func(t *testing.T) {
+		t.Setenv("AUTO_PRO_UPDATE_URL", "")
+		manifest := validOnlineUpdateManifestForTest()
+		manifest.Package.URL = "https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz"
+		if err := validateOnlineUpdateManifest(manifest); err == nil {
+			t.Fatal("Gitee package was accepted for GitHub update source")
 		}
 	})
 
@@ -205,6 +232,115 @@ func TestParseOnlineUpdateURLRejectsUntrustedGiteePaths(t *testing.T) {
 		if _, err := parseOnlineUpdateURL(value); err == nil {
 			t.Fatalf("untrusted Gitee URL %q was accepted", value)
 		}
+	}
+}
+
+func TestParseOnlineUpdateURLAllowsGitHubLatestAPI(t *testing.T) {
+	for _, value := range []string{
+		"https://api.github.com/repos/maizll/auth-pro/releases/latest",
+		"https://github.com/maizll/auth-pro/releases/download/v1.2.0/latest.json",
+		"https://github.com/maizll/auth-pro/releases/latest/download/latest.json",
+	} {
+		if _, err := parseOnlineUpdateURL(value); err != nil {
+			t.Fatalf("trusted GitHub URL %q was rejected: %v", value, err)
+		}
+	}
+}
+
+func TestParseOnlineUpdateURLRejectsUntrustedGitHubPaths(t *testing.T) {
+	for _, value := range []string{
+		"https://api.github.com/repos/another/repository/releases/latest",
+		"https://github.com/another/repository/releases/download/v1.2.0/latest.json",
+		"https://github.com/maizll/auth-pro/raw/main/latest.json",
+		"https://api.github.com:8443/repos/maizll/auth-pro/releases/latest",
+		"https://github.com:8443/maizll/auth-pro/releases/download/v1.2.0/latest.json",
+	} {
+		if _, err := parseOnlineUpdateURL(value); err == nil {
+			t.Fatalf("untrusted GitHub URL %q was accepted", value)
+		}
+	}
+}
+
+func TestOnlineUpdateGitHubRedirectPolicy(t *testing.T) {
+	initialURL := "https://api.github.com/repos/maizll/auth-pro/releases/latest"
+	client, err := newOnlineUpdateHTTPClient(initialURL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	via := []*http.Request{{URL: mustParseOnlineUpdateTestURL(t, initialURL)}}
+
+	for name, target := range map[string]string{
+		"GitHub release path": "https://github.com/maizll/auth-pro/releases/download/v1.2.0/latest.json",
+		"GitHub latest path":  "https://github.com/maizll/auth-pro/releases/latest/download/latest.json",
+		"GitHub asset host":   "https://objects.githubusercontent.com/github-production-release-asset-2e65be/latest.json",
+	} {
+		t.Run("allows "+name, func(t *testing.T) {
+			if err := client.CheckRedirect(&http.Request{URL: mustParseOnlineUpdateTestURL(t, target)}, via); err != nil {
+				t.Fatalf("trusted redirect was rejected: %v", err)
+			}
+		})
+	}
+
+	for name, target := range map[string]string{
+		"HTTP downgrade":          "http://github.com/maizll/auth-pro/releases/download/v1.2.0/latest.json",
+		"non-standard HTTPS port": "https://objects.githubusercontent.com:8443/latest.json",
+		"another repository":      "https://github.com/another/repository/releases/download/v1.2.0/latest.json",
+		"untrusted storage host":  "https://example.com/update.tar.gz",
+	} {
+		t.Run("rejects "+name, func(t *testing.T) {
+			if err := client.CheckRedirect(&http.Request{URL: mustParseOnlineUpdateTestURL(t, target)}, via); err == nil {
+				t.Fatal("untrusted redirect was accepted")
+			}
+		})
+	}
+}
+
+func TestFetchGitHubLatestManifestURL(t *testing.T) {
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = onlineUpdateRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host != "api.github.com" || request.URL.Path != "/repos/maizll/auth-pro/releases/latest" {
+			return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Header: make(http.Header), Request: request}, nil
+		}
+		payload := `{"tag_name":"v1.2.0","assets":[{"name":"releases.json","browser_download_url":"https://github.com/maizll/auth-pro/releases/download/v1.2.0/releases.json"},{"name":"latest.json","browser_download_url":"https://github.com/maizll/auth-pro/releases/download/v1.2.0/latest.json"}]}`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(payload)),
+			Header:     make(http.Header),
+			Request:    request,
+		}, nil
+	})
+	defer func() { http.DefaultTransport = originalTransport }()
+
+	got, err := fetchGitHubLatestManifestURL("https://api.github.com/repos/maizll/auth-pro/releases/latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://github.com/maizll/auth-pro/releases/download/v1.2.0/latest.json"
+	if got != want {
+		t.Fatalf("manifest URL = %q, want %q", got, want)
+	}
+}
+
+func TestResolveOnlineUpdateReleasesURLFromGitHubAPI(t *testing.T) {
+	t.Setenv("AUTO_PRO_UPDATE_URL", "https://api.github.com/repos/maizll/auth-pro/releases/latest")
+	manifest := validOnlineUpdateManifestForTest()
+	manifest.ReleasesURL = "https://github.com/maizll/auth-pro/releases/download/v1.2.0/releases.json"
+	got, err := resolveOnlineUpdateReleasesURL(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != manifest.ReleasesURL {
+		t.Fatalf("releases URL = %q, want %q", got, manifest.ReleasesURL)
+	}
+
+	manifest.ReleasesURL = ""
+	got, err = resolveOnlineUpdateReleasesURL(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://github.com/maizll/auth-pro/releases/latest/download/releases.json"
+	if got != want {
+		t.Fatalf("relative releases URL = %q, want %q", got, want)
 	}
 }
 

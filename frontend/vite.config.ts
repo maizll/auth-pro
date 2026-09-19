@@ -124,7 +124,7 @@ export default ({ mode }: { mode: string }) => {
             fileName: 'version.json',
             source: JSON.stringify(
               {
-                version: VITE_VERSION || '1.0.0',
+                version: VITE_VERSION || '1.2.0',
                 buildTime: new Date().toISOString()
               },
               null,
