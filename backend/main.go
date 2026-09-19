@@ -144,7 +144,7 @@ func main() {
 		api.GET("/software-source/templates/:id/preview", handler.PublicSoftwareSourceTemplatePreview)
 		api.POST("/internal/software-source/cache/invalidate", handler.InternalSoftwareSourceCacheInvalidate)
 
-		// 广告投放：默认读本站 /api/v1/public/advertisements；需要时可用环境变量代理到其他源。
+		// 广告投放：默认转发生产域 auth.maizll.com；AUTO_PRO_ADVERTISEMENT_URL 可覆盖为本站相对路径。
 		api.GET("/advertisements", handler.PublicAdvertisements)
 		api.GET("/v1/public/advertisements", handler.PublicLocalAdvertisements)
 

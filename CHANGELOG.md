@@ -12,8 +12,8 @@
 ### 变更
 
 - 在线更新源默认改为 GitHub：`https://api.github.com/repos/maizll/auth-pro/releases/latest`（可用 `AUTO_PRO_UPDATE_URL` 覆盖）。
-- 广告源默认本站 `/api/v1/public/advertisements`（不连官方）。
-- 软件源默认空（不连官方 `plug.91ani.cn`）；可用环境变量指向自建源站。
+- 广告源默认 `https://auth.maizll.com/api/v1/public/advertisements`（不连官方 91ani）。本地覆盖：`AUTO_PRO_ADVERTISEMENT_URL=/api/v1/public/advertisements`。
+- 软件源默认 `https://auth.maizll.com/software-source`（基路径，不是 `index.json`；不连官方 `plug.91ani.cn`）。设 `AUTO_PRO_SOFTWARE_SOURCE_URL=-` 可关闭；本地覆盖：`AUTO_PRO_SOFTWARE_SOURCE_URL=http://127.0.0.1:19127/software-source`。默认集成源不拼接 `/admin/`，旧 `/admin/app-store` 仍落到本站 `/plugin-store`。
 - 产品版本号调整为 `1.2.0`。
 
 ### 修复/体验

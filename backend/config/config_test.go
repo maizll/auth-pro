@@ -55,29 +55,55 @@ func TestSoftwareSourceConfig(t *testing.T) {
 	}
 }
 
-func TestSoftwareSourceDefaultsAreSelfHosted(t *testing.T) {
+func TestSoftwareSourceDefaultsUseMaizll(t *testing.T) {
+	if DefaultSoftwareSourceURL != "https://auth.maizll.com/software-source" {
+		t.Fatalf("DefaultSoftwareSourceURL = %q", DefaultSoftwareSourceURL)
+	}
+	if strings.HasSuffix(DefaultSoftwareSourceURL, "/index.json") {
+		t.Fatal("default software source URL must be a base path, not index.json")
+	}
+
 	for _, value := range []string{"", "   "} {
 		t.Run("empty-"+value, func(t *testing.T) {
 			t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_URL", value)
 			t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_API_KEY", value)
 			t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL", "")
-			if got := GetSoftwareSourceURL(); got != "" {
-				t.Fatalf("default software source URL must be empty, got %q", got)
+			got := GetSoftwareSourceURL()
+			if got != DefaultSoftwareSourceURL {
+				t.Fatalf("default software source URL = %q", got)
+			}
+			if !strings.Contains(got, "auth.maizll.com") {
+				t.Fatalf("default software source URL must contain auth.maizll.com, got %q", got)
 			}
 			if got := GetSoftwareSourceAPIKey(); got != "" {
 				t.Fatalf("default software source key must be empty, got %q", got)
 			}
 			if got := GetSoftwareSourceAdminURL(); got != "" {
-				t.Fatalf("default software source admin URL must be empty, got %q", got)
+				t.Fatalf("integrated source admin URL must stay empty, got %q", got)
 			}
 			if got := GetSoftwareSourceAdminRedirect(); got != LocalSoftwareSourceAdminPath {
-				t.Fatalf("unconfigured admin redirect = %q", got)
+				t.Fatalf("integrated source admin redirect = %q", got)
 			}
-			joined := GetSoftwareSourceURL() + GetSoftwareSourceAPIKey() + GetSoftwareSourceAdminURL()
+			joined := GetSoftwareSourceURL() + GetSoftwareSourceAPIKey() + GetSoftwareSourceAdminURL() + DefaultSoftwareSourceURL
 			if strings.Contains(joined, "91ani") {
 				t.Fatal("defaults must not mention the official host")
 			}
 		})
+	}
+
+	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_URL", "-")
+	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL", "")
+	if got := GetSoftwareSourceURL(); got != "" {
+		t.Fatalf("dash override must force empty software source, got %q", got)
+	}
+	if got := GetSoftwareSourceAdminRedirect(); got != LocalSoftwareSourceAdminPath {
+		t.Fatalf("disabled source admin redirect = %q", got)
+	}
+
+	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_URL", "https://auth.maizll.com/software-source/")
+	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL", "")
+	if got := GetSoftwareSourceAdminURL(); got != "" {
+		t.Fatalf("explicit default integrated source must not append /admin/, got %q", got)
 	}
 
 	t.Setenv("AUTO_PRO_SOFTWARE_SOURCE_URL", "https://source.example.com")
@@ -99,11 +125,24 @@ func TestAdvertisementConfig(t *testing.T) {
 	if got := GetAdvertisementURL(); got != DefaultAdvertisementURL {
 		t.Fatalf("默认广告接口地址 = %q", got)
 	}
-	if AdvertisementURLIsRemote() {
-		t.Fatal("默认广告地址必须是本进程相对路径，不能走外网")
+	if DefaultAdvertisementURL != "https://auth.maizll.com/api/v1/public/advertisements" {
+		t.Fatalf("DefaultAdvertisementURL = %q", DefaultAdvertisementURL)
+	}
+	if !strings.Contains(GetAdvertisementURL(), "auth.maizll.com") {
+		t.Fatalf("默认广告地址必须包含 auth.maizll.com，got %q", GetAdvertisementURL())
+	}
+	if !AdvertisementURLIsRemote() {
+		t.Fatal("默认广告地址必须是远程投放接口")
 	}
 	if strings.Contains(GetAdvertisementURL(), "91ani") {
 		t.Fatal("默认广告地址不得指向官方域名")
+	}
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", "/api/v1/public/advertisements")
+	if got := GetAdvertisementURL(); got != "/api/v1/public/advertisements" {
+		t.Fatalf("local advertisement override = %q", got)
+	}
+	if AdvertisementURLIsRemote() {
+		t.Fatal("相对路径广告覆盖应走本进程")
 	}
 	// 投放方给出的地址常带多余的尾斜杠，拼 query 前必须归一化
 	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", " https://ads.example.com/api/v1/public/advertisements// ")
