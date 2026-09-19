@@ -555,6 +555,83 @@ func TestSourcePackageRepublishDeprecatedPluginResetsDraft(t *testing.T) {
 	}
 }
 
+func TestSourceTransitionAllowedDraftCanApproveReject(t *testing.T) {
+	if !sourceTransitionAllowed(sourceItemDraft, sourceItemApproved) {
+		t.Fatal("draft must be approvable")
+	}
+	if !sourceTransitionAllowed(sourceItemDraft, sourceItemRejected) {
+		t.Fatal("draft must be rejectable")
+	}
+	if !sourceTransitionAllowed(sourceItemReview, sourceItemApproved) || !sourceTransitionAllowed(sourceItemReview, sourceItemRejected) {
+		t.Fatal("review must still approve/reject")
+	}
+	if sourceTransitionAllowed(sourceItemPublished, sourceItemApproved) {
+		t.Fatal("published must not approve")
+	}
+	if sourceTransitionAllowed(sourceItemPublished, sourceItemRejected) {
+		t.Fatal("published must not reject")
+	}
+	if sourceTransitionAllowed(sourceItemDeprecated, sourceItemApproved) {
+		t.Fatal("deprecated must not approve")
+	}
+}
+
+func TestAdminDraftPluginCanApproveAndReject(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	if _, err := store.UpsertPlugin(sourcePlugin{
+		ID: "draft-approve", Name: "演示插件", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), DownloadURL: "https://cdn.example.com/draft.zip", Changelog: "草稿",
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	approve := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/draft-approve/approve", admin, "{}")
+	if sourceBodyCode(t, approve) != 200 {
+		t.Fatalf("draft approve=%s", approve.Body.String())
+	}
+	approved, err := store.GetPlugin("draft-approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.Status != sourceItemApproved {
+		t.Fatalf("draft approve status=%s", approved.Status)
+	}
+
+	router, store = sourceStationRouter(t)
+	admin = sourceAdminToken(t)
+	if _, err := store.UpsertPlugin(sourcePlugin{
+		ID: "draft-reject", Name: "演示插件", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), DownloadURL: "https://cdn.example.com/draft.zip", Changelog: "草稿",
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	reject := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/draft-reject/reject", admin, `{"note":"不合规"}`)
+	if sourceBodyCode(t, reject) != 200 {
+		t.Fatalf("draft reject=%s", reject.Body.String())
+	}
+	rejected, err := store.GetPlugin("draft-reject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected.Status != sourceItemRejected {
+		t.Fatalf("draft reject status=%s", rejected.Status)
+	}
+
+	if _, err := store.UpsertPlugin(sourcePlugin{
+		ID: "pub-no-approve", Name: "演示插件", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), DownloadURL: "https://cdn.example.com/pub.zip", Changelog: "已上架",
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetPluginStatus("pub-no-approve", sourceItemPublished, "admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	blocked := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/pub-no-approve/approve", admin, "{}")
+	if sourceBodyCode(t, blocked) == 200 {
+		t.Fatal("published must not approve")
+	}
+}
+
 func TestAdminUpsertExistingPluginResetsDraft(t *testing.T) {
 	_, store := sourceStationRouter(t)
 	created, err := store.UpsertPlugin(sourcePlugin{

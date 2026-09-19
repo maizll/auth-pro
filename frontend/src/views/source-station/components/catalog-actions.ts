@@ -3,7 +3,7 @@ export type CatalogVersionAction = 'approve' | 'reject' | 'latest' | 'deprecate'
 
 export function catalogItemActions(status: string): CatalogItemAction[] {
   const actions: CatalogItemAction[] = []
-  if (status === 'review') {
+  if (status === 'draft' || status === 'review') {
     actions.push('approve', 'reject')
   }
   if (status === 'draft' || status === 'review' || status === 'approved' || status === 'hidden') {

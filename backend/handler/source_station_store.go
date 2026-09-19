@@ -287,9 +287,9 @@ func sourceTransitionAllowed(from, to string) bool {
 	case sourceItemReview:
 		return from == sourceItemDraft || from == sourceItemRejected
 	case sourceItemApproved:
-		return from == sourceItemReview
+		return from == sourceItemReview || from == sourceItemDraft
 	case sourceItemRejected:
-		return from == sourceItemReview
+		return from == sourceItemReview || from == sourceItemDraft
 	case sourceItemPublished:
 		return from == sourceItemApproved || from == sourceItemHidden || from == sourceItemDraft || from == sourceItemReview
 	case sourceItemHidden:
