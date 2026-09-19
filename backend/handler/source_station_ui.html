@@ -35,6 +35,7 @@
   <p class="lead">
     本实例作为<strong>源站</strong>只保存目录元数据与外部 HTTPS 地址，<strong>从不存储插件/模板源码</strong>。
     消费者在「软件源管理」添加 <code>https://&lt;host&gt;/software-source/index.json</code>（兼容 <code>/auth-pro/index.json</code>）。
+    更新 = 新的外部包 URL + sha256 + 版本元数据，旧版本保留；公开目录只展示 <code>latest</code>。
     <strong>下架 ≠ 远程卸载</strong>：下架只是从公开目录隐藏，已安装到其它实例的包不会被删除。
   </p>
   <div class="tabs">
@@ -76,8 +77,10 @@
         <label>版本</label><input id="pluginVersion" value="1.0.0" />
         <label>外部 downloadUrl（https）</label><input id="pluginUrl" placeholder="https://cdn.example.com/demo-plugin.zip" />
         <label>sha256（64 hex）</label><input id="pluginSha" />
+        <label>changelog</label><input id="pluginLog" placeholder="首次发布" />
         <button type="button" onclick="savePlugin()">保存插件草稿</button>
         <button type="button" class="secondary" onclick="submitPlugin()">提交审核</button>
+        <button type="button" class="secondary" onclick="savePluginVersion()">登记新版本</button>
         <label>模板 ID</label><input id="tplKey" placeholder="demo-home" />
         <label>名称</label><input id="tplName" value="示例首页" />
         <label>templateUrl（https 或相对路径）</label><input id="tplUrl" placeholder="https://cdn.example.com/templates/demo-home.json" />
@@ -118,12 +121,18 @@
         <label>名称</label><input id="admPluginName" value="外部插件" />
         <label>downloadUrl</label><input id="admPluginUrl" placeholder="https://cdn.example.com/plugin.zip" />
         <label>sha256</label><input id="admPluginSha" />
+        <label>版本</label><input id="admPluginVer" value="1.0.0" />
+        <label>changelog</label><input id="admPluginLog" />
         <button type="button" onclick="registerPlugin()">登记外部地址</button>
         <button type="button" onclick="shelfPlugin()">上架</button>
         <button type="button" class="secondary" onclick="unshelfPlugin()">下架</button>
         <button type="button" class="warn" onclick="deprecatePlugin()">弃用</button>
         <button type="button" class="secondary" onclick="approvePlugin()">审核通过</button>
         <button type="button" class="secondary" onclick="rejectPlugin()">驳回</button>
+        <button type="button" onclick="registerPluginVersion()">登记新版本</button>
+        <button type="button" onclick="approvePluginVersion()">通过该版本</button>
+        <button type="button" class="secondary" onclick="latestPluginVersion()">回滚 latest</button>
+        <button type="button" class="secondary" onclick="loadPluginVersions()">查看版本</button>
       </div>
       <div>
         <button type="button" class="secondary" onclick="loadPlugins()">刷新插件列表</button>
@@ -234,12 +243,23 @@
       version: document.getElementById("pluginVersion").value,
       downloadUrl: document.getElementById("pluginUrl").value,
       sha256: document.getElementById("pluginSha").value,
+      changelog: document.getElementById("pluginLog").value,
     })});
     msg(r.body.msg || JSON.stringify(r.body), r.body.code===200);
   }
   async function submitPlugin() {
     const id = document.getElementById("pluginId").value;
     const r = await api("/api/v1/source/developer/plugins/"+id+"/submit", {method:"POST", headers:auth(devToken), body:"{}"});
+    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200);
+  }
+  async function savePluginVersion() {
+    const id = document.getElementById("pluginId").value;
+    const r = await api("/api/v1/source/developer/plugins/"+id+"/versions", {method:"POST", headers:auth(devToken), body: JSON.stringify({
+      version: document.getElementById("pluginVersion").value,
+      downloadUrl: document.getElementById("pluginUrl").value,
+      sha256: document.getElementById("pluginSha").value,
+      changelog: document.getElementById("pluginLog").value,
+    })});
     msg(r.body.msg || JSON.stringify(r.body), r.body.code===200);
   }
   async function saveTemplate() {
@@ -294,6 +314,8 @@
       name: document.getElementById("admPluginName").value,
       downloadUrl: document.getElementById("admPluginUrl").value,
       sha256: document.getElementById("admPluginSha").value,
+      version: document.getElementById("admPluginVer").value,
+      changelog: document.getElementById("admPluginLog").value,
     })});
     msg(r.body.msg || JSON.stringify(r.body), r.body.code===200); await loadPlugins();
   }
@@ -307,6 +329,33 @@
   const shelfPlugin = () => actPlugin("shelf");
   const unshelfPlugin = () => actPlugin("unshelf");
   const deprecatePlugin = () => actPlugin("deprecate");
+  async function loadPluginVersions() {
+    const id = document.getElementById("admPluginId").value;
+    const r = await api("/api/v1/source/admin/plugins/"+id+"/versions", {headers:auth(adminToken)});
+    document.getElementById("pluginList").textContent = JSON.stringify(r.body, null, 2);
+  }
+  async function registerPluginVersion() {
+    const id = document.getElementById("admPluginId").value;
+    const r = await api("/api/v1/source/admin/plugins/"+id+"/versions", {method:"POST", headers:auth(adminToken), body: JSON.stringify({
+      version: document.getElementById("admPluginVer").value,
+      downloadUrl: document.getElementById("admPluginUrl").value,
+      sha256: document.getElementById("admPluginSha").value,
+      changelog: document.getElementById("admPluginLog").value,
+    })});
+    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200); await loadPluginVersions();
+  }
+  async function approvePluginVersion() {
+    const id = document.getElementById("admPluginId").value;
+    const ver = document.getElementById("admPluginVer").value;
+    const r = await api("/api/v1/source/admin/plugins/"+id+"/versions/"+ver+"/approve", {method:"POST", headers:auth(adminToken), body:"{}"});
+    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200); await loadPluginVersions();
+  }
+  async function latestPluginVersion() {
+    const id = document.getElementById("admPluginId").value;
+    const ver = document.getElementById("admPluginVer").value;
+    const r = await api("/api/v1/source/admin/plugins/"+id+"/versions/"+ver+"/latest", {method:"POST", headers:auth(adminToken), body:"{}"});
+    msg(r.body.msg || JSON.stringify(r.body), r.body.code===200); await loadPlugins();
+  }
   async function loadTemplates() {
     const r = await api("/api/v1/source/admin/templates", {headers:auth(adminToken)});
     document.getElementById("tplList").textContent = JSON.stringify(r.body, null, 2);

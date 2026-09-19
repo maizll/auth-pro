@@ -29,9 +29,15 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		developer.POST("/plugins", SourceDeveloperUpsertPlugin)
 		developer.PUT("/plugins/:id", SourceDeveloperUpsertPlugin)
 		developer.POST("/plugins/:id/submit", SourceDeveloperSubmitPlugin)
+		developer.GET("/plugins/:id/versions", SourceDeveloperPluginVersions)
+		developer.POST("/plugins/:id/versions", SourceDeveloperUpsertPluginVersion)
+		developer.POST("/plugins/:id/versions/:version/submit", SourceDeveloperSubmitPluginVersion)
 		developer.POST("/templates", SourceDeveloperUpsertTemplate)
 		developer.PUT("/templates/:id", SourceDeveloperUpsertTemplate)
 		developer.POST("/templates/:id/submit", SourceDeveloperSubmitTemplate)
+		developer.GET("/templates/:id/versions", SourceDeveloperTemplateVersions)
+		developer.POST("/templates/:id/versions", SourceDeveloperUpsertTemplateVersion)
+		developer.POST("/templates/:id/versions/:version/submit", SourceDeveloperSubmitTemplateVersion)
 	}
 
 	admin := api.Group("/v1/source/admin")
@@ -51,6 +57,12 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		admin.POST("/plugins/:id/shelf", AdminSourcePluginShelf)
 		admin.POST("/plugins/:id/unshelf", AdminSourcePluginUnshelf)
 		admin.POST("/plugins/:id/deprecate", AdminSourcePluginDeprecate)
+		admin.GET("/plugins/:id/versions", AdminSourcePluginVersions)
+		admin.POST("/plugins/:id/versions", AdminSourceRegisterPluginVersion)
+		admin.POST("/plugins/:id/versions/:version/approve", AdminSourcePluginVersionApprove)
+		admin.POST("/plugins/:id/versions/:version/reject", AdminSourcePluginVersionReject)
+		admin.POST("/plugins/:id/versions/:version/deprecate", AdminSourcePluginVersionDeprecate)
+		admin.POST("/plugins/:id/versions/:version/latest", AdminSourcePluginVersionLatest)
 
 		admin.GET("/templates", AdminSourceTemplates)
 		admin.PUT("/templates", AdminSourceRegisterTemplate)
@@ -59,6 +71,12 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		admin.POST("/templates/:id/shelf", AdminSourceTemplateShelf)
 		admin.POST("/templates/:id/unshelf", AdminSourceTemplateUnshelf)
 		admin.POST("/templates/:id/deprecate", AdminSourceTemplateDeprecate)
+		admin.GET("/templates/:id/versions", AdminSourceTemplateVersions)
+		admin.POST("/templates/:id/versions", AdminSourceRegisterTemplateVersion)
+		admin.POST("/templates/:id/versions/:version/approve", AdminSourceTemplateVersionApprove)
+		admin.POST("/templates/:id/versions/:version/reject", AdminSourceTemplateVersionReject)
+		admin.POST("/templates/:id/versions/:version/deprecate", AdminSourceTemplateVersionDeprecate)
+		admin.POST("/templates/:id/versions/:version/latest", AdminSourceTemplateVersionLatest)
 
 		admin.GET("/index", AdminSourceIndexSnapshot)
 		admin.POST("/index/regenerate", AdminSourceIndexRegenerate)
@@ -67,6 +85,13 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		admin.GET("/advertisements", AdminSourceAdvertisements)
 		admin.PUT("/advertisements", AdminSourceAdvertisementUpsert)
 		admin.DELETE("/advertisements/:id", AdminSourceAdvertisementDelete)
+	}
+
+	adminAlias := engine.Group("/api/admin/source")
+	adminAlias.Use(middleware.JWTAuth(), middleware.RequireAdmin())
+	{
+		adminAlias.GET("/plugins/:id/versions", AdminSourcePluginVersions)
+		adminAlias.GET("/templates/:id/versions", AdminSourceTemplateVersions)
 	}
 }
 

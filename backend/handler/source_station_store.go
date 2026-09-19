@@ -32,6 +32,14 @@ const (
 	sourceItemHidden     = "hidden"
 	sourceItemRejected   = "rejected"
 	sourceItemDeprecated = "deprecated"
+
+	sourceVersionDraft      = "draft"
+	sourceVersionPending    = "pending"
+	sourceVersionPublished  = "published"
+	sourceVersionDeprecated = "deprecated"
+
+	sourceKindPlugin   = "plugin"
+	sourceKindTemplate = "template"
 )
 
 var (
@@ -43,8 +51,11 @@ var (
 	errDeveloperDisabled       = errors.New("开发者账号已冻结")
 	errSourcePublishIncomplete = errors.New("上架需要 64 位 sha256 和外部下载/模板地址")
 	errSourceInvalidStatus     = errors.New("当前状态不允许该操作")
+	errSourceVersionImmutable  = errors.New("已发布版本不可改包地址，请创建新版本")
+	errSourceVersionNotLatest  = errors.New("只能把 latest 指到已发布且未弃用的版本")
 
-	sha256HexPattern = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
+	sha256HexPattern     = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
+	sourceVersionPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$`)
 
 	sourceStationOverride   sourceStationStore
 	sourceStationOverrideMu sync.RWMutex
@@ -57,21 +68,25 @@ type sourceAuthor struct {
 }
 
 type sourcePlugin struct {
-	ID          string       `json:"id"`
-	DeveloperID int64        `json:"developerId"`
-	Category    string       `json:"category"`
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Icon        string       `json:"icon"`
-	Version     string       `json:"version"`
-	Author      sourceAuthor `json:"author"`
-	SHA256      string       `json:"sha256"`
-	DownloadURL string       `json:"downloadUrl"`
-	Status      string       `json:"status"`
-	ReviewNote  string       `json:"reviewNote"`
-	ReviewedBy  string       `json:"reviewedBy"`
-	UpdatedAt   time.Time    `json:"updatedAt"`
-	CreatedAt   time.Time    `json:"createdAt"`
+	ID            string       `json:"id"`
+	DeveloperID   int64        `json:"developerId"`
+	Category      string       `json:"category"`
+	Name          string       `json:"name"`
+	Description   string       `json:"description"`
+	Icon          string       `json:"icon"`
+	Version       string       `json:"version"`
+	Author        sourceAuthor `json:"author"`
+	SHA256        string       `json:"sha256"`
+	DownloadURL   string       `json:"downloadUrl"`
+	Changelog     string       `json:"changelog"`
+	LatestVersion string       `json:"latestVersion"`
+	MinVersion    string       `json:"minVersion"`
+	ForceUpdate   bool         `json:"forceUpdate"`
+	Status        string       `json:"status"`
+	ReviewNote    string       `json:"reviewNote"`
+	ReviewedBy    string       `json:"reviewedBy"`
+	UpdatedAt     time.Time    `json:"updatedAt"`
+	CreatedAt     time.Time    `json:"createdAt"`
 }
 
 type sourceTemplate struct {
@@ -84,12 +99,30 @@ type sourceTemplate struct {
 	SchemaVersion int          `json:"schemaVersion"`
 	SHA256        string       `json:"sha256"`
 	TemplateURL   string       `json:"templateUrl"`
+	Changelog     string       `json:"changelog"`
+	LatestVersion string       `json:"latestVersion"`
+	MinVersion    string       `json:"minVersion"`
+	ForceUpdate   bool         `json:"forceUpdate"`
 	Status        string       `json:"status"`
 	ReviewNote    string       `json:"reviewNote"`
 	ReviewedBy    string       `json:"reviewedBy"`
 	Author        sourceAuthor `json:"author"`
 	UpdatedAt     time.Time    `json:"updatedAt"`
 	CreatedAt     time.Time    `json:"createdAt"`
+}
+
+type sourceRelease struct {
+	Kind       string    `json:"kind"`
+	ItemID     string    `json:"itemId"`
+	Version    string    `json:"version"`
+	Changelog  string    `json:"changelog"`
+	Location   string    `json:"location"`
+	SHA256     string    `json:"sha256"`
+	Status     string    `json:"status"`
+	ReviewNote string    `json:"reviewNote"`
+	ReviewedBy string    `json:"reviewedBy"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 type sourceApplication struct {
@@ -146,6 +179,12 @@ type sourceStationStore interface {
 	GetTemplate(id string) (sourceTemplate, error)
 	UpsertTemplate(item sourceTemplate, asAdmin bool) (sourceTemplate, error)
 	SetTemplateStatus(id, status, actor, note string) (sourceTemplate, error)
+
+	ListVersions(kind, itemID string) ([]sourceRelease, error)
+	GetVersion(kind, itemID, version string) (sourceRelease, error)
+	UpsertVersion(rel sourceRelease, developerID int64, asAdmin bool) (sourceRelease, error)
+	SetVersionStatus(kind, itemID, version, status, actor, note string) (sourceRelease, error)
+	SetLatestVersion(kind, itemID, version, actor, note string) error
 
 	CreateApplication(app sourceApplication) (sourceApplication, error)
 	ListApplications(status string) ([]sourceApplication, error)
@@ -241,30 +280,34 @@ func sourceTransitionAllowed(from, to string) bool {
 }
 
 type memorySourceStore struct {
-	mu           sync.Mutex
-	revision     atomic.Int64
-	plugins      map[string]sourcePlugin
-	templates    map[string]sourceTemplate
-	applications map[int64]sourceApplication
-	developers   map[int64]sourceDeveloper
-	ads          map[string]advertisementRecord
-	audits       []sourceAuditEntry
-	snapshot     sourceIndexSnapshot
-	nextAppID    int64
-	nextDevID    int64
-	nextAuditID  int64
+	mu               sync.Mutex
+	revision         atomic.Int64
+	plugins          map[string]sourcePlugin
+	templates        map[string]sourceTemplate
+	pluginVersions   map[string]map[string]sourceRelease
+	templateVersions map[string]map[string]sourceRelease
+	applications     map[int64]sourceApplication
+	developers       map[int64]sourceDeveloper
+	ads              map[string]advertisementRecord
+	audits           []sourceAuditEntry
+	snapshot         sourceIndexSnapshot
+	nextAppID        int64
+	nextDevID        int64
+	nextAuditID      int64
 }
 
 func newMemorySourceStore() *memorySourceStore {
 	store := &memorySourceStore{
-		plugins:      map[string]sourcePlugin{},
-		templates:    map[string]sourceTemplate{},
-		applications: map[int64]sourceApplication{},
-		developers:   map[int64]sourceDeveloper{},
-		ads:          map[string]advertisementRecord{},
-		nextAppID:    1,
-		nextDevID:    1,
-		nextAuditID:  1,
+		plugins:          map[string]sourcePlugin{},
+		templates:        map[string]sourceTemplate{},
+		pluginVersions:   map[string]map[string]sourceRelease{},
+		templateVersions: map[string]map[string]sourceRelease{},
+		applications:     map[int64]sourceApplication{},
+		developers:       map[int64]sourceDeveloper{},
+		ads:              map[string]advertisementRecord{},
+		nextAppID:        1,
+		nextDevID:        1,
+		nextAuditID:      1,
 	}
 	store.revision.Store(1)
 	return store
@@ -312,21 +355,30 @@ func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) 
 	if exists && !asAdmin && existing.DeveloperID != plugin.DeveloperID {
 		return sourcePlugin{}, errSourceForbidden
 	}
-	if exists && !asAdmin && existing.Status != sourceItemDraft && existing.Status != sourceItemRejected {
-		return sourcePlugin{}, errSourceForbidden
-	}
 	now := time.Now().UTC()
+	incomingVersion := strings.TrimSpace(plugin.Version)
+	incomingURL := strings.TrimSpace(plugin.DownloadURL)
+	incomingSHA := strings.TrimSpace(plugin.SHA256)
+	incomingLog := strings.TrimSpace(plugin.Changelog)
 	if exists {
 		plugin.CreatedAt = existing.CreatedAt
 		plugin.Status = existing.Status
 		plugin.ReviewNote = existing.ReviewNote
 		plugin.ReviewedBy = existing.ReviewedBy
-		if existing.DownloadURL != plugin.DownloadURL {
+		plugin.LatestVersion = existing.LatestVersion
+		plugin.DeveloperID = existing.DeveloperID
+		if existing.LatestVersion != "" {
+			plugin.Version = existing.Version
+			plugin.SHA256 = existing.SHA256
+			plugin.DownloadURL = existing.DownloadURL
+			plugin.Changelog = existing.Changelog
+		}
+		if incomingURL != "" && incomingURL != existing.DownloadURL && existing.LatestVersion == "" {
 			actor := "developer"
 			if asAdmin {
 				actor = "admin"
 			}
-			store.auditLocked("url_change", "plugin", plugin.ID, actor, plugin.DownloadURL)
+			store.auditLocked("url_change", "plugin", plugin.ID, actor, incomingURL)
 		}
 	} else {
 		plugin.CreatedAt = now
@@ -336,7 +388,16 @@ func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) 
 	}
 	plugin.UpdatedAt = now
 	store.plugins[plugin.ID] = plugin
-	return plugin, nil
+	if incomingVersion != "" || incomingURL != "" || incomingSHA != "" {
+		rel := sourceRelease{
+			Kind: sourceKindPlugin, ItemID: plugin.ID, Version: incomingVersion,
+			Changelog: incomingLog, Location: incomingURL, SHA256: incomingSHA, Status: sourceVersionDraft,
+		}
+		if _, err := store.upsertVersionLocked(rel, plugin.DeveloperID, asAdmin); err != nil {
+			return sourcePlugin{}, err
+		}
+	}
+	return store.plugins[plugin.ID], nil
 }
 
 func (store *memorySourceStore) SetPluginStatus(id, status, actor, note string) (sourcePlugin, error) {
@@ -349,6 +410,10 @@ func (store *memorySourceStore) SetPluginStatus(id, status, actor, note string) 
 	if !sourceTransitionAllowed(item.Status, status) {
 		return sourcePlugin{}, errSourceInvalidStatus
 	}
+	if err := store.applyItemStatusToVersionsLocked(sourceKindPlugin, id, status, actor, note); err != nil {
+		return sourcePlugin{}, err
+	}
+	item = store.plugins[id]
 	if status == sourceItemPublished && !sourceItemReady(item.SHA256, item.DownloadURL) {
 		return sourcePlugin{}, errSourcePublishIncomplete
 	}
@@ -390,21 +455,30 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 	if exists && !asAdmin && existing.DeveloperID != item.DeveloperID {
 		return sourceTemplate{}, errSourceForbidden
 	}
-	if exists && !asAdmin && existing.Status != sourceItemDraft && existing.Status != sourceItemRejected {
-		return sourceTemplate{}, errSourceForbidden
-	}
 	now := time.Now().UTC()
+	incomingVersion := strings.TrimSpace(item.Version)
+	incomingURL := strings.TrimSpace(item.TemplateURL)
+	incomingSHA := strings.TrimSpace(item.SHA256)
+	incomingLog := strings.TrimSpace(item.Changelog)
 	if exists {
 		item.CreatedAt = existing.CreatedAt
 		item.Status = existing.Status
 		item.ReviewNote = existing.ReviewNote
 		item.ReviewedBy = existing.ReviewedBy
-		if existing.TemplateURL != item.TemplateURL {
+		item.LatestVersion = existing.LatestVersion
+		item.DeveloperID = existing.DeveloperID
+		if existing.LatestVersion != "" {
+			item.Version = existing.Version
+			item.SHA256 = existing.SHA256
+			item.TemplateURL = existing.TemplateURL
+			item.Changelog = existing.Changelog
+		}
+		if existing.TemplateURL != incomingURL && incomingURL != "" && existing.LatestVersion == "" {
 			actor := "developer"
 			if asAdmin {
 				actor = "admin"
 			}
-			store.auditLocked("url_change", "template", item.ID, actor, item.TemplateURL)
+			store.auditLocked("url_change", "template", item.ID, actor, incomingURL)
 		}
 	} else {
 		item.CreatedAt = now
@@ -417,7 +491,16 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 	}
 	item.UpdatedAt = now
 	store.templates[item.ID] = item
-	return item, nil
+	if incomingVersion != "" || incomingURL != "" || incomingSHA != "" {
+		rel := sourceRelease{
+			Kind: sourceKindTemplate, ItemID: item.ID, Version: incomingVersion,
+			Changelog: incomingLog, Location: incomingURL, SHA256: incomingSHA, Status: sourceVersionDraft,
+		}
+		if _, err := store.upsertVersionLocked(rel, item.DeveloperID, asAdmin); err != nil {
+			return sourceTemplate{}, err
+		}
+	}
+	return store.templates[item.ID], nil
 }
 
 func (store *memorySourceStore) SetTemplateStatus(id, status, actor, note string) (sourceTemplate, error) {
@@ -430,6 +513,10 @@ func (store *memorySourceStore) SetTemplateStatus(id, status, actor, note string
 	if !sourceTransitionAllowed(item.Status, status) {
 		return sourceTemplate{}, errSourceInvalidStatus
 	}
+	if err := store.applyItemStatusToVersionsLocked(sourceKindTemplate, id, status, actor, note); err != nil {
+		return sourceTemplate{}, err
+	}
+	item = store.templates[id]
 	if status == sourceItemPublished && !sourceItemReady(item.SHA256, item.TemplateURL) {
 		return sourceTemplate{}, errSourcePublishIncomplete
 	}
@@ -796,6 +883,34 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			generated_by VARCHAR(80) NOT NULL DEFAULT '',
 			generated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公开 index.json 快照'`,
+		`CREATE TABLE IF NOT EXISTS source_catalog_plugin_versions (
+			plugin_id VARCHAR(60) NOT NULL,
+			version VARCHAR(40) NOT NULL,
+			changelog VARCHAR(2000) NOT NULL DEFAULT '',
+			download_url VARCHAR(500) NOT NULL DEFAULT '',
+			sha256 CHAR(64) NOT NULL DEFAULT '',
+			status VARCHAR(20) NOT NULL DEFAULT 'draft',
+			review_note VARCHAR(500) NOT NULL DEFAULT '',
+			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (plugin_id, version),
+			KEY idx_source_plugin_version_status (status)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='插件版本元数据（不含源码）'`,
+		`CREATE TABLE IF NOT EXISTS source_catalog_template_versions (
+			template_id VARCHAR(60) NOT NULL,
+			version VARCHAR(40) NOT NULL,
+			changelog VARCHAR(2000) NOT NULL DEFAULT '',
+			template_url VARCHAR(500) NOT NULL DEFAULT '',
+			sha256 CHAR(64) NOT NULL DEFAULT '',
+			status VARCHAR(20) NOT NULL DEFAULT 'draft',
+			review_note VARCHAR(500) NOT NULL DEFAULT '',
+			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (template_id, version),
+			KEY idx_source_template_version_status (status)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='首页模板版本元数据（不含源码）'`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
@@ -818,10 +933,30 @@ func ensureSourceStationStorage(db *sql.DB) error {
 		"ALTER TABLE source_catalog_templates DROP COLUMN preview_content_type",
 		"ALTER TABLE source_catalog_templates DROP COLUMN format",
 		"ALTER TABLE source_catalog_templates DROP COLUMN published",
+		"ALTER TABLE source_catalog_plugins ADD COLUMN latest_version VARCHAR(40) NOT NULL DEFAULT '' AFTER version",
+		"ALTER TABLE source_catalog_plugins ADD COLUMN min_version VARCHAR(40) NOT NULL DEFAULT '' AFTER latest_version",
+		"ALTER TABLE source_catalog_plugins ADD COLUMN force_update TINYINT(1) NOT NULL DEFAULT 0 AFTER min_version",
+		"ALTER TABLE source_catalog_plugins ADD COLUMN changelog VARCHAR(2000) NOT NULL DEFAULT '' AFTER download_url",
+		"ALTER TABLE source_catalog_templates ADD COLUMN latest_version VARCHAR(40) NOT NULL DEFAULT '' AFTER version",
+		"ALTER TABLE source_catalog_templates ADD COLUMN min_version VARCHAR(40) NOT NULL DEFAULT '' AFTER latest_version",
+		"ALTER TABLE source_catalog_templates ADD COLUMN force_update TINYINT(1) NOT NULL DEFAULT 0 AFTER min_version",
+		"ALTER TABLE source_catalog_templates ADD COLUMN changelog VARCHAR(2000) NOT NULL DEFAULT '' AFTER template_url",
 	}
 	for _, statement := range alters {
 		_, _ = db.Exec(statement)
 	}
+	_, _ = db.Exec(`INSERT IGNORE INTO source_catalog_plugin_versions
+		(plugin_id, version, changelog, download_url, sha256, status, created_at, updated_at)
+		SELECT id, IF(version='', '0.0.0', version), '', download_url, sha256,
+			CASE status WHEN 'published' THEN 'published' WHEN 'review' THEN 'pending' WHEN 'deprecated' THEN 'deprecated' ELSE 'draft' END,
+			created_at, updated_at FROM source_catalog_plugins`)
+	_, _ = db.Exec(`INSERT IGNORE INTO source_catalog_template_versions
+		(template_id, version, changelog, template_url, sha256, status, created_at, updated_at)
+		SELECT id, IF(version='', '0.0.0', version), '', template_url, sha256,
+			CASE status WHEN 'published' THEN 'published' WHEN 'review' THEN 'pending' WHEN 'deprecated' THEN 'deprecated' ELSE 'draft' END,
+			created_at, updated_at FROM source_catalog_templates`)
+	_, _ = db.Exec(`UPDATE source_catalog_plugins SET latest_version=version WHERE status='published' AND latest_version=''`)
+	_, _ = db.Exec(`UPDATE source_catalog_templates SET latest_version=version WHERE status='published' AND latest_version=''`)
 	_, _ = db.Exec(`INSERT IGNORE INTO roles (role_name, role_code, description, discount, enabled)
 		VALUES (?, ?, '软件源开发者，可提交插件与首页模板元数据', 10.0, 1)`,
 		sourceDeveloperRoleName, sourceDeveloperRoleCode)
@@ -840,12 +975,14 @@ func mysqlAppendAudit(db *sql.DB, action, targetType, targetID, actor, detail st
 func scanSourcePlugin(scanner interface{ Scan(dest ...any) error }) (sourcePlugin, error) {
 	var item sourcePlugin
 	var updatedAt, createdAt time.Time
+	var forceUpdate int
 	err := scanner.Scan(&item.ID, &item.DeveloperID, &item.Category, &item.Name, &item.Description, &item.Icon,
-		&item.Version, &item.Author.Name, &item.Author.URL, &item.Author.Email, &item.SHA256, &item.DownloadURL,
-		&item.Status, &item.ReviewNote, &item.ReviewedBy, &updatedAt, &createdAt)
+		&item.Version, &item.LatestVersion, &item.MinVersion, &forceUpdate, &item.Author.Name, &item.Author.URL, &item.Author.Email,
+		&item.SHA256, &item.DownloadURL, &item.Changelog, &item.Status, &item.ReviewNote, &item.ReviewedBy, &updatedAt, &createdAt)
 	if err != nil {
 		return sourcePlugin{}, err
 	}
+	item.ForceUpdate = forceUpdate == 1
 	item.UpdatedAt, item.CreatedAt = updatedAt.UTC(), createdAt.UTC()
 	return item, nil
 }
@@ -858,8 +995,8 @@ func (mysqlSourceStore) ListPlugins(status string) ([]sourcePlugin, error) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return nil, err
 	}
-	query := `SELECT id, developer_id, category, name, description, icon, version, author_name, author_url, author_email,
-		sha256, download_url, status, review_note, reviewed_by, updated_at, created_at FROM source_catalog_plugins`
+	query := `SELECT id, developer_id, category, name, description, icon, version, latest_version, min_version, force_update, author_name, author_url, author_email,
+		sha256, download_url, changelog, status, review_note, reviewed_by, updated_at, created_at FROM source_catalog_plugins`
 	args := []any{}
 	if status != "" {
 		query += ` WHERE status=?`
@@ -890,8 +1027,8 @@ func (mysqlSourceStore) GetPlugin(id string) (sourcePlugin, error) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return sourcePlugin{}, err
 	}
-	item, err := scanSourcePlugin(db.QueryRow(`SELECT id, developer_id, category, name, description, icon, version, author_name, author_url, author_email,
-		sha256, download_url, status, review_note, reviewed_by, updated_at, created_at FROM source_catalog_plugins WHERE id=?`, id))
+	item, err := scanSourcePlugin(db.QueryRow(`SELECT id, developer_id, category, name, description, icon, version, latest_version, min_version, force_update, author_name, author_url, author_email,
+		sha256, download_url, changelog, status, review_note, reviewed_by, updated_at, created_at FROM source_catalog_plugins WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourcePlugin{}, errSourceNotFound
 	}
@@ -910,33 +1047,58 @@ func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourceP
 	if err != nil && !errors.Is(err, errSourceNotFound) {
 		return sourcePlugin{}, err
 	}
+	incomingVersion := strings.TrimSpace(plugin.Version)
+	incomingURL := strings.TrimSpace(plugin.DownloadURL)
+	incomingSHA := strings.TrimSpace(plugin.SHA256)
+	incomingLog := strings.TrimSpace(plugin.Changelog)
+	forceUpdate := 0
+	if plugin.ForceUpdate {
+		forceUpdate = 1
+	}
 	if err == nil {
-		if !asAdmin && (existing.DeveloperID != plugin.DeveloperID || (existing.Status != sourceItemDraft && existing.Status != sourceItemRejected)) {
+		if !asAdmin && existing.DeveloperID != plugin.DeveloperID {
 			return sourcePlugin{}, errSourceForbidden
 		}
 		plugin.Status = existing.Status
 		plugin.ReviewNote = existing.ReviewNote
 		plugin.ReviewedBy = existing.ReviewedBy
-		if existing.DownloadURL != plugin.DownloadURL {
+		plugin.LatestVersion = existing.LatestVersion
+		plugin.DeveloperID = existing.DeveloperID
+		if existing.LatestVersion != "" {
+			plugin.Version = existing.Version
+			plugin.SHA256 = existing.SHA256
+			plugin.DownloadURL = existing.DownloadURL
+			plugin.Changelog = existing.Changelog
+		}
+		if incomingURL != "" && incomingURL != existing.DownloadURL && existing.LatestVersion == "" {
 			actor := "developer"
 			if asAdmin {
 				actor = "admin"
 			}
-			mysqlAppendAudit(db, "url_change", "plugin", plugin.ID, actor, plugin.DownloadURL)
+			mysqlAppendAudit(db, "url_change", "plugin", plugin.ID, actor, incomingURL)
 		}
 	} else if plugin.Status == "" {
 		plugin.Status = sourceItemDraft
 	}
 	_, err = db.Exec(`INSERT INTO source_catalog_plugins
-		(id, developer_id, category, name, description, icon, version, author_name, author_url, author_email, sha256, download_url, status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(id, developer_id, category, name, description, icon, version, latest_version, min_version, force_update, author_name, author_url, author_email, sha256, download_url, changelog, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE category=VALUES(category), name=VALUES(name), description=VALUES(description), icon=VALUES(icon),
-			version=VALUES(version), author_name=VALUES(author_name), author_url=VALUES(author_url), author_email=VALUES(author_email),
-			sha256=VALUES(sha256), download_url=VALUES(download_url)`,
+			min_version=VALUES(min_version), force_update=VALUES(force_update), author_name=VALUES(author_name), author_url=VALUES(author_url),
+			author_email=VALUES(author_email)`,
 		plugin.ID, plugin.DeveloperID, plugin.Category, plugin.Name, plugin.Description, plugin.Icon, plugin.Version,
-		plugin.Author.Name, plugin.Author.URL, plugin.Author.Email, plugin.SHA256, plugin.DownloadURL, plugin.Status)
+		plugin.LatestVersion, plugin.MinVersion, forceUpdate, plugin.Author.Name, plugin.Author.URL, plugin.Author.Email,
+		plugin.SHA256, plugin.DownloadURL, plugin.Changelog, plugin.Status)
 	if err != nil {
 		return sourcePlugin{}, err
+	}
+	if incomingVersion != "" || incomingURL != "" || incomingSHA != "" {
+		if _, err := (mysqlSourceStore{}).UpsertVersion(sourceRelease{
+			Kind: sourceKindPlugin, ItemID: plugin.ID, Version: incomingVersion,
+			Changelog: incomingLog, Location: incomingURL, SHA256: incomingSHA, Status: sourceVersionDraft,
+		}, plugin.DeveloperID, asAdmin); err != nil {
+			return sourcePlugin{}, err
+		}
 	}
 	return (mysqlSourceStore{}).GetPlugin(plugin.ID)
 }
@@ -948,6 +1110,13 @@ func (mysqlSourceStore) SetPluginStatus(id, status, actor, note string) (sourceP
 	}
 	if !sourceTransitionAllowed(item.Status, status) {
 		return sourcePlugin{}, errSourceInvalidStatus
+	}
+	if err := (mysqlSourceStore{}).applyItemStatusToVersions(sourceKindPlugin, id, status, actor, note); err != nil {
+		return sourcePlugin{}, err
+	}
+	item, err = (mysqlSourceStore{}).GetPlugin(id)
+	if err != nil {
+		return sourcePlugin{}, err
 	}
 	if status == sourceItemPublished && !sourceItemReady(item.SHA256, item.DownloadURL) {
 		return sourcePlugin{}, errSourcePublishIncomplete
@@ -967,12 +1136,14 @@ func (mysqlSourceStore) SetPluginStatus(id, status, actor, note string) (sourceP
 func scanSourceTemplateRow(scanner interface{ Scan(dest ...any) error }) (sourceTemplate, error) {
 	var item sourceTemplate
 	var updatedAt, createdAt time.Time
+	var forceUpdate int
 	err := scanner.Scan(&item.ID, &item.DeveloperID, &item.TemplateKey, &item.Name, &item.Description, &item.Version,
-		&item.SchemaVersion, &item.SHA256, &item.TemplateURL, &item.Status, &item.ReviewNote, &item.ReviewedBy,
-		&item.Author.Name, &item.Author.URL, &item.Author.Email, &updatedAt, &createdAt)
+		&item.LatestVersion, &item.MinVersion, &forceUpdate, &item.SchemaVersion, &item.SHA256, &item.TemplateURL, &item.Changelog,
+		&item.Status, &item.ReviewNote, &item.ReviewedBy, &item.Author.Name, &item.Author.URL, &item.Author.Email, &updatedAt, &createdAt)
 	if err != nil {
 		return sourceTemplate{}, err
 	}
+	item.ForceUpdate = forceUpdate == 1
 	item.UpdatedAt, item.CreatedAt = updatedAt.UTC(), createdAt.UTC()
 	return item, nil
 }
@@ -985,7 +1156,7 @@ func (mysqlSourceStore) ListTemplates(status string) ([]sourceTemplate, error) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return nil, err
 	}
-	query := `SELECT id, developer_id, template_key, name, description, version, schema_version, sha256, template_url,
+	query := `SELECT id, developer_id, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog,
 		status, review_note, reviewed_by, author_name, author_url, author_email, updated_at, created_at FROM source_catalog_templates`
 	args := []any{}
 	if status != "" {
@@ -1017,7 +1188,7 @@ func (mysqlSourceStore) GetTemplate(id string) (sourceTemplate, error) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return sourceTemplate{}, err
 	}
-	item, err := scanSourceTemplateRow(db.QueryRow(`SELECT id, developer_id, template_key, name, description, version, schema_version, sha256, template_url,
+	item, err := scanSourceTemplateRow(db.QueryRow(`SELECT id, developer_id, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog,
 		status, review_note, reviewed_by, author_name, author_url, author_email, updated_at, created_at FROM source_catalog_templates WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceTemplate{}, errSourceNotFound
@@ -1040,36 +1211,60 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 	if err != nil && !errors.Is(err, errSourceNotFound) {
 		return sourceTemplate{}, err
 	}
+	incomingVersion := strings.TrimSpace(item.Version)
+	incomingURL := strings.TrimSpace(item.TemplateURL)
+	incomingSHA := strings.TrimSpace(item.SHA256)
+	incomingLog := strings.TrimSpace(item.Changelog)
+	forceUpdate := 0
+	if item.ForceUpdate {
+		forceUpdate = 1
+	}
 	if err == nil {
-		if !asAdmin && (existing.DeveloperID != item.DeveloperID || (existing.Status != sourceItemDraft && existing.Status != sourceItemRejected)) {
+		if !asAdmin && existing.DeveloperID != item.DeveloperID {
 			return sourceTemplate{}, errSourceForbidden
 		}
 		item.Status = existing.Status
 		item.ReviewNote = existing.ReviewNote
 		item.ReviewedBy = existing.ReviewedBy
-		if existing.TemplateURL != item.TemplateURL {
+		item.LatestVersion = existing.LatestVersion
+		item.DeveloperID = existing.DeveloperID
+		if existing.LatestVersion != "" {
+			item.Version = existing.Version
+			item.SHA256 = existing.SHA256
+			item.TemplateURL = existing.TemplateURL
+			item.Changelog = existing.Changelog
+		}
+		if incomingURL != "" && existing.TemplateURL != incomingURL && existing.LatestVersion == "" {
 			actor := "developer"
 			if asAdmin {
 				actor = "admin"
 			}
-			mysqlAppendAudit(db, "url_change", "template", item.ID, actor, item.TemplateURL)
+			mysqlAppendAudit(db, "url_change", "template", item.ID, actor, incomingURL)
 		}
 	} else if item.Status == "" {
 		item.Status = sourceItemDraft
 	}
 	_, err = db.Exec(`INSERT INTO source_catalog_templates
-		(id, developer_id, template_key, name, description, version, schema_version, sha256, template_url, status, author_name, author_url, author_email)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), version=VALUES(version),
-			schema_version=VALUES(schema_version), sha256=VALUES(sha256), template_url=VALUES(template_url),
+		(id, developer_id, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog, status, author_name, author_url, author_email)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), schema_version=VALUES(schema_version),
+			min_version=VALUES(min_version), force_update=VALUES(force_update),
 			author_name=VALUES(author_name), author_url=VALUES(author_url), author_email=VALUES(author_email)`,
-		item.ID, item.DeveloperID, item.TemplateKey, item.Name, item.Description, item.Version, item.SchemaVersion,
-		item.SHA256, item.TemplateURL, item.Status, item.Author.Name, item.Author.URL, item.Author.Email)
+		item.ID, item.DeveloperID, item.TemplateKey, item.Name, item.Description, item.Version, item.LatestVersion, item.MinVersion, forceUpdate,
+		item.SchemaVersion, item.SHA256, item.TemplateURL, item.Changelog, item.Status, item.Author.Name, item.Author.URL, item.Author.Email)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate") {
 			return sourceTemplate{}, errSourceConflict
 		}
 		return sourceTemplate{}, err
+	}
+	if incomingVersion != "" || incomingURL != "" || incomingSHA != "" {
+		if _, err := (mysqlSourceStore{}).UpsertVersion(sourceRelease{
+			Kind: sourceKindTemplate, ItemID: item.ID, Version: incomingVersion,
+			Changelog: incomingLog, Location: incomingURL, SHA256: incomingSHA, Status: sourceVersionDraft,
+		}, item.DeveloperID, asAdmin); err != nil {
+			return sourceTemplate{}, err
+		}
 	}
 	return (mysqlSourceStore{}).GetTemplate(item.ID)
 }
@@ -1081,6 +1276,13 @@ func (mysqlSourceStore) SetTemplateStatus(id, status, actor, note string) (sourc
 	}
 	if !sourceTransitionAllowed(item.Status, status) {
 		return sourceTemplate{}, errSourceInvalidStatus
+	}
+	if err := (mysqlSourceStore{}).applyItemStatusToVersions(sourceKindTemplate, id, status, actor, note); err != nil {
+		return sourceTemplate{}, err
+	}
+	item, err = (mysqlSourceStore{}).GetTemplate(id)
+	if err != nil {
+		return sourceTemplate{}, err
 	}
 	if status == sourceItemPublished && !sourceItemReady(item.SHA256, item.TemplateURL) {
 		return sourceTemplate{}, errSourcePublishIncomplete
@@ -1530,11 +1732,18 @@ func sourceCatalogJSON() ([]byte, ginHCatalog, error) {
 	}
 	pluginItems := make([]map[string]any, 0, len(plugins))
 	for _, plugin := range plugins {
-		pluginItems = append(pluginItems, map[string]any{
+		entry := map[string]any{
 			"id": plugin.ID, "category": plugin.Category, "name": plugin.Name, "description": plugin.Description,
 			"icon": plugin.Icon, "version": plugin.Version, "author": plugin.Author, "downloadUrl": plugin.DownloadURL,
-			"sha256": plugin.SHA256,
-		})
+			"sha256": plugin.SHA256, "forceUpdate": plugin.ForceUpdate,
+		}
+		if plugin.Changelog != "" {
+			entry["changelog"] = plugin.Changelog
+		}
+		if plugin.MinVersion != "" {
+			entry["minVersion"] = plugin.MinVersion
+		}
+		pluginItems = append(pluginItems, entry)
 	}
 	homeTemplates := make([]map[string]any, 0, len(templates))
 	for _, template := range templates {
@@ -1542,11 +1751,18 @@ func sourceCatalogJSON() ([]byte, ginHCatalog, error) {
 		if schemaVersion == 0 {
 			schemaVersion = homeTemplateSchemaVersion
 		}
-		homeTemplates = append(homeTemplates, map[string]any{
+		entry := map[string]any{
 			"id": template.TemplateKey, "name": template.Name, "description": template.Description,
 			"version": template.Version, "schemaVersion": schemaVersion, "sha256": template.SHA256,
-			"templateUrl": template.TemplateURL,
-		})
+			"templateUrl": template.TemplateURL, "forceUpdate": template.ForceUpdate,
+		}
+		if template.Changelog != "" {
+			entry["changelog"] = template.Changelog
+		}
+		if template.MinVersion != "" {
+			entry["minVersion"] = template.MinVersion
+		}
+		homeTemplates = append(homeTemplates, entry)
 	}
 	catalog := ginHCatalog{Name: sourceStationSourceName, Plugins: pluginItems, HomeTemplates: homeTemplates}
 	payload, err := json.Marshal(catalog)

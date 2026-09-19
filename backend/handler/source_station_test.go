@@ -343,6 +343,81 @@ func TestSourceStationPageDocumentsMetadataOnlyCatalog(t *testing.T) {
 	}
 }
 
+func TestSourceStationPluginVersionUpdateUnshelfAndRollback(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	sha1 := sourceTestSHA256()
+	sha2 := strings.Repeat("cd", 32)
+	register := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
+		`{"id":"up-plugin","name":"可更新插件","version":"1.0.0","downloadUrl":"https://cdn.example.com/up-1.0.0.zip","sha256":"`+sha1+`","changelog":"首发","minVersion":"1.0.0","forceUpdate":false,"shelf":true}`)
+	if sourceBodyCode(t, register) != 200 {
+		t.Fatalf("register v1=%s", register.Body.String())
+	}
+	v1 := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	if !strings.Contains(v1.Body.String(), `"1.0.0"`) || !strings.Contains(v1.Body.String(), "up-1.0.0.zip") {
+		t.Fatalf("index v1=%s", v1.Body.String())
+	}
+
+	create := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/up-plugin/versions", admin,
+		`{"version":"1.0.1","downloadUrl":"https://cdn.example.com/up-1.0.1.zip","sha256":"`+sha2+`","changelog":"修复下载"}`)
+	if sourceBodyCode(t, create) != 200 {
+		t.Fatalf("create v1.0.1=%s", create.Body.String())
+	}
+	submit := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/up-plugin/versions/1.0.1/approve", admin, "{}")
+	if sourceBodyCode(t, submit) != 200 {
+		t.Fatalf("approve v1.0.1=%s", submit.Body.String())
+	}
+	latest := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	if !strings.Contains(latest.Body.String(), `"version":"1.0.1"`) || !strings.Contains(latest.Body.String(), "up-1.0.1.zip") {
+		t.Fatalf("index should show latest 1.0.1: %s", latest.Body.String())
+	}
+	if !strings.Contains(latest.Body.String(), `"changelog":"修复下载"`) || !strings.Contains(latest.Body.String(), `"forceUpdate":false`) {
+		t.Fatalf("index missing changelog/forceUpdate: %s", latest.Body.String())
+	}
+	if strings.Contains(latest.Body.String(), "up-1.0.0.zip") {
+		t.Fatalf("index should not keep old downloadUrl as current: %s", latest.Body.String())
+	}
+
+	versions := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/plugins/up-plugin/versions", admin, "")
+	if sourceBodyCode(t, versions) != 200 || !strings.Contains(versions.Body.String(), `"1.0.0"`) || !strings.Contains(versions.Body.String(), `"1.0.1"`) {
+		t.Fatalf("versions=%s", versions.Body.String())
+	}
+	alias := sourceJSON(t, router, http.MethodGet, "/api/admin/source/plugins/up-plugin/versions", admin, "")
+	if sourceBodyCode(t, alias) != 200 || !strings.Contains(alias.Body.String(), `"1.0.1"`) {
+		t.Fatalf("alias versions=%s", alias.Body.String())
+	}
+
+	unshelf := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/up-plugin/unshelf", admin, "{}")
+	if sourceBodyCode(t, unshelf) != 200 {
+		t.Fatalf("unshelf=%s", unshelf.Body.String())
+	}
+	hidden := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	if strings.Contains(hidden.Body.String(), "up-plugin") {
+		t.Fatalf("unshelf must hide plugin: %s", hidden.Body.String())
+	}
+
+	shelf := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/up-plugin/shelf", admin, "{}")
+	if sourceBodyCode(t, shelf) != 200 {
+		t.Fatalf("reshelf=%s", shelf.Body.String())
+	}
+	rollback := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/up-plugin/versions/1.0.0/latest", admin, "{}")
+	if sourceBodyCode(t, rollback) != 200 {
+		t.Fatalf("rollback=%s", rollback.Body.String())
+	}
+	rolled := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	if !strings.Contains(rolled.Body.String(), `"version":"1.0.0"`) || !strings.Contains(rolled.Body.String(), "up-1.0.0.zip") {
+		t.Fatalf("rollback should restore 1.0.0 in index: %s", rolled.Body.String())
+	}
+	if strings.Contains(rolled.Body.String(), "up-1.0.1.zip") {
+		t.Fatalf("rolled index still points at 1.0.1: %s", rolled.Body.String())
+	}
+
+	kept := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/plugins/up-plugin/versions", admin, "")
+	if !strings.Contains(kept.Body.String(), `"1.0.1"`) {
+		t.Fatalf("prior version metadata must remain: %s", kept.Body.String())
+	}
+}
+
 func itoa64(value int64) string {
 	if value == 0 {
 		return "0"

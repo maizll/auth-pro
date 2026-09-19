@@ -348,9 +348,11 @@ https://<host>/software-source/index.json
 
 1. 启动本仓库后端（源站无需 `AUTO_PRO_SOFTWARE_SOURCE_*`）。
 2. 浏览器打开 `/source`：开发者申请入驻 → 管理员通过/拒绝/冻结。
-3. 开发者保存插件/模板**元数据草稿**（外部 URL + sha256），提交审核；管理员通过或驳回。
-4. 管理员上架（写入 index）/下架（从 index 隐藏）/弃用。也可直接登记外部 HTTPS + sha256，无需上传文件。
-5. 消费者实例在「软件源管理」添加 `https://<host>/software-source/index.json`。
+3. 开发者保存插件/模板**元数据草稿**（外部 URL + sha256），提交审核；管理员通过或驳回后上架。
+4. **更新**：为同一插件创建新版本行（version / changelog / 外部 URL / sha256）→ 提交审核 → 管理员通过后该版本 `published` 并成为 `latest`。旧版本元数据保留，可弃用，不可删源码（源站本来就不存源码）。
+5. 管理员可将 `latest` 回滚到先前已发布版本；下架只从公开目录隐藏整个插件。公开 `index.json` 只展示当前 `latest`（含 version、downloadUrl、sha256、可选 changelog，以及预留的 `minVersion` / `forceUpdate`）。
+6. 查询历史版本：`GET /api/v1/source/admin/plugins/:id/versions`（兼容 `GET /api/admin/source/plugins/:id/versions`）。
+7. 消费者实例在「软件源管理」添加 `https://<host>/software-source/index.json`。
 
 ```bash
 # 源站本机（无需软件源环境变量）

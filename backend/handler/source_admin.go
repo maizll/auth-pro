@@ -229,6 +229,92 @@ func adminSetTemplateStatus(c *gin.Context, status, okMsg string) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": okMsg, "data": sourceTemplateView(saved)})
 }
 
+func AdminSourcePluginVersions(c *gin.Context) {
+	writeSourceVersionList(c, sourceKindPlugin, strings.TrimSpace(c.Param("id")))
+}
+
+func AdminSourceRegisterPluginVersion(c *gin.Context) {
+	adminWriteVersion(c, sourceKindPlugin)
+}
+
+func AdminSourcePluginVersionApprove(c *gin.Context) {
+	adminSetReleaseStatus(c, sourceKindPlugin, sourceVersionPublished, "版本已发布并标记为 latest")
+}
+
+func AdminSourcePluginVersionReject(c *gin.Context) {
+	adminSetReleaseStatus(c, sourceKindPlugin, sourceVersionDraft, "版本已驳回为草稿")
+}
+
+func AdminSourcePluginVersionDeprecate(c *gin.Context) {
+	adminSetReleaseStatus(c, sourceKindPlugin, sourceVersionDeprecated, "版本已弃用（元数据保留）")
+}
+
+func AdminSourcePluginVersionLatest(c *gin.Context) {
+	adminSetLatest(c, sourceKindPlugin)
+}
+
+func AdminSourceTemplateVersions(c *gin.Context) {
+	writeSourceVersionList(c, sourceKindTemplate, strings.TrimSpace(c.Param("id")))
+}
+
+func AdminSourceRegisterTemplateVersion(c *gin.Context) {
+	adminWriteVersion(c, sourceKindTemplate)
+}
+
+func AdminSourceTemplateVersionApprove(c *gin.Context) {
+	adminSetReleaseStatus(c, sourceKindTemplate, sourceVersionPublished, "版本已发布并标记为 latest")
+}
+
+func AdminSourceTemplateVersionReject(c *gin.Context) {
+	adminSetReleaseStatus(c, sourceKindTemplate, sourceVersionDraft, "版本已驳回为草稿")
+}
+
+func AdminSourceTemplateVersionDeprecate(c *gin.Context) {
+	adminSetReleaseStatus(c, sourceKindTemplate, sourceVersionDeprecated, "版本已弃用（元数据保留）")
+}
+
+func AdminSourceTemplateVersionLatest(c *gin.Context) {
+	adminSetLatest(c, sourceKindTemplate)
+}
+
+func adminWriteVersion(c *gin.Context, kind string) {
+	rel, err := bindSourceReleaseDraft(c, kind)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	rel.ItemID = strings.TrimSpace(c.Param("id"))
+	saved, err := currentSourceStationStore().UpsertVersion(rel, 0, true)
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已登记外部版本地址（未上传源码）", "data": sourceReleaseView(saved)})
+}
+
+func adminSetReleaseStatus(c *gin.Context, kind, status, okMsg string) {
+	saved, err := currentSourceStationStore().SetVersionStatus(kind, strings.TrimSpace(c.Param("id")), strings.TrimSpace(c.Param("version")), status, c.GetString("username"), sourceNoteFromBody(c))
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	if status == sourceVersionPublished || status == sourceVersionDeprecated {
+		persistIndexSnapshot(c.GetString("username"))
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": okMsg, "data": sourceReleaseView(saved)})
+}
+
+func adminSetLatest(c *gin.Context, kind string) {
+	id := strings.TrimSpace(c.Param("id"))
+	version := strings.TrimSpace(c.Param("version"))
+	if err := currentSourceStationStore().SetLatestVersion(kind, id, version, c.GetString("username"), sourceNoteFromBody(c)); err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	persistIndexSnapshot(c.GetString("username"))
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已将 latest 回滚/指向该已发布版本", "data": gin.H{"id": id, "latestVersion": version}})
+}
+
 func adminPluginFromRequest(req sourcePluginDraftRequest) (sourcePlugin, error) {
 	pluginID := strings.TrimSpace(req.ID)
 	if !pluginIDPattern.MatchString(pluginID) {
@@ -265,6 +351,9 @@ func adminPluginFromRequest(req sourcePluginDraftRequest) (sourcePlugin, error) 
 		Version:     version,
 		SHA256:      strings.ToLower(strings.TrimSpace(req.SHA256)),
 		DownloadURL: strings.TrimSpace(req.DownloadURL),
+		Changelog:   truncateText(req.Changelog, 2000),
+		MinVersion:  truncateText(req.MinVersion, 40),
+		ForceUpdate: req.ForceUpdate,
 		Author: sourceAuthor{
 			Name:  truncateText(req.Author.Name, 100),
 			URL:   truncateText(req.Author.URL, 300),
@@ -316,6 +405,9 @@ func adminTemplateFromRequest(req sourceTemplateDraftRequest) (sourceTemplate, e
 		SchemaVersion: schemaVersion,
 		SHA256:        strings.ToLower(strings.TrimSpace(req.SHA256)),
 		TemplateURL:   strings.TrimSpace(req.TemplateURL),
+		Changelog:     truncateText(req.Changelog, 2000),
+		MinVersion:    truncateText(req.MinVersion, 40),
+		ForceUpdate:   req.ForceUpdate,
 		Author: sourceAuthor{
 			Name:  truncateText(req.Author.Name, 100),
 			URL:   truncateText(req.Author.URL, 300),

@@ -31,6 +31,9 @@ type sourcePluginDraftRequest struct {
 	Version     string       `json:"version"`
 	SHA256      string       `json:"sha256"`
 	DownloadURL string       `json:"downloadUrl"`
+	Changelog   string       `json:"changelog"`
+	MinVersion  string       `json:"minVersion"`
+	ForceUpdate bool         `json:"forceUpdate"`
 	Author      sourceAuthor `json:"author"`
 	Shelf       bool         `json:"shelf"`
 }
@@ -44,8 +47,19 @@ type sourceTemplateDraftRequest struct {
 	SchemaVersion int          `json:"schemaVersion"`
 	SHA256        string       `json:"sha256"`
 	TemplateURL   string       `json:"templateUrl"`
+	Changelog     string       `json:"changelog"`
+	MinVersion    string       `json:"minVersion"`
+	ForceUpdate   bool         `json:"forceUpdate"`
 	Author        sourceAuthor `json:"author"`
 	Shelf         bool         `json:"shelf"`
+}
+
+type sourceReleaseDraftRequest struct {
+	Version     string `json:"version"`
+	Changelog   string `json:"changelog"`
+	SHA256      string `json:"sha256"`
+	DownloadURL string `json:"downloadUrl"`
+	TemplateURL string `json:"templateUrl"`
 }
 
 func SourceDeveloperApply(c *gin.Context) {
@@ -243,6 +257,32 @@ func SourceDeveloperSubmitPlugin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已提交审核", "data": sourcePluginView(saved)})
 }
 
+func SourceDeveloperPluginVersions(c *gin.Context) {
+	developer, err := currentSourceDeveloper(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		return
+	}
+	item, err := currentSourceStationStore().GetPlugin(strings.TrimSpace(c.Param("id")))
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	if item.DeveloperID != developer.ID {
+		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": errSourceForbidden.Error()})
+		return
+	}
+	writeSourceVersionList(c, sourceKindPlugin, item.ID)
+}
+
+func SourceDeveloperUpsertPluginVersion(c *gin.Context) {
+	sourceDeveloperWriteVersion(c, sourceKindPlugin)
+}
+
+func SourceDeveloperSubmitPluginVersion(c *gin.Context) {
+	sourceDeveloperSubmitVersion(c, sourceKindPlugin)
+}
+
 func SourceDeveloperUpsertTemplate(c *gin.Context) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
@@ -283,6 +323,32 @@ func SourceDeveloperSubmitTemplate(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已提交审核", "data": sourceTemplateView(saved)})
+}
+
+func SourceDeveloperTemplateVersions(c *gin.Context) {
+	developer, err := currentSourceDeveloper(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		return
+	}
+	item, err := currentSourceStationStore().GetTemplate(strings.TrimSpace(c.Param("id")))
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	if item.DeveloperID != developer.ID {
+		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": errSourceForbidden.Error()})
+		return
+	}
+	writeSourceVersionList(c, sourceKindTemplate, item.ID)
+}
+
+func SourceDeveloperUpsertTemplateVersion(c *gin.Context) {
+	sourceDeveloperWriteVersion(c, sourceKindTemplate)
+}
+
+func SourceDeveloperSubmitTemplateVersion(c *gin.Context) {
+	sourceDeveloperSubmitVersion(c, sourceKindTemplate)
 }
 
 func AdminSourceDeveloperApplications(c *gin.Context) {
@@ -373,8 +439,9 @@ func sourcePluginView(item sourcePlugin) gin.H {
 	return gin.H{
 		"id": item.ID, "developerId": item.DeveloperID, "category": item.Category, "name": item.Name,
 		"description": item.Description, "icon": item.Icon, "version": item.Version, "author": item.Author,
-		"sha256": item.SHA256, "downloadUrl": item.DownloadURL, "status": item.Status,
-		"reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
+		"sha256": item.SHA256, "downloadUrl": item.DownloadURL, "changelog": item.Changelog,
+		"latestVersion": item.LatestVersion, "minVersion": item.MinVersion, "forceUpdate": item.ForceUpdate,
+		"status": item.Status, "reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
 		"updatedAt": item.UpdatedAt.Format(time.RFC3339), "createdAt": item.CreatedAt.Format(time.RFC3339),
 	}
 }
@@ -383,10 +450,25 @@ func sourceTemplateView(item sourceTemplate) gin.H {
 	return gin.H{
 		"id": item.ID, "developerId": item.DeveloperID, "templateKey": item.TemplateKey, "name": item.Name,
 		"description": item.Description, "version": item.Version, "schemaVersion": item.SchemaVersion,
-		"sha256": item.SHA256, "templateUrl": item.TemplateURL, "status": item.Status, "author": item.Author,
-		"reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
+		"sha256": item.SHA256, "templateUrl": item.TemplateURL, "changelog": item.Changelog,
+		"latestVersion": item.LatestVersion, "minVersion": item.MinVersion, "forceUpdate": item.ForceUpdate,
+		"status": item.Status, "author": item.Author, "reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
 		"updatedAt": item.UpdatedAt.Format(time.RFC3339), "createdAt": item.CreatedAt.Format(time.RFC3339),
 	}
+}
+
+func sourceReleaseView(item sourceRelease) gin.H {
+	view := gin.H{
+		"kind": item.Kind, "itemId": item.ItemID, "version": item.Version, "changelog": item.Changelog,
+		"sha256": item.SHA256, "status": item.Status, "reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
+		"createdAt": item.CreatedAt.Format(time.RFC3339), "updatedAt": item.UpdatedAt.Format(time.RFC3339),
+	}
+	if item.Kind == sourceKindTemplate {
+		view["templateUrl"] = item.Location
+	} else {
+		view["downloadUrl"] = item.Location
+	}
+	return view
 }
 
 func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlugin, error) {
@@ -437,6 +519,9 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 		Version:     version,
 		SHA256:      strings.ToLower(strings.TrimSpace(req.SHA256)),
 		DownloadURL: strings.TrimSpace(req.DownloadURL),
+		Changelog:   truncateText(req.Changelog, 2000),
+		MinVersion:  truncateText(req.MinVersion, 40),
+		ForceUpdate: req.ForceUpdate,
 		Author: sourceAuthor{
 			Name:  authorName,
 			URL:   truncateText(req.Author.URL, 300),
@@ -495,6 +580,9 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 		SchemaVersion: schemaVersion,
 		SHA256:        strings.ToLower(strings.TrimSpace(req.SHA256)),
 		TemplateURL:   strings.TrimSpace(req.TemplateURL),
+		Changelog:     truncateText(req.Changelog, 2000),
+		MinVersion:    truncateText(req.MinVersion, 40),
+		ForceUpdate:   req.ForceUpdate,
 		Author: sourceAuthor{
 			Name:  sourceFirstNonEmpty(truncateText(req.Author.Name, 100), developer.DisplayName, developer.Username),
 			URL:   truncateText(req.Author.URL, 300),
@@ -508,7 +596,8 @@ func writeSourceDeveloperStoreError(c *gin.Context, err error) {
 	case errors.Is(err, errSourceNotFound):
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": err.Error()})
 	case errors.Is(err, errSourceConflict), errors.Is(err, errApplicationPending), errors.Is(err, errApplicationReviewed),
-		errors.Is(err, errSourcePublishIncomplete), errors.Is(err, errSourceInvalidStatus):
+		errors.Is(err, errSourcePublishIncomplete), errors.Is(err, errSourceInvalidStatus),
+		errors.Is(err, errSourceVersionImmutable), errors.Is(err, errSourceVersionNotLatest):
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 	case errors.Is(err, errSourceForbidden), errors.Is(err, errDeveloperDisabled):
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": err.Error()})
@@ -532,4 +621,110 @@ func sourceFirstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func writeSourceVersionList(c *gin.Context, kind, itemID string) {
+	items, err := currentSourceStationStore().ListVersions(kind, itemID)
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	list := make([]gin.H, 0, len(items))
+	for _, item := range items {
+		list = append(list, sourceReleaseView(item))
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": list, "total": len(list)}})
+}
+
+func sourceDeveloperWriteVersion(c *gin.Context, kind string) {
+	developer, err := currentSourceDeveloper(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		return
+	}
+	rel, err := bindSourceReleaseDraft(c, kind)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	rel.ItemID = strings.TrimSpace(c.Param("id"))
+	saved, err := currentSourceStationStore().UpsertVersion(rel, developer.ID, false)
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本草稿已保存（源站不存储源码）", "data": sourceReleaseView(saved)})
+}
+
+func sourceDeveloperSubmitVersion(c *gin.Context, kind string) {
+	developer, err := currentSourceDeveloper(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		return
+	}
+	itemID := strings.TrimSpace(c.Param("id"))
+	if kind == sourceKindTemplate {
+		item, err := currentSourceStationStore().GetTemplate(itemID)
+		if err != nil {
+			writeSourceDeveloperStoreError(c, err)
+			return
+		}
+		if item.DeveloperID != developer.ID {
+			c.JSON(http.StatusOK, gin.H{"code": 403, "msg": errSourceForbidden.Error()})
+			return
+		}
+	} else {
+		item, err := currentSourceStationStore().GetPlugin(itemID)
+		if err != nil {
+			writeSourceDeveloperStoreError(c, err)
+			return
+		}
+		if item.DeveloperID != developer.ID {
+			c.JSON(http.StatusOK, gin.H{"code": 403, "msg": errSourceForbidden.Error()})
+			return
+		}
+	}
+	saved, err := currentSourceStationStore().SetVersionStatus(kind, itemID, strings.TrimSpace(c.Param("version")), sourceVersionPending, developer.Username, sourceNoteFromBody(c))
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本已提交审核", "data": sourceReleaseView(saved)})
+}
+
+func bindSourceReleaseDraft(c *gin.Context, kind string) (sourceRelease, error) {
+	var req sourceReleaseDraftRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		return sourceRelease{}, errors.New("参数错误")
+	}
+	version := strings.TrimSpace(req.Version)
+	if version == "" {
+		version = strings.TrimSpace(c.Param("version"))
+	}
+	location := strings.TrimSpace(req.DownloadURL)
+	if kind == sourceKindTemplate {
+		location = strings.TrimSpace(req.TemplateURL)
+		if location != "" {
+			if err := validateTemplateLocation(location); err != nil {
+				return sourceRelease{}, err
+			}
+		}
+	} else if location != "" {
+		if err := validatePluginDownloadURL(location); err != nil {
+			return sourceRelease{}, err
+		}
+	}
+	if req.SHA256 != "" {
+		if err := validateSHA256(req.SHA256); err != nil {
+			return sourceRelease{}, err
+		}
+	}
+	return sourceRelease{
+		Kind:      kind,
+		Version:   version,
+		Changelog: truncateText(req.Changelog, 2000),
+		Location:  location,
+		SHA256:    strings.ToLower(strings.TrimSpace(req.SHA256)),
+		Status:    sourceVersionDraft,
+	}, nil
 }
