@@ -297,9 +297,16 @@ export function fetchImpersonateAgent(id: number) {
 
 // ==================== 代理商等级 ====================
 
-/** 等级下拉选项 */
+/** 将 select-list 响应规范成 ElSelect 可用的数组（已解包 data）。 */
+export function unwrapAgentLevelOptions(data: unknown): AgentLevelOption[] {
+  return Array.isArray(data) ? data : []
+}
+
+/** 等级下拉选项。GET /api/agent-level/select-list 的 data 必须是 {code,name,discount}[]。 */
 export function fetchAgentLevelOptions() {
-  return request.get<AgentLevelOption[]>({ url: '/api/agent-level/select-list' })
+  return request
+    .get<AgentLevelOption[]>({ url: '/api/agent-level/select-list' })
+    .then(unwrapAgentLevelOptions)
 }
 
 /** 等级列表 */

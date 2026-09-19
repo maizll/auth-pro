@@ -50,8 +50,7 @@
 
   const fetchLevelOptions = async () => {
     try {
-      const data = await fetchAgentLevelOptions()
-      levelOptions.value = data || []
+      levelOptions.value = await fetchAgentLevelOptions()
     } catch {
       levelOptions.value = []
     }
