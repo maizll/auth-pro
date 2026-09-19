@@ -720,16 +720,13 @@ func (store *memorySourceStore) ApproveApplication(id int64, reviewer string) (s
 		return sourceDeveloper{}, errApplicationReviewed
 	}
 	now := time.Now().UTC()
-	app.Status = sourceApplicationApproved
-	app.ReviewedBy = reviewer
-	app.ReviewedAt = &now
-	store.applications[id] = app
 	dev := sourceDeveloper{
 		ID: store.nextDevID, ApplicationID: app.ID, Username: app.Username, PasswordHash: app.PasswordHash,
 		Email: app.Email, DisplayName: app.DisplayName, Enabled: true, CreatedAt: now,
 	}
 	store.nextDevID++
 	store.developers[dev.ID] = dev
+	delete(store.applications, id)
 	store.auditLocked("approve", "application", itoaSourceID(id), reviewer, "")
 	return dev, nil
 }
@@ -744,43 +741,70 @@ func (store *memorySourceStore) RejectApplication(id int64, reviewer, note strin
 	if app.Status != sourceApplicationPending {
 		return errApplicationReviewed
 	}
-	now := time.Now().UTC()
-	app.Status = sourceApplicationRejected
-	app.ReviewedBy = reviewer
-	app.ReviewNote = note
-	app.ReviewedAt = &now
-	store.applications[id] = app
+	delete(store.applications, id)
 	store.auditLocked("reject", "application", itoaSourceID(id), reviewer, note)
 	return nil
+}
+
+func (store *memorySourceStore) detachDeveloperCatalogLocked(developerID int64) {
+	for id, plugin := range store.plugins {
+		if plugin.DeveloperID == developerID {
+			plugin.DeveloperID = 0
+			store.plugins[id] = plugin
+		}
+	}
+	for id, item := range store.templates {
+		if item.DeveloperID == developerID {
+			item.DeveloperID = 0
+			store.templates[id] = item
+		}
+	}
+}
+
+func (store *memorySourceStore) deleteDeveloperLocked(dev sourceDeveloper, actor, note string) {
+	store.detachDeveloperCatalogLocked(dev.ID)
+	for appID, app := range store.applications {
+		if app.ID == dev.ApplicationID || strings.EqualFold(app.Username, dev.Username) {
+			delete(store.applications, appID)
+		}
+	}
+	delete(store.developers, dev.ID)
+	store.auditLocked("cancel", "developer", itoaSourceID(dev.ID), actor, sourceCancelNote(note))
+}
+
+func (store *memorySourceStore) findDeveloperLocked(match func(sourceDeveloper) bool) (sourceDeveloper, bool) {
+	for _, dev := range store.developers {
+		if match(dev) {
+			return dev, true
+		}
+	}
+	return sourceDeveloper{}, false
 }
 
 func (store *memorySourceStore) FreezeApplication(id int64, reviewer, note string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	app, ok := store.applications[id]
-	if !ok {
-		return errSourceNotFound
-	}
-	if app.Status == sourceApplicationFrozen {
-		return errDeveloperAlreadyCancelled
-	}
-	if app.Status != sourceApplicationApproved {
-		return errApplicationNotCancellable
-	}
-	now := time.Now().UTC()
-	app.Status = sourceApplicationFrozen
-	app.ReviewedBy = reviewer
-	app.ReviewNote = sourceCancelNote(note)
-	app.ReviewedAt = &now
-	store.applications[id] = app
-	for idKey, dev := range store.developers {
-		if dev.ApplicationID == app.ID || strings.EqualFold(dev.Username, app.Username) {
-			dev.Enabled = false
-			store.developers[idKey] = dev
+	if app, ok := store.applications[id]; ok {
+		if app.Status == sourceApplicationPending {
+			return errApplicationNotCancellable
 		}
+		if dev, found := store.findDeveloperLocked(func(dev sourceDeveloper) bool {
+			return dev.ApplicationID == app.ID || strings.EqualFold(dev.Username, app.Username)
+		}); found {
+			store.deleteDeveloperLocked(dev, reviewer, note)
+			return nil
+		}
+		delete(store.applications, id)
+		store.auditLocked("cancel", "application", itoaSourceID(id), reviewer, sourceCancelNote(note))
+		return nil
 	}
-	store.auditLocked("cancel", "application", itoaSourceID(id), reviewer, app.ReviewNote)
-	return nil
+	if dev, found := store.findDeveloperLocked(func(dev sourceDeveloper) bool {
+		return dev.ApplicationID == id
+	}); found {
+		store.deleteDeveloperLocked(dev, reviewer, note)
+		return nil
+	}
+	return errSourceNotFound
 }
 
 func (store *memorySourceStore) GetDeveloperByUsername(username string) (sourceDeveloper, error) {
@@ -812,23 +836,7 @@ func (store *memorySourceStore) FreezeDeveloper(id int64, actor, note string) er
 	if !ok {
 		return errSourceNotFound
 	}
-	if !item.Enabled {
-		return errDeveloperAlreadyCancelled
-	}
-	item.Enabled = false
-	store.developers[id] = item
-	note = sourceCancelNote(note)
-	now := time.Now().UTC()
-	for appID, app := range store.applications {
-		if app.ID == item.ApplicationID || strings.EqualFold(app.Username, item.Username) {
-			app.Status = sourceApplicationFrozen
-			app.ReviewedBy = actor
-			app.ReviewNote = note
-			app.ReviewedAt = &now
-			store.applications[appID] = app
-		}
-	}
-	store.auditLocked("cancel", "developer", itoaSourceID(id), actor, note)
+	store.deleteDeveloperLocked(item, actor, note)
 	return nil
 }
 
@@ -1647,9 +1655,6 @@ func (mysqlSourceStore) ApproveApplication(id int64, reviewer string) (sourceDev
 	if app.Status != sourceApplicationPending {
 		return sourceDeveloper{}, errApplicationReviewed
 	}
-	if _, err := tx.Exec(`UPDATE source_developer_applications SET status='approved', reviewed_by=?, reviewed_at=NOW() WHERE id=?`, reviewer, id); err != nil {
-		return sourceDeveloper{}, err
-	}
 	result, err := tx.Exec(`INSERT INTO source_developers (application_id, username, password_hash, email, display_name, enabled)
 		VALUES (?, ?, ?, ?, ?, 1)`, id, app.Username, app.PasswordHash, app.Email, app.DisplayName)
 	if err != nil {
@@ -1659,6 +1664,9 @@ func (mysqlSourceStore) ApproveApplication(id int64, reviewer string) (sourceDev
 		return sourceDeveloper{}, err
 	}
 	developerID, _ := result.LastInsertId()
+	if _, err := tx.Exec(`DELETE FROM source_developer_applications WHERE id=?`, id); err != nil {
+		return sourceDeveloper{}, err
+	}
 	if _, err := tx.Exec(`INSERT IGNORE INTO roles (role_name, role_code, description, discount, enabled)
 		VALUES (?, ?, '软件源开发者，可提交插件与首页模板元数据', 10.0, 1)`, sourceDeveloperRoleName, sourceDeveloperRoleCode); err != nil {
 		return sourceDeveloper{}, err
@@ -1682,37 +1690,67 @@ func (mysqlSourceStore) RejectApplication(id int64, reviewer, note string) error
 	if err != nil {
 		return err
 	}
-	if _, err := db.Exec(`UPDATE source_developer_applications SET status='rejected', reviewed_by=?, review_note=?, reviewed_at=NOW() WHERE id=?`,
-		reviewer, truncateText(note, 500), id); err != nil {
+	if _, err := db.Exec(`DELETE FROM source_developer_applications WHERE id=?`, id); err != nil {
 		return err
 	}
 	mysqlAppendAudit(db, "reject", "application", itoaSourceID(id), reviewer, note)
 	return nil
 }
 
-func (mysqlSourceStore) FreezeApplication(id int64, reviewer, note string) error {
-	app, err := (mysqlSourceStore{}).GetApplication(id)
-	if err != nil {
+func mysqlDeleteDeveloper(db *sql.DB, item sourceDeveloper, actor, note string) error {
+	if _, err := db.Exec(`UPDATE source_catalog_plugins SET developer_id=0 WHERE developer_id=?`, item.ID); err != nil {
 		return err
 	}
-	if app.Status == sourceApplicationFrozen {
-		return errDeveloperAlreadyCancelled
+	if _, err := db.Exec(`UPDATE source_catalog_templates SET developer_id=0 WHERE developer_id=?`, item.ID); err != nil {
+		return err
 	}
-	if app.Status != sourceApplicationApproved {
-		return errApplicationNotCancellable
+	if _, err := db.Exec(`DELETE FROM source_developer_applications WHERE id=? OR username=?`, item.ApplicationID, item.Username); err != nil {
+		return err
 	}
-	note = sourceCancelNote(note)
+	if _, err := db.Exec(`DELETE FROM source_developers WHERE id=?`, item.ID); err != nil {
+		return err
+	}
+	mysqlAppendAudit(db, "cancel", "developer", itoaSourceID(item.ID), actor, sourceCancelNote(note))
+	return nil
+}
+
+func (mysqlSourceStore) FreezeApplication(id int64, reviewer, note string) error {
 	db, err := config.DB()
 	if err != nil {
 		return err
 	}
-	if _, err := db.Exec(`UPDATE source_developer_applications SET status='frozen', reviewed_by=?, review_note=?, reviewed_at=NOW() WHERE id=?`,
-		reviewer, truncateText(note, 500), id); err != nil {
+	if err := ensureSourceStationStorage(db); err != nil {
 		return err
 	}
-	_, _ = db.Exec(`UPDATE source_developers SET enabled=0 WHERE application_id=? OR username=?`, id, app.Username)
-	mysqlAppendAudit(db, "cancel", "application", itoaSourceID(id), reviewer, note)
-	return nil
+	app, err := (mysqlSourceStore{}).GetApplication(id)
+	if err == nil {
+		if app.Status == sourceApplicationPending {
+			return errApplicationNotCancellable
+		}
+		if item, findErr := scanSourceDeveloper(db.QueryRow(`SELECT id, COALESCE(application_id, 0), username, password_hash, email, display_name, enabled, created_at
+			FROM source_developers WHERE application_id=? OR username=? LIMIT 1`, app.ID, app.Username)); findErr == nil {
+			return mysqlDeleteDeveloper(db, item, reviewer, note)
+		} else if !errors.Is(findErr, sql.ErrNoRows) {
+			return findErr
+		}
+		if _, delErr := db.Exec(`DELETE FROM source_developer_applications WHERE id=?`, id); delErr != nil {
+			return delErr
+		}
+		mysqlAppendAudit(db, "cancel", "application", itoaSourceID(id), reviewer, sourceCancelNote(note))
+		return nil
+	}
+	if !errors.Is(err, errSourceNotFound) {
+		return err
+	}
+	item, findErr := scanSourceDeveloper(db.QueryRow(`SELECT id, COALESCE(application_id, 0), username, password_hash, email, display_name, enabled, created_at
+		FROM source_developers WHERE application_id=?`, id))
+	if errors.Is(findErr, sql.ErrNoRows) {
+		return errSourceNotFound
+	}
+	if findErr != nil {
+		return findErr
+	}
+	return mysqlDeleteDeveloper(db, item, reviewer, note)
 }
 
 func scanSourceDeveloper(scanner interface{ Scan(dest ...any) error }) (sourceDeveloper, error) {
@@ -1763,23 +1801,14 @@ func (mysqlSourceStore) FreezeDeveloper(id int64, actor, note string) error {
 	if err != nil {
 		return err
 	}
-	if !item.Enabled {
-		return errDeveloperAlreadyCancelled
-	}
-	note = sourceCancelNote(note)
 	db, err := config.DB()
 	if err != nil {
 		return err
 	}
-	if _, err := db.Exec(`UPDATE source_developers SET enabled=0 WHERE id=?`, id); err != nil {
+	if err := ensureSourceStationStorage(db); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`UPDATE source_developer_applications SET status='frozen', reviewed_by=?, review_note=?, reviewed_at=NOW() WHERE id=? OR username=?`,
-		actor, truncateText(note, 500), item.ApplicationID, item.Username); err != nil {
-		return err
-	}
-	mysqlAppendAudit(db, "cancel", "developer", itoaSourceID(id), actor, note)
-	return nil
+	return mysqlDeleteDeveloper(db, item, actor, note)
 }
 
 func (mysqlSourceStore) ListDevelopers() ([]sourceDeveloper, error) {

@@ -356,7 +356,10 @@ func AdminSourceDeveloperApplications(c *gin.Context) {
 	if status == "cancelled" {
 		status = sourceApplicationFrozen
 	}
-	if status != "" && status != sourceApplicationPending && status != sourceApplicationApproved &&
+	if status == "" {
+		status = sourceApplicationPending
+	}
+	if status != sourceApplicationPending && status != sourceApplicationApproved &&
 		status != sourceApplicationRejected && status != sourceApplicationFrozen {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "状态不合法"})
 		return
@@ -412,7 +415,7 @@ func AdminSourceDeveloperCancel(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已取消该开发者资格，对方无法再登录开发者端或发布内容"})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已取消开发者资格并删除账号，该用户名可重新申请入驻"})
 }
 
 func currentSourceDeveloper(c *gin.Context) (sourceDeveloper, error) {
