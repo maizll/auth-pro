@@ -47,6 +47,14 @@ export function canCatalogVersionAction(
   return catalogVersionActions(status, isLatest).includes(action)
 }
 
+export function canVersionAction(
+  status: string,
+  action: CatalogVersionAction,
+  isLatest = false
+): boolean {
+  return canCatalogVersionAction(status, action, isLatest)
+}
+
 export function isDeprecatedCatalogStatus(status: string): boolean {
   return status === 'deprecated'
 }

@@ -632,6 +632,103 @@ func TestAdminDraftPluginCanApproveAndReject(t *testing.T) {
 	}
 }
 
+func TestAdminReuploadPublishedVersionCanApprove(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	payload := sourcePluginTestZIP(t)
+	first := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", payload, map[string]string{
+		"kind": "plugin", "push": "0", "shelf": "1",
+		"downloadUrl": "https://cdn.example.com/demo-plugin-1.0.0.zip",
+	})
+	if sourceBodyCode(t, first) != 200 {
+		t.Fatalf("first publish=%s", first.Body.String())
+	}
+	second := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", payload, map[string]string{
+		"kind": "plugin", "push": "0",
+		"downloadUrl": "https://cdn.example.com/demo-plugin-1.0.0-reupload.zip",
+		"changelog":   "重传同版本",
+	})
+	if sourceBodyCode(t, second) != 200 {
+		t.Fatalf("re-upload=%s", second.Body.String())
+	}
+	plugin, err := store.GetPlugin("demo-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plugin.Status != sourceItemDraft {
+		t.Fatalf("item after re-upload=%s", plugin.Status)
+	}
+	rel, err := store.GetVersion(sourceKindPlugin, "demo-plugin", plugin.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.Status != sourceVersionDraft {
+		t.Fatalf("version after re-upload=%s", rel.Status)
+	}
+	approve := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/approve", admin, "{}")
+	if sourceBodyCode(t, approve) != 200 {
+		t.Fatalf("approve after re-upload=%s", approve.Body.String())
+	}
+	approved, err := store.GetPlugin("demo-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.Status != sourceItemApproved {
+		t.Fatalf("approve status=%s", approved.Status)
+	}
+}
+
+func TestAdminUpsertVersionResetsPublishedToDraft(t *testing.T) {
+	_, store := sourceStationRouter(t)
+	created, err := store.UpsertPlugin(sourcePlugin{
+		ID: "ver-reset", Name: "演示插件", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), DownloadURL: "https://cdn.example.com/old.zip", Changelog: "首发",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetPluginStatus(created.ID, sourceItemPublished, "admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.GetVersion(sourceKindPlugin, "ver-reset", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Status != sourceVersionPublished {
+		t.Fatalf("setup version=%s", before.Status)
+	}
+	saved, err := store.UpsertVersion(sourceRelease{
+		Kind: sourceKindPlugin, ItemID: "ver-reset", Version: "1.0.0",
+		Location: "https://cdn.example.com/new.zip", SHA256: strings.Repeat("cd", 32), Changelog: "重传",
+	}, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status != sourceVersionDraft {
+		t.Fatalf("admin UpsertVersion of published must reset to draft, got %s", saved.Status)
+	}
+	if saved.ReviewNote != "" || saved.ReviewedBy != "" {
+		t.Fatalf("version review fields=%q %q", saved.ReviewNote, saved.ReviewedBy)
+	}
+	if saved.Location != "https://cdn.example.com/new.zip" || saved.SHA256 != strings.Repeat("cd", 32) {
+		t.Fatalf("version fields not overwritten: %+v", saved)
+	}
+	audits, err := store.ListAudit(50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, entry := range audits {
+		if entry.Action == "reupload_reset" && entry.TargetType == "plugin-version" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("want version reupload_reset audit, got %+v", audits)
+	}
+}
+
 func TestAdminUpsertExistingPluginResetsDraft(t *testing.T) {
 	_, store := sourceStationRouter(t)
 	created, err := store.UpsertPlugin(sourcePlugin{

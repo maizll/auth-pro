@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  canVersionAction,
   catalogItemActions,
   catalogVersionActions,
   isDeprecatedCatalogStatus
@@ -24,4 +25,11 @@ test('catalog version actions follow sourceVersionTransitionAllowed without no-o
   assert.deepEqual(catalogVersionActions('published', false), ['latest', 'deprecate'])
   assert.deepEqual(catalogVersionActions('published', true), ['deprecate'])
   assert.deepEqual(catalogVersionActions('deprecated'), [])
+  assert.equal(canVersionAction('draft', 'approve'), true)
+  assert.equal(canVersionAction('pending', 'reject'), true)
+  assert.equal(canVersionAction('published', 'latest', false), true)
+  assert.equal(canVersionAction('published', 'deprecate'), true)
+  assert.equal(canVersionAction('draft', 'reject'), false)
+  assert.equal(canVersionAction('published', 'approve'), false)
+  assert.equal(canVersionAction('deprecated', 'deprecate'), false)
 })

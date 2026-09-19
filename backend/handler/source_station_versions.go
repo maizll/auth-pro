@@ -98,19 +98,29 @@ func (store *memorySourceStore) upsertVersionLocked(rel sourceRelease, developer
 			if !asAdmin && (existing.Location != rel.Location || existing.SHA256 != rel.SHA256) {
 				return sourceRelease{}, errSourceVersionImmutable
 			}
-			if asAdmin && existing.Location != rel.Location {
-				store.auditLocked("url_change", rel.Kind+"-version", rel.ItemID+"@"+rel.Version, "admin", rel.Location)
-				existing.Location = rel.Location
-				existing.SHA256 = rel.SHA256
-				existing.Changelog = rel.Changelog
-				existing.UpdatedAt = now
-				bucket[rel.ItemID][rel.Version] = existing
-				if err := store.denormalizeLatestLocked(rel.Kind, rel.ItemID); err != nil {
-					return sourceRelease{}, err
-				}
+			if !asAdmin {
 				return existing, nil
 			}
-			return existing, nil
+			if rel.Location != "" && rel.Location != existing.Location {
+				store.auditLocked("url_change", rel.Kind+"-version", rel.ItemID+"@"+rel.Version, "admin", rel.Location)
+				existing.Location = rel.Location
+			}
+			if rel.SHA256 != "" {
+				existing.SHA256 = rel.SHA256
+			}
+			if rel.Changelog != "" {
+				existing.Changelog = rel.Changelog
+			}
+			existing.Status = sourceVersionDraft
+			existing.ReviewNote = ""
+			existing.ReviewedBy = ""
+			existing.UpdatedAt = now
+			bucket[rel.ItemID][rel.Version] = existing
+			store.auditLocked("reupload_reset", rel.Kind+"-version", rel.ItemID+"@"+rel.Version, "admin", "status reset to draft")
+			if err := store.denormalizeLatestLocked(rel.Kind, rel.ItemID); err != nil {
+				return sourceRelease{}, err
+			}
+			return bucket[rel.ItemID][rel.Version], nil
 		}
 		if rel.Location != "" {
 			existing.Location = rel.Location
@@ -490,14 +500,21 @@ func (mysqlSourceStore) UpsertVersion(rel sourceRelease, developerID int64, asAd
 			if !asAdmin && (existing.Location != rel.Location || existing.SHA256 != rel.SHA256) && (rel.Location != "" || rel.SHA256 != "") {
 				return sourceRelease{}, errSourceVersionImmutable
 			}
-			if asAdmin && rel.Location != "" {
-				if err := mysqlWriteVersion(db, rel.Kind, existing.ItemID, existing.Version, coalesceRelease(existing, rel), existing.Status); err != nil {
-					return sourceRelease{}, err
-				}
-				if existing.Location != rel.Location {
-					mysqlAppendAudit(db, "url_change", rel.Kind+"-version", rel.ItemID+"@"+rel.Version, "admin", rel.Location)
-				}
+			if !asAdmin {
+				return existing, nil
 			}
+			merged := coalesceRelease(existing, rel)
+			merged.Status = sourceVersionDraft
+			merged.ReviewNote = ""
+			merged.ReviewedBy = ""
+			if err := mysqlWriteVersion(db, rel.Kind, existing.ItemID, existing.Version, merged, sourceVersionDraft); err != nil {
+				return sourceRelease{}, err
+			}
+			if rel.Location != "" && existing.Location != rel.Location {
+				mysqlAppendAudit(db, "url_change", rel.Kind+"-version", rel.ItemID+"@"+rel.Version, "admin", rel.Location)
+			}
+			mysqlAppendAudit(db, "reupload_reset", rel.Kind+"-version", rel.ItemID+"@"+rel.Version, "admin", "status reset to draft")
+			_ = (mysqlSourceStore{}).denormalizeLatest(rel.Kind, rel.ItemID)
 			return (mysqlSourceStore{}).GetVersion(rel.Kind, rel.ItemID, rel.Version)
 		}
 		merged := coalesceRelease(existing, rel)

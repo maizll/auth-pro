@@ -269,7 +269,7 @@
           <template #default="{ row }">
             <span v-if="isDeprecatedCatalogStatus(row.status)" class="deprecated-hint">已弃用</span>
             <el-button
-              v-if="canCatalogVersionAction(row.status, 'approve')"
+              v-if="canVersionAction(row.status, 'approve')"
               link
               type="success"
               size="small"
@@ -277,7 +277,7 @@
               >通过</el-button
             >
             <el-button
-              v-if="canCatalogVersionAction(row.status, 'reject')"
+              v-if="canVersionAction(row.status, 'reject')"
               link
               type="warning"
               size="small"
@@ -286,7 +286,7 @@
             >
             <el-button
               v-if="
-                canCatalogVersionAction(
+                canVersionAction(
                   row.status,
                   'latest',
                   row.version === currentItem?.latestVersion
@@ -299,7 +299,7 @@
               >设为 latest</el-button
             >
             <el-button
-              v-if="canCatalogVersionAction(row.status, 'deprecate')"
+              v-if="canVersionAction(row.status, 'deprecate')"
               link
               type="danger"
               size="small"
@@ -370,7 +370,7 @@
   } from '@/api/source-station'
   import {
     canCatalogItemAction,
-    canCatalogVersionAction,
+    canVersionAction,
     isDeprecatedCatalogStatus
   } from './catalog-actions'
 
