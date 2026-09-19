@@ -1,6 +1,6 @@
 import { onMounted, ref } from 'vue'
-import { fetchAdvertisements } from '@/api/advertisement'
-import type { AdPosition, AdvertisementItem } from '@/api/advertisement'
+import { fetchAdvertisements, normalizeAdPlaceholder } from '@/api/advertisement'
+import type { AdPosition, AdvertisementItem, AdvertisementPlaceholder } from '@/api/advertisement'
 import type { PromotionItem, PromotionPage } from '@/api/promotion'
 
 /** 跑马灯滚动所需的最少卡片数，与 ArtPromotionMarquee 的滚动阈值一致；不足时用招租占位补齐 */
@@ -9,13 +9,20 @@ const MARQUEE_SCROLL_MIN = 8
 /** 占位卡片 id 必须唯一：展示板按 item.id 做 key，同页多个占位会撞 key */
 let placeholderSeq = 0
 
-/** 广告位招租占位：无投放或加载失败时展示，点击跳转投放咨询入口 */
+/** 接口返回前与失败时用安全默认：默认文案、无跳转，不再写死外部 QQ 群 */
+let currentPlaceholder: AdvertisementPlaceholder = normalizeAdPlaceholder()
+
+const applyPlaceholder = (input?: Partial<AdvertisementPlaceholder> | null) => {
+  currentPlaceholder = normalizeAdPlaceholder(input)
+}
+
+/** 广告位招租占位：无投放或加载失败时展示；跳转由后台配置，空链接不可点击 */
 const promotionAdPlaceholder = (): PromotionItem => ({
   id: `ad-placeholder-${++placeholderSeq}`,
-  title: '广告位出租',
-  summary: '虚位以待，欢迎联系投放',
+  title: currentPlaceholder.title,
+  summary: currentPlaceholder.description,
   tag: '招租',
-  linkUrl: 'https://qm.qq.com/q/t7uihFYnn2',
+  linkUrl: currentPlaceholder.linkUrl,
   imageUrl: ''
 })
 
@@ -33,8 +40,10 @@ const mapAdToPromotion = (ad: AdvertisementItem): PromotionItem => ({
 const loadPromotionItems = async (position: AdPosition): Promise<PromotionItem[]> => {
   try {
     const result = await fetchAdvertisements(position)
+    applyPlaceholder(result?.placeholder)
     return (result?.records ?? []).map(mapAdToPromotion)
   } catch {
+    applyPlaceholder()
     return []
   }
 }

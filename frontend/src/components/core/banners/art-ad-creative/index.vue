@@ -20,7 +20,7 @@
       </div>
     </template>
     <div v-else class="ad-vacancy">
-      <span class="ad-vacancy-title">广告位出租</span>
+      <span class="ad-vacancy-title">{{ item.title || '广告位出租' }}</span>
       <small class="ad-vacancy-desc">{{ item.description || '虚位以待，欢迎联系投放' }}</small>
     </div>
   </component>

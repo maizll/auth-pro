@@ -174,6 +174,12 @@ export interface SourceAdvertisement {
   description: string
 }
 
+export interface SourceAdPlaceholder {
+  title: string
+  description: string
+  linkUrl: string
+}
+
 export interface SourcePluginDraft {
   id: string
   category?: string
@@ -483,11 +489,20 @@ export function publishSourcePackage(form: FormData) {
 }
 
 export function fetchSourceAdvertisements() {
-  return request.get<{ records: SourceAdvertisement[] }>({ url: `${BASE}/advertisements` })
+  return request.get<{ records: SourceAdvertisement[]; placeholder: SourceAdPlaceholder }>({
+    url: `${BASE}/advertisements`
+  })
 }
 
 export function saveSourceAdvertisement(payload: SourceAdvertisement) {
   return request.put<SourceAdvertisement>({ url: `${BASE}/advertisements`, data: payload })
+}
+
+export function saveSourceAdPlaceholder(payload: SourceAdPlaceholder) {
+  return request.put<SourceAdPlaceholder>({
+    url: `${BASE}/advertisements/placeholder`,
+    data: payload
+  })
 }
 
 export function deleteSourceAdvertisement(id: string) {
