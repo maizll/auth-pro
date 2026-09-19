@@ -346,8 +346,11 @@
    * 加载等级选项（新增/编辑弹窗）
    */
   const fetchLevelOptions = async () => {
-    const data = await fetchAgentLevelOptions()
-    levelOptions.value = data || []
+    try {
+      levelOptions.value = await fetchAgentLevelOptions()
+    } catch {
+      levelOptions.value = []
+    }
   }
 
   /**
@@ -410,8 +413,12 @@
     dialogVisible.value = true
   }
 
-  const handleEdit = (row: AgentItem) => {
+  const handleEdit = async (row: AgentItem) => {
     isEdit.value = true
+    await fetchLevelOptions()
+    if (!levelOptions.value.length) {
+      ElMessage.warning('暂无可用代理商等级，请先新增并启用等级')
+    }
     Object.assign(formData, {
       id: row.id,
       name: row.name,
@@ -518,6 +525,8 @@
       console.error('[AgentList] 提交失败:', e)
     }
   }
+
+  onMounted(fetchLevelOptions)
 </script>
 
 <style scoped lang="scss">
