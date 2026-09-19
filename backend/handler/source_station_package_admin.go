@@ -164,7 +164,7 @@ func AdminSourcePackagePublish(c *gin.Context) {
 			return
 		}
 		previous, _ := currentSourceStationStore().GetTemplate(item.ID)
-		saved, upsertErr := currentSourceStationStore().ReplaceTemplateFromPackage(item, actor)
+		saved, upsertErr := currentSourceStationStore().UpsertTemplate(item, true)
 		if upsertErr != nil {
 			writeSourceDeveloperStoreError(c, upsertErr)
 			return
@@ -203,7 +203,7 @@ func AdminSourcePackagePublish(c *gin.Context) {
 			return
 		}
 		previous, _ := currentSourceStationStore().GetPlugin(item.ID)
-		saved, upsertErr := currentSourceStationStore().ReplacePluginFromPackage(item, actor)
+		saved, upsertErr := currentSourceStationStore().UpsertPlugin(item, true)
 		if upsertErr != nil {
 			writeSourceDeveloperStoreError(c, upsertErr)
 			return

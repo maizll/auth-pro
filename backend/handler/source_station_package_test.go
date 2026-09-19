@@ -532,10 +532,86 @@ func TestSourcePackageRepublishDeprecatedPluginResetsDraft(t *testing.T) {
 	if rel.Status != sourceVersionDraft {
 		t.Fatalf("re-upload must reset version to draft, got %s", rel.Status)
 	}
+	audits, err := store.ListAudit(50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundReset, foundURL := false, false
+	for _, entry := range audits {
+		if entry.Action == "reupload_reset" && entry.Detail == "status reset to draft" {
+			foundReset = true
+		}
+		if entry.Action == "url_change" && strings.Contains(entry.Detail, "demo-plugin-1.0.0-reupload.zip") {
+			foundURL = true
+		}
+	}
+	if !foundReset || !foundURL {
+		t.Fatalf("want reupload_reset and url_change after admin re-upload, audits=%+v", audits)
+	}
 
 	shelf := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/shelf", admin, "{}")
 	if sourceBodyCode(t, shelf) != 200 {
 		t.Fatalf("draft after re-upload must be shelfable: %s", shelf.Body.String())
+	}
+}
+
+func TestAdminUpsertExistingPluginResetsDraft(t *testing.T) {
+	_, store := sourceStationRouter(t)
+	created, err := store.UpsertPlugin(sourcePlugin{
+		ID: "reupload-plugin", Name: "演示插件", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), DownloadURL: "https://cdn.example.com/old.zip", Changelog: "首发",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetPluginStatus(created.ID, sourceItemPublished, "admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetPluginStatus(created.ID, sourceItemDeprecated, "admin", "旧包作废"); err != nil {
+		t.Fatal(err)
+	}
+	newSHA := strings.Repeat("cd", 32)
+	saved, err := store.UpsertPlugin(sourcePlugin{
+		ID: "reupload-plugin", Name: "演示插件", Description: "x", Version: "1.0.0",
+		SHA256: newSHA, DownloadURL: "https://cdn.example.com/new.zip", Changelog: "重新上传",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status != sourceItemDraft {
+		t.Fatalf("admin upsert of existing item must reset to draft, got %s", saved.Status)
+	}
+	if saved.ReviewNote != "" || saved.ReviewedBy != "" {
+		t.Fatalf("admin upsert must clear review notes: note=%q by=%q", saved.ReviewNote, saved.ReviewedBy)
+	}
+	if saved.DownloadURL != "https://cdn.example.com/new.zip" || saved.SHA256 != newSHA || saved.Changelog != "重新上传" {
+		t.Fatalf("admin upsert must overwrite package fields: %+v", saved)
+	}
+}
+
+func TestDeveloperUpsertPreservesPublishedStatus(t *testing.T) {
+	_, store := sourceStationRouter(t)
+	created, err := store.UpsertPlugin(sourcePlugin{
+		ID: "dev-preserve", Name: "演示插件", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), DownloadURL: "https://cdn.example.com/old.zip", Changelog: "首发",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	published, err := store.SetPluginStatus(created.ID, sourceItemPublished, "admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := store.UpsertPlugin(sourcePlugin{
+		ID: published.ID, Name: "开发者改名", Description: "x", Version: "1.0.1",
+		SHA256: strings.Repeat("cd", 32), DownloadURL: "https://cdn.example.com/dev.zip",
+		Changelog: "dev", DeveloperID: published.DeveloperID,
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status != sourceItemPublished {
+		t.Fatalf("developer upsert must preserve status, got %s", saved.Status)
 	}
 }
 
