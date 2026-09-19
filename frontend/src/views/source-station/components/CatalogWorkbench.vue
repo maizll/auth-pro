@@ -154,23 +154,22 @@
         <el-form-item label="changelog">
           <el-input v-model="uploadForm.changelog" type="textarea" :rows="2" />
         </el-form-item>
-        <el-form-item label="外部地址">
+        <el-form-item>
+          <el-checkbox v-model="uploadForm.push">推送 GitHub/Gitee Release</el-checkbox>
+        </el-form-item>
+        <el-form-item
+          v-if="!uploadForm.push"
+          :label="isPlugin ? 'downloadUrl' : 'templateUrl'"
+          required
+        >
           <el-input
             v-model="uploadForm.location"
             :placeholder="
-              isPlugin ? 'https://... 下载地址（未配置 Release 时必填）' : 'https://... 或相对路径'
+              isPlugin ? 'https://... 下载地址（未推 Release 时必填）' : 'https://... 或相对路径'
             "
           />
         </el-form-item>
-        <el-form-item label="minVersion">
-          <el-input v-model="uploadForm.minVersion" placeholder="可选" />
-        </el-form-item>
-        <el-form-item label="选项">
-          <el-checkbox v-model="uploadForm.push">推送 GitHub/Gitee Release</el-checkbox>
-          <el-checkbox v-model="uploadForm.submit">保存后提交审核</el-checkbox>
-          <el-checkbox v-model="uploadForm.shelf">保存后直接上架</el-checkbox>
-          <el-checkbox v-model="uploadForm.forceUpdate">forceUpdate</el-checkbox>
-        </el-form-item>
+        <p class="card-hint">保存为草稿。审核请在列表中点通过，再上架。</p>
       </el-form>
       <template #footer>
         <el-button @click="uploadVisible = false">取消</el-button>
@@ -393,11 +392,7 @@
   const uploadForm = reactive({
     changelog: '',
     location: '',
-    minVersion: '',
-    push: true,
-    submit: false,
-    shelf: false,
-    forceUpdate: false
+    push: true
   })
 
   const registerVisible = ref(false)
@@ -461,11 +456,7 @@
     parsedManifest.value = null
     uploadForm.changelog = ''
     uploadForm.location = ''
-    uploadForm.minVersion = ''
     uploadForm.push = true
-    uploadForm.submit = false
-    uploadForm.shelf = false
-    uploadForm.forceUpdate = false
     uploadVisible.value = true
   }
 
@@ -479,14 +470,10 @@
     if (uploadFile.value) form.append('file', uploadFile.value)
     form.append('kind', props.kind)
     if (uploadForm.changelog) form.append('changelog', uploadForm.changelog)
-    if (uploadForm.minVersion) form.append('minVersion', uploadForm.minVersion)
-    if (uploadForm.location) {
+    if (!uploadForm.push && uploadForm.location) {
       form.append(isPlugin.value ? 'downloadUrl' : 'templateUrl', uploadForm.location)
     }
     if (uploadForm.push) form.append('push', 'true')
-    if (uploadForm.submit) form.append('submit', 'true')
-    if (uploadForm.shelf) form.append('shelf', 'true')
-    if (uploadForm.forceUpdate) form.append('forceUpdate', 'true')
     return form
   }
 
