@@ -63,10 +63,10 @@ func TestSourcePackageParseAutofillPlugin(t *testing.T) {
 	wantSHA := sha256Hex(payload)
 	rec := sourceMultipart(t, router, "/api/v1/source/admin/packages/parse", admin, "demo-plugin.zip", payload, map[string]string{"kind": "plugin"})
 	if sourceBodyCode(t, rec) != 200 {
-		t.Fatalf("parse=%s", rec.Body.String())
+		t.Fatalf("valid plugin.json must be accepted: %s", rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"demo-plugin"`) || !strings.Contains(rec.Body.String(), `"演示插件"`) || !strings.Contains(rec.Body.String(), `"1.0.0"`) {
-		t.Fatalf("autofill missing fields: %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"id":"demo-plugin"`) || !strings.Contains(rec.Body.String(), `"name":"演示插件"`) || !strings.Contains(rec.Body.String(), `"version":"1.0.0"`) || !strings.Contains(rec.Body.String(), `"description":"内存解析测试"`) {
+		t.Fatalf("accepted metadata incomplete: %s", rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), wantSHA) || !strings.Contains(rec.Body.String(), `"stored":false`) {
 		t.Fatalf("sha256/stored missing: %s", rec.Body.String())
@@ -78,12 +78,94 @@ func TestSourcePackageParseAutofillPlugin(t *testing.T) {
 }
 
 func TestSourcePackageParseMissingPluginJSON(t *testing.T) {
-	router, _ := sourceStationRouter(t)
+	router, store := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
 	payload := makeTestZIP(t, testZIPEntry{name: "readme.txt", data: "no manifest"})
 	rec := sourceMultipart(t, router, "/api/v1/source/admin/packages/parse", admin, "empty.zip", payload, map[string]string{"kind": "plugin"})
 	if sourceBodyCode(t, rec) != 400 || !strings.Contains(rec.Body.String(), "plugin.json") {
 		t.Fatalf("want missing plugin.json, got %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"field":"plugin.json"`) || !strings.Contains(rec.Body.String(), `"rule":"require_manifest"`) {
+		t.Fatalf("want field/rule on reject: %s", rec.Body.String())
+	}
+	plugins, err := store.ListPlugins("")
+	if err != nil || len(plugins) != 0 {
+		t.Fatalf("rejected zip must not write DB: %v %#v", err, plugins)
+	}
+}
+
+func TestSourcePackageParseRejectsUnsafeZip(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	payload := makeTestZIP(t,
+		testZIPEntry{name: "plugin.json", data: `{"id":"demo-plugin","name":"演示插件","version":"1.0.0","description":"x","author":"源站"}`},
+		testZIPEntry{name: "../escape.txt", data: "bad"},
+	)
+	rec := sourceMultipart(t, router, "/api/v1/source/admin/packages/parse", admin, "evil.zip", payload, map[string]string{"kind": "plugin"})
+	if sourceBodyCode(t, rec) != 400 || !strings.Contains(rec.Body.String(), "zip_layout") {
+		t.Fatalf("want unsafe zip rejected, got %s", rec.Body.String())
+	}
+	plugins, err := store.ListPlugins("")
+	if err != nil || len(plugins) != 0 {
+		t.Fatalf("unsafe zip must not write DB: %v %#v", err, plugins)
+	}
+}
+
+func TestSourcePackageParseRejectsMissingDescription(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	payload := makeTestZIP(t, testZIPEntry{name: "plugin.json", data: `{"id":"demo-plugin","name":"演示插件","version":"1.0.0","author":"源站"}`})
+	rec := sourceMultipart(t, router, "/api/v1/source/admin/packages/parse", admin, "nodesc.zip", payload, map[string]string{"kind": "plugin"})
+	if sourceBodyCode(t, rec) != 400 || !strings.Contains(rec.Body.String(), `"field":"description"`) {
+		t.Fatalf("want description required, got %s", rec.Body.String())
+	}
+}
+
+func TestSourcePackagePublishRejectsNonCompliantWithoutReleaseOrDB(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	hits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	prev := sourceGitHubAPIBase
+	sourceGitHubAPIBase = server.URL
+	t.Cleanup(func() { sourceGitHubAPIBase = prev })
+	save := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/settings/release", admin,
+		`{"provider":"github","owner":"acme","repo":"pkgs","token":"ghs_test_token"}`)
+	if sourceBodyCode(t, save) != 200 {
+		t.Fatalf("settings=%s", save.Body.String())
+	}
+	payload := makeTestZIP(t, testZIPEntry{name: "readme.txt", data: "no plugin.json"})
+	rec := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "bad.zip", payload, map[string]string{
+		"kind": "plugin", "push": "1", "shelf": "1",
+	})
+	if sourceBodyCode(t, rec) != 400 {
+		t.Fatalf("non-compliant must 400, got %s", rec.Body.String())
+	}
+	if hits != 0 {
+		t.Fatalf("must not push Release after reject, github hits=%d", hits)
+	}
+	plugins, err := store.ListPlugins("")
+	if err != nil || len(plugins) != 0 {
+		t.Fatalf("must not write DB: %v %#v", err, plugins)
+	}
+}
+
+func TestSourcePackageSchemaDocumentsRequiredFields(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	public := sourceJSON(t, router, http.MethodGet, "/software-source/package-schema.json", "", "")
+	if public.Code != 200 || !strings.Contains(public.Body.String(), `"plugin.json"`) || !strings.Contains(public.Body.String(), `"template.json"`) {
+		t.Fatalf("public schema=%s", public.Body.String())
+	}
+	if !strings.Contains(public.Body.String(), "fail-closed") || !strings.Contains(public.Body.String(), `"id"`) {
+		t.Fatalf("schema missing bar: %s", public.Body.String())
+	}
+	admin := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/packages/schema", sourceAdminToken(t), "")
+	if sourceBodyCode(t, admin) != 200 || !strings.Contains(admin.Body.String(), "plugin.json") || !strings.Contains(admin.Body.String(), "template.json") {
+		t.Fatalf("admin schema=%s", admin.Body.String())
 	}
 }
 

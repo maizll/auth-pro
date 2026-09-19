@@ -16,6 +16,7 @@ import (
 func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 	engine.GET("/software-source/index.json", SourceStationIndex)
 	engine.GET("/auth-pro/index.json", SourceStationIndex)
+	engine.GET("/software-source/package-schema.json", SourcePackageSchema)
 
 	api.POST("/v1/source/developer/apply", SourceDeveloperApply)
 	api.POST("/v1/source/developer/apply/status", SourceDeveloperApplyStatus)
@@ -84,6 +85,7 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 
 		admin.GET("/settings/release", AdminSourceReleaseSettings)
 		admin.PUT("/settings/release", AdminSourceReleaseSettingsSave)
+		admin.GET("/packages/schema", SourcePackageSchema)
 		admin.POST("/packages/parse", AdminSourcePackageParse)
 		admin.POST("/packages/publish", AdminSourcePackagePublish)
 

@@ -16,6 +16,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type sourcePackageReject struct {
+	Field string
+	Rule  string
+	Msg   string
+}
+
+func (e sourcePackageReject) Error() string { return e.Msg }
+
+func rejectSourcePackage(field, rule, msg string) sourcePackageReject {
+	return sourcePackageReject{Field: field, Rule: rule, Msg: msg}
+}
+
 type sourcePackageManifest struct {
 	Kind          string       `json:"kind"`
 	ID            string       `json:"id"`
@@ -76,34 +88,112 @@ func (m sourcePackageManifest) view() gin.H {
 	return data
 }
 
+func SourcePackageSchema(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	doc := sourcePackageSchemaDocument()
+	if strings.HasPrefix(c.Request.URL.Path, "/software-source/") {
+		c.JSON(http.StatusOK, doc)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": doc})
+}
+
+func sourcePackageSchemaDocument() gin.H {
+	return gin.H{
+		"gate": "fail-closed：不合规 ZIP 一律拒绝，不写库、不推 Release、不保留临时文件",
+		"upload": gin.H{
+			"parse":   "POST /api/v1/source/admin/packages/parse",
+			"publish": "POST /api/v1/source/admin/packages/publish",
+			"schema":  "GET /api/v1/source/admin/packages/schema 与 GET /software-source/package-schema.json",
+			"file":    "multipart 字段 file，必须是 ZIP，≤ 20 MiB",
+			"kind":    "可选 plugin | template；缺省时按包内清单识别，两种清单都没有则拒绝",
+		},
+		"zip": gin.H{
+			"required":             true,
+			"maxBytes":             pluginPackageMaxSize,
+			"maxFiles":             packageMaxFiles,
+			"maxUncompressedBytes": packageMaxExtractedBytes,
+			"manifestLocation":     "根目录或一层子目录",
+			"rejected":             []string{"路径穿越", "绝对路径", "符号链接", "重复/大小写冲突路径", "空包", "仅 __MACOSX 元数据"},
+			"sourceCodeNotStored":  true,
+			"afterValidation":      "自动填表 → 可选 GitHub/Gitee Release 推送 → 草稿/审核流",
+		},
+		"plugin": gin.H{
+			"manifest": "plugin.json",
+			"required": []string{"id", "name", "version", "description", "author"},
+			"fields": gin.H{
+				"id":          "必填，2-59 位小写字母、数字或连字符（^[a-z0-9][a-z0-9-]{1,58}$）",
+				"name":        "必填，≤100 字",
+				"version":     "必填，^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$",
+				"description": "必填，≤500 字",
+				"author":      "必填，字符串或 {name,url,email}；name 必填",
+				"category":    "可选 payment | realname | other，缺省 other",
+				"icon":        "可选，≤80 字",
+			},
+			"example": map[string]any{
+				"id": "demo-plugin", "name": "演示插件", "version": "1.0.0",
+				"description": "授权本地插件源测试", "author": map[string]string{"name": "源站"},
+				"category": "other",
+			},
+		},
+		"homeTemplate": gin.H{
+			"manifest": "template.json",
+			"required": []string{"id 或 templateKey", "name", "version", "description", "schemaVersion", "author", "hero.title"},
+			"fields": gin.H{
+				"id":            "与 templateKey 至少填一个，规则同插件 id",
+				"name":          "必填，≤100 字",
+				"version":       "必填，规则同插件 version",
+				"description":   "必填，≤500 字",
+				"schemaVersion": "必填，必须为 1",
+				"author":        "必填，字符串或 {name,url,email}；name 必填",
+				"hero.title":    "必填（声明式模板 schema v1）",
+				"scripts":       "禁止",
+			},
+			"example": map[string]any{
+				"id": "clean-home", "name": "清新首页", "version": "1.0.0",
+				"description": "简洁的授权服务首页", "schemaVersion": 1,
+				"author": map[string]string{"name": "设计组"},
+				"hero":   map[string]string{"title": "专业授权服务"},
+			},
+		},
+	}
+}
+
 func readSourcePackageUpload(c *gin.Context) (string, []byte, error) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, pluginPackageMaxSize+(1<<20))
 	header, err := c.FormFile("file")
 	if err != nil || header == nil || header.Size <= 0 {
-		return "", nil, errors.New("请上传插件 ZIP 或首页模板包（file 字段）")
+		return "", nil, rejectSourcePackage("file", "required", "请上传插件或首页模板 ZIP（multipart 字段 file）")
 	}
 	if header.Size > pluginPackageMaxSize {
-		return "", nil, errors.New("上传包不能超过 20 MiB")
+		return "", nil, rejectSourcePackage("file", "max_size", "上传包不能超过 20 MiB")
 	}
 	file, err := header.Open()
 	if err != nil {
-		return "", nil, errors.New("读取上传文件失败")
+		return "", nil, rejectSourcePackage("file", "read", "读取上传文件失败")
 	}
 	defer file.Close()
 	payload, err := readPluginReader(file, pluginPackageMaxSize)
 	if err != nil {
-		return "", nil, errors.New("读取上传文件失败：" + err.Error())
+		return "", nil, rejectSourcePackage("file", "read", "读取上传文件失败："+err.Error())
 	}
 	name := path.Base(strings.ReplaceAll(header.Filename, "\\", "/"))
 	if name == "." || name == "/" {
-		name = "package.bin"
+		name = "package.zip"
 	}
 	return name, payload, nil
 }
 
 func parseSourcePackageBytes(filename string, payload []byte, kindHint string) (sourcePackageManifest, error) {
 	if len(payload) == 0 {
-		return sourcePackageManifest{}, errors.New("上传包为空")
+		return sourcePackageManifest{}, rejectSourcePackage("file", "required", "上传包为空")
+	}
+	if !isZipPayload(payload) {
+		return sourcePackageManifest{}, rejectSourcePackage("file", "require_zip", "必须上传 ZIP 压缩包，且包内须含 plugin.json 或 template.json")
+	}
+	archive, err := openValidatedPackageZIP(payload)
+	if err != nil {
+		return sourcePackageManifest{}, rejectSourcePackage("file", "zip_layout", "压缩包布局不合法："+err.Error())
 	}
 	sum := sha256.Sum256(payload)
 	manifest := sourcePackageManifest{
@@ -112,94 +202,79 @@ func parseSourcePackageBytes(filename string, payload []byte, kindHint string) (
 		SHA256:   hex.EncodeToString(sum[:]),
 	}
 	kindHint = strings.ToLower(strings.TrimSpace(kindHint))
-	if isZipPayload(payload) {
-		archive, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
-		if err != nil {
-			return sourcePackageManifest{}, errors.New("不是有效的 ZIP 压缩包")
-		}
-		pluginRaw, pluginPath, pluginErr := readZipManifest(archive, "plugin.json")
-		templateRaw, templatePath, templateErr := readZipManifest(archive, "template.json")
-		switch kindHint {
-		case sourceKindPlugin:
-			if pluginErr != nil {
-				return sourcePackageManifest{}, errors.New("插件包缺少 plugin.json（根目录或一层子目录）")
-			}
-			return fillPluginManifest(manifest, pluginRaw, pluginPath)
-		case sourceKindTemplate:
-			if templateErr != nil {
-				return sourcePackageManifest{}, errors.New("模板包缺少 template.json（根目录或一层子目录）")
-			}
-			return fillTemplateManifest(manifest, templateRaw, templatePath)
-		default:
-			if pluginErr == nil {
-				return fillPluginManifest(manifest, pluginRaw, pluginPath)
-			}
-			if templateErr == nil {
-				return fillTemplateManifest(manifest, templateRaw, templatePath)
-			}
-			return sourcePackageManifest{}, errors.New("压缩包中未找到 plugin.json 或 template.json")
-		}
-	}
-	trimmed := bytes.TrimSpace(payload)
-	if len(trimmed) == 0 || trimmed[0] != '{' {
-		return sourcePackageManifest{}, errors.New("请上传插件 ZIP、首页模板 ZIP 或模板 JSON")
-	}
+	pluginRaw, pluginPath, pluginErr := readZipManifest(archive, "plugin.json")
+	templateRaw, templatePath, templateErr := readZipManifest(archive, "template.json")
 	switch kindHint {
 	case sourceKindPlugin:
-		return fillPluginManifest(manifest, trimmed, filename)
+		if pluginErr != nil {
+			return sourcePackageManifest{}, rejectSourcePackage("plugin.json", "require_manifest", "插件包必须在根目录或一层子目录包含 plugin.json")
+		}
+		return fillPluginManifest(manifest, pluginRaw, pluginPath)
 	case sourceKindTemplate:
-		return fillTemplateManifest(manifest, trimmed, filename)
+		if templateErr != nil {
+			return sourcePackageManifest{}, rejectSourcePackage("template.json", "require_manifest", "首页模板包必须在根目录或一层子目录包含 template.json")
+		}
+		return fillTemplateManifest(manifest, templateRaw, templatePath)
+	case "":
+		if pluginErr == nil {
+			return fillPluginManifest(manifest, pluginRaw, pluginPath)
+		}
+		if templateErr == nil {
+			return fillTemplateManifest(manifest, templateRaw, templatePath)
+		}
+		return sourcePackageManifest{}, rejectSourcePackage("plugin.json", "require_manifest", "压缩包必须包含 plugin.json（插件）或 template.json（首页模板）")
 	default:
-		if looksLikeTemplateManifest(trimmed) {
-			return fillTemplateManifest(manifest, trimmed, filename)
-		}
-		if plugin, err := fillPluginManifest(manifest, trimmed, filename); err == nil {
-			return plugin, nil
-		}
-		return fillTemplateManifest(manifest, trimmed, filename)
+		return sourcePackageManifest{}, rejectSourcePackage("kind", "invalid", "kind 仅支持 plugin 或 template")
 	}
-}
-
-func looksLikeTemplateManifest(raw []byte) bool {
-	var probe struct {
-		Hero          json.RawMessage `json:"hero"`
-		TemplateKey   string          `json:"templateKey"`
-		SchemaVersion int             `json:"schemaVersion"`
-		ID            string          `json:"id"`
-	}
-	if json.Unmarshal(raw, &probe) != nil {
-		return false
-	}
-	if len(bytes.TrimSpace(probe.Hero)) > 0 || strings.TrimSpace(probe.TemplateKey) != "" {
-		return true
-	}
-	return probe.SchemaVersion == homeTemplateSchemaVersion && strings.TrimSpace(probe.ID) != ""
 }
 
 func fillPluginManifest(base sourcePackageManifest, raw []byte, manifestPath string) (sourcePackageManifest, error) {
 	var doc pluginPackageJSON
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return sourcePackageManifest{}, errors.New("plugin.json 不是有效 JSON")
+		return sourcePackageManifest{}, rejectSourcePackage("plugin.json", "json", "plugin.json 不是有效 JSON")
 	}
 	id := strings.ToLower(strings.TrimSpace(doc.ID))
+	if id == "" {
+		return sourcePackageManifest{}, rejectSourcePackage("id", "required", "plugin.json 缺少 id")
+	}
 	if !pluginIDPattern.MatchString(id) {
-		return sourcePackageManifest{}, errors.New("plugin.json 缺少合法 id（2-59 位小写字母、数字或连字符）")
+		return sourcePackageManifest{}, rejectSourcePackage("id", "format", "plugin.json 字段 id 不合法：须为 2-59 位小写字母、数字或连字符")
 	}
-	name := truncateText(doc.Name, 100)
+	name := strings.TrimSpace(doc.Name)
 	if name == "" {
-		return sourcePackageManifest{}, errors.New("plugin.json 缺少 name")
+		return sourcePackageManifest{}, rejectSourcePackage("name", "required", "plugin.json 缺少 name")
 	}
-	version, err := normalizeSourceVersion(doc.Version)
+	name = truncateText(name, 100)
+	version := strings.TrimSpace(doc.Version)
+	if version == "" {
+		return sourcePackageManifest{}, rejectSourcePackage("version", "required", "plugin.json 缺少 version")
+	}
+	if !sourceVersionPattern.MatchString(version) {
+		return sourcePackageManifest{}, rejectSourcePackage("version", "format", "plugin.json 字段 version 不合法")
+	}
+	description := strings.TrimSpace(doc.Description)
+	if description == "" {
+		return sourcePackageManifest{}, rejectSourcePackage("description", "required", "plugin.json 缺少 description")
+	}
+	author, err := requireSourceAuthor(doc.Author, "plugin.json")
 	if err != nil {
-		return sourcePackageManifest{}, errors.New("plugin.json 版本号不合法")
+		return sourcePackageManifest{}, err
 	}
 	base.Kind = sourceKindPlugin
 	base.ID = id
 	base.Name = name
 	base.Version = version
-	base.Description = truncateText(doc.Description, 500)
-	base.Author = decodeSourceAuthor(doc.Author)
-	base.Category = normalizePluginCategory(strings.TrimSpace(doc.Category))
+	base.Description = truncateText(description, 500)
+	base.Author = author
+	if category := strings.TrimSpace(doc.Category); category != "" {
+		normalized := normalizePluginCategory(category)
+		if category != "other" && category != "payment" && category != "realname" && normalized == "other" {
+			return sourcePackageManifest{}, rejectSourcePackage("category", "format", "plugin.json 字段 category 仅支持 payment、realname 或 other")
+		}
+		base.Category = normalized
+	} else {
+		base.Category = "other"
+	}
 	base.Icon = truncateText(doc.Icon, 80)
 	base.ManifestPath = manifestPath
 	return base, nil
@@ -208,47 +283,73 @@ func fillPluginManifest(base sourcePackageManifest, raw []byte, manifestPath str
 func fillTemplateManifest(base sourcePackageManifest, raw []byte, manifestPath string) (sourcePackageManifest, error) {
 	var doc templatePackageJSON
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return sourcePackageManifest{}, errors.New("template.json 不是有效 JSON")
+		return sourcePackageManifest{}, rejectSourcePackage("template.json", "json", "template.json 不是有效 JSON")
 	}
 	if doc.SchemaVersion == 0 {
-		doc.SchemaVersion = homeTemplateSchemaVersion
+		return sourcePackageManifest{}, rejectSourcePackage("schemaVersion", "required", "template.json 缺少 schemaVersion（必须为 1）")
 	}
 	if doc.SchemaVersion != homeTemplateSchemaVersion {
-		return sourcePackageManifest{}, errors.New("schemaVersion 必须为 1")
+		return sourcePackageManifest{}, rejectSourcePackage("schemaVersion", "format", "template.json 字段 schemaVersion 必须为 1")
 	}
-	if len(doc.Hero) > 0 {
-		if err := validateHomeTemplateDocument(raw); err != nil {
-			return sourcePackageManifest{}, err
+	if err := validateHomeTemplateDocument(raw); err != nil {
+		field, rule := "hero.title", "required"
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "schemaVersion"):
+			field, rule = "schemaVersion", "format"
+		case strings.Contains(msg, "scripts"):
+			field, rule = "scripts", "forbidden"
+		case strings.Contains(msg, "JSON"):
+			field, rule = "template.json", "json"
 		}
-	} else if len(doc.Scripts) > 0 && string(doc.Scripts) != "null" {
-		return sourcePackageManifest{}, errors.New("声明式模板不允许 scripts 字段")
+		return sourcePackageManifest{}, rejectSourcePackage(field, rule, "template.json 不合规："+msg)
 	}
 	id := strings.ToLower(strings.TrimSpace(sourceFirstNonEmpty(doc.ID, doc.TemplateKey)))
+	if id == "" {
+		return sourcePackageManifest{}, rejectSourcePackage("id", "required", "template.json 缺少 id / templateKey")
+	}
 	if !pluginIDPattern.MatchString(id) {
-		return sourcePackageManifest{}, errors.New("模板清单缺少合法 id / templateKey")
+		return sourcePackageManifest{}, rejectSourcePackage("id", "format", "template.json 字段 id/templateKey 不合法：须为 2-59 位小写字母、数字或连字符")
 	}
-	name := truncateText(doc.Name, 100)
+	name := strings.TrimSpace(doc.Name)
 	if name == "" {
-		if title := templateHeroTitle(doc.Hero); title != "" {
-			name = truncateText(title, 100)
-		}
+		return sourcePackageManifest{}, rejectSourcePackage("name", "required", "template.json 缺少 name")
 	}
-	if name == "" {
-		return sourcePackageManifest{}, errors.New("模板清单缺少 name")
+	version := strings.TrimSpace(doc.Version)
+	if version == "" {
+		return sourcePackageManifest{}, rejectSourcePackage("version", "required", "template.json 缺少 version")
 	}
-	version, err := normalizeSourceVersion(doc.Version)
+	if !sourceVersionPattern.MatchString(version) {
+		return sourcePackageManifest{}, rejectSourcePackage("version", "format", "template.json 字段 version 不合法")
+	}
+	description := strings.TrimSpace(doc.Description)
+	if description == "" {
+		return sourcePackageManifest{}, rejectSourcePackage("description", "required", "template.json 缺少 description")
+	}
+	author, err := requireSourceAuthor(doc.Author, "template.json")
 	if err != nil {
-		return sourcePackageManifest{}, errors.New("模板版本号不合法")
+		return sourcePackageManifest{}, err
 	}
 	base.Kind = sourceKindTemplate
 	base.ID = id
-	base.Name = name
+	base.Name = truncateText(name, 100)
 	base.Version = version
-	base.Description = truncateText(doc.Description, 500)
-	base.Author = decodeSourceAuthor(doc.Author)
+	base.Description = truncateText(description, 500)
+	base.Author = author
 	base.SchemaVersion = doc.SchemaVersion
 	base.ManifestPath = manifestPath
 	return base, nil
+}
+
+func requireSourceAuthor(raw json.RawMessage, manifest string) (sourceAuthor, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return sourceAuthor{}, rejectSourcePackage("author", "required", manifest+" 缺少 author")
+	}
+	author := decodeSourceAuthor(raw)
+	if strings.TrimSpace(author.Name) == "" {
+		return sourceAuthor{}, rejectSourcePackage("author.name", "required", manifest+" 字段 author.name 必填（author 可为字符串或对象）")
+	}
+	return author, nil
 }
 
 func decodeSourceAuthor(raw json.RawMessage) sourceAuthor {
@@ -269,19 +370,6 @@ func decodeSourceAuthor(raw json.RawMessage) sourceAuthor {
 	return author
 }
 
-func templateHeroTitle(raw json.RawMessage) string {
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return ""
-	}
-	var hero struct {
-		Title string `json:"title"`
-	}
-	if json.Unmarshal(raw, &hero) != nil {
-		return ""
-	}
-	return strings.TrimSpace(hero.Title)
-}
-
 func isZipPayload(payload []byte) bool {
 	return len(payload) >= 4 && payload[0] == 'P' && payload[1] == 'K'
 }
@@ -292,8 +380,7 @@ func readZipManifest(archive *zip.Reader, filename string) ([]byte, string, erro
 	matchDepth := 99
 	for _, file := range archive.File {
 		name := strings.ReplaceAll(file.Name, "\\", "/")
-		lower := strings.ToLower(name)
-		if strings.HasPrefix(lower, "__macosx/") || strings.HasSuffix(lower, "/.ds_store") || strings.HasSuffix(name, "/") {
+		if isPackageMetadataPath(name) || strings.HasSuffix(name, "/") {
 			continue
 		}
 		if strings.ToLower(path.Base(name)) != want {
@@ -312,60 +399,24 @@ func readZipManifest(archive *zip.Reader, filename string) ([]byte, string, erro
 		return nil, "", errors.New("not found")
 	}
 	if match.UncompressedSize64 > uint64(pluginManifestMaxSize) {
-		return nil, "", errors.New(filename + " 过大")
+		return nil, "", rejectSourcePackage(filename, "max_size", filename+" 过大")
 	}
 	reader, err := match.Open()
 	if err != nil {
-		return nil, "", errors.New("读取 " + filename + " 失败")
+		return nil, "", rejectSourcePackage(filename, "read", "读取 "+filename+" 失败")
 	}
 	defer reader.Close()
 	payload, err := io.ReadAll(io.LimitReader(reader, pluginManifestMaxSize+1))
 	if err != nil {
-		return nil, "", errors.New("读取 " + filename + " 失败")
+		return nil, "", rejectSourcePackage(filename, "read", "读取 "+filename+" 失败")
 	}
 	if int64(len(payload)) > pluginManifestMaxSize {
-		return nil, "", errors.New(filename + " 过大")
+		return nil, "", rejectSourcePackage(filename, "max_size", filename+" 过大")
 	}
 	if !utf8.Valid(payload) {
-		return nil, "", errors.New(filename + " 必须是 UTF-8 文本")
+		return nil, "", rejectSourcePackage(filename, "encoding", filename+" 必须是 UTF-8 文本")
 	}
 	return payload, match.Name, nil
-}
-
-func applyPackageFormOverrides(c *gin.Context, manifest sourcePackageManifest) sourcePackageManifest {
-	if id := strings.ToLower(strings.TrimSpace(c.PostForm("id"))); pluginIDPattern.MatchString(id) {
-		manifest.ID = id
-	}
-	if key := strings.ToLower(strings.TrimSpace(c.PostForm("templateKey"))); pluginIDPattern.MatchString(key) {
-		manifest.ID = key
-	}
-	if name := truncateText(c.PostForm("name"), 100); name != "" {
-		manifest.Name = name
-	}
-	if version := strings.TrimSpace(c.PostForm("version")); version != "" {
-		if normalized, err := normalizeSourceVersion(version); err == nil {
-			manifest.Version = normalized
-		}
-	}
-	if desc := strings.TrimSpace(c.PostForm("description")); desc != "" {
-		manifest.Description = truncateText(desc, 500)
-	}
-	if author := strings.TrimSpace(c.PostForm("authorName")); author != "" {
-		manifest.Author.Name = truncateText(author, 100)
-	}
-	if url := strings.TrimSpace(c.PostForm("authorUrl")); url != "" {
-		manifest.Author.URL = truncateText(url, 300)
-	}
-	if email := strings.TrimSpace(c.PostForm("authorEmail")); email != "" {
-		manifest.Author.Email = truncateText(email, 200)
-	}
-	if category := strings.TrimSpace(c.PostForm("category")); category != "" {
-		manifest.Category = normalizePluginCategory(category)
-	}
-	if icon := truncateText(c.PostForm("icon"), 80); icon != "" {
-		manifest.Icon = icon
-	}
-	return manifest
 }
 
 func formFlag(c *gin.Context, key string) bool {
@@ -381,4 +432,16 @@ func sourceReleaseAssetName(manifest sourcePackageManifest) string {
 	name := manifest.ID + "-" + manifest.Version + ext
 	name = strings.ReplaceAll(name, "/", "-")
 	return name
+}
+
+func writeSourcePackageReject(c *gin.Context, err error) {
+	var reject sourcePackageReject
+	if errors.As(err, &reject) {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 400, "msg": reject.Msg,
+			"error": gin.H{"field": reject.Field, "rule": reject.Rule},
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 }

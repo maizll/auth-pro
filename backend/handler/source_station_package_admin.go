@@ -48,34 +48,35 @@ func AdminSourcePackageParse(c *gin.Context) {
 	defer discardSourceMultipart(c)
 	filename, payload, err := readSourcePackageUpload(c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		writeSourcePackageReject(c, err)
 		return
 	}
 	manifest, err := parseSourcePackageBytes(filename, payload, c.PostForm("kind"))
 	payload = nil
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		writeSourcePackageReject(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已解析清单并计算 sha256（包未落盘、未入库）", "data": manifest.view()})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已通过校验并解析清单（包未落盘、未入库）", "data": manifest.view()})
 }
 
 func AdminSourcePackagePublish(c *gin.Context) {
 	defer discardSourceMultipart(c)
 	filename, payload, err := readSourcePackageUpload(c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		writeSourcePackageReject(c, err)
 		return
 	}
 	manifest, err := parseSourcePackageBytes(filename, payload, c.PostForm("kind"))
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		payload = nil
+		writeSourcePackageReject(c, err)
 		return
 	}
-	manifest = applyPackageFormOverrides(c, manifest)
 	location := strings.TrimSpace(sourceFirstNonEmpty(c.PostForm("downloadUrl"), c.PostForm("templateUrl")))
 	settings, err := currentSourceStationStore().GetReleaseSettings()
 	if err != nil {
+		payload = nil
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取 Release 设置失败"})
 		return
 	}
@@ -87,10 +88,12 @@ func AdminSourcePackagePublish(c *gin.Context) {
 	provider := ""
 	if pushRequested {
 		if !settings.releaseReady() {
+			payload = nil
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "未配置 GitHub/Gitee 仓库与令牌：请先到「Release 设置」填写，或粘贴外部 https 下载地址"})
 			return
 		}
 		assetURL, pushErr := pushSourcePackageRelease(c.Request.Context(), settings, manifest, payload)
+		payload = nil
 		if pushErr != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": pushErr.Error()})
 			return
@@ -133,6 +136,13 @@ func AdminSourcePackagePublish(c *gin.Context) {
 			writeSourceDeveloperStoreError(c, upsertErr)
 			return
 		}
+		if formFlag(c, "submit") && !shelf {
+			saved, upsertErr = currentSourceStationStore().SetTemplateStatus(saved.ID, sourceItemReview, actor, "package submit")
+			if upsertErr != nil {
+				writeSourceDeveloperStoreError(c, upsertErr)
+				return
+			}
+		}
 		if shelf {
 			if pubErr := publishSourcePackageItem(sourceKindTemplate, saved.ID, manifest.Version, actor); pubErr != nil {
 				writeSourceDeveloperStoreError(c, pubErr)
@@ -160,6 +170,13 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		if upsertErr != nil {
 			writeSourceDeveloperStoreError(c, upsertErr)
 			return
+		}
+		if formFlag(c, "submit") && !shelf {
+			saved, upsertErr = currentSourceStationStore().SetPluginStatus(saved.ID, sourceItemReview, actor, "package submit")
+			if upsertErr != nil {
+				writeSourceDeveloperStoreError(c, upsertErr)
+				return
+			}
 		}
 		if shelf {
 			if pubErr := publishSourcePackageItem(sourceKindPlugin, saved.ID, manifest.Version, actor); pubErr != nil {
@@ -195,9 +212,12 @@ func AdminSourcePackagePublish(c *gin.Context) {
 	} else {
 		data["item"] = pluginView
 	}
-	msg := "已保存元数据与 sha256（包已丢弃，源站不保存源码）"
+	msg := "校验通过，已保存为草稿（包已丢弃，源站不保存源码）。请走审核/上架"
 	if pushed {
-		msg = "已推送到 " + provider + " Release 并保存元数据（包已丢弃）"
+		msg = "校验通过，已推送到 " + provider + " Release 并保存为草稿（包已丢弃）"
+	}
+	if shelf {
+		msg = "校验通过，已保存并上架（包已丢弃）"
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": data})
 }

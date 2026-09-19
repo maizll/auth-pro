@@ -118,14 +118,15 @@
   <section data-panel="upload" hidden>
     <h2>上传包 → 解析填表 → 推送 Release / 粘贴地址</h2>
     <p class="note">
-      服务端只在内存中打开压缩包，读取 <code>plugin.json</code> 或 <code>template.json</code>，计算整个包的 sha256。
-      <strong>不落盘、不入库源码</strong>。配置了 GitHub/Gitee 后会创建/更新 Release 并把 zip 作为附件，目录只保存附件的 https 地址。
-      未配置时可把已有的 https 下载地址粘贴到下方再保存元数据。
+      上传闸门<strong>失败即拒绝</strong>：ZIP 必须含 <code>plugin.json</code> 或 <code>template.json</code>，必填字段合法，且禁止路径穿越/符号链接等不安全布局。
+      任一失败返回明确字段/规则错误，<strong>不写库、不推 Release、删除临时文件</strong>。
+      校验通过后才自动填表，并可推送 GitHub/Gitee Release，随后进入草稿/审核。
+      清单规范：<code>GET /software-source/package-schema.json</code> 或 <code>GET /api/v1/source/admin/packages/schema</code>。
     </p>
     <div class="row">
       <div>
-        <label>包文件（zip 或模板 json）</label>
-        <input id="pkgFile" type="file" accept=".zip,.json,application/zip,application/json" />
+        <label>包文件（必须是 ZIP）</label>
+        <input id="pkgFile" type="file" accept=".zip,application/zip" />
         <label>类型</label>
         <select id="pkgKind">
           <option value="">自动识别</option>
@@ -138,7 +139,8 @@
         <label>minVersion（可选）</label><input id="pkgMin" />
         <label><input id="pkgForce" type="checkbox" style="width:auto;display:inline;margin-right:6px" /> forceUpdate</label>
         <label><input id="pkgPush" type="checkbox" checked style="width:auto;display:inline;margin-right:6px" /> 推送到 GitHub/Gitee Release</label>
-        <label><input id="pkgShelf" type="checkbox" style="width:auto;display:inline;margin-right:6px" /> 保存后直接上架</label>
+        <label><input id="pkgSubmit" type="checkbox" style="width:auto;display:inline;margin-right:6px" /> 保存后提交审核</label>
+        <label><input id="pkgShelf" type="checkbox" style="width:auto;display:inline;margin-right:6px" /> 保存后直接上架（仍须先通过 ZIP 校验）</label>
         <button type="button" onclick="parsePackage()">仅解析并填表</button>
         <button type="button" onclick="publishPackage()">解析并保存元数据</button>
       </div>
@@ -507,6 +509,7 @@
     fd.append("minVersion", document.getElementById("pkgMin").value);
     fd.append("forceUpdate", document.getElementById("pkgForce").checked ? "1" : "0");
     fd.append("push", document.getElementById("pkgPush").checked ? "1" : "0");
+    fd.append("submit", document.getElementById("pkgSubmit").checked ? "1" : "0");
     fd.append("shelf", document.getElementById("pkgShelf").checked ? "1" : "0");
     const res = await fetch("/api/v1/source/admin/packages/publish", {method:"POST", headers:{Authorization:"Bearer "+adminToken}, body: fd});
     const body = await res.json().catch(() => ({}));
