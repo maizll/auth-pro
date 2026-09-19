@@ -19,16 +19,14 @@
       </template>
 
       <el-alert
-        :title="
-          settings.configured
-            ? '已配置仓库与令牌，上传时默认推送 Release'
-            : '尚未配置完整，上传时需粘贴外部 https 地址'
-        "
-        :type="settings.configured ? 'success' : 'warning'"
+        :title="alertTitle"
+        :type="formReady ? 'success' : 'warning'"
         :closable="false"
         show-icon
         class="mb-4"
-      />
+      >
+        {{ alertDescription }}
+      </el-alert>
 
       <el-form :model="form" label-width="140px" class="settings-form">
         <el-form-item label="Provider">
@@ -65,7 +63,7 @@
 </template>
 
 <script setup lang="ts">
-  import { onMounted, reactive, ref } from 'vue'
+  import { computed, onMounted, reactive, ref } from 'vue'
   import { ElMessage } from 'element-plus'
   import {
     fetchSourceReleaseSettings,
@@ -94,6 +92,37 @@
     token: '',
     tagStrategy: '{id}-{version}',
     branch: 'master'
+  })
+
+  const formHasToken = computed(() => Boolean(form.token.trim()) || settings.value.hasToken)
+
+  const missingFields = computed(() => {
+    const missing: string[] = []
+    const provider = form.provider.trim().toLowerCase()
+    if (provider !== 'github' && provider !== 'gitee') missing.push('Provider')
+    if (!form.owner.trim()) missing.push('Owner')
+    if (!form.repo.trim()) missing.push('仓库')
+    if (!formHasToken.value) missing.push('Token')
+    return missing
+  })
+
+  const formReady = computed(() => missingFields.value.length === 0)
+
+  const alertTitle = computed(() => {
+    if (formReady.value) {
+      return '当前表单已齐：上传时可推送 Release（保存后生效）'
+    }
+    return `当前表单不完整，缺少：${missingFields.value.join('、')}`
+  })
+
+  const alertDescription = computed(() => {
+    if (settings.value.configured) {
+      return '服务端已保存完整配置。表单改动需点击「保存设置」后才会写入服务端。'
+    }
+    if (formReady.value) {
+      return '服务端尚未保存完整配置，请点击「保存设置」后上传才会推送 Release。'
+    }
+    return '尚未配置完整，上传时需粘贴外部 https 地址。'
   })
 
   async function loadSettings() {
