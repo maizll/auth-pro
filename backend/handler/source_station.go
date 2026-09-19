@@ -92,9 +92,12 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 
 		admin.GET("/advertisements", AdminSourceAdvertisements)
 		admin.PUT("/advertisements", AdminSourceAdvertisementUpsert)
+		admin.POST("/advertisements/image", AdminSourceAdvertisementImageUpload)
 		admin.PUT("/advertisements/placeholder", AdminSourceAdvertisementPlaceholderSave)
 		admin.DELETE("/advertisements/:id", AdminSourceAdvertisementDelete)
 	}
+
+	api.GET("/v1/public/advertisement-files/:name", PublicAdvertisementFile)
 
 	adminAlias := engine.Group("/api/admin/source")
 	adminAlias.Use(middleware.JWTAuth(), middleware.RequireAdmin())
@@ -175,13 +178,24 @@ func AdminSourceAdvertisementUpsert(c *gin.Context) {
 	}
 	record.ID = strings.TrimSpace(record.ID)
 	record.Position = strings.TrimSpace(record.Position)
-	if record.ID == "" || advertisementLocks[record.Position] == nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告标识或广告位不合法"})
+	if advertisementLocks[record.Position] == nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告位不合法"})
+		return
+	}
+	if record.ID == "" {
+		generated, err := generateAdvertisementID()
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "生成广告标识失败"})
+			return
+		}
+		record.ID = generated
+	} else if !advertisementIDPattern.MatchString(record.ID) {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告标识不合法"})
 		return
 	}
 	if record.ImageURL != "" {
-		if err := validateExternalHTTPS(record.ImageURL); err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告图片必须是 https:// 外部地址"})
+		if err := validateAdvertisementImageURL(record.ImageURL); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告图片须为本站上传地址或 https:// 外部地址"})
 			return
 		}
 	}

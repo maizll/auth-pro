@@ -498,6 +498,13 @@ export function saveSourceAdvertisement(payload: SourceAdvertisement) {
   return request.put<SourceAdvertisement>({ url: `${BASE}/advertisements`, data: payload })
 }
 
+export function uploadSourceAdvertisementImage(data: FormData) {
+  return request.post<{ url: string }>({
+    url: `${BASE}/advertisements/image`,
+    data
+  })
+}
+
 export function saveSourceAdPlaceholder(payload: SourceAdPlaceholder) {
   return request.put<SourceAdPlaceholder>({
     url: `${BASE}/advertisements/placeholder`,

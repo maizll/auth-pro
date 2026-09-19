@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -312,6 +314,87 @@ func TestSourceDeveloperRejectBlocksLogin(t *testing.T) {
 		`{"username":"dev-bob","password":"secret1"}`)
 	if sourceBodyCode(t, login) != 401 {
 		t.Fatalf("rejected developer login=%s", login.Body.String())
+	}
+}
+
+func TestSourceAdvertisementUpsertGeneratesIDWhenEmpty(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	save := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements", admin,
+		`{"title":"自动标识","position":"sidebar","weight":1}`)
+	if sourceBodyCode(t, save) != 200 {
+		t.Fatalf("save without id=%s", save.Body.String())
+	}
+	var body struct {
+		Data advertisementRecord `json:"data"`
+	}
+	if err := json.Unmarshal(save.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.ID == "" || !strings.HasPrefix(body.Data.ID, "ad-") {
+		t.Fatalf("应自动生成广告标识，实际 %q", body.Data.ID)
+	}
+	listed, err := store.ListAdvertisements("")
+	if err != nil || len(listed) != 1 || listed[0].ID != body.Data.ID {
+		t.Fatalf("store=%v err=%v", listed, err)
+	}
+}
+
+func TestSourceAdvertisementImageUploadAndLocalURL(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	router, _ := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "banner.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	png := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0}
+	if _, err := part.Write(png); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/source/admin/advertisements/image", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+admin)
+	upload := httptest.NewRecorder()
+	router.ServeHTTP(upload, req)
+	if sourceBodyCode(t, upload) != 200 {
+		t.Fatalf("upload=%s", upload.Body.String())
+	}
+	var uploaded struct {
+		Data struct {
+			URL string `json:"url"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(upload.Body.Bytes(), &uploaded); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(uploaded.Data.URL, "/api/v1/public/advertisement-files/") {
+		t.Fatalf("上传后应返回本站图片地址，实际 %q", uploaded.Data.URL)
+	}
+
+	save := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements", admin,
+		`{"title":"本地图","position":"popup","imageUrl":"`+uploaded.Data.URL+`"}`)
+	if sourceBodyCode(t, save) != 200 {
+		t.Fatalf("save local image=%s", save.Body.String())
+	}
+
+	fileReq := httptest.NewRequest(http.MethodGet, uploaded.Data.URL, nil)
+	fileRec := httptest.NewRecorder()
+	router.ServeHTTP(fileRec, fileReq)
+	if fileRec.Code != http.StatusOK || !bytes.Equal(fileRec.Body.Bytes()[:8], png[:8]) {
+		t.Fatalf("公开图片 status=%d len=%d", fileRec.Code, fileRec.Body.Len())
+	}
+
+	reject := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements", admin,
+		`{"title":"坏图","position":"popup","imageUrl":"javascript:alert(1)"}`)
+	if sourceBodyCode(t, reject) != 400 {
+		t.Fatalf("非法图片地址应拒绝：%s", reject.Body.String())
 	}
 }
 

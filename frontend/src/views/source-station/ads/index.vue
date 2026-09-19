@@ -43,9 +43,10 @@
         <div class="table-header">
           <div>
             <span class="card-title">广告投放（共 {{ tableData.length }} 条）</span>
-            <p class="card-hint"
-              >图片与跳转必须是外部 https:// 地址。广告位：首页横幅 / 侧栏 / 弹窗。</p
-            >
+            <p class="card-hint">
+              图片可本站上传或粘贴 https 地址。付费跳转仍填 https://。广告位：首页横幅 / 侧栏 /
+              弹窗。
+            </p>
           </div>
           <el-button type="primary" @click="openEdit()">新增广告</el-button>
         </div>
@@ -77,8 +78,8 @@
       destroy-on-close
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-        <el-form-item label="标识" prop="id">
-          <el-input v-model="form.id" :disabled="isEdit" />
+        <el-form-item label="标识">
+          <el-input :model-value="form.id || '保存时自动生成'" disabled />
         </el-form-item>
         <el-form-item label="标题" prop="title">
           <el-input v-model="form.title" />
@@ -96,17 +97,48 @@
         <el-form-item label="权重">
           <el-input-number v-model="form.weight" :min="0" :max="999" />
         </el-form-item>
-        <el-form-item label="图片 URL" prop="imageUrl">
-          <el-input v-model="form.imageUrl" placeholder="https://..." />
+        <el-form-item label="广告图">
+          <div class="image-field">
+            <el-upload
+              :auto-upload="false"
+              :show-file-list="false"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              :disabled="uploadingImage"
+              :on-change="handleImageFile"
+            >
+              <el-button :loading="uploadingImage">上传图片</el-button>
+            </el-upload>
+            <el-input
+              v-model="form.imageUrl"
+              placeholder="或粘贴 https:// / 本站图片地址"
+            />
+            <img v-if="form.imageUrl" :src="form.imageUrl" alt="" class="image-preview" />
+          </div>
         </el-form-item>
         <el-form-item label="跳转 URL" prop="destinationUrl">
-          <el-input v-model="form.destinationUrl" placeholder="https://..." />
+          <el-input v-model="form.destinationUrl" placeholder="付费广告填 https://，可留空" />
         </el-form-item>
         <el-form-item label="开始时间">
-          <el-input v-model="form.startAt" placeholder="可选 ISO 时间" />
+          <el-date-picker
+            v-model="startAtModel"
+            type="datetime"
+            placeholder="可选，留空立即开始"
+            format="YYYY-MM-DD HH:mm"
+            clearable
+            teleported
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="结束时间">
-          <el-input v-model="form.endAt" placeholder="可选 ISO 时间" />
+          <el-date-picker
+            v-model="endAtModel"
+            type="datetime"
+            placeholder="可选，留空长期投放"
+            format="YYYY-MM-DD HH:mm"
+            clearable
+            teleported
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="说明">
           <el-input v-model="form.description" type="textarea" :rows="2" />
@@ -122,7 +154,7 @@
 
 <script setup lang="ts">
   import { onMounted, reactive, ref } from 'vue'
-  import type { FormInstance, FormRules } from 'element-plus'
+  import type { FormInstance, FormRules, UploadFile } from 'element-plus'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { DEFAULT_AD_PLACEHOLDER } from '@/api/advertisement'
   import {
@@ -131,6 +163,7 @@
     fetchSourceAdvertisements,
     saveSourceAdPlaceholder,
     saveSourceAdvertisement,
+    uploadSourceAdvertisementImage,
     type SourceAdPlaceholder,
     type SourceAdvertisement
   } from '@/api/source-station'
@@ -138,11 +171,14 @@
   const loading = ref(false)
   const saving = ref(false)
   const savingPlaceholder = ref(false)
+  const uploadingImage = ref(false)
   const visible = ref(false)
   const isEdit = ref(false)
   const tableData = ref<SourceAdvertisement[]>([])
   const placeholder = reactive<SourceAdPlaceholder>({ ...DEFAULT_AD_PLACEHOLDER })
   const formRef = ref<FormInstance>()
+  const startAtModel = ref<Date>()
+  const endAtModel = ref<Date>()
   const form = reactive<SourceAdvertisement>({
     id: '',
     title: '',
@@ -155,9 +191,15 @@
     description: ''
   })
   const rules: FormRules = {
-    id: [{ required: true, message: '请填写标识', trigger: 'blur' }],
     title: [{ required: true, message: '请填写标题', trigger: 'blur' }],
     position: [{ required: true, message: '请选择广告位', trigger: 'change' }]
+  }
+
+  function parseAdDate(raw?: string) {
+    const value = String(raw || '').trim()
+    if (!value) return undefined
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed
   }
 
   function positionLabel(value: string) {
@@ -205,14 +247,37 @@
     form.startAt = row?.startAt || ''
     form.endAt = row?.endAt || ''
     form.description = row?.description || ''
+    startAtModel.value = parseAdDate(row?.startAt)
+    endAtModel.value = parseAdDate(row?.endAt)
     visible.value = true
+  }
+
+  async function handleImageFile(upload: UploadFile) {
+    const selected = upload.raw
+    if (!selected || uploadingImage.value) return
+    uploadingImage.value = true
+    try {
+      const data = new FormData()
+      data.append('file', selected)
+      const result = await uploadSourceAdvertisementImage(data)
+      form.imageUrl = result.url
+      ElMessage.success('图片已上传')
+    } finally {
+      uploadingImage.value = false
+    }
   }
 
   async function handleSave() {
     await formRef.value?.validate()
     saving.value = true
     try {
-      await saveSourceAdvertisement({ ...form })
+      const saved = await saveSourceAdvertisement({
+        ...form,
+        id: isEdit.value ? form.id : '',
+        startAt: startAtModel.value ? startAtModel.value.toISOString() : '',
+        endAt: endAtModel.value ? endAtModel.value.toISOString() : ''
+      })
+      if (saved?.id) form.id = saved.id
       ElMessage.success('广告已保存')
       visible.value = false
       await loadAds()
@@ -270,5 +335,21 @@
 
   .placeholder-form {
     max-width: 720px;
+  }
+
+  .image-field {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .image-preview {
+    max-width: 100%;
+    max-height: 140px;
+    object-fit: contain;
+    border: 1px solid var(--el-border-color);
+    border-radius: 8px;
+    background: var(--el-fill-color-lighter);
   }
 </style>
