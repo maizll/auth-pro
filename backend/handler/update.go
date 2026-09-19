@@ -156,14 +156,13 @@ func AdminOnlineUpdateCheck(c *gin.Context) {
 	}
 
 	setCachedOnlineUpdateManifest(manifest)
-	packageErr := validateOnlineUpdateManifest(manifest)
-	available, versionErr := onlineUpdateAvailable(config.AppVersion, manifest)
+	available, versionErr, packageErr, canApply := evaluateOnlineUpdateCheck(config.AppVersion, manifest)
 
 	data := gin.H{
 		"currentVersion": config.AppVersion,
 		"latest":         manifest,
 		"updateUrl":      config.GetUpdateManifestURL(),
-		"canApply":       packageErr == nil && available && versionErr == "",
+		"canApply":       canApply,
 		"packageValid":   packageErr == nil,
 		"packageError":   errorText(packageErr),
 		"versionError":   versionErr,
@@ -220,6 +219,10 @@ func AdminOnlineUpdateApply(c *gin.Context) {
 	}
 	if err := validateOnlineUpdateManifest(manifest); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "更新包信息不完整：" + err.Error()})
+		return
+	}
+	if err := onlineUpdateRuntimeCompatibility(runtime.GOOS, runtime.GOARCH, manifest); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
 	available, versionErr := onlineUpdateAvailable(config.AppVersion, manifest)
@@ -651,12 +654,6 @@ func validateOnlineUpdateManifest(manifest *onlineUpdateManifest) error {
 	if _, ok := parseOnlineUpdateVersion(manifest.Version); !ok {
 		return errors.New("版本号格式不正确")
 	}
-	if manifest.Package.OS != "" && manifest.Package.OS != runtime.GOOS {
-		return fmt.Errorf("更新包系统 %s 与当前系统 %s 不兼容", manifest.Package.OS, runtime.GOOS)
-	}
-	if manifest.Package.Arch != "" && manifest.Package.Arch != runtime.GOARCH {
-		return fmt.Errorf("更新包架构 %s 与当前架构 %s 不兼容", manifest.Package.Arch, runtime.GOARCH)
-	}
 	parsed, err := parseOnlineUpdateURL(manifest.Package.URL)
 	if err != nil {
 		return errors.New("更新包下载地址不正确：" + err.Error())
@@ -679,6 +676,33 @@ func validateOnlineUpdateManifest(manifest *onlineUpdateManifest) error {
 	}
 	if manifest.Package.Size > maxOnlineUpdatePackageSize {
 		return errors.New("更新包超过 512MB 限制")
+	}
+	return nil
+}
+
+func evaluateOnlineUpdateCheck(currentVersion string, manifest *onlineUpdateManifest) (bool, string, error, bool) {
+	return evaluateOnlineUpdateCheckForRuntime(currentVersion, manifest, runtime.GOOS, runtime.GOARCH)
+}
+
+func evaluateOnlineUpdateCheckForRuntime(currentVersion string, manifest *onlineUpdateManifest, currentOS, currentArch string) (bool, string, error, bool) {
+	available, versionErr := onlineUpdateAvailable(currentVersion, manifest)
+	packageErr := validateOnlineUpdateManifest(manifest)
+	if packageErr == nil {
+		packageErr = onlineUpdateRuntimeCompatibility(currentOS, currentArch, manifest)
+	}
+	canApply := packageErr == nil && available && versionErr == ""
+	return available, versionErr, packageErr, canApply
+}
+
+func onlineUpdateRuntimeCompatibility(currentOS, currentArch string, manifest *onlineUpdateManifest) error {
+	if currentOS != "linux" || currentArch != "amd64" {
+		return errors.New("在线整包更新仅支持 Linux amd64（宝塔）环境。Windows 本地预览可以检查版本和更新说明，但不能安装")
+	}
+	if manifest != nil && manifest.Package.OS != "" && manifest.Package.OS != currentOS {
+		return fmt.Errorf("更新包系统 %s 与当前系统 %s 不兼容", manifest.Package.OS, currentOS)
+	}
+	if manifest != nil && manifest.Package.Arch != "" && manifest.Package.Arch != currentArch {
+		return fmt.Errorf("更新包架构 %s 与当前架构 %s 不兼容", manifest.Package.Arch, currentArch)
 	}
 	return nil
 }

@@ -99,17 +99,101 @@ func TestValidateOnlineUpdateManifest(t *testing.T) {
 		}
 	})
 
-	t.Run("wrong architecture", func(t *testing.T) {
+	t.Run("linux production package passes basic validation", func(t *testing.T) {
+		manifest := validOnlineUpdateManifestForTest()
+		manifest.Package.OS = "linux"
+		manifest.Package.Arch = "amd64"
+		if err := validateOnlineUpdateManifest(manifest); err != nil {
+			t.Fatalf("linux production package should pass basic validation: %v", err)
+		}
+	})
+
+	t.Run("os mismatch is not a basic validation error", func(t *testing.T) {
+		manifest := validOnlineUpdateManifestForTest()
+		if runtime.GOOS == "windows" {
+			manifest.Package.OS = "linux"
+		} else {
+			manifest.Package.OS = "windows"
+		}
+		if err := validateOnlineUpdateManifest(manifest); err != nil {
+			t.Fatalf("OS mismatch should be soft on check validation: %v", err)
+		}
+	})
+
+	t.Run("arch mismatch is not a basic validation error", func(t *testing.T) {
 		manifest := validOnlineUpdateManifestForTest()
 		if runtime.GOARCH == "amd64" {
 			manifest.Package.Arch = "arm64"
 		} else {
 			manifest.Package.Arch = "amd64"
 		}
-		if err := validateOnlineUpdateManifest(manifest); err == nil {
-			t.Fatal("incompatible architecture was accepted")
+		if err := validateOnlineUpdateManifest(manifest); err != nil {
+			t.Fatalf("arch mismatch should be soft on check validation: %v", err)
 		}
 	})
+}
+
+func TestEvaluateOnlineUpdateCheckAllowsWindowsPreviewForLinuxPackage(t *testing.T) {
+	manifest := validOnlineUpdateManifestForTest()
+	manifest.Version = "9.9.9"
+	manifest.Notes = []string{"修复在线更新", "补充中文说明"}
+	manifest.Package.OS = "linux"
+	manifest.Package.Arch = "amd64"
+
+	available, versionErr, packageErr, canApply := evaluateOnlineUpdateCheckForRuntime("1.0.0", manifest, "windows", "amd64")
+	if !available || versionErr != "" {
+		t.Fatalf("Windows preview should still compare versions: available=%v versionErr=%q", available, versionErr)
+	}
+	if len(manifest.Notes) != 2 || manifest.Notes[0] != "修复在线更新" {
+		t.Fatalf("Chinese notes should remain available after check: %#v", manifest.Notes)
+	}
+	if canApply {
+		t.Fatal("Windows preview must not apply a linux full package")
+	}
+	if packageErr == nil {
+		t.Fatal("expected a clear apply-disabled message")
+	}
+	message := packageErr.Error()
+	for _, fragment := range []string{"Linux amd64", "宝塔", "Windows", "不能安装"} {
+		if !strings.Contains(message, fragment) {
+			t.Fatalf("packageError %q should mention %q", message, fragment)
+		}
+	}
+}
+
+func TestEvaluateOnlineUpdateCheckCanApplyOnLinuxAmd64(t *testing.T) {
+	manifest := validOnlineUpdateManifestForTest()
+	manifest.Version = "9.9.9"
+	manifest.Package.OS = "linux"
+	manifest.Package.Arch = "amd64"
+
+	available, versionErr, packageErr, canApply := evaluateOnlineUpdateCheckForRuntime("1.0.0", manifest, "linux", "amd64")
+	if !available || versionErr != "" || packageErr != nil || !canApply {
+		t.Fatalf("linux amd64 should be able to apply: available=%v versionErr=%q packageErr=%v canApply=%v", available, versionErr, packageErr, canApply)
+	}
+}
+
+func TestOnlineUpdateRuntimeCompatibility(t *testing.T) {
+	manifest := validOnlineUpdateManifestForTest()
+	manifest.Package.OS = "linux"
+	manifest.Package.Arch = "amd64"
+
+	if err := onlineUpdateRuntimeCompatibility("linux", "amd64", manifest); err != nil {
+		t.Fatalf("linux amd64 host should accept linux amd64 package: %v", err)
+	}
+	if err := onlineUpdateRuntimeCompatibility("windows", "amd64", manifest); err == nil {
+		t.Fatal("windows host should not apply linux package")
+	} else if !strings.Contains(err.Error(), "Windows") || !strings.Contains(err.Error(), "不能安装") {
+		t.Fatalf("windows preview message = %q", err)
+	}
+	if err := onlineUpdateRuntimeCompatibility("linux", "arm64", manifest); err == nil {
+		t.Fatal("linux arm64 host should not apply amd64 package")
+	}
+
+	manifest.Package.Arch = "arm64"
+	if err := onlineUpdateRuntimeCompatibility("linux", "amd64", manifest); err == nil {
+		t.Fatal("linux amd64 host should reject arm64 package")
+	}
 }
 
 func TestOnlineUpdateGiteeRedirectPolicy(t *testing.T) {
