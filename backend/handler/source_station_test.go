@@ -24,6 +24,7 @@ func sourceStationRouter(t *testing.T) (*gin.Engine, *memorySourceStore) {
 	router := gin.New()
 	RegisterSourceStationRoutes(router, router.Group("/api"))
 	router.GET("/source", SourceStationPage)
+	router.GET("/source/", SourceStationPage)
 	router.GET("/api/v1/public/advertisements", PublicLocalAdvertisements)
 	return router, store
 }
@@ -331,15 +332,16 @@ func TestSourceAdvertisementCRUDFeedsLocalEndpoint(t *testing.T) {
 	}
 }
 
-func TestSourceStationPageDocumentsMetadataOnlyCatalog(t *testing.T) {
+func TestSourceStationPageRedirectsToAdmin(t *testing.T) {
 	router, _ := sourceStationRouter(t)
-	page := sourceJSON(t, router, http.MethodGet, "/source", "", "")
-	body := page.Body.String()
-	if page.Code != http.StatusOK || !strings.Contains(body, "/software-source/index.json") {
-		t.Fatalf("source page=%d %s", page.Code, body)
-	}
-	if !strings.Contains(body, "从不存储") || !strings.Contains(body, "下架") {
-		t.Fatalf("page should document metadata-only and unshelf semantics")
+	for _, path := range []string{"/source", "/source/"} {
+		page := sourceJSON(t, router, http.MethodGet, path, "", "")
+		if page.Code != http.StatusFound {
+			t.Fatalf("%s redirect status=%d %s", path, page.Code, page.Body.String())
+		}
+		if loc := page.Header().Get("Location"); loc != SourceStationAdminPath {
+			t.Fatalf("%s redirect location=%s want %s", path, loc, SourceStationAdminPath)
+		}
 	}
 }
 

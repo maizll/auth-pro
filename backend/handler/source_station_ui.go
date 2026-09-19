@@ -1,16 +1,15 @@
 package handler
 
 import (
-	_ "embed"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
 
-//go:embed source_station_ui.html
-var sourceStationPageHTML []byte
+// SourceStationAdminPath 是管理后台「源站」菜单入口（插件管理）。
+const SourceStationAdminPath = "/source-station/plugins"
 
-// SourceStationPage 是源站入驻、元数据登记、审核与上架/下架的最小静态页。
+// SourceStationPage 兼容旧 /source 入口，跳转到管理后台同一套登录与布局。
 func SourceStationPage(c *gin.Context) {
-	c.Data(http.StatusOK, "text/html; charset=utf-8", sourceStationPageHTML)
+	c.Redirect(http.StatusFound, SourceStationAdminPath)
 }

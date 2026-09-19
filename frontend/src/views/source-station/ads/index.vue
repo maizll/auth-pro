@@ -1,0 +1,203 @@
+<template>
+  <div class="source-station-page">
+    <el-card shadow="never" class="art-card">
+      <template #header>
+        <div class="table-header">
+          <div>
+            <span class="card-title">广告投放（共 {{ tableData.length }} 条）</span>
+            <p class="card-hint"
+              >图片与跳转必须是外部 https:// 地址。广告位：首页横幅 / 侧栏 / 弹窗。</p
+            >
+          </div>
+          <el-button type="primary" @click="openEdit()">新增广告</el-button>
+        </div>
+      </template>
+      <el-table :data="tableData" stripe v-loading="loading">
+        <el-table-column prop="id" label="标识" width="140" />
+        <el-table-column prop="title" label="标题" min-width="140" show-overflow-tooltip />
+        <el-table-column label="广告位" width="120">
+          <template #default="{ row }">
+            {{ positionLabel(row.position) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="weight" label="权重" width="80" align="center" />
+        <el-table-column prop="imageUrl" label="图片" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="destinationUrl" label="跳转" min-width="180" show-overflow-tooltip />
+        <el-table-column label="操作" width="140" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-dialog
+      v-model="visible"
+      :title="form.id && isEdit ? '编辑广告' : '新增广告'"
+      width="560px"
+      destroy-on-close
+    >
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
+        <el-form-item label="标识" prop="id">
+          <el-input v-model="form.id" :disabled="isEdit" />
+        </el-form-item>
+        <el-form-item label="标题" prop="title">
+          <el-input v-model="form.title" />
+        </el-form-item>
+        <el-form-item label="广告位" prop="position">
+          <el-select v-model="form.position" style="width: 100%">
+            <el-option
+              v-for="item in AD_POSITIONS"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="权重">
+          <el-input-number v-model="form.weight" :min="0" :max="999" />
+        </el-form-item>
+        <el-form-item label="图片 URL" prop="imageUrl">
+          <el-input v-model="form.imageUrl" placeholder="https://..." />
+        </el-form-item>
+        <el-form-item label="跳转 URL" prop="destinationUrl">
+          <el-input v-model="form.destinationUrl" placeholder="https://..." />
+        </el-form-item>
+        <el-form-item label="开始时间">
+          <el-input v-model="form.startAt" placeholder="可选 ISO 时间" />
+        </el-form-item>
+        <el-form-item label="结束时间">
+          <el-input v-model="form.endAt" placeholder="可选 ISO 时间" />
+        </el-form-item>
+        <el-form-item label="说明">
+          <el-input v-model="form.description" type="textarea" :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="visible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+  import { onMounted, reactive, ref } from 'vue'
+  import type { FormInstance, FormRules } from 'element-plus'
+  import { ElMessage, ElMessageBox } from 'element-plus'
+  import {
+    AD_POSITIONS,
+    deleteSourceAdvertisement,
+    fetchSourceAdvertisements,
+    saveSourceAdvertisement,
+    type SourceAdvertisement
+  } from '@/api/source-station'
+
+  const loading = ref(false)
+  const saving = ref(false)
+  const visible = ref(false)
+  const isEdit = ref(false)
+  const tableData = ref<SourceAdvertisement[]>([])
+  const formRef = ref<FormInstance>()
+  const form = reactive<SourceAdvertisement>({
+    id: '',
+    title: '',
+    imageUrl: '',
+    destinationUrl: '',
+    position: 'home-banner',
+    weight: 0,
+    startAt: '',
+    endAt: '',
+    description: ''
+  })
+  const rules: FormRules = {
+    id: [{ required: true, message: '请填写标识', trigger: 'blur' }],
+    title: [{ required: true, message: '请填写标题', trigger: 'blur' }],
+    position: [{ required: true, message: '请选择广告位', trigger: 'change' }]
+  }
+
+  function positionLabel(value: string) {
+    return AD_POSITIONS.find((item) => item.value === value)?.label || value
+  }
+
+  async function loadAds() {
+    loading.value = true
+    try {
+      const data = await fetchSourceAdvertisements()
+      tableData.value = data.records || []
+    } finally {
+      loading.value = false
+    }
+  }
+
+  function openEdit(row?: SourceAdvertisement) {
+    isEdit.value = Boolean(row)
+    form.id = row?.id || ''
+    form.title = row?.title || ''
+    form.imageUrl = row?.imageUrl || ''
+    form.destinationUrl = row?.destinationUrl || ''
+    form.position = row?.position || 'home-banner'
+    form.weight = row?.weight || 0
+    form.startAt = row?.startAt || ''
+    form.endAt = row?.endAt || ''
+    form.description = row?.description || ''
+    visible.value = true
+  }
+
+  async function handleSave() {
+    await formRef.value?.validate()
+    saving.value = true
+    try {
+      await saveSourceAdvertisement({ ...form })
+      ElMessage.success('广告已保存')
+      visible.value = false
+      await loadAds()
+    } finally {
+      saving.value = false
+    }
+  }
+
+  async function handleDelete(row: SourceAdvertisement) {
+    await ElMessageBox.confirm(`删除广告 ${row.id}？`, '删除确认', { type: 'warning' })
+    await deleteSourceAdvertisement(row.id)
+    ElMessage.success('广告已删除')
+    await loadAds()
+  }
+
+  onMounted(loadAds)
+</script>
+
+<style scoped lang="scss">
+  .source-station-page {
+    padding-bottom: 8px;
+
+    :deep(.el-card) {
+      --el-card-border-color: var(--art-card-border);
+      border-radius: calc(var(--custom-radius) + 4px);
+      background: var(--default-box-color);
+      box-shadow: none;
+    }
+  }
+
+  .table-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .card-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--art-gray-900);
+  }
+
+  .card-hint {
+    margin: 6px 0 0;
+    font-size: 13px;
+    color: var(--art-gray-600);
+    line-height: 1.5;
+  }
+</style>
