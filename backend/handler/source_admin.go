@@ -36,17 +36,28 @@ func AdminSourceCancelDeveloper(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已取消该开发者资格，对方无法再登录开发者端或发布内容"})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已取消开发者资格并删除账号，该用户名可重新申请入驻"})
+}
+
+func adminCatalogListIncludes(queryStatus, itemStatus string) bool {
+	if queryStatus == "" && itemStatus == sourceItemDraft {
+		return false
+	}
+	return true
 }
 
 func AdminSourcePlugins(c *gin.Context) {
-	items, err := currentSourceStationStore().ListPlugins(strings.TrimSpace(c.Query("status")))
+	status := strings.TrimSpace(c.Query("status"))
+	items, err := currentSourceStationStore().ListPlugins(status)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取插件目录失败"})
 		return
 	}
 	list := make([]gin.H, 0, len(items))
 	for _, item := range items {
+		if !adminCatalogListIncludes(status, item.Status) {
+			continue
+		}
 		list = append(list, sourcePluginView(item))
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": list, "total": len(list)}})
@@ -69,12 +80,20 @@ func AdminSourceRegisterPlugin(c *gin.Context) {
 		return
 	}
 	if req.Shelf {
-		saved, err = currentSourceStationStore().SetPluginStatus(saved.ID, sourceItemPublished, c.GetString("username"), "admin register")
+		actor := c.GetString("username")
+		if saved.Status == sourceItemDraft || saved.Status == sourceItemReview {
+			saved, err = currentSourceStationStore().SetPluginStatus(saved.ID, sourceItemApproved, actor, "admin register")
+			if err != nil {
+				writeSourceDeveloperStoreError(c, err)
+				return
+			}
+		}
+		saved, err = currentSourceStationStore().SetPluginStatus(saved.ID, sourceItemPublished, actor, "admin register")
 		if err != nil {
 			writeSourceDeveloperStoreError(c, err)
 			return
 		}
-		persistIndexSnapshot(c.GetString("username"))
+		persistIndexSnapshot(actor)
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已登记外部插件地址（未上传源码）", "data": sourcePluginView(saved)})
 }
@@ -100,13 +119,17 @@ func AdminSourcePluginDeprecate(c *gin.Context) {
 }
 
 func AdminSourceTemplates(c *gin.Context) {
-	items, err := currentSourceStationStore().ListTemplates(strings.TrimSpace(c.Query("status")))
+	status := strings.TrimSpace(c.Query("status"))
+	items, err := currentSourceStationStore().ListTemplates(status)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取模板目录失败"})
 		return
 	}
 	list := make([]gin.H, 0, len(items))
 	for _, item := range items {
+		if !adminCatalogListIncludes(status, item.Status) {
+			continue
+		}
 		list = append(list, sourceTemplateView(item))
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": list, "total": len(list)}})
@@ -129,12 +152,20 @@ func AdminSourceRegisterTemplate(c *gin.Context) {
 		return
 	}
 	if req.Shelf {
-		saved, err = currentSourceStationStore().SetTemplateStatus(saved.ID, sourceItemPublished, c.GetString("username"), "admin register")
+		actor := c.GetString("username")
+		if saved.Status == sourceItemDraft || saved.Status == sourceItemReview {
+			saved, err = currentSourceStationStore().SetTemplateStatus(saved.ID, sourceItemApproved, actor, "admin register")
+			if err != nil {
+				writeSourceDeveloperStoreError(c, err)
+				return
+			}
+		}
+		saved, err = currentSourceStationStore().SetTemplateStatus(saved.ID, sourceItemPublished, actor, "admin register")
 		if err != nil {
 			writeSourceDeveloperStoreError(c, err)
 			return
 		}
-		persistIndexSnapshot(c.GetString("username"))
+		persistIndexSnapshot(actor)
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已登记外部模板地址（未上传源码）", "data": sourceTemplateView(saved)})
 }
@@ -359,7 +390,7 @@ func adminPluginFromRequest(req sourcePluginDraftRequest) (sourcePlugin, error) 
 			URL:   truncateText(req.Author.URL, 300),
 			Email: truncateText(req.Author.Email, 200),
 		},
-		Status: sourceItemDraft,
+		Status: sourceItemReview,
 	}, nil
 }
 
@@ -413,6 +444,6 @@ func adminTemplateFromRequest(req sourceTemplateDraftRequest) (sourceTemplate, e
 			URL:   truncateText(req.Author.URL, 300),
 			Email: truncateText(req.Author.Email, 200),
 		},
-		Status: sourceItemDraft,
+		Status: sourceItemReview,
 	}, nil
 }

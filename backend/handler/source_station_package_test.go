@@ -280,6 +280,82 @@ func TestSourcePackagePublishGitHubRelease(t *testing.T) {
 	}
 }
 
+func TestSourcePackagePublishHonorsPushCheckbox(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	payload := sourcePluginTestZIP(t)
+	var releaseCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		releaseCalls++
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"message":"release must not be called"}`)
+	}))
+	t.Cleanup(server.Close)
+	prevBase := sourceGitHubAPIBase
+	sourceGitHubAPIBase = server.URL
+	t.Cleanup(func() { sourceGitHubAPIBase = prevBase })
+
+	save := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/settings/release", admin,
+		`{"provider":"github","owner":"acme","repo":"pkgs","token":"ghs_test_token","tagStrategy":"{id}-{version}","branch":"main"}`)
+	if sourceBodyCode(t, save) != 200 {
+		t.Fatalf("settings=%s", save.Body.String())
+	}
+
+	missing := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", payload, map[string]string{
+		"kind": "plugin", "push": "0",
+	})
+	if sourceBodyCode(t, missing) != 400 {
+		t.Fatalf("push=0 without url must fail: %s", missing.Body.String())
+	}
+	if !strings.Contains(missing.Body.String(), "downloadUrl") {
+		t.Fatalf("empty url must ask for downloadUrl: %s", missing.Body.String())
+	}
+	if releaseCalls != 0 {
+		t.Fatalf("push=0 must not call Release API, calls=%d", releaseCalls)
+	}
+	if plugins, _ := store.ListPlugins(""); len(plugins) != 0 {
+		t.Fatalf("failed publish must not persist catalog: %#v", plugins)
+	}
+
+	rec := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", payload, map[string]string{
+		"kind": "plugin", "push": "0",
+		"downloadUrl": "https://cdn.example.com/demo-plugin-1.0.0.zip",
+	})
+	if sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("push=0 with explicit url=%s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"pushed":true`) {
+		t.Fatalf("push=0 must not report pushed: %s", rec.Body.String())
+	}
+	if releaseCalls != 0 {
+		t.Fatalf("push=0 with explicit url must not call Release API, calls=%d", releaseCalls)
+	}
+	plugin, err := store.GetPlugin("demo-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plugin.DownloadURL != "https://cdn.example.com/demo-plugin-1.0.0.zip" {
+		t.Fatalf("downloadUrl=%s", plugin.DownloadURL)
+	}
+	if plugin.Status != sourceItemReview {
+		t.Fatalf("status=%s", plugin.Status)
+	}
+
+	templateZIP := makeTestZIP(t, testZIPEntry{name: "template.json", data: `{
+		"id":"clean-home","name":"清新首页","version":"1.0.0","schemaVersion":1,
+		"description":"模板","author":"设计组","hero":{"title":"欢迎"}
+	}`})
+	missingTpl := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "home.zip", templateZIP, map[string]string{
+		"kind": "template", "push": "0",
+	})
+	if sourceBodyCode(t, missingTpl) != 400 || !strings.Contains(missingTpl.Body.String(), "templateUrl") {
+		t.Fatalf("push=0 template without url must fail: %s", missingTpl.Body.String())
+	}
+	if releaseCalls != 0 {
+		t.Fatalf("template push=0 must not call Release API, calls=%d", releaseCalls)
+	}
+}
+
 func TestSourcePackagePublishPasteableDownloadURL(t *testing.T) {
 	router, store := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
@@ -366,8 +442,8 @@ func TestSourcePackagePublishGiteeRelease(t *testing.T) {
 	if plugin.DownloadURL != "https://gitee.com/acme/pkgs/releases/download/demo-plugin-1.0.0/demo-plugin-1.0.0.zip" {
 		t.Fatalf("gitee url=%s", plugin.DownloadURL)
 	}
-	if plugin.Status != sourceItemDraft {
-		t.Fatalf("without shelf, expect draft, got %s", plugin.Status)
+	if plugin.Status != sourceItemReview {
+		t.Fatalf("without shelf, expect review, got %s", plugin.Status)
 	}
 }
 
@@ -469,6 +545,427 @@ func TestSourceLockedPipelineUploadToPublicIndex(t *testing.T) {
 	}
 	if !strings.Contains(after.Body.String(), `"clean-home"`) {
 		t.Fatalf("unshelf plugin must not hide templates: %s", after.Body.String())
+	}
+}
+
+func TestSourcePackageRepublishDeprecatedPluginResetsReview(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	payload := sourcePluginTestZIP(t)
+
+	first := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", payload, map[string]string{
+		"kind": "plugin", "push": "0", "shelf": "1",
+		"downloadUrl": "https://cdn.example.com/demo-plugin-1.0.0.zip",
+		"changelog":   "首发",
+	})
+	if sourceBodyCode(t, first) != 200 {
+		t.Fatalf("first publish=%s", first.Body.String())
+	}
+	deprecated := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/deprecate", admin, `{"note":"旧包作废"}`)
+	if sourceBodyCode(t, deprecated) != 200 {
+		t.Fatalf("deprecate=%s", deprecated.Body.String())
+	}
+	before, err := store.GetPlugin("demo-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Status != sourceItemDeprecated {
+		t.Fatalf("setup status=%s", before.Status)
+	}
+	if before.ReviewNote != "旧包作废" {
+		t.Fatalf("setup reviewNote=%q", before.ReviewNote)
+	}
+
+	reupload := sourcePluginTestZIP(t)
+	second := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", reupload, map[string]string{
+		"kind": "plugin", "push": "0",
+		"downloadUrl": "https://cdn.example.com/demo-plugin-1.0.0-reupload.zip",
+		"changelog":   "重新上传",
+	})
+	if sourceBodyCode(t, second) != 200 {
+		t.Fatalf("re-upload=%s", second.Body.String())
+	}
+	plugin, err := store.GetPlugin("demo-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plugin.Status != sourceItemReview {
+		t.Fatalf("re-upload deprecated must reset to review, got %s", plugin.Status)
+	}
+	if plugin.ReviewNote != "" || plugin.ReviewedBy != "" {
+		t.Fatalf("re-upload must clear review notes: note=%q by=%q", plugin.ReviewNote, plugin.ReviewedBy)
+	}
+	if plugin.DownloadURL != "https://cdn.example.com/demo-plugin-1.0.0-reupload.zip" {
+		t.Fatalf("re-upload must overwrite package url, got %s", plugin.DownloadURL)
+	}
+	if plugin.SHA256 != sha256Hex(reupload) || plugin.Changelog != "重新上传" {
+		t.Fatalf("re-upload must overwrite package fields: sha=%s changelog=%q", plugin.SHA256, plugin.Changelog)
+	}
+	rel, err := store.GetVersion(sourceKindPlugin, "demo-plugin", plugin.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.Status != sourceVersionDraft {
+		t.Fatalf("re-upload must reset version to draft, got %s", rel.Status)
+	}
+	audits, err := store.ListAudit(50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundReset, foundURL := false, false
+	for _, entry := range audits {
+		if entry.Action == "reupload_reset" && entry.Detail == "status reset to review" {
+			foundReset = true
+		}
+		if entry.Action == "url_change" && strings.Contains(entry.Detail, "demo-plugin-1.0.0-reupload.zip") {
+			foundURL = true
+		}
+	}
+	if !foundReset || !foundURL {
+		t.Fatalf("want reupload_reset and url_change after admin re-upload, audits=%+v", audits)
+	}
+
+	blocked := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/shelf", admin, "{}")
+	if sourceBodyCode(t, blocked) == 200 {
+		t.Fatal("review after re-upload must not shelf without approve")
+	}
+	approve := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/approve", admin, "{}")
+	if sourceBodyCode(t, approve) != 200 {
+		t.Fatalf("approve after re-upload=%s", approve.Body.String())
+	}
+	shelf := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/shelf", admin, "{}")
+	if sourceBodyCode(t, shelf) != 200 {
+		t.Fatalf("approved after re-upload must be shelfable: %s", shelf.Body.String())
+	}
+}
+
+func TestSourceTransitionAllowedDraftCanApproveReject(t *testing.T) {
+	if !sourceTransitionAllowed(sourceItemDraft, sourceItemApproved) {
+		t.Fatal("draft must be approvable")
+	}
+	if !sourceTransitionAllowed(sourceItemDraft, sourceItemRejected) {
+		t.Fatal("draft must be rejectable")
+	}
+	if !sourceTransitionAllowed(sourceItemReview, sourceItemApproved) || !sourceTransitionAllowed(sourceItemReview, sourceItemRejected) {
+		t.Fatal("review must still approve/reject")
+	}
+	if sourceTransitionAllowed(sourceItemPublished, sourceItemApproved) {
+		t.Fatal("published must not approve")
+	}
+	if sourceTransitionAllowed(sourceItemPublished, sourceItemRejected) {
+		t.Fatal("published must not reject")
+	}
+	if sourceTransitionAllowed(sourceItemDeprecated, sourceItemApproved) {
+		t.Fatal("deprecated must not approve")
+	}
+	if sourceTransitionAllowed(sourceItemDraft, sourceItemPublished) {
+		t.Fatal("draft must not publish; shelf requires prior approve")
+	}
+	if sourceTransitionAllowed(sourceItemReview, sourceItemPublished) {
+		t.Fatal("review must not publish; shelf requires prior approve")
+	}
+	if !sourceTransitionAllowed(sourceItemApproved, sourceItemPublished) {
+		t.Fatal("approved must be shelfable")
+	}
+}
+
+func TestAdminDraftPluginCanApproveAndReject(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	if _, err := store.UpsertPlugin(sourcePlugin{
+		ID: "draft-approve", Name: "演示插件", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), DownloadURL: "https://cdn.example.com/draft.zip", Changelog: "草稿",
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	approve := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/draft-approve/approve", admin, "{}")
+	if sourceBodyCode(t, approve) != 200 {
+		t.Fatalf("draft approve=%s", approve.Body.String())
+	}
+	approved, err := store.GetPlugin("draft-approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.Status != sourceItemApproved {
+		t.Fatalf("draft approve status=%s", approved.Status)
+	}
+
+	router, store = sourceStationRouter(t)
+	admin = sourceAdminToken(t)
+	if _, err := store.UpsertPlugin(sourcePlugin{
+		ID: "draft-reject", Name: "演示插件", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), DownloadURL: "https://cdn.example.com/draft.zip", Changelog: "草稿",
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	reject := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/draft-reject/reject", admin, `{"note":"不合规"}`)
+	if sourceBodyCode(t, reject) != 200 {
+		t.Fatalf("draft reject=%s", reject.Body.String())
+	}
+	rejected, err := store.GetPlugin("draft-reject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected.Status != sourceItemRejected {
+		t.Fatalf("draft reject status=%s", rejected.Status)
+	}
+
+	if _, err := store.UpsertPlugin(sourcePlugin{
+		ID: "pub-no-approve", Name: "演示插件", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), DownloadURL: "https://cdn.example.com/pub.zip", Changelog: "已上架",
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	sourceApproveThenPublishPlugin(t, store, "pub-no-approve")
+	blocked := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/pub-no-approve/approve", admin, "{}")
+	if sourceBodyCode(t, blocked) == 200 {
+		t.Fatal("published must not approve")
+	}
+}
+
+func TestAdminReuploadPublishedVersionCanApprove(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	payload := sourcePluginTestZIP(t)
+	first := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", payload, map[string]string{
+		"kind": "plugin", "push": "0", "shelf": "1",
+		"downloadUrl": "https://cdn.example.com/demo-plugin-1.0.0.zip",
+	})
+	if sourceBodyCode(t, first) != 200 {
+		t.Fatalf("first publish=%s", first.Body.String())
+	}
+	second := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", payload, map[string]string{
+		"kind": "plugin", "push": "0",
+		"downloadUrl": "https://cdn.example.com/demo-plugin-1.0.0-reupload.zip",
+		"changelog":   "重传同版本",
+	})
+	if sourceBodyCode(t, second) != 200 {
+		t.Fatalf("re-upload=%s", second.Body.String())
+	}
+	plugin, err := store.GetPlugin("demo-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plugin.Status != sourceItemReview {
+		t.Fatalf("item after re-upload=%s", plugin.Status)
+	}
+	rel, err := store.GetVersion(sourceKindPlugin, "demo-plugin", plugin.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.Status != sourceVersionDraft {
+		t.Fatalf("version after re-upload=%s", rel.Status)
+	}
+	approve := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/approve", admin, "{}")
+	if sourceBodyCode(t, approve) != 200 {
+		t.Fatalf("approve after re-upload=%s", approve.Body.String())
+	}
+	approved, err := store.GetPlugin("demo-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.Status != sourceItemApproved {
+		t.Fatalf("approve status=%s", approved.Status)
+	}
+}
+
+func TestAdminUpsertVersionResetsPublishedToDraft(t *testing.T) {
+	_, store := sourceStationRouter(t)
+	created, err := store.UpsertPlugin(sourcePlugin{
+		ID: "ver-reset", Name: "演示插件", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), DownloadURL: "https://cdn.example.com/old.zip", Changelog: "首发",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceApproveThenPublishPlugin(t, store, created.ID)
+	before, err := store.GetVersion(sourceKindPlugin, "ver-reset", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Status != sourceVersionPublished {
+		t.Fatalf("setup version=%s", before.Status)
+	}
+	saved, err := store.UpsertVersion(sourceRelease{
+		Kind: sourceKindPlugin, ItemID: "ver-reset", Version: "1.0.0",
+		Location: "https://cdn.example.com/new.zip", SHA256: strings.Repeat("cd", 32), Changelog: "重传",
+	}, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status != sourceVersionDraft {
+		t.Fatalf("admin UpsertVersion of published must reset to draft, got %s", saved.Status)
+	}
+	if saved.ReviewNote != "" || saved.ReviewedBy != "" {
+		t.Fatalf("version review fields=%q %q", saved.ReviewNote, saved.ReviewedBy)
+	}
+	if saved.Location != "https://cdn.example.com/new.zip" || saved.SHA256 != strings.Repeat("cd", 32) {
+		t.Fatalf("version fields not overwritten: %+v", saved)
+	}
+	audits, err := store.ListAudit(50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, entry := range audits {
+		if entry.Action == "reupload_reset" && entry.TargetType == "plugin-version" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("want version reupload_reset audit, got %+v", audits)
+	}
+}
+
+func TestAdminUpsertExistingPluginResetsReview(t *testing.T) {
+	_, store := sourceStationRouter(t)
+	created, err := store.UpsertPlugin(sourcePlugin{
+		ID: "reupload-plugin", Name: "演示插件", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), DownloadURL: "https://cdn.example.com/old.zip", Changelog: "首发",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceApproveThenPublishPlugin(t, store, created.ID)
+	if _, err := store.SetPluginStatus(created.ID, sourceItemDeprecated, "admin", "旧包作废"); err != nil {
+		t.Fatal(err)
+	}
+	newSHA := strings.Repeat("cd", 32)
+	saved, err := store.UpsertPlugin(sourcePlugin{
+		ID: "reupload-plugin", Name: "演示插件", Description: "x", Version: "1.0.0",
+		SHA256: newSHA, DownloadURL: "https://cdn.example.com/new.zip", Changelog: "重新上传",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status != sourceItemReview {
+		t.Fatalf("admin upsert of existing item must reset to review, got %s", saved.Status)
+	}
+	if saved.ReviewNote != "" || saved.ReviewedBy != "" {
+		t.Fatalf("admin upsert must clear review notes: note=%q by=%q", saved.ReviewNote, saved.ReviewedBy)
+	}
+	if saved.DownloadURL != "https://cdn.example.com/new.zip" || saved.SHA256 != newSHA || saved.Changelog != "重新上传" {
+		t.Fatalf("admin upsert must overwrite package fields: %+v", saved)
+	}
+}
+
+func TestDeveloperUpsertPreservesPublishedStatus(t *testing.T) {
+	_, store := sourceStationRouter(t)
+	created, err := store.UpsertPlugin(sourcePlugin{
+		ID: "dev-preserve", Name: "演示插件", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), DownloadURL: "https://cdn.example.com/old.zip", Changelog: "首发",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceApproveThenPublishPlugin(t, store, created.ID)
+	published, err := store.GetPlugin(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := store.UpsertPlugin(sourcePlugin{
+		ID: published.ID, Name: "开发者改名", Description: "x", Version: "1.0.1",
+		SHA256: strings.Repeat("cd", 32), DownloadURL: "https://cdn.example.com/dev.zip",
+		Changelog: "dev", DeveloperID: published.DeveloperID,
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status != sourceItemPublished {
+		t.Fatalf("developer upsert must preserve status, got %s", saved.Status)
+	}
+}
+
+func TestAdminUpsertCreatesReview(t *testing.T) {
+	_, store := sourceStationRouter(t)
+	plugin, err := store.UpsertPlugin(sourcePlugin{
+		ID: "admin-create", Name: "后台插件", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), DownloadURL: "https://cdn.example.com/admin.zip",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plugin.Status != sourceItemReview {
+		t.Fatalf("admin create plugin must land in review, got %s", plugin.Status)
+	}
+	tpl, err := store.UpsertTemplate(sourceTemplate{
+		ID: "admin-tpl", TemplateKey: "admin-tpl", Name: "后台模板", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), TemplateURL: "https://cdn.example.com/admin-tpl.zip",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tpl.Status != sourceItemReview {
+		t.Fatalf("admin create template must land in review, got %s", tpl.Status)
+	}
+}
+
+func TestAdminCatalogHidesDeveloperDraft(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin, dev, _ := sourceApproveDeveloper(t, router, "dev-hidden", "secret1")
+	sha := sourceTestSHA256()
+	pluginBody := `{"id":"hidden-draft","name":"开发者草稿","version":"1.0.0","description":"不应出现在后台","category":"other","downloadUrl":"https://cdn.example.com/hidden.zip","sha256":"` + sha + `"}`
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins", dev, pluginBody); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("save plugin=%s", rec.Body.String())
+	}
+	templateBody := `{"templateKey":"hidden-tpl","name":"开发者模板草稿","version":"1.0.0","description":"不应出现在后台","schemaVersion":1,"templateUrl":"https://cdn.example.com/hidden-tpl.json","sha256":"` + sha + `"}`
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/templates", dev, templateBody); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("save template=%s", rec.Body.String())
+	}
+	plugin, err := store.GetPlugin("hidden-draft")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plugin.Status != sourceItemDraft {
+		t.Fatalf("developer create must stay draft, got %s", plugin.Status)
+	}
+	listed := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/plugins", admin, "")
+	if sourceBodyCode(t, listed) != 200 || strings.Contains(listed.Body.String(), "hidden-draft") {
+		t.Fatalf("admin default plugin list must hide developer draft: %s", listed.Body.String())
+	}
+	explicitDraft := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/plugins?status=draft", admin, "")
+	if sourceBodyCode(t, explicitDraft) != 200 || !strings.Contains(explicitDraft.Body.String(), "hidden-draft") {
+		t.Fatalf("explicit status=draft should still return developer draft: %s", explicitDraft.Body.String())
+	}
+	tplListed := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/templates", admin, "")
+	if sourceBodyCode(t, tplListed) != 200 || strings.Contains(tplListed.Body.String(), "hidden-tpl") {
+		t.Fatalf("admin default template list must hide developer draft: %s", tplListed.Body.String())
+	}
+
+	register := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
+		`{"id":"admin-review","name":"后台登记","downloadUrl":"https://cdn.example.com/admin.zip","sha256":"`+sha+`"}`)
+	if sourceBodyCode(t, register) != 200 {
+		t.Fatalf("admin upsert=%s", register.Body.String())
+	}
+	saved, err := store.GetPlugin("admin-review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status != sourceItemReview {
+		t.Fatalf("admin register must land in review, got %s", saved.Status)
+	}
+	listed = sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/plugins", admin, "")
+	if !strings.Contains(listed.Body.String(), "admin-review") {
+		t.Fatalf("admin review item must appear: %s", listed.Body.String())
+	}
+	if strings.Contains(listed.Body.String(), "hidden-draft") {
+		t.Fatalf("developer draft still hidden after other items: %s", listed.Body.String())
+	}
+
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins/hidden-draft/submit", dev, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("submit plugin=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/templates/hidden-tpl/submit", dev, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("submit template=%s", rec.Body.String())
+	}
+	listed = sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/plugins", admin, "")
+	if !strings.Contains(listed.Body.String(), "hidden-draft") {
+		t.Fatalf("after submit, developer plugin must appear in admin list: %s", listed.Body.String())
+	}
+	tplListed = sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/templates", admin, "")
+	if !strings.Contains(tplListed.Body.String(), "hidden-tpl") {
+		t.Fatalf("after submit, developer template must appear in admin list: %s", tplListed.Body.String())
 	}
 }
 

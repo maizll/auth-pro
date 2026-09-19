@@ -106,15 +106,21 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		return
 	}
 	location := strings.TrimSpace(sourceFirstNonEmpty(c.PostForm("downloadUrl"), c.PostForm("templateUrl")))
+	pushRequested := formFlag(c, "push") || formFlag(c, "pushRelease")
+	if !pushRequested && location == "" {
+		payload = nil
+		field := "downloadUrl"
+		if manifest.Kind == sourceKindTemplate {
+			field = "templateUrl"
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "未勾选推送 Release，请填写外部 https " + field})
+		return
+	}
 	settings, err := currentSourceStationStore().GetReleaseSettings()
 	if err != nil {
 		payload = nil
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取 Release 设置失败"})
 		return
-	}
-	pushRequested := formFlag(c, "push") || formFlag(c, "pushRelease")
-	if !pushRequested && location == "" && settings.releaseReady() {
-		pushRequested = true
 	}
 	pushed := false
 	provider := ""
@@ -163,12 +169,16 @@ func AdminSourcePackagePublish(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": convErr.Error()})
 			return
 		}
+		previous, _ := currentSourceStationStore().GetTemplate(item.ID)
 		saved, upsertErr := currentSourceStationStore().UpsertTemplate(item, true)
 		if upsertErr != nil {
 			writeSourceDeveloperStoreError(c, upsertErr)
 			return
 		}
-		if formFlag(c, "submit") && !shelf {
+		if previous.Status == sourceItemPublished {
+			persistIndexSnapshot(actor)
+		}
+		if formFlag(c, "submit") && !shelf && saved.Status != sourceItemReview {
 			saved, upsertErr = currentSourceStationStore().SetTemplateStatus(saved.ID, sourceItemReview, actor, "package submit")
 			if upsertErr != nil {
 				writeSourceDeveloperStoreError(c, upsertErr)
@@ -198,12 +208,16 @@ func AdminSourcePackagePublish(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": convErr.Error()})
 			return
 		}
+		previous, _ := currentSourceStationStore().GetPlugin(item.ID)
 		saved, upsertErr := currentSourceStationStore().UpsertPlugin(item, true)
 		if upsertErr != nil {
 			writeSourceDeveloperStoreError(c, upsertErr)
 			return
 		}
-		if formFlag(c, "submit") && !shelf {
+		if previous.Status == sourceItemPublished {
+			persistIndexSnapshot(actor)
+		}
+		if formFlag(c, "submit") && !shelf && saved.Status != sourceItemReview {
 			saved, upsertErr = currentSourceStationStore().SetPluginStatus(saved.ID, sourceItemReview, actor, "package submit")
 			if upsertErr != nil {
 				writeSourceDeveloperStoreError(c, upsertErr)
@@ -244,9 +258,9 @@ func AdminSourcePackagePublish(c *gin.Context) {
 	} else {
 		data["item"] = pluginView
 	}
-	msg := "校验通过，已保存为草稿（包已丢弃，源站不保存源码）。请走审核/上架"
+	msg := "校验通过，已保存为待审核（包已丢弃，源站不保存源码）。请走审核/上架"
 	if pushed {
-		msg = "校验通过，已推送到 " + provider + " Release 并保存为草稿（包已丢弃）"
+		msg = "校验通过，已推送到 " + provider + " Release 并保存为待审核（包已丢弃）"
 	}
 	if shelf {
 		msg = "校验通过，已保存并上架（包已丢弃）"
@@ -255,13 +269,17 @@ func AdminSourcePackagePublish(c *gin.Context) {
 }
 
 func publishSourcePackageItem(kind, id, version, actor string) error {
-	if _, err := currentSourceStationStore().SetVersionStatus(kind, id, version, sourceVersionPublished, actor, "package publish"); err != nil {
-		return err
-	}
+	_ = version
 	if kind == sourceKindTemplate {
 		item, err := currentSourceStationStore().GetTemplate(id)
 		if err != nil {
 			return err
+		}
+		if item.Status == sourceItemDraft || item.Status == sourceItemReview {
+			item, err = currentSourceStationStore().SetTemplateStatus(id, sourceItemApproved, actor, "package publish")
+			if err != nil {
+				return err
+			}
 		}
 		if item.Status != sourceItemPublished {
 			_, err = currentSourceStationStore().SetTemplateStatus(id, sourceItemPublished, actor, "package publish")
@@ -272,6 +290,12 @@ func publishSourcePackageItem(kind, id, version, actor string) error {
 	item, err := currentSourceStationStore().GetPlugin(id)
 	if err != nil {
 		return err
+	}
+	if item.Status == sourceItemDraft || item.Status == sourceItemReview {
+		item, err = currentSourceStationStore().SetPluginStatus(id, sourceItemApproved, actor, "package publish")
+		if err != nil {
+			return err
+		}
 	}
 	if item.Status != sourceItemPublished {
 		_, err = currentSourceStationStore().SetPluginStatus(id, sourceItemPublished, actor, "package publish")

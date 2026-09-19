@@ -98,19 +98,29 @@ func (store *memorySourceStore) upsertVersionLocked(rel sourceRelease, developer
 			if !asAdmin && (existing.Location != rel.Location || existing.SHA256 != rel.SHA256) {
 				return sourceRelease{}, errSourceVersionImmutable
 			}
-			if asAdmin && existing.Location != rel.Location {
-				store.auditLocked("url_change", rel.Kind+"-version", rel.ItemID+"@"+rel.Version, "admin", rel.Location)
-				existing.Location = rel.Location
-				existing.SHA256 = rel.SHA256
-				existing.Changelog = rel.Changelog
-				existing.UpdatedAt = now
-				bucket[rel.ItemID][rel.Version] = existing
-				if err := store.denormalizeLatestLocked(rel.Kind, rel.ItemID); err != nil {
-					return sourceRelease{}, err
-				}
+			if !asAdmin {
 				return existing, nil
 			}
-			return existing, nil
+			if rel.Location != "" && rel.Location != existing.Location {
+				store.auditLocked("url_change", rel.Kind+"-version", rel.ItemID+"@"+rel.Version, "admin", rel.Location)
+				existing.Location = rel.Location
+			}
+			if rel.SHA256 != "" {
+				existing.SHA256 = rel.SHA256
+			}
+			if rel.Changelog != "" {
+				existing.Changelog = rel.Changelog
+			}
+			existing.Status = sourceVersionDraft
+			existing.ReviewNote = ""
+			existing.ReviewedBy = ""
+			existing.UpdatedAt = now
+			bucket[rel.ItemID][rel.Version] = existing
+			store.auditLocked("reupload_reset", rel.Kind+"-version", rel.ItemID+"@"+rel.Version, "admin", "status reset to draft")
+			if err := store.denormalizeLatestLocked(rel.Kind, rel.ItemID); err != nil {
+				return sourceRelease{}, err
+			}
+			return bucket[rel.ItemID][rel.Version], nil
 		}
 		if rel.Location != "" {
 			existing.Location = rel.Location
@@ -138,6 +148,42 @@ func (store *memorySourceStore) upsertVersionLocked(rel sourceRelease, developer
 		return sourceRelease{}, err
 	}
 	return rel, nil
+}
+
+func (store *memorySourceStore) replaceVersionLocked(rel sourceRelease, developerID int64) (sourceRelease, error) {
+	if rel.Kind == "" {
+		rel.Kind = sourceKindPlugin
+	}
+	if err := store.assertVersionOwnerLocked(rel.Kind, rel.ItemID, developerID, true); err != nil {
+		return sourceRelease{}, err
+	}
+	version, err := normalizeSourceVersion(rel.Version)
+	if err != nil {
+		return sourceRelease{}, err
+	}
+	rel.Version = version
+	rel.Changelog = truncateText(rel.Changelog, 2000)
+	rel.Location = strings.TrimSpace(rel.Location)
+	rel.SHA256 = strings.ToLower(strings.TrimSpace(rel.SHA256))
+	now := time.Now().UTC()
+	bucket := store.versionMap(rel.Kind)
+	if bucket[rel.ItemID] == nil {
+		bucket[rel.ItemID] = map[string]sourceRelease{}
+	}
+	if existing, exists := bucket[rel.ItemID][rel.Version]; exists {
+		rel.CreatedAt = existing.CreatedAt
+	} else {
+		rel.CreatedAt = now
+	}
+	rel.Status = sourceVersionDraft
+	rel.ReviewNote = ""
+	rel.ReviewedBy = ""
+	rel.UpdatedAt = now
+	bucket[rel.ItemID][rel.Version] = rel
+	if err := store.denormalizeLatestLocked(rel.Kind, rel.ItemID); err != nil {
+		return sourceRelease{}, err
+	}
+	return bucket[rel.ItemID][rel.Version], nil
 }
 
 func (store *memorySourceStore) SetVersionStatus(kind, itemID, version, status, actor, note string) (sourceRelease, error) {
@@ -316,13 +362,7 @@ func (store *memorySourceStore) applyItemStatusToVersionsLocked(kind, itemID, st
 			store.versionMap(kind)[itemID][rel.Version] = rel
 		}
 	case sourceItemPublished:
-		rel, ok := store.pickVersionLocked(kind, itemID, preferred, sourceVersionPublished)
-		if !ok {
-			rel, ok = store.pickVersionLocked(kind, itemID, preferred, sourceVersionPending)
-		}
-		if !ok {
-			rel, ok = store.pickVersionLocked(kind, itemID, preferred, sourceVersionDraft)
-		}
+		rel, ok := store.pickVersionLocked(kind, itemID, preferred, "")
 		if !ok {
 			return errSourceNotFound
 		}
@@ -460,14 +500,21 @@ func (mysqlSourceStore) UpsertVersion(rel sourceRelease, developerID int64, asAd
 			if !asAdmin && (existing.Location != rel.Location || existing.SHA256 != rel.SHA256) && (rel.Location != "" || rel.SHA256 != "") {
 				return sourceRelease{}, errSourceVersionImmutable
 			}
-			if asAdmin && rel.Location != "" {
-				if err := mysqlWriteVersion(db, rel.Kind, existing.ItemID, existing.Version, coalesceRelease(existing, rel), existing.Status); err != nil {
-					return sourceRelease{}, err
-				}
-				if existing.Location != rel.Location {
-					mysqlAppendAudit(db, "url_change", rel.Kind+"-version", rel.ItemID+"@"+rel.Version, "admin", rel.Location)
-				}
+			if !asAdmin {
+				return existing, nil
 			}
+			merged := coalesceRelease(existing, rel)
+			merged.Status = sourceVersionDraft
+			merged.ReviewNote = ""
+			merged.ReviewedBy = ""
+			if err := mysqlWriteVersion(db, rel.Kind, existing.ItemID, existing.Version, merged, sourceVersionDraft); err != nil {
+				return sourceRelease{}, err
+			}
+			if rel.Location != "" && existing.Location != rel.Location {
+				mysqlAppendAudit(db, "url_change", rel.Kind+"-version", rel.ItemID+"@"+rel.Version, "admin", rel.Location)
+			}
+			mysqlAppendAudit(db, "reupload_reset", rel.Kind+"-version", rel.ItemID+"@"+rel.Version, "admin", "status reset to draft")
+			_ = (mysqlSourceStore{}).denormalizeLatest(rel.Kind, rel.ItemID)
 			return (mysqlSourceStore{}).GetVersion(rel.Kind, rel.ItemID, rel.Version)
 		}
 		merged := coalesceRelease(existing, rel)
@@ -481,6 +528,32 @@ func (mysqlSourceStore) UpsertVersion(rel sourceRelease, developerID int64, asAd
 		rel.Status = sourceVersionDraft
 	}
 	if err := mysqlWriteVersion(db, rel.Kind, rel.ItemID, rel.Version, rel, rel.Status); err != nil {
+		return sourceRelease{}, err
+	}
+	_ = (mysqlSourceStore{}).denormalizeLatest(rel.Kind, rel.ItemID)
+	return (mysqlSourceStore{}).GetVersion(rel.Kind, rel.ItemID, rel.Version)
+}
+
+func (mysqlSourceStore) replaceVersionFromPackage(rel sourceRelease) (sourceRelease, error) {
+	if rel.Kind == "" {
+		rel.Kind = sourceKindPlugin
+	}
+	version, err := normalizeSourceVersion(rel.Version)
+	if err != nil {
+		return sourceRelease{}, err
+	}
+	rel.Version = version
+	rel.Changelog = truncateText(rel.Changelog, 2000)
+	rel.Location = strings.TrimSpace(rel.Location)
+	rel.SHA256 = strings.ToLower(strings.TrimSpace(rel.SHA256))
+	rel.Status = sourceVersionDraft
+	rel.ReviewNote = ""
+	rel.ReviewedBy = ""
+	db, err := config.DB()
+	if err != nil {
+		return sourceRelease{}, err
+	}
+	if err := mysqlWriteVersion(db, rel.Kind, rel.ItemID, rel.Version, rel, sourceVersionDraft); err != nil {
 		return sourceRelease{}, err
 	}
 	_ = (mysqlSourceStore{}).denormalizeLatest(rel.Kind, rel.ItemID)
@@ -644,13 +717,7 @@ func (mysqlSourceStore) applyItemStatusToVersions(kind, itemID, status, actor, n
 			}
 		}
 	case sourceItemPublished:
-		rel, ok := pick(sourceVersionPublished)
-		if !ok {
-			rel, ok = pick(sourceVersionPending)
-		}
-		if !ok {
-			rel, ok = pick(sourceVersionDraft)
-		}
+		rel, ok := pick("")
 		if !ok {
 			return errSourceNotFound
 		}

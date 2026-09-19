@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -58,6 +59,16 @@ func sourceAdminToken(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return token
+}
+
+func sourceApproveThenPublishPlugin(t *testing.T, store *memorySourceStore, id string) {
+	t.Helper()
+	if _, err := store.SetPluginStatus(id, sourceItemApproved, "admin", ""); err != nil {
+		t.Fatalf("approve %s: %v", id, err)
+	}
+	if _, err := store.SetPluginStatus(id, sourceItemPublished, "admin", ""); err != nil {
+		t.Fatalf("shelf %s: %v", id, err)
+	}
 }
 
 func sourceBodyCode(t *testing.T, recorder *httptest.ResponseRecorder) int {
@@ -290,8 +301,29 @@ func TestSourceStationPublishRequiresSHA256AndURL(t *testing.T) {
 	}
 }
 
+func TestSourceDeveloperApproveRemovesApplication(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin, token, appID := sourceApproveDeveloper(t, router, "dev-approved", "secret1")
+	if _, err := store.GetApplication(appID); !errors.Is(err, errSourceNotFound) {
+		t.Fatalf("approved application must be deleted, err=%v", err)
+	}
+	listed := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/applications", admin, "")
+	if sourceBodyCode(t, listed) != 200 || strings.Contains(listed.Body.String(), "dev-approved") {
+		t.Fatalf("admin pending list must hide approved application: %s", listed.Body.String())
+	}
+	devs := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/developers", admin, "")
+	if sourceBodyCode(t, devs) != 200 || !strings.Contains(devs.Body.String(), "dev-approved") {
+		t.Fatalf("approved developer must appear in developers list: %s", devs.Body.String())
+	}
+	me := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/me", token, "")
+	if sourceBodyCode(t, me) != 200 || !strings.Contains(me.Body.String(), "dev-approved") {
+		t.Fatalf("approved developer must stay logged in: %s", me.Body.String())
+	}
+	sourceMustHaveAudit(t, store, "approve", sourceAuditApproveDeleted)
+}
+
 func TestSourceDeveloperRejectBlocksLogin(t *testing.T) {
-	router, _ := sourceStationRouter(t)
+	router, store := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
 	apply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", "",
 		`{"username":"dev-bob","password":"secret1","reason":"nope"}`)
@@ -306,11 +338,24 @@ func TestSourceDeveloperRejectBlocksLogin(t *testing.T) {
 	if sourceBodyCode(t, reject) != 200 {
 		t.Fatalf("reject=%s", reject.Body.String())
 	}
+	listed := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/applications", admin, "")
+	if sourceBodyCode(t, listed) != 200 || strings.Contains(listed.Body.String(), "dev-bob") {
+		t.Fatalf("rejected application must leave pending list: %s", listed.Body.String())
+	}
+	if apps, _ := store.ListApplications(""); len(apps) != 0 {
+		t.Fatalf("rejected application must be deleted, leftover=%+v", apps)
+	}
 	login := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/login", "",
 		`{"username":"dev-bob","password":"secret1"}`)
 	if sourceBodyCode(t, login) != 401 {
 		t.Fatalf("rejected developer login=%s", login.Body.String())
 	}
+	again := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", "",
+		`{"username":"dev-bob","password":"secret1","reason":"try again"}`)
+	if sourceBodyCode(t, again) != 200 {
+		t.Fatalf("same username must apply again after reject: %s", again.Body.String())
+	}
+	sourceMustHaveAudit(t, store, "reject", sourceAuditRejectDeleted)
 }
 
 func TestSourceAdvertisementCRUDFeedsLocalEndpoint(t *testing.T) {
@@ -421,8 +466,23 @@ func TestSourceStationPluginVersionUpdateUnshelfAndRollback(t *testing.T) {
 }
 
 func TestSourceDeveloperCancelBlocksLogin(t *testing.T) {
-	router, _ := sourceStationRouter(t)
+	router, store := sourceStationRouter(t)
 	admin, _, appID := sourceApproveDeveloper(t, router, "dev-carol", "secret1")
+	developer, err := store.GetDeveloperByUsername("dev-carol")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned, err := store.UpsertPlugin(sourcePlugin{
+		ID: "carol-plugin", Name: "Carol 插件", Description: "x", Version: "1.0.0",
+		SHA256: sourceTestSHA256(), DownloadURL: "https://cdn.example.com/carol.zip",
+		DeveloperID: developer.ID,
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owned.DeveloperID != developer.ID {
+		t.Fatalf("setup developer_id=%d", owned.DeveloperID)
+	}
 
 	pendingApply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", "",
 		`{"username":"dev-pending","password":"secret1","reason":"wait"}`)
@@ -440,25 +500,67 @@ func TestSourceDeveloperCancelBlocksLogin(t *testing.T) {
 		t.Fatalf("cancel pending=%s", cancelPending.Body.String())
 	}
 
-	cancel := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(appID)+"/cancel",
+	cancel := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/developers/"+itoa64(developer.ID)+"/cancel",
 		admin, `{"note":"违规发布"}`)
-	if sourceBodyCode(t, cancel) != 200 || !strings.Contains(cancel.Body.String(), "已取消该开发者资格") {
+	if sourceBodyCode(t, cancel) != 200 || !strings.Contains(cancel.Body.String(), "删除账号") {
 		t.Fatalf("cancel=%s", cancel.Body.String())
+	}
+	if _, err := store.GetDeveloperByUsername("dev-carol"); !errors.Is(err, errSourceNotFound) {
+		t.Fatalf("cancelled developer must be deleted, err=%v", err)
+	}
+	devs, err := store.ListDevelopers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range devs {
+		if strings.EqualFold(item.Username, "dev-carol") {
+			t.Fatalf("must not keep frozen developer row: %+v", item)
+		}
+	}
+	kept, err := store.GetPlugin("carol-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kept.DeveloperID != 0 {
+		t.Fatalf("catalog item must detach developer_id, got %d", kept.DeveloperID)
 	}
 	login := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/login", "",
 		`{"username":"dev-carol","password":"secret1"}`)
-	if sourceBodyCode(t, login) != 403 {
-		t.Fatalf("cancelled developer login=%s", login.Body.String())
+	if sourceBodyCode(t, login) != 401 {
+		t.Fatalf("deleted developer login=%s", login.Body.String())
 	}
 	status := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply/status", "", `{"username":"dev-carol"}`)
-	if sourceBodyCode(t, status) != 200 || !strings.Contains(status.Body.String(), `"frozen"`) {
-		t.Fatalf("cancelled apply status=%s", status.Body.String())
+	if sourceBodyCode(t, status) != 404 || strings.Contains(status.Body.String(), `"frozen"`) {
+		t.Fatalf("cancelled apply status must not keep frozen row: %s", status.Body.String())
 	}
-	again := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(appID)+"/freeze",
+	again := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/developers/"+itoa64(developer.ID)+"/cancel",
 		admin, `{}`)
-	if sourceBodyCode(t, again) != 400 {
-		t.Fatalf("cancel twice=%s", again.Body.String())
+	if sourceBodyCode(t, again) != 404 {
+		t.Fatalf("cancel missing developer=%s", again.Body.String())
 	}
+	reapply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", "",
+		`{"username":"dev-carol","password":"secret1","reason":"rejoin"}`)
+	if sourceBodyCode(t, reapply) != 200 {
+		t.Fatalf("same username must apply again after cancel: %s", reapply.Body.String())
+	}
+	if _, err := store.GetApplication(appID); !errors.Is(err, errSourceNotFound) {
+		t.Fatalf("approved/cancelled application row must stay deleted, err=%v", err)
+	}
+	sourceMustHaveAudit(t, store, "cancel", sourceAuditDeveloperDeleted)
+}
+
+func sourceMustHaveAudit(t *testing.T, store *memorySourceStore, action, detail string) {
+	t.Helper()
+	audits, err := store.ListAudit(50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range audits {
+		if entry.Action == action && entry.Detail == detail {
+			return
+		}
+	}
+	t.Fatalf("want audit action=%s detail=%q, got %+v", action, detail, audits)
 }
 
 func itoa64(value int64) string {

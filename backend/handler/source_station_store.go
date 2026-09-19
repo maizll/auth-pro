@@ -25,6 +25,10 @@ const (
 	sourceApplicationRejected = "rejected"
 	sourceApplicationFrozen   = "frozen"
 
+	sourceAuditApproveDeleted   = "approved and application deleted"
+	sourceAuditRejectDeleted    = "rejected and application deleted"
+	sourceAuditDeveloperDeleted = "developer deleted"
+
 	sourceItemDraft      = "draft"
 	sourceItemReview     = "review"
 	sourceItemApproved   = "approved"
@@ -287,11 +291,11 @@ func sourceTransitionAllowed(from, to string) bool {
 	case sourceItemReview:
 		return from == sourceItemDraft || from == sourceItemRejected
 	case sourceItemApproved:
-		return from == sourceItemReview
+		return from == sourceItemReview || from == sourceItemDraft
 	case sourceItemRejected:
-		return from == sourceItemReview
+		return from == sourceItemReview || from == sourceItemDraft
 	case sourceItemPublished:
-		return from == sourceItemApproved || from == sourceItemHidden || from == sourceItemDraft || from == sourceItemReview
+		return from == sourceItemApproved || from == sourceItemHidden
 	case sourceItemHidden:
 		return from == sourceItemPublished
 	case sourceItemDeprecated:
@@ -371,6 +375,74 @@ func (store *memorySourceStore) GetPlugin(id string) (sourcePlugin, error) {
 	return item, nil
 }
 
+func applyAdminCatalogCreateStatus(status string, asAdmin bool) string {
+	if asAdmin {
+		return sourceItemReview
+	}
+	if status == "" {
+		return sourceItemDraft
+	}
+	return status
+}
+
+func applyAdminPluginReupload(plugin *sourcePlugin, existing sourcePlugin, version, url, sha, changelog string) {
+	plugin.CreatedAt = existing.CreatedAt
+	plugin.DeveloperID = existing.DeveloperID
+	plugin.Status = sourceItemReview
+	plugin.ReviewNote = ""
+	plugin.ReviewedBy = ""
+	plugin.LatestVersion = ""
+	if version != "" {
+		plugin.Version = version
+	} else {
+		plugin.Version = existing.Version
+	}
+	if sha != "" {
+		plugin.SHA256 = sha
+	} else {
+		plugin.SHA256 = existing.SHA256
+	}
+	if url != "" {
+		plugin.DownloadURL = url
+	} else {
+		plugin.DownloadURL = existing.DownloadURL
+	}
+	if changelog != "" {
+		plugin.Changelog = changelog
+	} else {
+		plugin.Changelog = existing.Changelog
+	}
+}
+
+func applyAdminTemplateReupload(item *sourceTemplate, existing sourceTemplate, version, url, sha, changelog string) {
+	item.CreatedAt = existing.CreatedAt
+	item.DeveloperID = existing.DeveloperID
+	item.Status = sourceItemReview
+	item.ReviewNote = ""
+	item.ReviewedBy = ""
+	item.LatestVersion = ""
+	if version != "" {
+		item.Version = version
+	} else {
+		item.Version = existing.Version
+	}
+	if sha != "" {
+		item.SHA256 = sha
+	} else {
+		item.SHA256 = existing.SHA256
+	}
+	if url != "" {
+		item.TemplateURL = url
+	} else {
+		item.TemplateURL = existing.TemplateURL
+	}
+	if changelog != "" {
+		item.Changelog = changelog
+	} else {
+		item.Changelog = existing.Changelog
+	}
+}
+
 func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourcePlugin, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -383,31 +455,39 @@ func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) 
 	incomingURL := strings.TrimSpace(plugin.DownloadURL)
 	incomingSHA := strings.TrimSpace(plugin.SHA256)
 	incomingLog := strings.TrimSpace(plugin.Changelog)
+	adminReset := false
 	if exists {
-		plugin.CreatedAt = existing.CreatedAt
-		plugin.Status = existing.Status
-		plugin.ReviewNote = existing.ReviewNote
-		plugin.ReviewedBy = existing.ReviewedBy
-		plugin.LatestVersion = existing.LatestVersion
-		plugin.DeveloperID = existing.DeveloperID
-		if existing.LatestVersion != "" {
-			plugin.Version = existing.Version
-			plugin.SHA256 = existing.SHA256
-			plugin.DownloadURL = existing.DownloadURL
-			plugin.Changelog = existing.Changelog
+		actor := "developer"
+		if asAdmin {
+			actor = "admin"
 		}
-		if incomingURL != "" && incomingURL != existing.DownloadURL && existing.LatestVersion == "" {
-			actor := "developer"
-			if asAdmin {
-				actor = "admin"
+		plugin.CreatedAt = existing.CreatedAt
+		plugin.DeveloperID = existing.DeveloperID
+		if asAdmin {
+			adminReset = true
+			applyAdminPluginReupload(&plugin, existing, incomingVersion, incomingURL, incomingSHA, incomingLog)
+			if incomingURL != "" && incomingURL != existing.DownloadURL {
+				store.auditLocked("url_change", "plugin", plugin.ID, actor, incomingURL)
 			}
-			store.auditLocked("url_change", "plugin", plugin.ID, actor, incomingURL)
+			store.auditLocked("reupload_reset", "plugin", plugin.ID, actor, "status reset to review")
+		} else {
+			plugin.Status = existing.Status
+			plugin.ReviewNote = existing.ReviewNote
+			plugin.ReviewedBy = existing.ReviewedBy
+			plugin.LatestVersion = existing.LatestVersion
+			if existing.LatestVersion != "" {
+				plugin.Version = existing.Version
+				plugin.SHA256 = existing.SHA256
+				plugin.DownloadURL = existing.DownloadURL
+				plugin.Changelog = existing.Changelog
+			}
+			if incomingURL != "" && incomingURL != existing.DownloadURL && existing.LatestVersion == "" {
+				store.auditLocked("url_change", "plugin", plugin.ID, actor, incomingURL)
+			}
 		}
 	} else {
 		plugin.CreatedAt = now
-		if plugin.Status == "" {
-			plugin.Status = sourceItemDraft
-		}
+		plugin.Status = applyAdminCatalogCreateStatus(plugin.Status, asAdmin)
 	}
 	plugin.UpdatedAt = now
 	store.plugins[plugin.ID] = plugin
@@ -416,9 +496,21 @@ func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) 
 			Kind: sourceKindPlugin, ItemID: plugin.ID, Version: incomingVersion,
 			Changelog: incomingLog, Location: incomingURL, SHA256: incomingSHA, Status: sourceVersionDraft,
 		}
-		if _, err := store.upsertVersionLocked(rel, plugin.DeveloperID, asAdmin); err != nil {
+		var err error
+		if adminReset {
+			_, err = store.replaceVersionLocked(rel, plugin.DeveloperID)
+		} else {
+			_, err = store.upsertVersionLocked(rel, plugin.DeveloperID, asAdmin)
+		}
+		if err != nil {
 			return sourcePlugin{}, err
 		}
+	}
+	if adminReset {
+		item := store.plugins[plugin.ID]
+		applyAdminPluginReupload(&item, existing, incomingVersion, incomingURL, incomingSHA, incomingLog)
+		item.UpdatedAt = now
+		store.plugins[plugin.ID] = item
 	}
 	return store.plugins[plugin.ID], nil
 }
@@ -483,31 +575,39 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 	incomingURL := strings.TrimSpace(item.TemplateURL)
 	incomingSHA := strings.TrimSpace(item.SHA256)
 	incomingLog := strings.TrimSpace(item.Changelog)
+	adminReset := false
 	if exists {
-		item.CreatedAt = existing.CreatedAt
-		item.Status = existing.Status
-		item.ReviewNote = existing.ReviewNote
-		item.ReviewedBy = existing.ReviewedBy
-		item.LatestVersion = existing.LatestVersion
-		item.DeveloperID = existing.DeveloperID
-		if existing.LatestVersion != "" {
-			item.Version = existing.Version
-			item.SHA256 = existing.SHA256
-			item.TemplateURL = existing.TemplateURL
-			item.Changelog = existing.Changelog
+		actor := "developer"
+		if asAdmin {
+			actor = "admin"
 		}
-		if existing.TemplateURL != incomingURL && incomingURL != "" && existing.LatestVersion == "" {
-			actor := "developer"
-			if asAdmin {
-				actor = "admin"
+		item.CreatedAt = existing.CreatedAt
+		item.DeveloperID = existing.DeveloperID
+		if asAdmin {
+			adminReset = true
+			applyAdminTemplateReupload(&item, existing, incomingVersion, incomingURL, incomingSHA, incomingLog)
+			if incomingURL != "" && incomingURL != existing.TemplateURL {
+				store.auditLocked("url_change", "template", item.ID, actor, incomingURL)
 			}
-			store.auditLocked("url_change", "template", item.ID, actor, incomingURL)
+			store.auditLocked("reupload_reset", "template", item.ID, actor, "status reset to review")
+		} else {
+			item.Status = existing.Status
+			item.ReviewNote = existing.ReviewNote
+			item.ReviewedBy = existing.ReviewedBy
+			item.LatestVersion = existing.LatestVersion
+			if existing.LatestVersion != "" {
+				item.Version = existing.Version
+				item.SHA256 = existing.SHA256
+				item.TemplateURL = existing.TemplateURL
+				item.Changelog = existing.Changelog
+			}
+			if incomingURL != "" && incomingURL != existing.TemplateURL && existing.LatestVersion == "" {
+				store.auditLocked("url_change", "template", item.ID, actor, incomingURL)
+			}
 		}
 	} else {
 		item.CreatedAt = now
-		if item.Status == "" {
-			item.Status = sourceItemDraft
-		}
+		item.Status = applyAdminCatalogCreateStatus(item.Status, asAdmin)
 	}
 	if item.SchemaVersion == 0 {
 		item.SchemaVersion = homeTemplateSchemaVersion
@@ -519,9 +619,21 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 			Kind: sourceKindTemplate, ItemID: item.ID, Version: incomingVersion,
 			Changelog: incomingLog, Location: incomingURL, SHA256: incomingSHA, Status: sourceVersionDraft,
 		}
-		if _, err := store.upsertVersionLocked(rel, item.DeveloperID, asAdmin); err != nil {
+		var err error
+		if adminReset {
+			_, err = store.replaceVersionLocked(rel, item.DeveloperID)
+		} else {
+			_, err = store.upsertVersionLocked(rel, item.DeveloperID, asAdmin)
+		}
+		if err != nil {
 			return sourceTemplate{}, err
 		}
+	}
+	if adminReset {
+		saved := store.templates[item.ID]
+		applyAdminTemplateReupload(&saved, existing, incomingVersion, incomingURL, incomingSHA, incomingLog)
+		saved.UpdatedAt = now
+		store.templates[item.ID] = saved
 	}
 	return store.templates[item.ID], nil
 }
@@ -612,17 +724,14 @@ func (store *memorySourceStore) ApproveApplication(id int64, reviewer string) (s
 		return sourceDeveloper{}, errApplicationReviewed
 	}
 	now := time.Now().UTC()
-	app.Status = sourceApplicationApproved
-	app.ReviewedBy = reviewer
-	app.ReviewedAt = &now
-	store.applications[id] = app
 	dev := sourceDeveloper{
 		ID: store.nextDevID, ApplicationID: app.ID, Username: app.Username, PasswordHash: app.PasswordHash,
 		Email: app.Email, DisplayName: app.DisplayName, Enabled: true, CreatedAt: now,
 	}
 	store.nextDevID++
 	store.developers[dev.ID] = dev
-	store.auditLocked("approve", "application", itoaSourceID(id), reviewer, "")
+	delete(store.applications, id)
+	store.auditLocked("approve", "application", itoaSourceID(id), reviewer, sourceAuditApproveDeleted)
 	return dev, nil
 }
 
@@ -636,43 +745,70 @@ func (store *memorySourceStore) RejectApplication(id int64, reviewer, note strin
 	if app.Status != sourceApplicationPending {
 		return errApplicationReviewed
 	}
-	now := time.Now().UTC()
-	app.Status = sourceApplicationRejected
-	app.ReviewedBy = reviewer
-	app.ReviewNote = note
-	app.ReviewedAt = &now
-	store.applications[id] = app
-	store.auditLocked("reject", "application", itoaSourceID(id), reviewer, note)
+	delete(store.applications, id)
+	store.auditLocked("reject", "application", itoaSourceID(id), reviewer, sourceAuditRejectDeleted)
 	return nil
+}
+
+func (store *memorySourceStore) detachDeveloperCatalogLocked(developerID int64) {
+	for id, plugin := range store.plugins {
+		if plugin.DeveloperID == developerID {
+			plugin.DeveloperID = 0
+			store.plugins[id] = plugin
+		}
+	}
+	for id, item := range store.templates {
+		if item.DeveloperID == developerID {
+			item.DeveloperID = 0
+			store.templates[id] = item
+		}
+	}
+}
+
+func (store *memorySourceStore) deleteDeveloperLocked(dev sourceDeveloper, actor, note string) {
+	store.detachDeveloperCatalogLocked(dev.ID)
+	for appID, app := range store.applications {
+		if app.ID == dev.ApplicationID || strings.EqualFold(app.Username, dev.Username) {
+			delete(store.applications, appID)
+		}
+	}
+	delete(store.developers, dev.ID)
+	store.auditLocked("cancel", "developer", itoaSourceID(dev.ID), actor, sourceAuditDeveloperDeleted)
+}
+
+func (store *memorySourceStore) findDeveloperLocked(match func(sourceDeveloper) bool) (sourceDeveloper, bool) {
+	for _, dev := range store.developers {
+		if match(dev) {
+			return dev, true
+		}
+	}
+	return sourceDeveloper{}, false
 }
 
 func (store *memorySourceStore) FreezeApplication(id int64, reviewer, note string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	app, ok := store.applications[id]
-	if !ok {
-		return errSourceNotFound
-	}
-	if app.Status == sourceApplicationFrozen {
-		return errDeveloperAlreadyCancelled
-	}
-	if app.Status != sourceApplicationApproved {
-		return errApplicationNotCancellable
-	}
-	now := time.Now().UTC()
-	app.Status = sourceApplicationFrozen
-	app.ReviewedBy = reviewer
-	app.ReviewNote = sourceCancelNote(note)
-	app.ReviewedAt = &now
-	store.applications[id] = app
-	for idKey, dev := range store.developers {
-		if dev.ApplicationID == app.ID || strings.EqualFold(dev.Username, app.Username) {
-			dev.Enabled = false
-			store.developers[idKey] = dev
+	if app, ok := store.applications[id]; ok {
+		if app.Status == sourceApplicationPending {
+			return errApplicationNotCancellable
 		}
+		if dev, found := store.findDeveloperLocked(func(dev sourceDeveloper) bool {
+			return dev.ApplicationID == app.ID || strings.EqualFold(dev.Username, app.Username)
+		}); found {
+			store.deleteDeveloperLocked(dev, reviewer, note)
+			return nil
+		}
+		delete(store.applications, id)
+		store.auditLocked("cancel", "application", itoaSourceID(id), reviewer, sourceAuditDeveloperDeleted)
+		return nil
 	}
-	store.auditLocked("cancel", "application", itoaSourceID(id), reviewer, app.ReviewNote)
-	return nil
+	if dev, found := store.findDeveloperLocked(func(dev sourceDeveloper) bool {
+		return dev.ApplicationID == id
+	}); found {
+		store.deleteDeveloperLocked(dev, reviewer, note)
+		return nil
+	}
+	return errSourceNotFound
 }
 
 func (store *memorySourceStore) GetDeveloperByUsername(username string) (sourceDeveloper, error) {
@@ -704,23 +840,7 @@ func (store *memorySourceStore) FreezeDeveloper(id int64, actor, note string) er
 	if !ok {
 		return errSourceNotFound
 	}
-	if !item.Enabled {
-		return errDeveloperAlreadyCancelled
-	}
-	item.Enabled = false
-	store.developers[id] = item
-	note = sourceCancelNote(note)
-	now := time.Now().UTC()
-	for appID, app := range store.applications {
-		if app.ID == item.ApplicationID || strings.EqualFold(app.Username, item.Username) {
-			app.Status = sourceApplicationFrozen
-			app.ReviewedBy = actor
-			app.ReviewNote = note
-			app.ReviewedAt = &now
-			store.applications[appID] = app
-		}
-	}
-	store.auditLocked("cancel", "developer", itoaSourceID(id), actor, note)
+	store.deleteDeveloperLocked(item, actor, note)
 	return nil
 }
 
@@ -1115,48 +1235,72 @@ func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourceP
 	if plugin.ForceUpdate {
 		forceUpdate = 1
 	}
+	adminReset := false
 	if err == nil {
 		if !asAdmin && existing.DeveloperID != plugin.DeveloperID {
 			return sourcePlugin{}, errSourceForbidden
 		}
-		plugin.Status = existing.Status
-		plugin.ReviewNote = existing.ReviewNote
-		plugin.ReviewedBy = existing.ReviewedBy
-		plugin.LatestVersion = existing.LatestVersion
+		actor := "developer"
+		if asAdmin {
+			actor = "admin"
+		}
 		plugin.DeveloperID = existing.DeveloperID
-		if existing.LatestVersion != "" {
-			plugin.Version = existing.Version
-			plugin.SHA256 = existing.SHA256
-			plugin.DownloadURL = existing.DownloadURL
-			plugin.Changelog = existing.Changelog
-		}
-		if incomingURL != "" && incomingURL != existing.DownloadURL && existing.LatestVersion == "" {
-			actor := "developer"
-			if asAdmin {
-				actor = "admin"
+		if asAdmin {
+			adminReset = true
+			applyAdminPluginReupload(&plugin, existing, incomingVersion, incomingURL, incomingSHA, incomingLog)
+			if incomingURL != "" && incomingURL != existing.DownloadURL {
+				mysqlAppendAudit(db, "url_change", "plugin", plugin.ID, actor, incomingURL)
 			}
-			mysqlAppendAudit(db, "url_change", "plugin", plugin.ID, actor, incomingURL)
+			mysqlAppendAudit(db, "reupload_reset", "plugin", plugin.ID, actor, "status reset to review")
+		} else {
+			plugin.Status = existing.Status
+			plugin.ReviewNote = existing.ReviewNote
+			plugin.ReviewedBy = existing.ReviewedBy
+			plugin.LatestVersion = existing.LatestVersion
+			if existing.LatestVersion != "" {
+				plugin.Version = existing.Version
+				plugin.SHA256 = existing.SHA256
+				plugin.DownloadURL = existing.DownloadURL
+				plugin.Changelog = existing.Changelog
+			}
+			if incomingURL != "" && incomingURL != existing.DownloadURL && existing.LatestVersion == "" {
+				mysqlAppendAudit(db, "url_change", "plugin", plugin.ID, actor, incomingURL)
+			}
 		}
-	} else if plugin.Status == "" {
-		plugin.Status = sourceItemDraft
+	} else {
+		plugin.Status = applyAdminCatalogCreateStatus(plugin.Status, asAdmin)
 	}
 	_, err = db.Exec(`INSERT INTO source_catalog_plugins
-		(id, developer_id, category, name, description, icon, version, latest_version, min_version, force_update, author_name, author_url, author_email, sha256, download_url, changelog, status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(id, developer_id, category, name, description, icon, version, latest_version, min_version, force_update, author_name, author_url, author_email, sha256, download_url, changelog, status, review_note, reviewed_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE category=VALUES(category), name=VALUES(name), description=VALUES(description), icon=VALUES(icon),
-			min_version=VALUES(min_version), force_update=VALUES(force_update), author_name=VALUES(author_name), author_url=VALUES(author_url),
-			author_email=VALUES(author_email)`,
+			version=VALUES(version), latest_version=VALUES(latest_version), min_version=VALUES(min_version), force_update=VALUES(force_update),
+			author_name=VALUES(author_name), author_url=VALUES(author_url), author_email=VALUES(author_email),
+			sha256=VALUES(sha256), download_url=VALUES(download_url), changelog=VALUES(changelog),
+			status=VALUES(status), review_note=VALUES(review_note), reviewed_by=VALUES(reviewed_by)`,
 		plugin.ID, plugin.DeveloperID, plugin.Category, plugin.Name, plugin.Description, plugin.Icon, plugin.Version,
 		plugin.LatestVersion, plugin.MinVersion, forceUpdate, plugin.Author.Name, plugin.Author.URL, plugin.Author.Email,
-		plugin.SHA256, plugin.DownloadURL, plugin.Changelog, plugin.Status)
+		plugin.SHA256, plugin.DownloadURL, plugin.Changelog, plugin.Status, plugin.ReviewNote, plugin.ReviewedBy)
 	if err != nil {
 		return sourcePlugin{}, err
 	}
 	if incomingVersion != "" || incomingURL != "" || incomingSHA != "" {
-		if _, err := (mysqlSourceStore{}).UpsertVersion(sourceRelease{
+		rel := sourceRelease{
 			Kind: sourceKindPlugin, ItemID: plugin.ID, Version: incomingVersion,
 			Changelog: incomingLog, Location: incomingURL, SHA256: incomingSHA, Status: sourceVersionDraft,
-		}, plugin.DeveloperID, asAdmin); err != nil {
+		}
+		if adminReset {
+			if _, err := (mysqlSourceStore{}).replaceVersionFromPackage(rel); err != nil {
+				return sourcePlugin{}, err
+			}
+		} else if _, err := (mysqlSourceStore{}).UpsertVersion(rel, plugin.DeveloperID, asAdmin); err != nil {
+			return sourcePlugin{}, err
+		}
+	}
+	if adminReset {
+		if _, err := db.Exec(`UPDATE source_catalog_plugins SET version=?, sha256=?, download_url=?, changelog=?, latest_version='', status='review', review_note='', reviewed_by='' WHERE id=?`,
+			sourceFirstNonEmpty(incomingVersion, plugin.Version), sourceFirstNonEmpty(incomingSHA, plugin.SHA256),
+			sourceFirstNonEmpty(incomingURL, plugin.DownloadURL), sourceFirstNonEmpty(incomingLog, plugin.Changelog), plugin.ID); err != nil {
 			return sourcePlugin{}, err
 		}
 	}
@@ -1279,39 +1423,51 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 	if item.ForceUpdate {
 		forceUpdate = 1
 	}
+	adminReset := false
 	if err == nil {
 		if !asAdmin && existing.DeveloperID != item.DeveloperID {
 			return sourceTemplate{}, errSourceForbidden
 		}
-		item.Status = existing.Status
-		item.ReviewNote = existing.ReviewNote
-		item.ReviewedBy = existing.ReviewedBy
-		item.LatestVersion = existing.LatestVersion
+		actor := "developer"
+		if asAdmin {
+			actor = "admin"
+		}
 		item.DeveloperID = existing.DeveloperID
-		if existing.LatestVersion != "" {
-			item.Version = existing.Version
-			item.SHA256 = existing.SHA256
-			item.TemplateURL = existing.TemplateURL
-			item.Changelog = existing.Changelog
-		}
-		if incomingURL != "" && existing.TemplateURL != incomingURL && existing.LatestVersion == "" {
-			actor := "developer"
-			if asAdmin {
-				actor = "admin"
+		if asAdmin {
+			adminReset = true
+			applyAdminTemplateReupload(&item, existing, incomingVersion, incomingURL, incomingSHA, incomingLog)
+			if incomingURL != "" && incomingURL != existing.TemplateURL {
+				mysqlAppendAudit(db, "url_change", "template", item.ID, actor, incomingURL)
 			}
-			mysqlAppendAudit(db, "url_change", "template", item.ID, actor, incomingURL)
+			mysqlAppendAudit(db, "reupload_reset", "template", item.ID, actor, "status reset to review")
+		} else {
+			item.Status = existing.Status
+			item.ReviewNote = existing.ReviewNote
+			item.ReviewedBy = existing.ReviewedBy
+			item.LatestVersion = existing.LatestVersion
+			if existing.LatestVersion != "" {
+				item.Version = existing.Version
+				item.SHA256 = existing.SHA256
+				item.TemplateURL = existing.TemplateURL
+				item.Changelog = existing.Changelog
+			}
+			if incomingURL != "" && incomingURL != existing.TemplateURL && existing.LatestVersion == "" {
+				mysqlAppendAudit(db, "url_change", "template", item.ID, actor, incomingURL)
+			}
 		}
-	} else if item.Status == "" {
-		item.Status = sourceItemDraft
+	} else {
+		item.Status = applyAdminCatalogCreateStatus(item.Status, asAdmin)
 	}
 	_, err = db.Exec(`INSERT INTO source_catalog_templates
-		(id, developer_id, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog, status, author_name, author_url, author_email)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(id, developer_id, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog, status, review_note, reviewed_by, author_name, author_url, author_email)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), schema_version=VALUES(schema_version),
-			min_version=VALUES(min_version), force_update=VALUES(force_update),
+			version=VALUES(version), latest_version=VALUES(latest_version), min_version=VALUES(min_version), force_update=VALUES(force_update),
+			sha256=VALUES(sha256), template_url=VALUES(template_url), changelog=VALUES(changelog),
+			status=VALUES(status), review_note=VALUES(review_note), reviewed_by=VALUES(reviewed_by),
 			author_name=VALUES(author_name), author_url=VALUES(author_url), author_email=VALUES(author_email)`,
 		item.ID, item.DeveloperID, item.TemplateKey, item.Name, item.Description, item.Version, item.LatestVersion, item.MinVersion, forceUpdate,
-		item.SchemaVersion, item.SHA256, item.TemplateURL, item.Changelog, item.Status, item.Author.Name, item.Author.URL, item.Author.Email)
+		item.SchemaVersion, item.SHA256, item.TemplateURL, item.Changelog, item.Status, item.ReviewNote, item.ReviewedBy, item.Author.Name, item.Author.URL, item.Author.Email)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate") {
 			return sourceTemplate{}, errSourceConflict
@@ -1319,10 +1475,22 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 		return sourceTemplate{}, err
 	}
 	if incomingVersion != "" || incomingURL != "" || incomingSHA != "" {
-		if _, err := (mysqlSourceStore{}).UpsertVersion(sourceRelease{
+		rel := sourceRelease{
 			Kind: sourceKindTemplate, ItemID: item.ID, Version: incomingVersion,
 			Changelog: incomingLog, Location: incomingURL, SHA256: incomingSHA, Status: sourceVersionDraft,
-		}, item.DeveloperID, asAdmin); err != nil {
+		}
+		if adminReset {
+			if _, err := (mysqlSourceStore{}).replaceVersionFromPackage(rel); err != nil {
+				return sourceTemplate{}, err
+			}
+		} else if _, err := (mysqlSourceStore{}).UpsertVersion(rel, item.DeveloperID, asAdmin); err != nil {
+			return sourceTemplate{}, err
+		}
+	}
+	if adminReset {
+		if _, err := db.Exec(`UPDATE source_catalog_templates SET version=?, sha256=?, template_url=?, changelog=?, latest_version='', status='review', review_note='', reviewed_by='' WHERE id=?`,
+			sourceFirstNonEmpty(incomingVersion, item.Version), sourceFirstNonEmpty(incomingSHA, item.SHA256),
+			sourceFirstNonEmpty(incomingURL, item.TemplateURL), sourceFirstNonEmpty(incomingLog, item.Changelog), item.ID); err != nil {
 			return sourceTemplate{}, err
 		}
 	}
@@ -1491,9 +1659,6 @@ func (mysqlSourceStore) ApproveApplication(id int64, reviewer string) (sourceDev
 	if app.Status != sourceApplicationPending {
 		return sourceDeveloper{}, errApplicationReviewed
 	}
-	if _, err := tx.Exec(`UPDATE source_developer_applications SET status='approved', reviewed_by=?, reviewed_at=NOW() WHERE id=?`, reviewer, id); err != nil {
-		return sourceDeveloper{}, err
-	}
 	result, err := tx.Exec(`INSERT INTO source_developers (application_id, username, password_hash, email, display_name, enabled)
 		VALUES (?, ?, ?, ?, ?, 1)`, id, app.Username, app.PasswordHash, app.Email, app.DisplayName)
 	if err != nil {
@@ -1503,6 +1668,9 @@ func (mysqlSourceStore) ApproveApplication(id int64, reviewer string) (sourceDev
 		return sourceDeveloper{}, err
 	}
 	developerID, _ := result.LastInsertId()
+	if _, err := tx.Exec(`DELETE FROM source_developer_applications WHERE id=?`, id); err != nil {
+		return sourceDeveloper{}, err
+	}
 	if _, err := tx.Exec(`INSERT IGNORE INTO roles (role_name, role_code, description, discount, enabled)
 		VALUES (?, ?, '软件源开发者，可提交插件与首页模板元数据', 10.0, 1)`, sourceDeveloperRoleName, sourceDeveloperRoleCode); err != nil {
 		return sourceDeveloper{}, err
@@ -1510,7 +1678,7 @@ func (mysqlSourceStore) ApproveApplication(id int64, reviewer string) (sourceDev
 	if err := tx.Commit(); err != nil {
 		return sourceDeveloper{}, err
 	}
-	mysqlAppendAudit(db, "approve", "application", itoaSourceID(id), reviewer, "")
+	mysqlAppendAudit(db, "approve", "application", itoaSourceID(id), reviewer, sourceAuditApproveDeleted)
 	return (mysqlSourceStore{}).GetDeveloperByID(developerID)
 }
 
@@ -1526,37 +1694,67 @@ func (mysqlSourceStore) RejectApplication(id int64, reviewer, note string) error
 	if err != nil {
 		return err
 	}
-	if _, err := db.Exec(`UPDATE source_developer_applications SET status='rejected', reviewed_by=?, review_note=?, reviewed_at=NOW() WHERE id=?`,
-		reviewer, truncateText(note, 500), id); err != nil {
+	if _, err := db.Exec(`DELETE FROM source_developer_applications WHERE id=?`, id); err != nil {
 		return err
 	}
-	mysqlAppendAudit(db, "reject", "application", itoaSourceID(id), reviewer, note)
+	mysqlAppendAudit(db, "reject", "application", itoaSourceID(id), reviewer, sourceAuditRejectDeleted)
+	return nil
+}
+
+func mysqlDeleteDeveloper(db *sql.DB, item sourceDeveloper, actor, note string) error {
+	if _, err := db.Exec(`UPDATE source_catalog_plugins SET developer_id=0 WHERE developer_id=?`, item.ID); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE source_catalog_templates SET developer_id=0 WHERE developer_id=?`, item.ID); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`DELETE FROM source_developer_applications WHERE id=? OR username=?`, item.ApplicationID, item.Username); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`DELETE FROM source_developers WHERE id=?`, item.ID); err != nil {
+		return err
+	}
+	mysqlAppendAudit(db, "cancel", "developer", itoaSourceID(item.ID), actor, sourceAuditDeveloperDeleted)
 	return nil
 }
 
 func (mysqlSourceStore) FreezeApplication(id int64, reviewer, note string) error {
-	app, err := (mysqlSourceStore{}).GetApplication(id)
-	if err != nil {
-		return err
-	}
-	if app.Status == sourceApplicationFrozen {
-		return errDeveloperAlreadyCancelled
-	}
-	if app.Status != sourceApplicationApproved {
-		return errApplicationNotCancellable
-	}
-	note = sourceCancelNote(note)
 	db, err := config.DB()
 	if err != nil {
 		return err
 	}
-	if _, err := db.Exec(`UPDATE source_developer_applications SET status='frozen', reviewed_by=?, review_note=?, reviewed_at=NOW() WHERE id=?`,
-		reviewer, truncateText(note, 500), id); err != nil {
+	if err := ensureSourceStationStorage(db); err != nil {
 		return err
 	}
-	_, _ = db.Exec(`UPDATE source_developers SET enabled=0 WHERE application_id=? OR username=?`, id, app.Username)
-	mysqlAppendAudit(db, "cancel", "application", itoaSourceID(id), reviewer, note)
-	return nil
+	app, err := (mysqlSourceStore{}).GetApplication(id)
+	if err == nil {
+		if app.Status == sourceApplicationPending {
+			return errApplicationNotCancellable
+		}
+		if item, findErr := scanSourceDeveloper(db.QueryRow(`SELECT id, COALESCE(application_id, 0), username, password_hash, email, display_name, enabled, created_at
+			FROM source_developers WHERE application_id=? OR username=? LIMIT 1`, app.ID, app.Username)); findErr == nil {
+			return mysqlDeleteDeveloper(db, item, reviewer, note)
+		} else if !errors.Is(findErr, sql.ErrNoRows) {
+			return findErr
+		}
+		if _, delErr := db.Exec(`DELETE FROM source_developer_applications WHERE id=?`, id); delErr != nil {
+			return delErr
+		}
+		mysqlAppendAudit(db, "cancel", "application", itoaSourceID(id), reviewer, sourceAuditDeveloperDeleted)
+		return nil
+	}
+	if !errors.Is(err, errSourceNotFound) {
+		return err
+	}
+	item, findErr := scanSourceDeveloper(db.QueryRow(`SELECT id, COALESCE(application_id, 0), username, password_hash, email, display_name, enabled, created_at
+		FROM source_developers WHERE application_id=?`, id))
+	if errors.Is(findErr, sql.ErrNoRows) {
+		return errSourceNotFound
+	}
+	if findErr != nil {
+		return findErr
+	}
+	return mysqlDeleteDeveloper(db, item, reviewer, note)
 }
 
 func scanSourceDeveloper(scanner interface{ Scan(dest ...any) error }) (sourceDeveloper, error) {
@@ -1607,23 +1805,14 @@ func (mysqlSourceStore) FreezeDeveloper(id int64, actor, note string) error {
 	if err != nil {
 		return err
 	}
-	if !item.Enabled {
-		return errDeveloperAlreadyCancelled
-	}
-	note = sourceCancelNote(note)
 	db, err := config.DB()
 	if err != nil {
 		return err
 	}
-	if _, err := db.Exec(`UPDATE source_developers SET enabled=0 WHERE id=?`, id); err != nil {
+	if err := ensureSourceStationStorage(db); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`UPDATE source_developer_applications SET status='frozen', reviewed_by=?, review_note=?, reviewed_at=NOW() WHERE id=? OR username=?`,
-		actor, truncateText(note, 500), item.ApplicationID, item.Username); err != nil {
-		return err
-	}
-	mysqlAppendAudit(db, "cancel", "developer", itoaSourceID(id), actor, note)
-	return nil
+	return mysqlDeleteDeveloper(db, item, actor, note)
 }
 
 func (mysqlSourceStore) ListDevelopers() ([]sourceDeveloper, error) {

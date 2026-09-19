@@ -3,16 +3,12 @@
     <el-card shadow="never" class="art-card mb-4 filter-panel">
       <el-form inline>
         <el-form-item label="申请状态">
-          <el-select v-model="status" placeholder="全部" clearable style="width: 140px">
+          <el-select v-model="status" style="width: 140px">
             <el-option label="待审核" value="pending" />
-            <el-option label="已通过" value="approved" />
-            <el-option label="已拒绝" value="rejected" />
-            <el-option label="已取消" value="frozen" />
           </el-select>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="loadApplications">查询</el-button>
-          <el-button @click="resetSearch">重置</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -20,7 +16,7 @@
     <el-card shadow="never" class="art-card mb-4">
       <template #header>
         <div class="table-header">
-          <span class="card-title">开发者入驻申请（共 {{ applications.length }} 条）</span>
+          <span class="card-title">开发者入驻申请（待审核 {{ applications.length }} 条）</span>
         </div>
       </template>
       <el-table :data="applications" stripe v-loading="loading">
@@ -38,7 +34,7 @@
         </el-table-column>
         <el-table-column prop="reviewNote" label="审核说明" min-width="140" show-overflow-tooltip />
         <el-table-column prop="createdAt" label="申请时间" width="170" />
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
             <el-button
               link
@@ -58,15 +54,6 @@
             >
               拒绝
             </el-button>
-            <el-button
-              link
-              type="danger"
-              size="small"
-              :disabled="row.status !== 'approved'"
-              @click="handleCancel(row)"
-            >
-              取消
-            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -85,9 +72,7 @@
         <el-table-column prop="email" label="邮箱" min-width="180" show-overflow-tooltip />
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.enabled ? 'success' : 'danger'" size="small">
-              {{ row.enabled ? '正常' : '已取消' }}
-            </el-tag>
+            <el-tag type="success" size="small">正常</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="createdAt" label="创建时间" width="170" />
@@ -97,7 +82,6 @@
               link
               type="danger"
               size="small"
-              :disabled="!row.enabled"
               @click="handleCancelDev(row)"
             >
               取消资格
@@ -115,7 +99,6 @@
   import {
     SOURCE_APPLICATION_STATUS,
     approveSourceApplication,
-    cancelSourceApplication,
     cancelSourceDeveloper,
     fetchSourceApplications,
     fetchSourceDevelopers,
@@ -124,7 +107,7 @@
     type SourceDeveloper
   } from '@/api/source-station'
 
-  const status = ref('')
+  const status = ref('pending')
   const loading = ref(false)
   const devLoading = ref(false)
   const applications = ref<SourceApplication[]>([])
@@ -137,7 +120,7 @@
   async function loadApplications() {
     loading.value = true
     try {
-      const data = await fetchSourceApplications(status.value)
+      const data = await fetchSourceApplications(status.value || 'pending')
       applications.value = data.list || []
     } finally {
       loading.value = false
@@ -152,11 +135,6 @@
     } finally {
       devLoading.value = false
     }
-  }
-
-  function resetSearch() {
-    status.value = ''
-    loadApplications()
   }
 
   async function handleApprove(row: SourceApplication) {
@@ -188,7 +166,7 @@
 
   async function confirmCancel(name: string) {
     await ElMessageBox.confirm(
-      `确认取消「${name}」的开发者资格？取消后该账号将无法登录开发者端，也不能继续提交或发布插件与模板。此操作不可自行恢复。`,
+      `确认取消「${name}」的开发者资格？将删除该账号并释放用户名/邮箱，对方可重新申请入驻。已有目录项会保留，但不再挂在该开发者名下。`,
       '取消开发者资格',
       {
         type: 'warning',
@@ -200,17 +178,10 @@
     )
   }
 
-  async function handleCancel(row: SourceApplication) {
-    await confirmCancel(row.username)
-    await cancelSourceApplication(row.id)
-    ElMessage.success('已取消该开发者资格')
-    await Promise.all([loadApplications(), loadDevelopers()])
-  }
-
   async function handleCancelDev(row: SourceDeveloper) {
     await confirmCancel(row.username)
     await cancelSourceDeveloper(row.id)
-    ElMessage.success('已取消该开发者资格')
+    ElMessage.success('已删除开发者账号，该用户名可重新申请')
     await Promise.all([loadApplications(), loadDevelopers()])
   }
 
