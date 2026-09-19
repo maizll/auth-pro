@@ -106,15 +106,21 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		return
 	}
 	location := strings.TrimSpace(sourceFirstNonEmpty(c.PostForm("downloadUrl"), c.PostForm("templateUrl")))
+	pushRequested := formFlag(c, "push") || formFlag(c, "pushRelease")
+	if !pushRequested && location == "" {
+		payload = nil
+		field := "downloadUrl"
+		if manifest.Kind == sourceKindTemplate {
+			field = "templateUrl"
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "未勾选推送 Release，请填写外部 https " + field})
+		return
+	}
 	settings, err := currentSourceStationStore().GetReleaseSettings()
 	if err != nil {
 		payload = nil
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取 Release 设置失败"})
 		return
-	}
-	pushRequested := formFlag(c, "push") || formFlag(c, "pushRelease")
-	if !pushRequested && location == "" && settings.releaseReady() {
-		pushRequested = true
 	}
 	pushed := false
 	provider := ""

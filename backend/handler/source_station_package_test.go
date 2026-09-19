@@ -280,6 +280,82 @@ func TestSourcePackagePublishGitHubRelease(t *testing.T) {
 	}
 }
 
+func TestSourcePackagePublishHonorsPushCheckbox(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	payload := sourcePluginTestZIP(t)
+	var releaseCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		releaseCalls++
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"message":"release must not be called"}`)
+	}))
+	t.Cleanup(server.Close)
+	prevBase := sourceGitHubAPIBase
+	sourceGitHubAPIBase = server.URL
+	t.Cleanup(func() { sourceGitHubAPIBase = prevBase })
+
+	save := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/settings/release", admin,
+		`{"provider":"github","owner":"acme","repo":"pkgs","token":"ghs_test_token","tagStrategy":"{id}-{version}","branch":"main"}`)
+	if sourceBodyCode(t, save) != 200 {
+		t.Fatalf("settings=%s", save.Body.String())
+	}
+
+	missing := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", payload, map[string]string{
+		"kind": "plugin", "push": "0",
+	})
+	if sourceBodyCode(t, missing) != 400 {
+		t.Fatalf("push=0 without url must fail: %s", missing.Body.String())
+	}
+	if !strings.Contains(missing.Body.String(), "downloadUrl") {
+		t.Fatalf("empty url must ask for downloadUrl: %s", missing.Body.String())
+	}
+	if releaseCalls != 0 {
+		t.Fatalf("push=0 must not call Release API, calls=%d", releaseCalls)
+	}
+	if plugins, _ := store.ListPlugins(""); len(plugins) != 0 {
+		t.Fatalf("failed publish must not persist catalog: %#v", plugins)
+	}
+
+	rec := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", payload, map[string]string{
+		"kind": "plugin", "push": "0",
+		"downloadUrl": "https://cdn.example.com/demo-plugin-1.0.0.zip",
+	})
+	if sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("push=0 with explicit url=%s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"pushed":true`) {
+		t.Fatalf("push=0 must not report pushed: %s", rec.Body.String())
+	}
+	if releaseCalls != 0 {
+		t.Fatalf("push=0 with explicit url must not call Release API, calls=%d", releaseCalls)
+	}
+	plugin, err := store.GetPlugin("demo-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plugin.DownloadURL != "https://cdn.example.com/demo-plugin-1.0.0.zip" {
+		t.Fatalf("downloadUrl=%s", plugin.DownloadURL)
+	}
+	if plugin.Status != sourceItemReview {
+		t.Fatalf("status=%s", plugin.Status)
+	}
+
+	templateZIP := makeTestZIP(t, testZIPEntry{name: "template.json", data: `{
+		"id":"clean-home","name":"清新首页","version":"1.0.0","schemaVersion":1,
+		"description":"模板","author":"设计组","hero":{"title":"欢迎"}
+	}`})
+	missingTpl := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "home.zip", templateZIP, map[string]string{
+		"kind": "template", "push": "0",
+	})
+	if sourceBodyCode(t, missingTpl) != 400 || !strings.Contains(missingTpl.Body.String(), "templateUrl") {
+		t.Fatalf("push=0 template without url must fail: %s", missingTpl.Body.String())
+	}
+	if releaseCalls != 0 {
+		t.Fatalf("template push=0 must not call Release API, calls=%d", releaseCalls)
+	}
+}
+
 func TestSourcePackagePublishPasteableDownloadURL(t *testing.T) {
 	router, store := sourceStationRouter(t)
 	admin := sourceAdminToken(t)

@@ -492,6 +492,12 @@
 
   async function handlePublish() {
     if (!uploadFile.value) return
+    if (!uploadForm.push && !uploadForm.location.trim()) {
+      ElMessage.warning(
+        isPlugin.value ? '请填写外部 https downloadUrl' : '请填写外部 https templateUrl'
+      )
+      return
+    }
     publishing.value = true
     try {
       const result = await publishSourcePackage(buildPackageForm())
