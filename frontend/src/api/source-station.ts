@@ -259,7 +259,7 @@ export const SOURCE_VERSION_STATUS: Record<
 }
 
 export const AD_POSITIONS = [
-  { value: 'home-banner', label: '工作台横幅' },
+  { value: 'home-banner', label: '工作台跑马灯' },
   { value: 'sidebar', label: '侧栏' },
   { value: 'popup', label: '弹窗' }
 ] as const

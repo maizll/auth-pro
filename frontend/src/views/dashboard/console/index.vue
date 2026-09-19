@@ -1,6 +1,6 @@
 <template>
   <div class="admin-dashboard">
-    <!-- 顶部广告：与应用商店一致的跑马灯，数据走 /api/advertisements?position=home-banner -->
+    <!-- 工作台跑马灯：home-banner -->
     <ArtPromotionMarquee :items="topAdItems" subtitle="来自软件源的插件与增值服务" height="200px" />
 
     <ElRow :gutter="16" class="card-row">
@@ -245,9 +245,8 @@
 
   defineOptions({ name: 'Console' })
 
-  // 顶部跑马灯广告：home-banner 位，含招租占位与失败降级
+  // 工作台跑马灯 = home-banner；侧栏九宫格 = sidebar；弹窗由管理壳 ArtAdPopup 读 popup
   const { items: topAdItems } = usePromotionAds('home-banner')
-  // 推荐服务九宫格：sidebar 位，每页 9 格、不足补招租占位、超过 9 条自动翻页
   const { pages: promotionPages } = usePromotionAdPages('sidebar', 9)
 
   const overview = reactive<AdminDashboardOverview>({

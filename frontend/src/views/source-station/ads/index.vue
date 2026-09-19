@@ -44,7 +44,7 @@
           <div>
             <span class="card-title">广告投放（共 {{ tableData.length }} 条）</span>
             <p class="card-hint"
-              >图片与跳转必须是外部 https:// 地址。广告位可多选：工作台横幅 / 侧栏 / 弹窗，同一条会同时出现在所选位置。</p
+              >图片与跳转必须是外部 https:// 地址。广告位可多选：工作台跑马灯（home-banner）/ 侧栏（sidebar）/ 弹窗（popup），同一条会同时出现在所选位置。</p
             >
           </div>
           <el-button type="primary" @click="openEdit()">新增广告</el-button>
