@@ -337,12 +337,8 @@ func isGitHubUpdateURL(parsed *url.URL) bool {
 }
 
 func isGitHubReleaseAssetHost(hostname string) bool {
-	switch strings.ToLower(hostname) {
-	case "release-assets.githubusercontent.com", "objects.githubusercontent.com", "github-releases.githubusercontent.com":
-		return true
-	default:
-		return false
-	}
+	host := strings.ToLower(strings.TrimSpace(hostname))
+	return host == "githubusercontent.com" || strings.HasSuffix(host, ".githubusercontent.com")
 }
 
 func isGiteeRepositoryReleaseURL(parsed *url.URL) bool {
@@ -667,7 +663,7 @@ func pickGitHubPackageAsset(assets []githubReleaseAsset) (githubReleaseAsset, bo
 		if err != nil || !isGitHubRepositoryReleaseURL(parsed) {
 			continue
 		}
-		if strings.HasPrefix(name, "auth_pro-full-") && strings.HasSuffix(name, ".tar.gz") {
+		if strings.HasPrefix(name, "auth_pro-full") && strings.HasSuffix(name, ".tar.gz") {
 			return asset, true
 		}
 		if strings.HasSuffix(name, ".tar.gz") && !hasFallback {
@@ -808,7 +804,7 @@ func resolveOnlineUpdateReleasesURL(manifest *onlineUpdateManifest) (string, err
 		return "", errors.New("更新清单地址格式不正确：" + err.Error())
 	}
 
-	if isGitHubAPIURL(manifestURL) {
+	if isGitHubUpdateURL(manifestURL) {
 		return githubUpdateReleasesListURL, nil
 	}
 
