@@ -185,10 +185,9 @@ func advertisementInWindow(record advertisementRecord, now time.Time) bool {
 	return true
 }
 
-// localAdvertisements 是本站自托管投放。未配置远程广告源时返回空列表，不访问外网。
+// localAdvertisements 是本站自托管投放。未配置远程广告源时读本站广告表，不访问外网。
 func localAdvertisements(position string) []advertisementRecord {
-	_ = position
-	return []advertisementRecord{}
+	return localSourceAdvertisements(position)
 }
 
 // PublicLocalAdvertisements 是与上游协议兼容的本站广告接口。

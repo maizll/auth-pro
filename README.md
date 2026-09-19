@@ -108,7 +108,7 @@ pnpm dev
 
 管理后台的“应用商店”提供“首页模板”分区。管理员可以在“软件源管理”中添加以下两类 HTTP(S) 地址：
 
-- JSON 清单 URL，例如 `https://example.com/auth-pro/index.json`。
+- JSON 清单 URL，例如 `https://example.com/software-source/index.json` 或 `https://example.com/auth-pro/index.json`。
 - Git 仓库 URL，例如 `https://git.example.com/team/auth-pro-templates.git`。服务端需要在 `PATH` 中安装 `git`，仓库根目录必须包含 `index.json`。
 
 软件源允许使用内网地址。请仅添加可信仓库：服务端会拉取清单和模板文件，但声明式模板不会执行仓库中的 JavaScript。清单缓存 5 分钟；可在软件源管理中手动刷新，源暂时不可用时会保留已有缓存并显示错误状态。
@@ -276,6 +276,8 @@ releases.json
 - `/api/home-template/active`：当前首页模板公开读取接口。
 - `/api/advertisements`：前端广告位代理；默认读本站投放。
 - `/api/v1/public/advertisements`：本站广告接口（`home-banner` / `sidebar` / `popup`）。
+- `/software-source/index.json`：本实例作为软件源源站时的公开清单（兼容 `/auth-pro/index.json`，见下方「作为软件源源站」）。
+- `/source`：兼容跳转，进入管理后台「源站」菜单（`/source-station/plugins`）。源站管理不再提供独立页面。
 - `/api/*`：后台管理接口，除公开接口外默认需要 JWT 鉴权。
 
 ## 部署说明
@@ -303,6 +305,90 @@ export AUTO_PRO_ADVERTISEMENT_URL="https://ads.example.com/api/v1/public/adverti
 ```
 
 重启后端后可用 `ss`/`tcpdump` 或代理日志确认没有对 `plug.91ani.cn` 的出站请求。
+
+## 作为软件源源站
+
+本实例可以直接当软件源（源站）用。协议与管理后台「软件源管理」一致：公开一个可 HTTP GET 的 `index.json`。源站主机**不需要**设置 `AUTO_PRO_SOFTWARE_SOURCE_*`（那是客户端用来可选对接独立目录服务的，cut-1 已改成环境变量、默认关闭）。
+
+**源站只保存目录元数据，从不保存插件或模板源码。** 目录字段为 id、name、version、description、author、status、sha256、外部 `downloadUrl` / `templateUrl`、审核信息与时间戳。发布包必须放在外部 HTTPS（或后续 OSS 对象键），不要把 git 源码树写入后端 data 目录。
+
+其它授权实例在「软件源管理」里添加：
+
+```text
+https://<host>/software-source/index.json
+```
+
+兼容路径：`/auth-pro/index.json`（同样的 JSON）。清单缓存由消费者侧完成（约 5 分钟，可手动刷新）；源站在上架/下架时从数据库重新生成公开目录。
+
+清单形状：
+
+```json
+{
+  "name": "本站软件源",
+  "plugins": [],
+  "homeTemplates": [
+    {
+      "id": "clean-home",
+      "name": "清新首页",
+      "description": "简洁的授权服务首页",
+      "version": "1.0.0",
+      "schemaVersion": 1,
+      "sha256": "<模板文件 64 位 hex>",
+      "templateUrl": "https://cdn.example.com/templates/clean-home.json"
+    }
+  ]
+}
+```
+
+`templateUrl` 可以是 `https://` 绝对地址，或相对路径（由消费者相对 `index.json` URL 解析）。插件 `downloadUrl` 必须是外部 `https://` 地址。上架要求 64 位 sha256 与下载/模板地址同时存在。
+
+**下架 ≠ 远程卸载。** 下架只是把条目从公开 `index.json` 隐藏（status=`hidden`）。已经安装到其它授权实例本地的插件/模板不会被源站删除或停用。
+
+锁定流水线（方向不再改）：管理员上传 ZIP → 硬规范校验（不合规拒绝，不写库/不推 Release/不留临时文件）→ 从 `plugin.json` / `template.json` 自动填表 → 用设置页令牌推送 Gitee/GitHub Release → **只把元数据 + downloadUrl/templateUrl + SHA256 入库** → 审核 / 多版本更新 / 上架下架 → 公开 `GET /software-source/index.json`（`plugins` + `homeTemplates`）。应用服务器不保存插件源码。
+
+工作流：
+
+1. 启动本仓库后端（源站无需 `AUTO_PRO_SOFTWARE_SOURCE_*`）。
+2. **管理员登录管理后台**（与其它后台功能同一套账号/会话/布局），侧栏「源站」：
+   - 入驻审核：开发者申请通过/拒绝/冻结
+   - 插件管理：上传 ZIP 硬校验、多版本、上架/下架
+   - 首页模板管理：同上
+   - 软件源目录：公开 `index.json` 预览与快照重生、审计日志
+   - 广告投放：本站 `home-banner` / `sidebar` / `popup`
+   - Release 设置：GitHub/Gitee 仓库与 Token
+   旧地址 `/source` 会 302 到 `/source-station/plugins`。不要再使用独立控制面页面。
+3. 开发者保存插件/模板**元数据草稿**（外部 URL + sha256），提交审核；管理员在后台通过或驳回后上架。
+4. **管理员上传包（失败即拒绝）**：后台「插件管理 / 首页模板」上传，或 `POST /api/v1/source/admin/packages/parse|publish`。只接受 ZIP。包内必须有 `plugin.json`（插件）或 `template.json`（首页模板，schemaVersion=1 且含 `hero.title`），必填 id/name/version/description/author；路径穿越、符号链接等不安全布局直接 400。失败时返回 `error.field` + `error.rule`，不写库、不推 Release、删除临时文件。校验通过后才自动填表、可选推送 Release，并进入草稿/审核（可选上架）。清单规范：`GET /software-source/package-schema.json`（兼容 `GET /api/v1/source/admin/packages/schema`）。
+5. **发布地址**：在管理后台「源站 → Release 设置」填写 provider（`github`|`gitee`）、owner/repo、令牌（仅服务端保存，GET 只返回掩码）、默认 tag 策略（如 `{id}-{version}`）和 Gitee 分支。可用「测试连接」验证仓库可达与令牌权限（`POST /api/v1/source/admin/settings/release/test`，只 GET 仓库元数据，不创建 Release、不落库）。保存元数据时优先创建/更新 Release 并上传 zip 附件，把 `downloadUrl`/`templateUrl` 设为附件的 https 地址；未配置时可粘贴已有 https 地址。目录只持久化元数据 + URL + sha256。
+6. **更新**：为同一插件创建新版本行（version / changelog / 外部 URL / sha256）→ 提交审核 → 管理员通过后该版本 `published` 并成为 `latest`。旧版本元数据保留，可弃用，不可删源码（源站本来就不存源码）。
+7. 管理员可将 `latest` 回滚到先前已发布版本；下架只从公开目录隐藏整个插件。公开 `index.json` 只展示当前 `latest`（含 version、downloadUrl、sha256、可选 changelog，以及预留的 `minVersion` / `forceUpdate`）。
+8. 查询历史版本：管理后台「插件管理 → 版本」，或 `GET /api/v1/source/admin/plugins/:id/versions`（兼容 `GET /api/admin/source/plugins/:id/versions`）。
+9. 消费者实例在「软件源管理」添加 `https://<host>/software-source/index.json`。
+
+```bash
+# 源站本机（无需软件源环境变量）
+curl -s http://127.0.0.1:19127/software-source/index.json
+curl -s http://127.0.0.1:19127/auth-pro/index.json
+
+# 上传闸门：不合规包 400，不入库
+curl -s http://127.0.0.1:19127/software-source/package-schema.json
+curl -s -H "Authorization: Bearer <admin-jwt>" \
+  -F "file=@bad.zip" -F "kind=plugin" \
+  http://127.0.0.1:19127/api/v1/source/admin/packages/parse
+# {"code":400,"msg":"...缺少 plugin.json...","error":{"field":"plugin.json","rule":"require_manifest"}}
+
+# 管理员：解析合规包（不入库）
+curl -s -H "Authorization: Bearer <admin-jwt>" \
+  -F "file=@demo-plugin.zip" -F "kind=plugin" \
+  http://127.0.0.1:19127/api/v1/source/admin/packages/parse
+
+# 管理员：校验通过后再保存草稿（已配置 Release 则推送；否则加 downloadUrl）
+curl -s -H "Authorization: Bearer <admin-jwt>" \
+  -F "file=@demo-plugin.zip" -F "kind=plugin" -F "submit=1" \
+  http://127.0.0.1:19127/api/v1/source/admin/packages/publish
+```
+
+本 PR 不包含：OSS 直传发布包、Git 软件源充当源站、代码签名、按客户可见性。源站管理已接入现有 Vue 管理后台，不再提供独立 `/source/` 页面。后续可把发布包对象键记入目录，仍不入库 git 源码树。
 
 ## 从自建软件源安装首页模板
 
