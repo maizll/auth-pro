@@ -8,7 +8,8 @@
             <p class="card-hint">
               消费者在「软件源管理」添加
               <code>{{ publicIndexUrl }}</code>
-              。仅 status=published 的条目会出现在 index.json。
+              。管理端按分类维护统一目录；公开 index.json 仍按分类拆出
+              <code>plugins</code> 与 <code>homeTemplates</code>，兼容旧授权端。
             </p>
           </div>
           <div class="table-actions">
@@ -21,10 +22,10 @@
       </template>
       <el-descriptions :column="3" border>
         <el-descriptions-item label="源名称">{{ indexData?.name || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="已上架插件">{{
+        <el-descriptions-item label="插件类（兼容 plugins）">{{
           indexData?.pluginCount ?? 0
         }}</el-descriptions-item>
-        <el-descriptions-item label="已上架模板">{{
+        <el-descriptions-item label="模板类（兼容 homeTemplates）">{{
           indexData?.templateCount ?? 0
         }}</el-descriptions-item>
         <el-descriptions-item label="快照生成人">

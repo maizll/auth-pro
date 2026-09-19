@@ -102,6 +102,7 @@ type sourcePlugin struct {
 type sourceTemplate struct {
 	ID            string       `json:"id"`
 	DeveloperID   int64        `json:"developerId"`
+	Category      string       `json:"category"`
 	TemplateKey   string       `json:"templateKey"`
 	Name          string       `json:"name"`
 	Description   string       `json:"description"`
@@ -224,6 +225,8 @@ type sourceStationStore interface {
 	DeleteAdvertisement(id string) error
 	GetAdvertisementPlaceholder() (advertisementPlaceholder, error)
 	SaveAdvertisementPlaceholder(placeholder advertisementPlaceholder) error
+	ListCatalogCategoryExtras() ([]sourceCatalogCategory, error)
+	SaveCatalogCategoryExtras(items []sourceCatalogCategory) error
 
 	AppendAudit(entry sourceAuditEntry) error
 	ListAudit(limit int) ([]sourceAuditEntry, error)
@@ -319,6 +322,7 @@ type memorySourceStore struct {
 	audits           []sourceAuditEntry
 	snapshot         sourceIndexSnapshot
 	releaseSettings  sourceReleaseSettings
+	categoryExtras   []sourceCatalogCategory
 	nextAppID        int64
 	nextDevID        int64
 	nextAuditID      int64
@@ -555,6 +559,9 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 	}
 	if item.SchemaVersion == 0 {
 		item.SchemaVersion = homeTemplateSchemaVersion
+	}
+	if strings.TrimSpace(item.Category) == "" {
+		item.Category = sourceCategoryHomeTemplate
 	}
 	item.UpdatedAt = now
 	store.templates[item.ID] = item
@@ -826,6 +833,23 @@ func (store *memorySourceStore) SaveAdvertisementPlaceholder(placeholder adverti
 	return nil
 }
 
+func (store *memorySourceStore) ListCatalogCategoryExtras() ([]sourceCatalogCategory, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	result := append([]sourceCatalogCategory{}, store.categoryExtras...)
+	return result, nil
+}
+
+func (store *memorySourceStore) SaveCatalogCategoryExtras(items []sourceCatalogCategory) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if items == nil {
+		items = []sourceCatalogCategory{}
+	}
+	store.categoryExtras = append([]sourceCatalogCategory{}, items...)
+	return nil
+}
+
 func (store *memorySourceStore) AppendAudit(entry sourceAuditEntry) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -951,6 +975,7 @@ func ensureSourceStationStorage(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS source_catalog_templates (
 			id VARCHAR(60) NOT NULL PRIMARY KEY,
 			developer_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			category VARCHAR(30) NOT NULL DEFAULT 'home-template',
 			template_key VARCHAR(60) NOT NULL,
 			name VARCHAR(100) NOT NULL,
 			description VARCHAR(500) NOT NULL DEFAULT '',
@@ -1062,6 +1087,7 @@ func ensureSourceStationStorage(db *sql.DB) error {
 		"ALTER TABLE source_catalog_templates ADD COLUMN min_version VARCHAR(40) NOT NULL DEFAULT '' AFTER latest_version",
 		"ALTER TABLE source_catalog_templates ADD COLUMN force_update TINYINT(1) NOT NULL DEFAULT 0 AFTER min_version",
 		"ALTER TABLE source_catalog_templates ADD COLUMN changelog VARCHAR(2000) NOT NULL DEFAULT '' AFTER template_url",
+		"ALTER TABLE source_catalog_templates ADD COLUMN category VARCHAR(30) NOT NULL DEFAULT 'home-template' AFTER developer_id",
 	}
 	for _, statement := range alters {
 		_, _ = db.Exec(statement)
@@ -1077,6 +1103,7 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			CASE status WHEN 'published' THEN 'published' WHEN 'review' THEN 'pending' WHEN 'deprecated' THEN 'deprecated' ELSE 'draft' END,
 			created_at, updated_at FROM source_catalog_templates`)
 	_, _ = db.Exec(`UPDATE source_catalog_plugins SET latest_version=version WHERE status='published' AND latest_version=''`)
+	_, _ = db.Exec(`UPDATE source_catalog_templates SET category='home-template' WHERE category='' OR category IS NULL`)
 	_, _ = db.Exec(`UPDATE source_catalog_templates SET latest_version=version WHERE status='published' AND latest_version=''`)
 	_, _ = db.Exec(`INSERT IGNORE INTO roles (role_name, role_code, description, discount, enabled)
 		VALUES (?, ?, '软件源开发者，可提交插件与首页模板元数据', 10.0, 1)`,
@@ -1279,13 +1306,16 @@ func scanSourceTemplateRow(scanner interface{ Scan(dest ...any) error }) (source
 	var item sourceTemplate
 	var updatedAt, createdAt time.Time
 	var forceUpdate int
-	err := scanner.Scan(&item.ID, &item.DeveloperID, &item.TemplateKey, &item.Name, &item.Description, &item.Version,
+	err := scanner.Scan(&item.ID, &item.DeveloperID, &item.Category, &item.TemplateKey, &item.Name, &item.Description, &item.Version,
 		&item.LatestVersion, &item.MinVersion, &forceUpdate, &item.SchemaVersion, &item.SHA256, &item.TemplateURL, &item.Changelog,
 		&item.Status, &item.ReviewNote, &item.ReviewedBy, &item.Author.Name, &item.Author.URL, &item.Author.Email, &updatedAt, &createdAt)
 	if err != nil {
 		return sourceTemplate{}, err
 	}
 	item.ForceUpdate = forceUpdate == 1
+	if strings.TrimSpace(item.Category) == "" {
+		item.Category = sourceCategoryHomeTemplate
+	}
 	item.UpdatedAt, item.CreatedAt = updatedAt.UTC(), createdAt.UTC()
 	return item, nil
 }
@@ -1298,7 +1328,7 @@ func (mysqlSourceStore) ListTemplates(status string) ([]sourceTemplate, error) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return nil, err
 	}
-	query := `SELECT id, developer_id, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog,
+	query := `SELECT id, developer_id, category, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog,
 		status, review_note, reviewed_by, author_name, author_url, author_email, updated_at, created_at FROM source_catalog_templates`
 	args := []any{}
 	if status != "" {
@@ -1330,7 +1360,7 @@ func (mysqlSourceStore) GetTemplate(id string) (sourceTemplate, error) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return sourceTemplate{}, err
 	}
-	item, err := scanSourceTemplateRow(db.QueryRow(`SELECT id, developer_id, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog,
+	item, err := scanSourceTemplateRow(db.QueryRow(`SELECT id, developer_id, category, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog,
 		status, review_note, reviewed_by, author_name, author_url, author_email, updated_at, created_at FROM source_catalog_templates WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceTemplate{}, errSourceNotFound
@@ -1348,6 +1378,9 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 	}
 	if item.SchemaVersion == 0 {
 		item.SchemaVersion = homeTemplateSchemaVersion
+	}
+	if strings.TrimSpace(item.Category) == "" {
+		item.Category = sourceCategoryHomeTemplate
 	}
 	existing, err := (mysqlSourceStore{}).GetTemplate(item.ID)
 	if err != nil && !errors.Is(err, errSourceNotFound) {
@@ -1406,14 +1439,14 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 		item.Status = sourceItemDraft
 	}
 	_, err = db.Exec(`INSERT INTO source_catalog_templates
-		(id, developer_id, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog, status, author_name, author_url, author_email)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), schema_version=VALUES(schema_version),
+		(id, developer_id, category, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog, status, author_name, author_url, author_email)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE category=VALUES(category), name=VALUES(name), description=VALUES(description), schema_version=VALUES(schema_version),
 			version=VALUES(version), sha256=VALUES(sha256), template_url=VALUES(template_url), changelog=VALUES(changelog),
 			status=VALUES(status), review_note=VALUES(review_note), reviewed_by=VALUES(reviewed_by),
 			min_version=VALUES(min_version), force_update=VALUES(force_update),
 			author_name=VALUES(author_name), author_url=VALUES(author_url), author_email=VALUES(author_email)`,
-		item.ID, item.DeveloperID, item.TemplateKey, item.Name, item.Description, item.Version, item.LatestVersion, item.MinVersion, forceUpdate,
+		item.ID, item.DeveloperID, item.Category, item.TemplateKey, item.Name, item.Description, item.Version, item.LatestVersion, item.MinVersion, forceUpdate,
 		item.SchemaVersion, item.SHA256, item.TemplateURL, item.Changelog, item.Status, item.Author.Name, item.Author.URL, item.Author.Email)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate") {
@@ -1987,6 +2020,42 @@ func (mysqlSourceStore) SaveAdvertisementPlaceholder(placeholder advertisementPl
 	return err
 }
 
+func (mysqlSourceStore) ListCatalogCategoryExtras() ([]sourceCatalogCategory, error) {
+	db, err := config.DB()
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return nil, err
+	}
+	var raw string
+	err = db.QueryRow(`SELECT setting_value FROM source_station_settings WHERE setting_key=?`, sourceCatalogCategoriesSettingsKey).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return []sourceCatalogCategory{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalCatalogCategoryExtras(raw), nil
+}
+
+func (mysqlSourceStore) SaveCatalogCategoryExtras(items []sourceCatalogCategory) error {
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return err
+	}
+	payload, err := marshalCatalogCategoryExtras(items)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`INSERT INTO source_station_settings (setting_key, setting_value) VALUES (?, ?)
+		ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)`, sourceCatalogCategoriesSettingsKey, payload)
+	return err
+}
+
 func sourceCatalogJSON() ([]byte, ginHCatalog, error) {
 	plugins, err := currentSourceStationStore().ListPlugins(sourceItemPublished)
 	if err != nil {
@@ -1997,9 +2066,14 @@ func sourceCatalogJSON() ([]byte, ginHCatalog, error) {
 		templates = nil
 	}
 	pluginItems := make([]map[string]any, 0, len(plugins))
+	homeTemplates := make([]map[string]any, 0, len(templates))
 	for _, plugin := range plugins {
+		category := strings.TrimSpace(plugin.Category)
+		if category == "" {
+			category = "other"
+		}
 		entry := map[string]any{
-			"id": plugin.ID, "category": plugin.Category, "name": plugin.Name, "description": plugin.Description,
+			"id": plugin.ID, "category": category, "name": plugin.Name, "description": plugin.Description,
 			"icon": plugin.Icon, "version": plugin.Version, "author": plugin.Author, "downloadUrl": plugin.DownloadURL,
 			"sha256": plugin.SHA256, "forceUpdate": plugin.ForceUpdate,
 		}
@@ -2011,14 +2085,17 @@ func sourceCatalogJSON() ([]byte, ginHCatalog, error) {
 		}
 		pluginItems = append(pluginItems, entry)
 	}
-	homeTemplates := make([]map[string]any, 0, len(templates))
 	for _, template := range templates {
 		schemaVersion := template.SchemaVersion
 		if schemaVersion == 0 {
 			schemaVersion = homeTemplateSchemaVersion
 		}
+		category := strings.TrimSpace(template.Category)
+		if category == "" {
+			category = sourceCategoryHomeTemplate
+		}
 		entry := map[string]any{
-			"id": template.TemplateKey, "name": template.Name, "description": template.Description,
+			"id": template.TemplateKey, "category": category, "name": template.Name, "description": template.Description,
 			"version": template.Version, "schemaVersion": schemaVersion, "sha256": template.SHA256,
 			"templateUrl": template.TemplateURL, "forceUpdate": template.ForceUpdate,
 		}
@@ -2030,13 +2107,17 @@ func sourceCatalogJSON() ([]byte, ginHCatalog, error) {
 		}
 		homeTemplates = append(homeTemplates, entry)
 	}
-	catalog := ginHCatalog{Name: sourceStationSourceName, Plugins: pluginItems, HomeTemplates: homeTemplates}
+	catalog := ginHCatalog{
+		Name: sourceStationSourceName, Plugins: pluginItems, HomeTemplates: homeTemplates,
+		Categories: resolveSourceCatalogCategories(),
+	}
 	payload, err := json.Marshal(catalog)
 	return payload, catalog, err
 }
 
 type ginHCatalog struct {
-	Name          string           `json:"name"`
-	Plugins       []map[string]any `json:"plugins"`
-	HomeTemplates []map[string]any `json:"homeTemplates"`
+	Name          string                  `json:"name"`
+	Plugins       []map[string]any        `json:"plugins"`
+	HomeTemplates []map[string]any        `json:"homeTemplates"`
+	Categories    []sourceCatalogCategory `json:"categories,omitempty"`
 }

@@ -271,9 +271,10 @@
     "sourceStation": {
       "title": "源站",
       "applications": "入驻审核",
-      "plugins": "插件管理",
-      "templates": "首页模板",
-      "catalog": "软件源目录",
+      "packages": "软件目录",
+      "plugins": "软件目录",
+      "templates": "软件目录",
+      "catalog": "公开目录",
       "ads": "广告投放",
       "settings": "Release 设置"
     },

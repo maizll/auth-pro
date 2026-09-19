@@ -40,6 +40,7 @@ type sourcePluginDraftRequest struct {
 
 type sourceTemplateDraftRequest struct {
 	ID            string       `json:"id"`
+	Category      string       `json:"category"`
 	TemplateKey   string       `json:"templateKey"`
 	Name          string       `json:"name"`
 	Description   string       `json:"description"`
@@ -450,8 +451,12 @@ func sourcePluginView(item sourcePlugin) gin.H {
 }
 
 func sourceTemplateView(item sourceTemplate) gin.H {
+	category := strings.TrimSpace(item.Category)
+	if category == "" {
+		category = sourceCategoryHomeTemplate
+	}
 	return gin.H{
-		"id": item.ID, "developerId": item.DeveloperID, "templateKey": item.TemplateKey, "name": item.Name,
+		"id": item.ID, "developerId": item.DeveloperID, "category": category, "templateKey": item.TemplateKey, "name": item.Name,
 		"description": item.Description, "version": item.Version, "schemaVersion": item.SchemaVersion,
 		"sha256": item.SHA256, "templateUrl": item.TemplateURL, "changelog": item.Changelog,
 		"latestVersion": item.LatestVersion, "minVersion": item.MinVersion, "forceUpdate": item.ForceUpdate,
@@ -512,10 +517,14 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 		icon = "ri:puzzle-line"
 	}
 	authorName := sourceFirstNonEmpty(truncateText(req.Author.Name, 100), developer.DisplayName, developer.Username)
+	category, err := normalizeAssignedCatalogCategory(sourceKindPlugin, req.Category)
+	if err != nil {
+		return sourcePlugin{}, err
+	}
 	return sourcePlugin{
 		ID:          pluginID,
 		DeveloperID: developer.ID,
-		Category:    normalizePluginCategory(strings.TrimSpace(req.Category)),
+		Category:    category,
 		Name:        name,
 		Description: truncateText(req.Description, 500),
 		Icon:        icon,
@@ -573,9 +582,14 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 	if schemaVersion != homeTemplateSchemaVersion {
 		return sourceTemplate{}, errors.New("schemaVersion 必须为 1")
 	}
+	category, err := normalizeAssignedCatalogCategory(sourceKindTemplate, req.Category)
+	if err != nil {
+		return sourceTemplate{}, err
+	}
 	return sourceTemplate{
 		ID:            templateKey,
 		DeveloperID:   developer.ID,
+		Category:      category,
 		TemplateKey:   templateKey,
 		Name:          name,
 		Description:   truncateText(req.Description, 500),
