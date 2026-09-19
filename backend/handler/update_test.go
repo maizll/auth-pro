@@ -99,101 +99,35 @@ func TestValidateOnlineUpdateManifest(t *testing.T) {
 		}
 	})
 
-	t.Run("linux production package passes basic validation", func(t *testing.T) {
+	t.Run("trusted GitHub package from this repository", func(t *testing.T) {
+		t.Setenv("AUTO_PRO_UPDATE_URL", "https://api.github.com/repos/maizll/auth-pro/releases/latest")
 		manifest := validOnlineUpdateManifestForTest()
-		manifest.Package.OS = "linux"
-		manifest.Package.Arch = "amd64"
+		manifest.Package.URL = "https://github.com/maizll/auth-pro/releases/download/v1.2.2/auth_pro-full-v1.2.2.tar.gz"
 		if err := validateOnlineUpdateManifest(manifest); err != nil {
-			t.Fatalf("linux production package should pass basic validation: %v", err)
+			t.Fatalf("trusted GitHub package was rejected: %v", err)
 		}
 	})
 
-	t.Run("os mismatch is not a basic validation error", func(t *testing.T) {
+	t.Run("untrusted old GitHub repository", func(t *testing.T) {
+		t.Setenv("AUTO_PRO_UPDATE_URL", "https://api.github.com/repos/maizll/auth-pro/releases/latest")
 		manifest := validOnlineUpdateManifestForTest()
-		if runtime.GOOS == "windows" {
-			manifest.Package.OS = "linux"
-		} else {
-			manifest.Package.OS = "windows"
-		}
-		if err := validateOnlineUpdateManifest(manifest); err != nil {
-			t.Fatalf("OS mismatch should be soft on check validation: %v", err)
+		manifest.Package.URL = "https://github.com/cy70923167/auth_pro/releases/download/v1.2.2/auth_pro-full-v1.2.2.tar.gz"
+		if err := validateOnlineUpdateManifest(manifest); err == nil {
+			t.Fatal("package from the old GitHub repository was accepted")
 		}
 	})
 
-	t.Run("arch mismatch is not a basic validation error", func(t *testing.T) {
+	t.Run("wrong architecture", func(t *testing.T) {
 		manifest := validOnlineUpdateManifestForTest()
 		if runtime.GOARCH == "amd64" {
 			manifest.Package.Arch = "arm64"
 		} else {
 			manifest.Package.Arch = "amd64"
 		}
-		if err := validateOnlineUpdateManifest(manifest); err != nil {
-			t.Fatalf("arch mismatch should be soft on check validation: %v", err)
+		if err := validateOnlineUpdateManifest(manifest); err == nil {
+			t.Fatal("incompatible architecture was accepted")
 		}
 	})
-}
-
-func TestEvaluateOnlineUpdateCheckAllowsWindowsPreviewForLinuxPackage(t *testing.T) {
-	manifest := validOnlineUpdateManifestForTest()
-	manifest.Version = "9.9.9"
-	manifest.Notes = []string{"修复在线更新", "补充中文说明"}
-	manifest.Package.OS = "linux"
-	manifest.Package.Arch = "amd64"
-
-	available, versionErr, packageErr, canApply := evaluateOnlineUpdateCheckForRuntime("1.0.0", manifest, "windows", "amd64")
-	if !available || versionErr != "" {
-		t.Fatalf("Windows preview should still compare versions: available=%v versionErr=%q", available, versionErr)
-	}
-	if len(manifest.Notes) != 2 || manifest.Notes[0] != "修复在线更新" {
-		t.Fatalf("Chinese notes should remain available after check: %#v", manifest.Notes)
-	}
-	if canApply {
-		t.Fatal("Windows preview must not apply a linux full package")
-	}
-	if packageErr == nil {
-		t.Fatal("expected a clear apply-disabled message")
-	}
-	message := packageErr.Error()
-	for _, fragment := range []string{"Linux amd64", "宝塔", "Windows", "不能安装"} {
-		if !strings.Contains(message, fragment) {
-			t.Fatalf("packageError %q should mention %q", message, fragment)
-		}
-	}
-}
-
-func TestEvaluateOnlineUpdateCheckCanApplyOnLinuxAmd64(t *testing.T) {
-	manifest := validOnlineUpdateManifestForTest()
-	manifest.Version = "9.9.9"
-	manifest.Package.OS = "linux"
-	manifest.Package.Arch = "amd64"
-
-	available, versionErr, packageErr, canApply := evaluateOnlineUpdateCheckForRuntime("1.0.0", manifest, "linux", "amd64")
-	if !available || versionErr != "" || packageErr != nil || !canApply {
-		t.Fatalf("linux amd64 should be able to apply: available=%v versionErr=%q packageErr=%v canApply=%v", available, versionErr, packageErr, canApply)
-	}
-}
-
-func TestOnlineUpdateRuntimeCompatibility(t *testing.T) {
-	manifest := validOnlineUpdateManifestForTest()
-	manifest.Package.OS = "linux"
-	manifest.Package.Arch = "amd64"
-
-	if err := onlineUpdateRuntimeCompatibility("linux", "amd64", manifest); err != nil {
-		t.Fatalf("linux amd64 host should accept linux amd64 package: %v", err)
-	}
-	if err := onlineUpdateRuntimeCompatibility("windows", "amd64", manifest); err == nil {
-		t.Fatal("windows host should not apply linux package")
-	} else if !strings.Contains(err.Error(), "Windows") || !strings.Contains(err.Error(), "不能安装") {
-		t.Fatalf("windows preview message = %q", err)
-	}
-	if err := onlineUpdateRuntimeCompatibility("linux", "arm64", manifest); err == nil {
-		t.Fatal("linux arm64 host should not apply amd64 package")
-	}
-
-	manifest.Package.Arch = "arm64"
-	if err := onlineUpdateRuntimeCompatibility("linux", "amd64", manifest); err == nil {
-		t.Fatal("linux amd64 host should reject arm64 package")
-	}
 }
 
 func TestOnlineUpdateGiteeRedirectPolicy(t *testing.T) {
@@ -292,6 +226,98 @@ func TestParseOnlineUpdateURLRejectsUntrustedGiteePaths(t *testing.T) {
 	}
 }
 
+func TestParseOnlineUpdateURLAcceptsTrustedGitHubReleaseURLs(t *testing.T) {
+	for _, value := range []string{
+		"https://github.com/maizll/auth-pro/releases/latest/download/latest.json",
+		"https://github.com/maizll/auth-pro/releases/download/v1.2.2/releases.json",
+		"https://github.com/Maizll/Auth-Pro/releases/download/v1.2.2/auth_pro-full-v1.2.2.tar.gz",
+		"https://api.github.com/repos/maizll/auth-pro/releases/latest",
+		"https://api.github.com/repos/maizll/auth-pro/releases",
+		"https://api.github.com/repos/Maizll/Auth-Pro/releases?per_page=30",
+	} {
+		if _, err := parseOnlineUpdateURL(value); err != nil {
+			t.Fatalf("trusted GitHub URL %q was rejected: %v", value, err)
+		}
+	}
+}
+
+func TestParseOnlineUpdateURLRejectsUntrustedGitHubPaths(t *testing.T) {
+	for _, value := range []string{
+		"https://github.com/cy70923167/auth_pro/releases/download/v1.0.0/latest.json",
+		"https://github.com/another/repository/releases/download/v1.0.0/latest.json",
+		"https://github.com/maizll/auth-pro/archive/refs/tags/v1.2.2.tar.gz",
+		"https://github.com/maizll/auth-pro/raw/master/latest.json",
+		"https://github.com:8443/maizll/auth-pro/releases/download/v1.2.2/latest.json",
+		"http://github.com/maizll/auth-pro/releases/download/v1.2.2/latest.json",
+	} {
+		if _, err := parseOnlineUpdateURL(value); err == nil {
+			t.Fatalf("untrusted GitHub URL %q was accepted", value)
+		}
+	}
+}
+
+func TestParseOnlineUpdateURLRejectsUntrustedGitHubAPIPaths(t *testing.T) {
+	for _, value := range []string{
+		"https://api.github.com/repos/cy70923167/auth_pro/releases/latest",
+		"https://api.github.com/repos/another/repository/releases",
+		"https://api.github.com/repos/maizll/auth-pro/contents/latest.json",
+		"https://api.github.com/repos/maizll/auth-pro/git/trees/main",
+		"https://api.github.com:8443/repos/maizll/auth-pro/releases/latest",
+		"http://api.github.com/repos/maizll/auth-pro/releases/latest",
+	} {
+		err := parseOnlineUpdateURLError(t, value)
+		if err == nil {
+			t.Fatalf("untrusted GitHub API URL %q was accepted", value)
+		}
+		if strings.Contains(value, "api.github.com") && strings.HasPrefix(value, "https://api.github.com/") && !strings.Contains(value, ":8443") {
+			if !strings.Contains(err.Error(), "GitHub API 更新地址不属于受信任的发布仓库") {
+				t.Fatalf("untrusted GitHub API URL %q error = %q", value, err)
+			}
+		}
+	}
+}
+
+func parseOnlineUpdateURLError(t *testing.T, value string) error {
+	t.Helper()
+	_, err := parseOnlineUpdateURL(value)
+	return err
+}
+
+func TestOnlineUpdateGitHubRedirectPolicy(t *testing.T) {
+	initialURL := "https://api.github.com/repos/maizll/auth-pro/releases/latest"
+	client, err := newOnlineUpdateHTTPClient(initialURL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	via := []*http.Request{{URL: mustParseOnlineUpdateTestURL(t, initialURL)}}
+
+	for name, target := range map[string]string{
+		"GitHub release asset": "https://github.com/maizll/auth-pro/releases/download/v1.2.2/latest.json",
+		"GitHub asset storage": "https://release-assets.githubusercontent.com/github-production-release-asset/1/latest.json?token=test",
+		"GitHub API list":      "https://api.github.com/repos/maizll/auth-pro/releases",
+	} {
+		t.Run("allows "+name, func(t *testing.T) {
+			if err := client.CheckRedirect(&http.Request{URL: mustParseOnlineUpdateTestURL(t, target)}, via); err != nil {
+				t.Fatalf("trusted redirect was rejected: %v", err)
+			}
+		})
+	}
+
+	for name, target := range map[string]string{
+		"HTTP downgrade":          "http://github.com/maizll/auth-pro/releases/download/v1.2.2/latest.json",
+		"non-standard HTTPS port": "https://release-assets.githubusercontent.com:8443/latest.json",
+		"another repository":      "https://github.com/another/repository/releases/download/v1.2.2/latest.json",
+		"another API repository":  "https://api.github.com/repos/another/repository/releases/latest",
+		"untrusted storage host":  "https://example.com/update.tar.gz",
+	} {
+		t.Run("rejects "+name, func(t *testing.T) {
+			if err := client.CheckRedirect(&http.Request{URL: mustParseOnlineUpdateTestURL(t, target)}, via); err == nil {
+				t.Fatal("untrusted redirect was accepted")
+			}
+		})
+	}
+}
+
 func mustParseOnlineUpdateTestURL(t *testing.T, value string) *url.URL {
 	t.Helper()
 	parsed, err := url.Parse(value)
@@ -379,6 +405,145 @@ func TestOnlineUpdateHistoryRejectsCrossOriginURL(t *testing.T) {
 	manifest.ReleasesURL = "https://mirror.example.com/releases.json"
 	if _, err := resolveOnlineUpdateReleasesURL(manifest); err == nil {
 		t.Fatal("cross-origin releases URL was accepted")
+	}
+}
+
+func TestOnlineUpdateHistoryAllowsGitHubWebsiteAndAPIPair(t *testing.T) {
+	t.Setenv("AUTO_PRO_UPDATE_URL", "https://api.github.com/repos/maizll/auth-pro/releases/latest")
+	manifest := validOnlineUpdateManifestForTest()
+	manifest.ReleasesURL = "https://github.com/maizll/auth-pro/releases/download/v1.2.2/releases.json"
+
+	got, err := resolveOnlineUpdateReleasesURL(manifest)
+	if err != nil {
+		t.Fatalf("trusted GitHub website/API pair was rejected: %v", err)
+	}
+	if got != manifest.ReleasesURL {
+		t.Fatalf("releases URL = %q, want %q", got, manifest.ReleasesURL)
+	}
+}
+
+func TestOnlineUpdateHistoryDefaultsGitHubAPIList(t *testing.T) {
+	t.Setenv("AUTO_PRO_UPDATE_URL", "https://api.github.com/repos/maizll/auth-pro/releases/latest")
+	manifest := validOnlineUpdateManifestForTest()
+	manifest.ReleasesURL = ""
+
+	got, err := resolveOnlineUpdateReleasesURL(manifest)
+	if err != nil {
+		t.Fatalf("GitHub API history default was rejected: %v", err)
+	}
+	want := "https://api.github.com/repos/maizll/auth-pro/releases"
+	if got != want {
+		t.Fatalf("releases URL = %q, want %q", got, want)
+	}
+}
+
+func TestOnlineUpdateHistoryRejectsOtherGitHubRepository(t *testing.T) {
+	t.Setenv("AUTO_PRO_UPDATE_URL", "https://api.github.com/repos/maizll/auth-pro/releases/latest")
+	manifest := validOnlineUpdateManifestForTest()
+	manifest.ReleasesURL = "https://github.com/another/repository/releases/download/v1.2.2/releases.json"
+	if _, err := resolveOnlineUpdateReleasesURL(manifest); err == nil {
+		t.Fatal("releases URL from another GitHub repository was accepted")
+	} else if !strings.Contains(err.Error(), "不属于受信任的发布仓库") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestOnlineUpdateHistoryMapsGitHubAPIList(t *testing.T) {
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = onlineUpdateRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host != "api.github.com" || request.URL.Path != "/repos/maizll/auth-pro/releases" {
+			return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Header: make(http.Header), Request: request}, nil
+		}
+		payload := `[
+			{"tag_name":"v1.2.2","draft":false,"prerelease":false,"published_at":"2026-09-19T22:37:15Z","body":"## 更新内容\n\n- 在线更新改为 GitHub Releases\n- 支持中文更新日志"},
+			{"tag_name":"v1.2.0","draft":false,"prerelease":false,"published_at":"2026-09-19T00:00:00Z","body":"* 版本号调整为 1.2.0"},
+			{"tag_name":"v9.9.9","draft":true,"prerelease":false,"published_at":"2026-09-18T00:00:00Z","body":"- 不应出现"}
+		]`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(payload)),
+			Header:     make(http.Header),
+			Request:    request,
+		}, nil
+	})
+	defer func() { http.DefaultTransport = originalTransport }()
+
+	t.Setenv("AUTO_PRO_UPDATE_URL", "https://api.github.com/repos/maizll/auth-pro/releases/latest")
+	manifest := validOnlineUpdateManifestForTest()
+	manifest.ReleasesURL = "https://api.github.com/repos/maizll/auth-pro/releases"
+
+	releases, releasesURL, err := fetchOnlineUpdateReleases(manifest, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if releasesURL != manifest.ReleasesURL {
+		t.Fatalf("releases URL = %q, want %q", releasesURL, manifest.ReleasesURL)
+	}
+	if len(releases) != 2 || releases[0].Version != "1.2.2" || releases[1].Version != "1.2.0" {
+		t.Fatalf("unexpected releases: %#v", releases)
+	}
+	if len(releases[0].Notes) != 2 || releases[0].Notes[0] != "在线更新改为 GitHub Releases" || releases[0].Notes[1] != "支持中文更新日志" {
+		t.Fatalf("Chinese GitHub API notes were not mapped: %#v", releases[0])
+	}
+}
+
+func TestOnlineUpdateHistoryKeepsChineseNotesFromReleasesJSON(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/releases.json" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = w.Write([]byte(`{
+			"releases": [
+				{"version":"1.2.2","channel":"stable","releasedAt":"2026-09-20T00:00:00Z","notes":["在线更新改为 GitHub Releases，支持 latest.json 与 SHA256 校验","开发者入驻：申请、后台审核通过/拒绝、取消开发者"]}
+			]
+		}`))
+	}))
+	defer server.Close()
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = server.Client().Transport
+	defer func() { http.DefaultTransport = originalTransport }()
+
+	t.Setenv("AUTO_PRO_UPDATE_URL", server.URL+"/latest.json")
+	manifest := validOnlineUpdateManifestForTest()
+	manifest.ReleasesURL = server.URL + "/releases.json"
+
+	releases, _, err := fetchOnlineUpdateReleases(manifest, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(releases) != 1 || len(releases[0].Notes) != 2 {
+		t.Fatalf("unexpected releases: %#v", releases)
+	}
+	if releases[0].Notes[0] != "在线更新改为 GitHub Releases，支持 latest.json 与 SHA256 校验" {
+		t.Fatalf("Chinese releases.json notes were lost: %#v", releases[0].Notes)
+	}
+}
+
+func TestFetchGitHubLatestManifestURL(t *testing.T) {
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = onlineUpdateRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host != "api.github.com" || request.URL.Path != "/repos/maizll/auth-pro/releases/latest" {
+			return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Header: make(http.Header), Request: request}, nil
+		}
+		payload := `{"tag_name":"v1.2.2","assets":[{"name":"releases.json","browser_download_url":"https://github.com/maizll/auth-pro/releases/download/v1.2.2/releases.json"},{"name":"latest.json","browser_download_url":"https://github.com/maizll/auth-pro/releases/download/v1.2.2/latest.json"}]}`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(payload)),
+			Header:     make(http.Header),
+			Request:    request,
+		}, nil
+	})
+	defer func() { http.DefaultTransport = originalTransport }()
+
+	got, err := fetchGitHubLatestManifestURL("https://api.github.com/repos/maizll/auth-pro/releases/latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://github.com/maizll/auth-pro/releases/download/v1.2.2/latest.json"
+	if got != want {
+		t.Fatalf("manifest URL = %q, want %q", got, want)
 	}
 }
 
