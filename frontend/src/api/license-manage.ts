@@ -291,6 +291,21 @@ export function fetchUpdateAppLicenseRequired(id: number, licenseRequired: boole
   })
 }
 
+/** 下载按应用生成的客户端接入 ZIP（密钥由后端按 appId 读取，不走前端） */
+export function fetchDownloadSDKPack(payload: {
+  appId: number
+  modules: string[]
+  baseUrl?: string
+  includeJs?: boolean
+}) {
+  return request.post<Blob>({
+    url: '/api/sdk/pack',
+    data: payload,
+    responseType: 'blob',
+    timeout: 60_000
+  })
+}
+
 // ==================== 套餐 ====================
 
 /** 套餐列表（不分页，按应用/关键词/状态过滤） */

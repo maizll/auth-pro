@@ -1,5 +1,13 @@
 # 更新日志
 
+## [SDK] 2026-09-20 — 按应用生成客户端接入包
+
+### 新增
+
+- 管理后台「SDK 接入」可按应用勾选模块并下载 ZIP：授权验证、盗版入口、在线更新、广告接入、插件源引用。
+- PHP 一文件接入（`AuthPro::boot()`），可选附带 Node/JS。密钥只写入所选应用，不带其它应用 secret。
+- 插件源固化应用隔离清单：`{origin}/software-source/{appKey}/index.json`（不要用未带应用的 `/software-source/index.json`）。
+
 ## [源站] 2026-09-20 — 软件源按应用隔离
 
 ### 行为
