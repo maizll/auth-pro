@@ -103,7 +103,7 @@ func sourceNextAgent(t *testing.T, username string) (agentID uint, email, token 
 	return agentID, email, sourceAgentToken(t, agentID, email)
 }
 
-func sourceApproveDeveloper(t *testing.T, router http.Handler, username, password string) (adminToken, agentToken string, appID int64) {
+func sourceApproveDeveloper(t *testing.T, router http.Handler, username, password string) (adminToken, agentToken string, developerID int64) {
 	t.Helper()
 	_ = password
 	adminToken = sourceAdminToken(t)
@@ -120,12 +120,50 @@ func sourceApproveDeveloper(t *testing.T, router http.Handler, username, passwor
 	if err := json.Unmarshal(apply.Body.Bytes(), &applyBody); err != nil {
 		t.Fatal(err)
 	}
-	appID = applyBody.Data.ID
-	approve := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(appID)+"/approve", adminToken, "{}")
+	approve := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(applyBody.Data.ID)+"/approve", adminToken, "{}")
 	if sourceBodyCode(t, approve) != 200 || !strings.Contains(approve.Body.String(), sourceDeveloperRoleCode) {
 		t.Fatalf("approve=%s", approve.Body.String())
 	}
-	return adminToken, agentToken, appID
+	var approveBody struct {
+		Data struct {
+			DeveloperID int64 `json:"developerId"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(approve.Body.Bytes(), &approveBody); err != nil {
+		t.Fatal(err)
+	}
+	if approveBody.Data.DeveloperID <= 0 {
+		t.Fatalf("approve missing developerId: %s", approve.Body.String())
+	}
+	return adminToken, agentToken, approveBody.Data.DeveloperID
+}
+
+func sourceListIDs(t *testing.T, recorder *httptest.ResponseRecorder) []int64 {
+	t.Helper()
+	var body struct {
+		Data struct {
+			List []struct {
+				ID int64 `json:"id"`
+			} `json:"list"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("list json: %s", recorder.Body.String())
+	}
+	ids := make([]int64, 0, len(body.Data.List))
+	for _, item := range body.Data.List {
+		ids = append(ids, item.ID)
+	}
+	return ids
+}
+
+func sourceContainsID(ids []int64, target int64) bool {
+	for _, id := range ids {
+		if id == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSourceStationIndexJSONShape(t *testing.T) {
@@ -581,7 +619,7 @@ func TestSourceStationPluginVersionUpdateUnshelfAndRollback(t *testing.T) {
 
 func TestSourceDeveloperCancelBlocksLogin(t *testing.T) {
 	router, _ := sourceStationRouter(t)
-	admin, agentToken, appID := sourceApproveDeveloper(t, router, "dev-carol", "secret1")
+	admin, agentToken, developerID := sourceApproveDeveloper(t, router, "dev-carol", "secret1")
 
 	_, _, pendingToken := sourceNextAgent(t, "dev-pending")
 	pendingApply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", pendingToken, `{}`)
@@ -599,9 +637,9 @@ func TestSourceDeveloperCancelBlocksLogin(t *testing.T) {
 		t.Fatalf("cancel pending=%s", cancelPending.Body.String())
 	}
 
-	cancel := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(appID)+"/freeze",
+	cancel := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/developers/"+itoa64(developerID)+"/freeze",
 		admin, `{"note":"违规发布"}`)
-	if sourceBodyCode(t, cancel) != 200 || !strings.Contains(cancel.Body.String(), "已取消该开发者资格") {
+	if sourceBodyCode(t, cancel) != 200 || !strings.Contains(cancel.Body.String(), "已取消并删除开发者资格") {
 		t.Fatalf("cancel=%s", cancel.Body.String())
 	}
 	me := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/me", agentToken, "")
@@ -609,12 +647,16 @@ func TestSourceDeveloperCancelBlocksLogin(t *testing.T) {
 		t.Fatalf("cancelled agent developer access=%s", me.Body.String())
 	}
 	status := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/apply/status", agentToken, "")
-	if sourceBodyCode(t, status) != 200 || !strings.Contains(status.Body.String(), `"frozen"`) {
+	if sourceBodyCode(t, status) != 404 {
 		t.Fatalf("cancelled apply status=%s", status.Body.String())
 	}
-	again := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(appID)+"/freeze",
+	devs := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/developers", admin, "")
+	if sourceContainsID(sourceListIDs(t, devs), developerID) {
+		t.Fatalf("cancelled developer still listed: %s", devs.Body.String())
+	}
+	again := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/developers/"+itoa64(developerID)+"/freeze",
 		admin, `{}`)
-	if sourceBodyCode(t, again) != 400 {
+	if sourceBodyCode(t, again) != 404 {
 		t.Fatalf("cancel twice=%s", again.Body.String())
 	}
 }

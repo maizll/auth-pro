@@ -83,7 +83,7 @@ PR #23 / #25 已补上目录编辑、分类进商店、`kind` 硬约束、上架
 
 | 动作 | 开发者 | 管理员 | 匿名 / 商店 |
 | --- | --- | --- | --- |
-| 入驻申请 / 查状态 | 代理商可申请；开发者只读状态 | 通过 / 拒绝 / 冻结 | 否 |
+| 入驻申请 / 查状态 | 代理商可申请；开发者只读状态 | 通过 / 拒绝后不保留申请单；取消开发者删除资格 | 否 |
 | 读文档 / starter.zip / skill.md | 是 | 是（管理端另有文档页） | schema 公开；starter 需开发者 JWT |
 | 登记元数据（URL + SHA256） | 是 → `draft` | 是；`shelf=true` 可直发 | 否 |
 | 上传 ZIP 硬校验 | **待补齐**（现仅管理端） | `packages/parse`、`packages/publish` | 否 |
@@ -457,7 +457,7 @@ sequenceDiagram
 
 ### 8.1 步骤（实现检查表）
 
-1. **入驻**：代理商面板「开发者入驻」一键申请。管理员「源站 → 入驻审核」通过。拒绝/冻结后可再申请；冻结不停历史目录归属。
+1. **入驻**：代理商面板「开发者入驻」一键申请。管理员「源站 → 入驻审核」通过。取消开发者会删除资格记录；审核通过/拒绝后不保留申请单。已发布目录归属不随取消删除。
 2. **读规范**：`/developer-panel/guide` 与 `GET /starter.zip`、`GET /skill.md`。starter 的 `plugin.json` / `template.json` 必须能过硬校验。
 3. **交包**：选 `appId`。现状：填 HTTPS URL + SHA256。P1：也可上传 ZIP（仍不在源站落包，只解析清单）。
 4. **提交审核**：`submit` → `pending_review`。开发者不能上架。
@@ -485,7 +485,7 @@ sequenceDiagram
 | 菜单 | 路径 | 职责 |
 | --- | --- | --- |
 | 软件目录 | `/source-station/packages` | 主货架。行内编辑元数据；分类 extras；上传 ZIP / 登记外部地址；通过 / 拒绝 / 上架 / 下架 / 弃用；版本 latest |
-| 入驻审核 | `/source-station/applications` | 开发者申请通过 / 拒绝 / 冻结 |
+| 入驻审核 | `/source-station/applications` | 待审核通过 / 拒绝（不留单）；开发者列表取消资格（删除记录） |
 | 公开目录 | `/source-station/catalog` | 按应用预览 live index；补偿「从数据库重生快照」；审计日志 |
 | 广告投放 | `/source-station/ads` | 广告位、招租占位、申请审批 |
 | Release 设置 | `/source-station/settings` | GitHub/Gitee Token、tag 策略 |

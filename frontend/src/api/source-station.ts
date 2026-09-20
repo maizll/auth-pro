@@ -325,10 +325,10 @@ function noteBody(note?: string) {
   return note ? { note } : {}
 }
 
-export function fetchSourceApplications(status?: string) {
+export function fetchSourceApplications(status: string = 'pending') {
   return request.get<SourceListResponse<SourceApplication>>({
     url: `${BASE}/applications`,
-    params: status ? { status } : undefined
+    params: { status }
   })
 }
 

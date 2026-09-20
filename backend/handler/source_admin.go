@@ -36,7 +36,7 @@ func AdminSourceCancelDeveloper(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已取消该开发者资格，对方无法再登录开发者端或发布内容"})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已取消并删除开发者资格，可重新申请入驻。"})
 }
 
 func AdminSourcePlugins(c *gin.Context) {

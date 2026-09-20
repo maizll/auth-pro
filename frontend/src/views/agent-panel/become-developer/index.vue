@@ -86,13 +86,13 @@
           <span>02</span>
           <div>
             <h2>审核说明</h2>
-            <p>每个代理商仅保留一条待审核或已通过绑定</p>
+            <p>申请页只保留待审核；通过/拒绝后不再保留申请单</p>
           </div>
         </div>
         <ul class="tips-list">
           <li>
             <iconify-icon icon="ri:shield-check-line" />
-            管理员在源站「入驻审核」中处理：待审核可选择通过或拒绝；已通过后可取消开发者资格。
+            管理员在源站「入驻审核」中处理：待审核可选择通过或拒绝；取消开发者会删除资格记录，可重新申请。
           </li>
           <li>
             <iconify-icon icon="ri:user-shared-line" />
