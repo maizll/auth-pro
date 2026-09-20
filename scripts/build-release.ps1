@@ -1,14 +1,21 @@
 param(
-  [string]$Version = "1.0.0"
+  [string]$Version = ""
 )
 
 $ErrorActionPreference = 'Stop'
 
+$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$VersionFile = Join-Path $Root 'VERSION'
+if ([string]::IsNullOrWhiteSpace($Version) -and (Test-Path $VersionFile)) {
+  $Version = (Get-Content -LiteralPath $VersionFile -Raw).Trim()
+}
+if ([string]::IsNullOrWhiteSpace($Version)) {
+  $Version = '1.4.0'
+}
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
   throw "Version must match X.Y.Z: $Version"
 }
 
-$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $FrontendDir = Join-Path $Root 'frontend'
 $BackendDir = Join-Path $Root 'backend'
 $DistName = "auth_pro-full-v$Version"
@@ -18,9 +25,9 @@ $PackagesDir = Join-Path $ReleaseRoot 'packages'
 $PackagePath = Join-Path $PackagesDir "$DistName.tar.gz"
 $LatestPath = Join-Path $PackagesDir 'latest.json'
 $ReleasesPath = Join-Path $PackagesDir 'releases.json'
-$ReleaseRepository = if ($env:AUTO_PRO_RELEASE_REPOSITORY) { $env:AUTO_PRO_RELEASE_REPOSITORY } else { 'Zcy-sa/auth-pro' }
-$UpdatePackageBaseUrl = if ($env:AUTO_PRO_UPDATE_PACKAGE_BASE_URL) { $env:AUTO_PRO_UPDATE_PACKAGE_BASE_URL } else { "https://gitee.com/$ReleaseRepository/releases/download/v$Version" }
-$UpdateReleasesUrl = if ($env:AUTO_PRO_UPDATE_RELEASES_URL) { $env:AUTO_PRO_UPDATE_RELEASES_URL } else { "https://gitee.com/$ReleaseRepository/releases/download/v$Version/releases.json" }
+$ReleaseRepository = if ($env:AUTO_PRO_RELEASE_REPOSITORY) { $env:AUTO_PRO_RELEASE_REPOSITORY } else { 'maizll/auth-pro' }
+$UpdatePackageBaseUrl = if ($env:AUTO_PRO_UPDATE_PACKAGE_BASE_URL) { $env:AUTO_PRO_UPDATE_PACKAGE_BASE_URL } else { "https://github.com/$ReleaseRepository/releases/download/v$Version" }
+$UpdateReleasesUrl = if ($env:AUTO_PRO_UPDATE_RELEASES_URL) { $env:AUTO_PRO_UPDATE_RELEASES_URL } else { "https://github.com/$ReleaseRepository/releases/download/v$Version/releases.json" }
 
 if ($PackageDir -notlike "$Root*") {
   throw "Invalid package directory: $PackageDir"

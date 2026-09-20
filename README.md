@@ -46,7 +46,7 @@ auth_pro/
 │   ├── middleware/       # CORS、JWT 等中间件
 │   ├── model/            # 数据模型
 │   ├── service/          # 服务层
-│   ├── static/           # 前端构建产物，供后端内嵌部署
+│   ├── static/           # 前端构建产物；仅开发/引导 embed（需 AUTO_PRO_ALLOW_EMBEDDED_FRONTEND=1）
 │   └── main.go           # 后端入口
 ├── software-source-system/ # 独立软件源 Go + Vue 系统
 ├── database/             # 数据库结构文件
@@ -216,37 +216,37 @@ PORT=19127 ./auth_pro
 ./scripts/restart-backend.sh
 ```
 
-## Gitee Release 发布与在线更新
+## GitHub Release 发布与在线更新
 
-项目默认通过 Gitee API 查询公开仓库 `Zcy-sa/auth-pro` 的最新 Release，并从附件列表读取 `latest.json`：
-
-```text
-https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest
-```
-
-当前发布和一键整包更新仅支持 `Linux amd64`。创建具有仓库写入权限的 Gitee 私人令牌后，发布严格语义版本 tag：
-
-```powershell
-git tag v1.2.3
-git push origin v1.2.3
-$env:GITEE_ACCESS_TOKEN = '<Gitee 私人令牌>'
-pwsh -NoProfile -File .\scripts\publish-gitee-release.ps1 -Version 1.2.3
-Remove-Item Env:GITEE_ACCESS_TOKEN
-```
-
-发布脚本要求工作区干净、版本 tag 指向当前提交且已经推送到 `origin`。脚本会构建前端和 Linux amd64 后端、运行后端测试、创建 Gitee Release，并上传以下三个附件：
+项目默认通过 GitHub API 查询公开仓库 `maizll/auth-pro` 的最新 Release，并从附件列表读取 `latest.json`：
 
 ```text
-auth_pro-full-v1.2.3.tar.gz
+https://api.github.com/repos/maizll/auth-pro/releases/latest
+https://github.com/maizll/auth-pro/releases/latest/download/latest.json
+```
+
+当前发布和一键整包更新仅支持 `Linux amd64`。在本仓库推送严格语义版本 tag 后，由 `.github/workflows/release.yml` 出包（也可本地 `./scripts/build-release.sh`，默认读根目录 `VERSION`）：
+
+```bash
+git tag v1.4.0
+git push origin v1.4.0
+```
+
+每个 Release 上传以下三个附件（**不要删除历史 Releases，不要 force-push 标签**）：
+
+```text
+auth_pro-full-v1.4.0.tar.gz
 latest.json
 releases.json
 ```
 
 `releases.json` 会保留历史版本，并自动把上一版本标签到当前标签之间的 Git 提交标题写入本次版本的 `notes`，作为在线更新页面展示的更新内容。需要人工整理发布说明时，可在构建环境中通过 `AUTO_PRO_RELEASE_NOTES` 提供 JSON 字符串数组或按行分隔文本覆盖自动内容。
 
-服务器可通过 `AUTO_PRO_UPDATE_URL` 改用自建 HTTPS 镜像清单。Gitee 默认源会限制 API、清单、更新包和下载重定向只能使用指定仓库及 Gitee 官方附件存储。
+服务器可通过 `AUTO_PRO_UPDATE_URL` 改用自建 HTTPS 镜像清单。GitHub 默认源会限制 API、清单、更新包和下载重定向只能使用 `maizll/auth-pro` 及 GitHub 官方附件存储。可选 Gitee 镜像脚本必须显式传入 `--repository`，不会再默认写到历史 fork。
 
 当前更新包只校验文件大小和 SHA256；该机制可发现下载损坏，但如果仓库或 Release 发布权限被攻破，攻击者仍可同时替换更新包和 SHA256，不能替代离线数字签名。
+
+仓库根目录 `VERSION` 是产品线版本信源（当前 `1.4.0`）。发布时用 tag / `-ldflags` 注入 `auto_pro/config.AppVersion` 与前端 `VITE_VERSION`；未注入时仓库默认也是 `1.4.x`，不会静默显示 `1.0.0`。
 
 ## 重要配置
 
@@ -254,7 +254,9 @@ releases.json
 | --------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------- |
 | `PORT`                | 后端服务端口                                     | `19127`                                                                       |
 | `AUTO_PRO_DATA_DIR`   | 后端运行数据目录，用于保存配置、更新包和运行数据 | 当前运行目录                                                                  |
-| `AUTO_PRO_UPDATE_URL` | 在线更新清单地址；默认值为 Gitee 最新 Release API | `https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest`              |
+| `AUTO_PRO_UPDATE_URL` | 在线更新清单地址；默认值为 GitHub `maizll/auth-pro` 最新 Release API | `https://api.github.com/repos/maizll/auth-pro/releases/latest` |
+| `AUTO_PRO_FRONTEND_DIR` | 盘上前端根（含 `index.html`）；不设则解析 `data/frontend/current` 或宝塔网站根 | （空，按候选目录解析） |
+| `AUTO_PRO_ALLOW_EMBEDDED_FRONTEND` | 仅开发/引导：允许服务 `go:embed static`。生产缺盘上前端应失败 | 未设置（拒绝静默 embed） |
 | `AUTO_PRO_SOFTWARE_SOURCE_URL` | 远程软件源地址；默认空，不连接官方源 | （空，本站自托管） |
 | `AUTO_PRO_SOFTWARE_SOURCE_API_KEY` | 远程软件源目录 Key；默认空，仓库不内置密钥 | （空） |
 | `AUTO_PRO_SOFTWARE_SOURCE_ADMIN_URL` | 旧 `/admin/app-store/*` 跳转目标；未设置时落到本站 `/plugin-store` | `/plugin-store` |
@@ -282,7 +284,7 @@ releases.json
 
 ## 部署说明
 
-生产环境推荐同源部署：前端构建后放入 `backend/static`，由 Go 后端统一提供静态资源和 `/api` 接口。这样可以减少跨域配置，并保持授权校验、管理后台和前端页面的一致部署入口。
+生产环境推荐同源部署：解压发布包到宝塔网站根（`index.html` 与 `backend/auth_pro` 同包），由 Go 后端统一提供**盘上**静态资源和 `/api` 接口。`backend/static` 的 `go:embed` 只用于开发/引导（`AUTO_PRO_ALLOW_EMBEDDED_FRONTEND=1`），生产缺盘上前端不会静默回退。这样可以减少跨域配置，并保持授权校验、管理后台和前端页面的一致部署入口。详见 [PACKAGING.md](./PACKAGING.md)。
 
 ## 自托管软件源与广告
 

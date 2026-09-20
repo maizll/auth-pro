@@ -1,5 +1,11 @@
 # 更新日志
 
+## [Unreleased] 1.4.1 prep — 发布面冻结与单一前端根
+
+- 在线更新默认源改为 GitHub `maizll/auth-pro` Releases（`latest.json` / 标签附件）。仓库默认、构建脚本与 `.github/workflows/release.yml` 不再指向 `Zcy-sa/auth-pro`（Gitee）或 `cy70923167/auth_pro`。不删除历史 Release，不 force-push 标签。
+- 根目录 `VERSION` 作为产品线版本信源；`AppVersion` / `VITE_VERSION` 默认 `1.4.0`，未注入 `-ldflags` 时不再静默显示 `1.0.0`。发布构建仍从 tag 注入。
+- 生产 HTTP 与在线更新共用同一套前端根解析。缺盘上 `index.html` 时启动失败或返回 503（带版本号），不再静默服务 `go:embed static`。开发/引导需显式 `AUTO_PRO_ALLOW_EMBEDDED_FRONTEND=1`。启动日志打印 disk/embed 根与内容指纹。
+
 ## [源站] 2026-09-20 — 取消开发者后清除冻结残留
 
 - 取消开发者仍是硬删除资格与相关入驻申请（不冻结、不留单）。

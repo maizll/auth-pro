@@ -30,14 +30,17 @@ var (
 	secretMu  sync.RWMutex
 )
 
-// AppVersion 是当前系统整体版本号。前后端共用该版本，发布时通过 -ldflags 注入。
-var AppVersion = "1.0.0"
+// AppVersion 是当前系统整体版本号。前后端共用该版本。
+// 发布构建通过 -ldflags 从 git tag / VERSION 注入；仓库默认必须与根目录 VERSION（当前 1.4.x）一致，
+// 避免忘记 -ldflags 时静默显示 1.0.0。
+var AppVersion = "1.4.0"
 
 // BuildTime 是二进制构建时间，发布时通过 -ldflags 注入。
 var BuildTime = ""
 
 // DefaultUpdateManifestURL 是默认的在线更新清单地址，可用 AUTO_PRO_UPDATE_URL 覆盖。
-const DefaultUpdateManifestURL = "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest"
+// 发布面冻结在 GitHub maizll/auth-pro Releases（latest.json / 标签附件）。
+const DefaultUpdateManifestURL = "https://api.github.com/repos/maizll/auth-pro/releases/latest"
 
 // GetDataDir 获取运行数据目录。
 func GetDataDir() string {
@@ -70,33 +73,18 @@ func GetAppReleaseDir() string {
 	return dir
 }
 
-// GetFrontendDir 获取当前正在提供服务的前端目录。
-// 优先使用独立的 frontend/current；宝塔根目录部署时自动识别二进制上级的网站根目录。
+// GetFrontendDir 返回在线更新落地与 HTTP 共用的盘上前端目录。
+// 与 ResolveFrontendRoot().ApplyDir 同一套候选：AUTO_PRO_FRONTEND_DIR、
+// data/frontend/current、可执行文件旁或宝塔网站根。
 func GetFrontendDir() string {
-	if dir := os.Getenv("AUTO_PRO_FRONTEND_DIR"); dir != "" {
-		return dir
-	}
-
-	executable, _ := os.Executable()
-	return resolveFrontendDir(getDataDir(), executable)
+	return intendedFrontendApplyDir()
 }
 
 func resolveFrontendDir(dataDir string, executable string) string {
-	candidates := []string{
-		filepath.Join(dataDir, "frontend", "current"),
-		filepath.Join(filepath.Dir(dataDir), "frontend", "current"),
+	if dir := firstValidFrontendCandidate(dataDir, executable); dir != "" {
+		return dir
 	}
-	fallback := candidates[len(candidates)-1]
-	if executable != "" {
-		executableDir := filepath.Dir(executable)
-		candidates = append(candidates, executableDir, filepath.Dir(executableDir))
-	}
-	for _, dir := range candidates {
-		if fileExists(filepath.Join(dir, "index.html")) {
-			return dir
-		}
-	}
-	return fallback
+	return defaultFrontendApplyDir(dataDir, executable)
 }
 
 // GetServiceName 获取 systemd 服务名。
