@@ -1,20 +1,43 @@
 <template>
   <div class="source-station-page">
-    <el-card shadow="never" class="art-card placeholder-card">
+    <el-card
+      shadow="never"
+      class="art-card placeholder-card"
+      :class="{ 'is-collapsed': !placeholderOpen }"
+    >
       <template #header>
-        <div class="table-header">
+        <div class="table-header placeholder-header" @click="placeholderOpen = !placeholderOpen">
           <div>
             <span class="card-title">广告位招租占位</span>
             <p class="card-hint">
-              跑马灯 / 九宫格空位会用这段文案补齐。跳转留空则不可点击，不会跳到外部链接。
+              {{
+                placeholderOpen
+                  ? '客户端广告位无投放时会用这段文案补齐。跳转留空则不可点击，不会跳到外部链接。'
+                  : `当前：${placeholder.title || '广告位出租'}。默认收起，需要时再展开编辑。`
+              }}
             </p>
           </div>
-          <el-button type="primary" :loading="savingPlaceholder" @click="handleSavePlaceholder">
-            保存占位
-          </el-button>
+          <div class="placeholder-actions" @click.stop>
+            <el-button
+              v-if="placeholderOpen"
+              type="primary"
+              :loading="savingPlaceholder"
+              @click="handleSavePlaceholder"
+            >
+              保存占位
+            </el-button>
+            <el-button @click="placeholderOpen = !placeholderOpen">
+              {{ placeholderOpen ? '收起' : '展开' }}
+            </el-button>
+          </div>
         </div>
       </template>
-      <el-form :model="placeholder" label-width="88px" class="placeholder-form">
+      <el-form
+        v-show="placeholderOpen"
+        :model="placeholder"
+        label-width="88px"
+        class="placeholder-form"
+      >
         <el-form-item label="标题">
           <el-input v-model="placeholder.title" maxlength="120" show-word-limit placeholder="广告位出租" />
         </el-form-item>
@@ -44,7 +67,7 @@
           <div>
             <span class="card-title">广告投放（共 {{ tableData.length }} 条）</span>
             <p class="card-hint"
-              >可上传本站图片或粘贴外部 https:// 地址。广告位可多选：工作台跑马灯（home-banner）/ 侧栏（sidebar）/ 弹窗（popup），同一条会同时出现在所选位置。</p
+              >可上传本站图片或粘贴外部 https:// 地址。广告位可多选：首页横幅（home-banner）/ 侧栏（sidebar）/ 弹窗（popup）。这些广告面向客户端，不会出现在管理后台。</p
             >
           </div>
           <el-button type="primary" @click="openEdit()">新增广告</el-button>
@@ -178,6 +201,8 @@
   const loading = ref(false)
   const saving = ref(false)
   const savingPlaceholder = ref(false)
+  /** 招租占位默认收起，避免广告投放页被表单占满 */
+  const placeholderOpen = ref(false)
   const uploadingImage = ref(false)
   const visible = ref(false)
   const isEdit = ref(false)
@@ -356,6 +381,24 @@
 
   .placeholder-card {
     margin-bottom: 16px;
+
+    &.is-collapsed {
+      :deep(.el-card__body) {
+        display: none;
+        padding: 0;
+      }
+    }
+  }
+
+  .placeholder-header {
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .placeholder-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
   .placeholder-form {
