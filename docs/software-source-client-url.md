@@ -44,3 +44,5 @@ $pluginSourceIndexUrl = rtrim($origin, '/') . '/software-source/' . rawurlencode
 ```
 
 消费者按配置 URL 原样 GET 即可；相对 `templateUrl` 相对该 `index.json` 解析。
+
+首页模板与插件共用这一份按应用隔离的清单，不要再为模板单独配置第二套远程源。

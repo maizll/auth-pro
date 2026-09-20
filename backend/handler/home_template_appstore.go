@@ -66,12 +66,13 @@ func listAppStoreTemplates(ctx context.Context) ([]appstore.Template, error) {
 	}
 	client, err := softwaresource.Default()
 	if err != nil {
-		// 本分叉默认无远程源：回退本机内置/已上传/已安装模板，不阻断应用商店首页模板页。
+		// 首页模板与插件共用同一软件源（本站源站公开清单 / 按应用隔离的 index）。
+		// 未配置远程源时不是错误：回退内置、本地上传与本站已安装模板。
 		return append(items, stored...), nil
 	}
 	remoteCatalog, err := client.Catalog(ctx)
 	if err != nil {
-		// 远程暂不可用时同样回退本机列表，避免整页失败。
+		// 远程软件源暂不可用时同样回退本机与源站已装模板，避免整页失败。
 		return append(items, stored...), nil
 	}
 	seen := make(map[string]bool)

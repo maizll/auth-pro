@@ -31,7 +31,10 @@ const (
 	previewMaxBytes     = int64(5 << 20)
 )
 
-var ErrUnavailable = errors.New("软件源服务暂时不可用")
+var (
+	ErrUnavailable  = errors.New("软件源服务暂时不可用")
+	ErrUnconfigured = errors.New("未配置远程软件源")
+)
 
 type Author struct {
 	Name  string `json:"name"`
@@ -124,7 +127,7 @@ func Default() (*Client, error) {
 	defaultOnce.Do(func() {
 		baseURL := strings.TrimSpace(config.GetSoftwareSourceURL())
 		if baseURL == "" {
-			defaultErr = errors.New("未配置远程软件源")
+			defaultErr = ErrUnconfigured
 			return
 		}
 		defaultClient, defaultErr = NewClient(ClientConfig{
