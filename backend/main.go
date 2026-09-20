@@ -5,9 +5,6 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
-	"os"
-	"path"
-	"path/filepath"
 	"strings"
 
 	"auto_pro/appstore"
@@ -374,19 +371,12 @@ func main() {
 	// 快瞳 / 腾讯云增强人脸扫码拍照落地页（无需登录，token 即凭证）
 	r.GET("/realname-face", handler.RealnameFacePage)
 
-	// 静态文件服务：优先使用部署目录下的真实前端产物（AUTO_PRO_FRONTEND_DIR
-	// 或数据目录里的 frontend/current），不存在时退回内嵌产物。
-	// 这样即使支付回跳意外落到后端地址，也能拿到最新页面而不是旧 embed。
+	// 静态文件：生产只服务盘上前端（AUTO_PRO_FRONTEND_DIR / frontend/current / 宝塔网站根）。
+	// 缺盘上产物时启动失败，不会静默回退到 go:embed static。开发/引导需显式
+	// AUTO_PRO_ALLOW_EMBEDDED_FRONTEND=1。
 	staticSub, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		log.Fatal("failed to load static files:", err)
-	}
-	embedServer := http.FileServer(http.FS(staticSub))
-	frontendDir := config.GetFrontendDir()
-	var diskServer http.Handler
-	if info, err := os.Stat(filepath.Join(frontendDir, "index.html")); err == nil && !info.IsDir() {
-		diskServer = http.FileServer(http.Dir(frontendDir))
-		log.Printf("Serving frontend from disk: %s", frontendDir)
 	}
 	softwareSourceAdminURL := config.GetSoftwareSourceAdminURL()
 	r.GET(appstore.PagePrefix, func(c *gin.Context) {
@@ -410,43 +400,9 @@ func main() {
 	})
 	r.GET("/source", handler.SourceStationPage)
 	r.GET("/source/", handler.SourceStationPage)
-	r.NoRoute(func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
-			c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "请求的资源不存在"})
-			return
-		}
-
-		cleanPath := strings.TrimPrefix(path.Clean(c.Request.URL.Path), "/")
-
-		if diskServer != nil {
-			if cleanPath != "." {
-				if info, err := os.Stat(filepath.Join(frontendDir, cleanPath)); err == nil && !info.IsDir() {
-					if handler.IsInstalledPackageFile(filepath.Join(frontendDir, cleanPath)) {
-						c.Status(http.StatusNotFound)
-						return
-					}
-					diskServer.ServeHTTP(c.Writer, c.Request)
-					return
-				}
-			}
-			c.File(filepath.Join(frontendDir, "index.html"))
-			return
-		}
-
-		if cleanPath != "." {
-			if _, err := fs.Stat(staticSub, cleanPath); err == nil {
-				embedServer.ServeHTTP(c.Writer, c.Request)
-				return
-			}
-		}
-
-		indexHTML, err := fs.ReadFile(staticSub, "index.html")
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "前端入口文件不存在"})
-			return
-		}
-		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
-	})
+	if err := handler.RegisterFrontend(r, staticSub); err != nil {
+		log.Fatal(err)
+	}
 
 	// 启动后台邮件到期提醒任务
 	handler.StartMailReminderWorker()

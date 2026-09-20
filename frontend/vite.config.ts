@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
@@ -15,13 +16,14 @@ export default ({ mode }: { mode: string }) => {
   const root = process.cwd()
   const env = loadEnv(mode, root)
   const { VITE_VERSION, VITE_PORT, VITE_BASE_URL, VITE_API_URL, VITE_API_PROXY_URL } = env
+  const productVersion = resolveProductVersion(VITE_VERSION)
 
   console.log(`🚀 API_URL = ${VITE_API_URL}`)
-  console.log(`🚀 VERSION = ${VITE_VERSION}`)
+  console.log(`🚀 VERSION = ${productVersion}`)
 
   return defineConfig({
     define: {
-      __APP_VERSION__: JSON.stringify(VITE_VERSION)
+      __APP_VERSION__: JSON.stringify(productVersion)
     },
     base: VITE_BASE_URL,
     server: {
@@ -125,7 +127,7 @@ export default ({ mode }: { mode: string }) => {
             fileName: 'version.json',
             source: JSON.stringify(
               {
-                version: VITE_VERSION || '1.0.0',
+                version: productVersion,
                 buildTime: new Date().toISOString()
               },
               null,
@@ -189,4 +191,19 @@ export default ({ mode }: { mode: string }) => {
 
 function resolvePath(paths: string) {
   return path.resolve(__dirname, paths)
+}
+
+function resolveProductVersion(envVersion?: string): string {
+  const fromEnv = envVersion?.trim()
+  if (fromEnv) {
+    return fromEnv
+  }
+  const versionFile = path.resolve(__dirname, '../VERSION')
+  if (existsSync(versionFile)) {
+    const fromFile = readFileSync(versionFile, 'utf8').trim()
+    if (fromFile) {
+      return fromFile
+    }
+  }
+  return '1.4.0'
 }

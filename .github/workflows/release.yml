@@ -65,14 +65,14 @@ jobs:
           mkdir -p release/packages
           curl --fail --silent --show-error --location \
             --proto '=https' --max-redirs 5 \
-            'https://github.com/cy70923167/auth_pro/releases/latest/download/releases.json' \
+            'https://github.com/${{ github.repository }}/releases/latest/download/releases.json' \
             --output release/packages/releases.json || rm -f release/packages/releases.json
 
       - name: Build release package
         shell: bash
         env:
-          AUTO_PRO_UPDATE_PACKAGE_BASE_URL: 'https://github.com/cy70923167/auth_pro/releases/download/${{ github.ref_name }}'
-          AUTO_PRO_UPDATE_RELEASES_URL: 'https://github.com/cy70923167/auth_pro/releases/download/${{ github.ref_name }}/releases.json'
+          AUTO_PRO_UPDATE_PACKAGE_BASE_URL: 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}'
+          AUTO_PRO_UPDATE_RELEASES_URL: 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/releases.json'
           AUTO_PRO_REQUIRE_GIT_RELEASE_NOTES: '1'
           AUTO_PRO_RELEASE_NOTES: |
             新增应用商店插件化
