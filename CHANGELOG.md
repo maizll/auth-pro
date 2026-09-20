@@ -1,5 +1,12 @@
 # 更新日志
 
+## [v1.4.2] 2026-09-21 — 菜单管理可改上级、商店/更新一级、开发者广告可本地上传
+
+- 菜单管理可改上级，编辑时回填中文标题；禁止选自身或子孙，保存后刷新侧栏。
+- 应用商店与在线更新默认一级菜单，不再挂在接入开发下。
+- 开发者广告申请支持本地上传图片，https 外链仍可用。
+- 根目录 `VERSION` / `AppVersion` / `VITE_VERSION` 默认 `1.4.2`。发布说明见 `docs/release-notes-1.4.2.txt`。
+
 ## [v1.4.1] 2026-09-21 — 发布面冻结、单一前端根、侧栏以后端菜单为准
 
 - 在线更新默认源改为 GitHub `maizll/auth-pro` Releases（`latest.json` / 标签附件）。仓库默认、构建脚本与 `.github/workflows/release.yml` 不再指向 `Zcy-sa/auth-pro`（Gitee）或 `cy70923167/auth_pro`。不删除历史 Release，不 force-push 标签。
