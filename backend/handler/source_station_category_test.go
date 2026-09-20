@@ -177,6 +177,55 @@ func TestSourceCustomCategoryAppearsInFilterAndIndex(t *testing.T) {
 	}
 }
 
+func TestSourceCustomCategoryRemovedWhenOmittedFromExtras(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	save := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/categories", admin,
+		`{"extras":[{"key":"theme","label":"主题","kind":"plugin"},{"key":"landing","label":"落地页","kind":"template"}]}`)
+	if sourceBodyCode(t, save) != 200 {
+		t.Fatalf("save categories=%s", save.Body.String())
+	}
+	remove := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/categories", admin,
+		`{"extras":[{"key":"landing","label":"落地页","kind":"template"}]}`)
+	if sourceBodyCode(t, remove) != 200 {
+		t.Fatalf("remove theme=%s", remove.Body.String())
+	}
+	listed := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/categories", admin, "")
+	body := listed.Body.String()
+	if strings.Contains(body, `"theme"`) {
+		t.Fatalf("deleted extra should be gone: %s", body)
+	}
+	if !strings.Contains(body, `"landing"`) {
+		t.Fatalf("other extra should remain: %s", body)
+	}
+	for _, key := range []string{"payment", "realname", "other", sourceCategoryHomeTemplate} {
+		if !strings.Contains(body, `"`+key+`"`) {
+			t.Fatalf("builtin %s missing after extra delete: %s", key, body)
+		}
+	}
+}
+
+func TestSourceRemovingCategoryExtraKeepsItemCategoryField(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	if rec := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/categories", admin,
+		`{"extras":[{"key":"theme","label":"主题","kind":"plugin"}]}`); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("save categories=%s", rec.Body.String())
+	}
+	sha := sourceTestSHA256()
+	if rec := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
+		`{"appId":1,"id":"theme-pack","name":"主题包","category":"theme","downloadUrl":"https://cdn.example.com/theme.zip","sha256":"`+sha+`"}`); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("register theme=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/categories", admin, `{"extras":[]}`); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("delete extras=%s", rec.Body.String())
+	}
+	item := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/catalog-items?category=theme", admin, "")
+	if ids := sourceCatalogItemIDs(t, item.Body.Bytes()); len(ids) != 1 || ids[0] != "theme-pack" {
+		t.Fatalf("item should keep original category after extra delete: %v body=%s", ids, item.Body.String())
+	}
+}
+
 func TestSourcePackageParseUsesCategoryHintForKind(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	admin := sourceAdminToken(t)

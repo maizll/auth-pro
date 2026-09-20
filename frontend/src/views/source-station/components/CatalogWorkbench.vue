@@ -351,9 +351,9 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="categoryVisible" title="目录分类" width="560px" destroy-on-close>
+    <el-dialog v-model="categoryVisible" title="目录分类" width="640px" destroy-on-close>
       <p class="card-hint mb-3">
-        内置分类覆盖原来的插件分区和首页模板，并作为应用内的二级筛选。额外分类可自行添加；公开
+        内置分类覆盖原来的插件分区和首页模板，并作为应用内的二级筛选。额外分类可自行添加或删除；公开
         index.json 仍按分类拆成 plugins / homeTemplates 以兼容旧消费者，同时把 extras 写入
         categories，应用商店会按这些分类生成筛选页签（例如自定义标识 template、名称「模板」）。
       </p>
@@ -367,6 +367,19 @@
         </el-table-column>
         <el-table-column label="来源" width="80">
           <template #default="{ row }">{{ row.builtin ? '内置' : '自定义' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" align="center">
+          <template #default="{ row }">
+            <el-button
+              v-if="canDeleteCatalogCategory(row)"
+              link
+              type="danger"
+              size="small"
+              :disabled="savingCategories"
+              @click="handleDeleteCategory(row)"
+              >删除</el-button
+            >
+          </template>
         </el-table-column>
       </el-table>
       <el-form :model="extraForm" inline>
@@ -518,6 +531,12 @@
     type SourcePackageManifest,
     type SourceVersion
   } from '@/api/source-station'
+  import {
+    canDeleteCatalogCategory,
+    catalogCategoryUsageCount,
+    deleteCatalogCategoryConfirmMessage,
+    extrasAfterDeletingCategory
+  } from '@/utils/form/catalog-category'
 
   const props = withDefaults(
     defineProps<{
@@ -986,15 +1005,44 @@
     }
     savingCategories.value = true
     try {
-      const extras = categories.value
-        .filter((item) => !item.builtin)
-        .map((item) => ({ key: item.key, label: item.label, kind: item.kind }))
+      const extras = extrasAfterDeletingCategory(categories.value, '')
       extras.push({ key, label, kind: extraForm.kind })
       const data = await saveSourceCatalogCategories(extras)
       categories.value = data.list || []
       extraForm.key = ''
       extraForm.label = ''
       ElMessage.success('已添加分类')
+    } finally {
+      savingCategories.value = false
+    }
+  }
+
+  async function handleDeleteCategory(row: SourceCatalogCategory) {
+    if (!canDeleteCatalogCategory(row)) return
+    let usedCount = catalogCategoryUsageCount(tableData.value, row.key)
+    if (usedCount === 0 && searchForm.appId) {
+      const data = await fetchSourceCatalogItems('', '', searchForm.appId)
+      usedCount = catalogCategoryUsageCount(data.list || [], row.key)
+    }
+    try {
+      await ElMessageBox.confirm(
+        deleteCatalogCategoryConfirmMessage(row.label, usedCount),
+        '删除分类',
+        { type: 'warning' }
+      )
+    } catch {
+      return
+    }
+    savingCategories.value = true
+    try {
+      const extras = extrasAfterDeletingCategory(categories.value, row.key)
+      const data = await saveSourceCatalogCategories(extras)
+      categories.value = data.list || []
+      if (searchForm.category === row.key) {
+        searchForm.category = ''
+        await loadItems()
+      }
+      ElMessage.success('已删除分类')
     } finally {
       savingCategories.value = false
     }

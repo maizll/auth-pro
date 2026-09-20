@@ -13,3 +13,6 @@ export * from './responsive'
 
 // 开发者目录标识
 export * from './catalog-slug'
+
+// 源站目录分类（自定义 extras 可删）
+export * from './catalog-category'

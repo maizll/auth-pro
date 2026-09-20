@@ -368,7 +368,7 @@ $pluginSourceIndexUrl = rtrim($origin, '/') . '/software-source/' . rawurlencode
 1. 启动本仓库后端（源站无需 `AUTO_PRO_SOFTWARE_SOURCE_*`）。
 2. **管理员登录管理后台**（与其它后台功能同一套账号/会话/布局），侧栏「源站」：
    - 入驻审核：开发者申请通过/拒绝/冻结
-   - 软件目录：先按应用分区，再按分类（支付 / 实名 / 其他 / 首页模板，可增配）筛选；上传 ZIP 硬校验、多版本、上架/下架
+   - 软件目录：先按应用分区，再按分类（支付 / 实名 / 其他 / 首页模板，可增配；自定义分类可删除）筛选；上传 ZIP 硬校验、多版本、上架/下架
    - 公开目录：公开 `index.json` 预览与快照重生、审计日志
    - 广告投放：本站 `home-banner` / `sidebar` / `popup`
    - Release 设置：GitHub/Gitee 仓库与 Token
