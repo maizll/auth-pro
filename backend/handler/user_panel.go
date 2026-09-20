@@ -1028,6 +1028,9 @@ func UserPurchase(c *gin.Context) {
 	}
 
 	queuePurchaseSuccessMail("user", int64(userID), licenseID)
+	notifyOrderPaid(notificationRoleUser, int64(userID), orderNo, fmt.Sprintf("余额支付购买 %s - %s 授权", appName, planName))
+	notifyLicenseActivated(notificationRoleUser, int64(userID), 0, licenseNo, appName)
+	notifyBalanceChanged(notificationRoleUser, int64(userID), fmt.Sprintf("购买授权扣款后余额 ¥%.2f", newBalance))
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200, "msg": "购买成功",
@@ -1360,6 +1363,6 @@ func UserChangePassword(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "修改失败"})
 		return
 	}
-
+	notifyPasswordChanged(notificationRoleUser, notificationContextUserID(userID))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "密码修改成功，请重新登录"})
 }

@@ -60,6 +60,7 @@
           </el-breadcrumb>
         </div>
         <div class="header-right">
+          <ArtNotificationBell />
           <PanelThemeToggle scope="agent" />
           <el-button
             v-if="developerApproved"
@@ -114,6 +115,7 @@
   import axios from 'axios'
   import { useSystemConfigStore } from '@/store/modules/system-config'
   import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
+  import ArtNotificationBell from '@/components/core/layouts/art-notification/bell.vue'
   import {
     enterDeveloperSessionFromAgent,
     fetchSourceDeveloperApplyStatus

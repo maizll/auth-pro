@@ -121,6 +121,7 @@ func SourceDeveloperApply(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
+	notifyDeveloperApplySubmitted(app)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "入驻申请已提交，等待管理员审核", "data": gin.H{
 		"id": app.ID, "agentId": app.AgentID, "username": app.Username, "displayName": app.DisplayName, "status": app.Status,
 	}})
@@ -308,6 +309,7 @@ func SourceDeveloperSubmitPlugin(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
+	notifyCatalogSubmitted(sourceKindPlugin, saved.ID, saved.Name)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已提交审核", "data": sourcePluginView(saved)})
 }
 
@@ -376,6 +378,7 @@ func SourceDeveloperSubmitTemplate(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
+	notifyCatalogSubmitted(sourceKindTemplate, saved.ID, saved.Name)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已提交审核", "data": sourceTemplateView(saved)})
 }
 
@@ -432,11 +435,16 @@ func AdminSourceDeveloperApprove(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "申请标识不合法"})
 		return
 	}
+	app, _ := currentSourceStationStore().GetApplication(id)
 	developer, err := currentSourceStationStore().ApproveApplication(id, c.GetString("username"))
 	if err != nil {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
+	if app.ID == 0 {
+		app.AgentID = developer.AgentID
+	}
+	notifyDeveloperApplyReviewed(app, developer, true, "")
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已通过入驻并绑定代理商开发者资格", "data": gin.H{
 		"developerId": developer.ID, "agentId": developer.AgentID, "username": developer.Username, "roleCode": sourceDeveloperRoleCode,
 	}})
@@ -448,9 +456,14 @@ func AdminSourceDeveloperReject(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "申请标识不合法"})
 		return
 	}
-	if err := currentSourceStationStore().RejectApplication(id, c.GetString("username"), sourceNoteFromBody(c)); err != nil {
+	app, appErr := currentSourceStationStore().GetApplication(id)
+	note := sourceNoteFromBody(c)
+	if err := currentSourceStationStore().RejectApplication(id, c.GetString("username"), note); err != nil {
 		writeSourceDeveloperStoreError(c, err)
 		return
+	}
+	if appErr == nil {
+		notifyDeveloperApplyReviewed(app, sourceDeveloper{AgentID: app.AgentID}, false, note)
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已拒绝入驻申请"})
 }
@@ -784,6 +797,7 @@ func sourceDeveloperSubmitVersion(c *gin.Context, kind string) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
+	notifyCatalogVersionSubmitted(kind, itemID, saved.Version)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本已提交审核", "data": sourceReleaseView(saved)})
 }
 

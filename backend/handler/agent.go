@@ -268,6 +268,8 @@ func AgentUpdate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": errMsg})
 		return
 	}
+	var oldLevel string
+	_ = db.QueryRow("SELECT level FROM agents WHERE id = ?", id).Scan(&oldLevel)
 
 	if strings.TrimSpace(req.Password) != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -288,6 +290,9 @@ func AgentUpdate(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更新失败"})
 		return
+	}
+	if agentID := parseNotificationInt64(id); agentID > 0 && strings.TrimSpace(req.Level) != strings.TrimSpace(oldLevel) {
+		notifyAgentLevelChanged(agentID, req.Level)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "更新成功"})

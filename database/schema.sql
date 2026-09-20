@@ -961,4 +961,26 @@ CREATE TABLE `source_index_snapshots` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公开 index.json 快照';
 
+DROP TABLE IF EXISTS `notifications`;
+CREATE TABLE `notifications` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_role` VARCHAR(20) NOT NULL COMMENT 'admin/agent/user/developer',
+  `user_id` BIGINT NOT NULL DEFAULT 0 COMMENT '当前身份主键',
+  `agent_id` BIGINT NOT NULL DEFAULT 0 COMMENT '代理商绑定，开发者通知用',
+  `developer_id` BIGINT NOT NULL DEFAULT 0 COMMENT '开发者绑定',
+  `category` VARCHAR(20) NOT NULL DEFAULT 'notice' COMMENT 'notice/message/todo',
+  `title` VARCHAR(120) NOT NULL DEFAULT '',
+  `body` VARCHAR(500) NOT NULL DEFAULT '',
+  `link` VARCHAR(300) NOT NULL DEFAULT '',
+  `read_at` DATETIME DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `event_type` VARCHAR(60) NOT NULL DEFAULT '',
+  `ref_type` VARCHAR(40) NOT NULL DEFAULT '',
+  `ref_id` VARCHAR(80) NOT NULL DEFAULT '',
+  PRIMARY KEY (`id`),
+  KEY `idx_notifications_inbox` (`user_role`, `user_id`, `read_at`, `created_at`),
+  KEY `idx_notifications_agent` (`agent_id`, `user_role`, `read_at`),
+  KEY `idx_notifications_developer` (`developer_id`, `user_role`, `read_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='站内通知（按登录身份隔离）';
+
 SET FOREIGN_KEY_CHECKS = 1;

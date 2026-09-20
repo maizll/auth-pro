@@ -1267,6 +1267,11 @@ func AgentPanelPurchase(c *gin.Context) {
 	}
 
 	queuePurchaseSuccessMail(ownerType, ownerID, licenseID)
+	notifyOrderPaid(notificationRoleAgent, int64(agentID), orderNo, fmt.Sprintf("开通 %s - %s 授权", appName, planName))
+	notifyLicenseActivated(ownerType, ownerID, int64(agentID), licenseNo, appName)
+	if !freeOrder {
+		notifyBalanceChanged(notificationRoleAgent, int64(agentID), fmt.Sprintf("开通授权后余额 ¥%.2f", newBalance))
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,

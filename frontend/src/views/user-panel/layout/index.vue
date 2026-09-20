@@ -53,6 +53,7 @@
           </el-breadcrumb>
         </div>
         <div class="header-right">
+          <ArtNotificationBell />
           <PanelThemeToggle scope="user" />
           <span class="header-balance">
             <iconify-icon icon="ri:wallet-3-line" width="16" />
@@ -103,6 +104,7 @@
   import axios from 'axios'
   import { useSystemConfigStore } from '@/store/modules/system-config'
   import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
+  import ArtNotificationBell from '@/components/core/layouts/art-notification/bell.vue'
 
   const route = useRoute()
   const router = useRouter()

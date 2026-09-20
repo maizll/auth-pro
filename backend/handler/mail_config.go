@@ -779,7 +779,10 @@ func scanExpireReminderByDay(db *sql.DB, cfg mailConfig, day int) {
 
 func sendBusinessMail(db *sql.DB, cfg mailConfig, eventType string, ctx licenseMailContext, remindDays int) {
 	if strings.TrimSpace(ctx.Recipient) == "" {
-		logID, _ := createMailLog(db, eventType, ctx.OwnerType, ctx.OwnerID, ctx.LicenseID, "", "", "", remindDays, eventKey(eventType, ctx.LicenseID, remindDays))
+		logID, inserted := createMailLog(db, eventType, ctx.OwnerType, ctx.OwnerID, ctx.LicenseID, "", "", "", remindDays, eventKey(eventType, ctx.LicenseID, remindDays))
+		if inserted && eventType == "expire_reminder" {
+			notifyLicenseExpiring(ctx.OwnerType, ctx.OwnerID, ctx.LicenseNo, ctx.AppName, remindDays)
+		}
 		markMailLogSkipped(db, logID, "收件邮箱为空")
 		return
 	}
@@ -801,6 +804,9 @@ func sendBusinessMail(db *sql.DB, cfg mailConfig, eventType string, ctx licenseM
 	logID, inserted := createMailLog(db, eventType, ctx.OwnerType, ctx.OwnerID, ctx.LicenseID, ctx.Recipient, subject, content, remindDays, eventKey(eventType, ctx.LicenseID, remindDays))
 	if !inserted {
 		return
+	}
+	if eventType == "expire_reminder" {
+		notifyLicenseExpiring(ctx.OwnerType, ctx.OwnerID, ctx.LicenseNo, ctx.AppName, remindDays)
 	}
 	if err := sendSMTPMail(cfg, mailMessage{To: ctx.Recipient, Subject: subject, Content: content, ContentType: contentType}); err != nil {
 		markMailLogFailed(db, logID, err.Error())

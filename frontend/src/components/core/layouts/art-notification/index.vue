@@ -1,4 +1,4 @@
-<!-- 通知组件 -->
+<!-- 四端共用站内通知：通知 / 消息 / 待办 -->
 <template>
   <div
     class="art-notification-panel art-card-sm !shadow-xl"
@@ -11,7 +11,10 @@
   >
     <div class="flex-cb px-3.5 mt-3.5">
       <span class="text-base font-medium text-g-800">{{ $t('notice.title') }}</span>
-      <span class="text-xs text-g-800 px-1.5 py-1 c-p select-none rounded hover:bg-g-200">
+      <span
+        class="text-xs text-g-800 px-1.5 py-1 c-p select-none rounded hover:bg-g-200"
+        @click="handleReadAll"
+      >
         {{ $t('notice.btnRead') }}
       </span>
     </div>
@@ -30,56 +33,64 @@
 
     <div class="w-full h-[calc(100%-95px)]">
       <div class="h-[calc(100%-60px)] overflow-y-scroll scrollbar-thin">
-        <!-- 通知 -->
         <ul v-show="barActiveIndex === 0">
           <li
-            v-for="(item, index) in noticeList"
-            :key="index"
+            v-for="item in noticeList"
+            :key="item.id || item.eventType + item.createdAt"
             class="box-border flex-c px-3.5 py-3.5 c-p last:border-b-0 hover:bg-g-200/60"
+            :class="{ 'is-unread': !item.read && !item.derived }"
+            @click="handleItemClick(item)"
           >
             <div
               class="size-9 leading-9 text-center rounded-lg flex-cc"
-              :class="[getNoticeStyle(item.type).iconClass]"
+              :class="[getNoticeStyle(noticeTypeOf(item)).iconClass]"
             >
-              <ArtSvgIcon class="text-lg !bg-transparent" :icon="getNoticeStyle(item.type).icon" />
+              <ArtSvgIcon
+                class="text-lg !bg-transparent"
+                :icon="getNoticeStyle(noticeTypeOf(item)).icon"
+              />
             </div>
             <div class="w-[calc(100%-45px)] ml-3.5">
               <h4 class="text-sm font-normal leading-5.5 text-g-900">{{ item.title }}</h4>
-              <p class="mt-1.5 text-xs text-g-500">{{ item.time }}</p>
+              <p v-if="item.body" class="mt-1 text-xs text-g-600 line-clamp-2">{{ item.body }}</p>
+              <p class="mt-1.5 text-xs text-g-500">{{ formatNoticeTime(item.createdAt) }}</p>
             </div>
           </li>
         </ul>
 
-        <!-- 消息 -->
         <ul v-show="barActiveIndex === 1">
           <li
-            v-for="(item, index) in msgList"
-            :key="index"
+            v-for="item in msgList"
+            :key="item.id || item.eventType + item.createdAt"
             class="box-border flex-c px-3.5 py-3.5 c-p last:border-b-0 hover:bg-g-200/60"
+            :class="{ 'is-unread': !item.read && !item.derived }"
+            @click="handleItemClick(item)"
           >
-            <div class="w-9 h-9">
-              <img :src="item.avatar" class="w-full h-full rounded-lg" />
+            <div
+              class="size-9 leading-9 text-center rounded-lg flex-cc bg-success/12 text-success"
+            >
+              <ArtSvgIcon class="text-lg !bg-transparent" icon="ri:message-3-line" />
             </div>
             <div class="w-[calc(100%-45px)] ml-3.5">
               <h4 class="text-xs font-normal leading-5.5">{{ item.title }}</h4>
-              <p class="mt-1.5 text-xs text-g-500">{{ item.time }}</p>
+              <p v-if="item.body" class="mt-1 text-xs text-g-600 line-clamp-2">{{ item.body }}</p>
+              <p class="mt-1.5 text-xs text-g-500">{{ formatNoticeTime(item.createdAt) }}</p>
             </div>
           </li>
         </ul>
 
-        <!-- 待办 -->
         <ul v-show="barActiveIndex === 2">
           <li
-            v-for="(item, index) in pendingList"
-            :key="index"
-            class="box-border px-5 py-3.5 last:border-b-0"
+            v-for="item in pendingList"
+            :key="item.eventType + item.title"
+            class="box-border px-5 py-3.5 c-p last:border-b-0 hover:bg-g-200/60"
+            @click="handleItemClick(item)"
           >
             <h4>{{ item.title }}</h4>
-            <p class="text-xs text-g-500">{{ item.time }}</p>
+            <p v-if="item.body" class="text-xs text-g-500 mt-1">{{ item.body }}</p>
           </li>
         </ul>
 
-        <!-- 空状态 -->
         <div
           v-show="currentTabIsEmpty"
           class="relative top-25 h-full text-g-500 text-center !bg-transparent"
@@ -103,61 +114,24 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, ref, watch, type Ref, type ComputedRef } from 'vue'
+  import { computed, ref, watch } from 'vue'
   import { useI18n } from 'vue-i18n'
-
-  // 导入头像图片
-  import avatar1 from '@/assets/images/avatar/avatar1.webp'
-  import avatar2 from '@/assets/images/avatar/avatar2.webp'
-  import avatar3 from '@/assets/images/avatar/avatar3.webp'
-  import avatar4 from '@/assets/images/avatar/avatar4.webp'
-  import avatar5 from '@/assets/images/avatar/avatar5.webp'
-  import avatar6 from '@/assets/images/avatar/avatar6.webp'
+  import { useRouter } from 'vue-router'
+  import {
+    fetchNotifications,
+    markAllNotificationsRead,
+    markNotificationRead,
+    notificationDefaultLink,
+    type InAppNotification,
+    type NotificationTab
+  } from '@/api/notifications'
 
   defineOptions({ name: 'ArtNotification' })
-
-  interface NoticeItem {
-    /** 标题 */
-    title: string
-    /** 时间 */
-    time: string
-    /** 类型 */
-    type: NoticeType
-  }
-
-  interface MessageItem {
-    /** 标题 */
-    title: string
-    /** 时间 */
-    time: string
-    /** 头像 */
-    avatar: string
-  }
-
-  interface PendingItem {
-    /** 标题 */
-    title: string
-    /** 时间 */
-    time: string
-  }
-
-  interface BarItem {
-    /** 名称 */
-    name: ComputedRef<string>
-    /** 数量 */
-    num: number
-  }
-
-  interface NoticeStyle {
-    /** 图标 */
-    icon: string
-    /** icon 样式 */
-    iconClass: string
-  }
 
   type NoticeType = 'email' | 'message' | 'collection' | 'user' | 'notice'
 
   const { t } = useI18n()
+  const router = useRouter()
 
   const props = defineProps<{
     value: boolean
@@ -165,250 +139,130 @@
 
   const emit = defineEmits<{
     'update:value': [value: boolean]
+    unread: [count: number]
   }>()
 
   const show = ref(false)
   const visible = ref(false)
   const barActiveIndex = ref(0)
+  const noticeList = ref<InAppNotification[]>([])
+  const msgList = ref<InAppNotification[]>([])
+  const pendingList = ref<InAppNotification[]>([])
 
-  const useNotificationData = () => {
-    // 通知数据
-    const noticeList = ref<NoticeItem[]>([
-      {
-        title: '新增国际化',
-        time: '2024-6-13 0:10',
-        type: 'notice'
-      },
-      {
-        title: '冷月呆呆给你发了一条消息',
-        time: '2024-4-21 8:05',
-        type: 'message'
-      },
-      {
-        title: '小肥猪关注了你',
-        time: '2020-3-17 21:12',
-        type: 'collection'
-      },
-      {
-        title: '新增使用文档',
-        time: '2024-02-14 0:20',
-        type: 'notice'
-      },
-      {
-        title: '小肥猪给你发了一封邮件',
-        time: '2024-1-20 0:15',
-        type: 'email'
-      },
-      {
-        title: '菜单mock本地真实数据',
-        time: '2024-1-17 22:06',
-        type: 'notice'
-      }
-    ])
+  const barList = computed(() => [
+    { name: t('notice.bar[0]'), num: noticeList.value.length, tab: 'notice' as NotificationTab },
+    { name: t('notice.bar[1]'), num: msgList.value.length, tab: 'message' as NotificationTab },
+    { name: t('notice.bar[2]'), num: pendingList.value.length, tab: 'todo' as NotificationTab }
+  ])
 
-    // 消息数据
-    const msgList = ref<MessageItem[]>([
-      {
-        title: '池不胖 关注了你',
-        time: '2021-2-26 23:50',
-        avatar: avatar1
-      },
-      {
-        title: '唐不苦 关注了你',
-        time: '2021-2-21 8:05',
-        avatar: avatar2
-      },
-      {
-        title: '中小鱼 关注了你',
-        time: '2020-1-17 21:12',
-        avatar: avatar3
-      },
-      {
-        title: '何小荷 关注了你',
-        time: '2021-01-14 0:20',
-        avatar: avatar4
-      },
-      {
-        title: '誶誶淰 关注了你',
-        time: '2020-12-20 0:15',
-        avatar: avatar5
-      },
-      {
-        title: '冷月呆呆 关注了你',
-        time: '2020-12-17 22:06',
-        avatar: avatar6
-      }
-    ])
+  const currentTabIsEmpty = computed(() => {
+    return [noticeList.value, msgList.value, pendingList.value][barActiveIndex.value]?.length === 0
+  })
 
-    // 待办数据
-    const pendingList = ref<PendingItem[]>([])
+  const noticeStyleMap: Record<NoticeType, { icon: string; iconClass: string }> = {
+    email: { icon: 'ri:mail-line', iconClass: 'bg-warning/12 text-warning' },
+    message: { icon: 'ri:volume-down-line', iconClass: 'bg-success/12 text-success' },
+    collection: { icon: 'ri:heart-3-line', iconClass: 'bg-danger/12 text-danger' },
+    user: { icon: 'ri:user-add-line', iconClass: 'bg-info/12 text-info' },
+    notice: { icon: 'ri:notification-3-line', iconClass: 'bg-theme/12 text-theme' }
+  }
 
-    // 标签栏数据
-    const barList = computed<BarItem[]>(() => [
-      {
-        name: computed(() => t('notice.bar[0]')),
-        num: noticeList.value.length
-      },
-      {
-        name: computed(() => t('notice.bar[1]')),
-        num: msgList.value.length
-      },
-      {
-        name: computed(() => t('notice.bar[2]')),
-        num: pendingList.value.length
-      }
-    ])
+  const getNoticeStyle = (type: NoticeType) => noticeStyleMap[type] || noticeStyleMap.notice
 
-    return {
-      noticeList,
-      msgList,
-      pendingList,
-      barList
+  function noticeTypeOf(item: InAppNotification): NoticeType {
+    if (item.eventType.includes('password') || item.eventType.includes('expir')) return 'email'
+    if (item.eventType.includes('apply') || item.eventType.includes('ticket')) return 'user'
+    if (item.eventType.includes('reject') || item.eventType.includes('deprecat')) return 'collection'
+    if (item.eventType.includes('approved') || item.eventType.includes('paid')) return 'message'
+    return 'notice'
+  }
+
+  function formatNoticeTime(raw?: string) {
+    if (!raw) return ''
+    const date = new Date(raw)
+    if (Number.isNaN(date.getTime())) return raw
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  }
+
+  async function loadTab(tab: NotificationTab) {
+    try {
+      const { data } = await fetchNotifications(tab)
+      const list = data.code === 200 ? data.data?.list || [] : []
+      if (tab === 'notice') noticeList.value = list
+      if (tab === 'message') msgList.value = list
+      if (tab === 'todo') pendingList.value = list
+    } catch {
+      /* Keep last snapshot when the request fails. */
     }
   }
 
-  // 样式管理
-  const useNotificationStyles = () => {
-    const noticeStyleMap: Record<NoticeType, NoticeStyle> = {
-      email: {
-        icon: 'ri:mail-line',
-        iconClass: 'bg-warning/12 text-warning'
-      },
-      message: {
-        icon: 'ri:volume-down-line',
-        iconClass: 'bg-success/12 text-success'
-      },
-      collection: {
-        icon: 'ri:heart-3-line',
-        iconClass: 'bg-danger/12 text-danger'
-      },
-      user: {
-        icon: 'ri:volume-down-line',
-        iconClass: 'bg-info/12 text-info'
-      },
-      notice: {
-        icon: 'ri:notification-3-line',
-        iconClass: 'bg-theme/12 text-theme'
-      }
-    }
-
-    const getNoticeStyle = (type: NoticeType): NoticeStyle => {
-      const defaultStyle: NoticeStyle = {
-        icon: 'ri:arrow-right-circle-line',
-        iconClass: 'bg-theme/12 text-theme'
-      }
-
-      return noticeStyleMap[type] || defaultStyle
-    }
-
-    return {
-      getNoticeStyle
-    }
+  async function refreshAll() {
+    await Promise.all([loadTab('notice'), loadTab('message'), loadTab('todo')])
+    const unread =
+      noticeList.value.filter((item) => !item.read && !item.derived).length +
+      msgList.value.filter((item) => !item.read && !item.derived).length
+    emit('unread', unread)
   }
 
-  // 动画管理
-  const useNotificationAnimation = () => {
-    const showNotice = (open: boolean) => {
-      if (open) {
-        visible.value = true
-        setTimeout(() => {
-          show.value = true
-        }, 5)
-      } else {
-        show.value = false
-        setTimeout(() => {
-          visible.value = false
-        }, 350)
-      }
-    }
-
-    return {
-      showNotice
-    }
+  function changeBar(index: number) {
+    barActiveIndex.value = index
   }
 
-  // 标签页管理
-  const useTabManagement = (
-    noticeList: Ref<NoticeItem[]>,
-    msgList: Ref<MessageItem[]>,
-    pendingList: Ref<PendingItem[]>,
-    businessHandlers: {
-      handleNoticeAll: () => void
-      handleMsgAll: () => void
-      handlePendingAll: () => void
+  async function handleReadAll() {
+    try {
+      await markAllNotificationsRead()
+    } catch {
+      /* Ignore mark-all failures; refresh still updates the panel. */
     }
-  ) => {
-    const changeBar = (index: number) => {
-      barActiveIndex.value = index
-    }
+    await refreshAll()
+  }
 
-    // 检查当前标签页是否为空
-    const currentTabIsEmpty = computed(() => {
-      const tabDataMap = [noticeList.value, msgList.value, pendingList.value]
-
-      const currentData = tabDataMap[barActiveIndex.value]
-      return currentData && currentData.length === 0
-    })
-
-    const handleViewAll = () => {
-      // 查看全部处理器映射
-      const viewAllHandlers: Record<number, () => void> = {
-        0: businessHandlers.handleNoticeAll,
-        1: businessHandlers.handleMsgAll,
-        2: businessHandlers.handlePendingAll
+  async function handleItemClick(item: InAppNotification) {
+    if (item.id && !item.derived && !item.read) {
+      try {
+        await markNotificationRead(item.id)
+        item.read = true
+      } catch {
+        /* Navigation still works if mark-read fails. */
       }
-
-      const handler = viewAllHandlers[barActiveIndex.value]
-      handler?.()
-
-      // 关闭通知面板
+    }
+    emit('unread', unreadNow())
+    if (item.link) {
       emit('update:value', false)
-    }
-
-    return {
-      changeBar,
-      currentTabIsEmpty,
-      handleViewAll
+      router.push(item.link)
     }
   }
 
-  // 业务逻辑处理
-  const useBusinessLogic = () => {
-    const handleNoticeAll = () => {
-      // 处理查看全部通知
-      console.log('查看全部通知')
-    }
+  function unreadNow() {
+    return (
+      noticeList.value.filter((item) => !item.read && !item.derived).length +
+      msgList.value.filter((item) => !item.read && !item.derived).length
+    )
+  }
 
-    const handleMsgAll = () => {
-      // 处理查看全部消息
-      console.log('查看全部消息')
-    }
+  function handleViewAll() {
+    const tab = barList.value[barActiveIndex.value]?.tab || 'notice'
+    const first = [noticeList.value, msgList.value, pendingList.value][barActiveIndex.value]?.[0]
+    emit('update:value', false)
+    router.push(first?.link || notificationDefaultLink(tab))
+  }
 
-    const handlePendingAll = () => {
-      // 处理查看全部待办
-      console.log('查看全部待办')
-    }
-
-    return {
-      handleNoticeAll,
-      handleMsgAll,
-      handlePendingAll
+  function showNotice(open: boolean) {
+    if (open) {
+      visible.value = true
+      void refreshAll()
+      setTimeout(() => {
+        show.value = true
+      }, 5)
+    } else {
+      show.value = false
+      setTimeout(() => {
+        visible.value = false
+      }, 350)
     }
   }
 
-  // 组合所有逻辑
-  const { noticeList, msgList, pendingList, barList } = useNotificationData()
-  const { getNoticeStyle } = useNotificationStyles()
-  const { showNotice } = useNotificationAnimation()
-  const { handleNoticeAll, handleMsgAll, handlePendingAll } = useBusinessLogic()
-  const { changeBar, currentTabIsEmpty, handleViewAll } = useTabManagement(
-    noticeList,
-    msgList,
-    pendingList,
-    { handleNoticeAll, handleMsgAll, handlePendingAll }
-  )
-
-  // 监听属性变化
   watch(
     () => props.value,
     (newValue) => {
@@ -421,25 +275,30 @@
   @reference '@styles/core/tailwind.css';
 
   .art-notification-panel {
-    @apply absolute 
-    top-14.5 
-    right-5 
-    w-90 
-    h-125 
-    overflow-hidden 
-    transition-all 
+    @apply absolute
+    top-14.5
+    right-5
+    w-90
+    h-125
+    overflow-hidden
+    transition-all
     duration-300
-    origin-top 
-    will-change-[top,left] 
+    origin-top
+    will-change-[top,left]
+    z-50
     max-[640px]:top-[65px]
     max-[640px]:right-0
-    max-[640px]:w-full 
+    max-[640px]:w-full
     max-[640px]:h-[80vh];
   }
 
   .bar-active {
     color: var(--theme-color) !important;
     border-bottom: 2px solid var(--theme-color);
+  }
+
+  .is-unread h4 {
+    font-weight: 600;
   }
 
   .scrollbar-thin::-webkit-scrollbar {

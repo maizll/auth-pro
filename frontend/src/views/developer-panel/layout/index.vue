@@ -26,6 +26,7 @@
           </el-breadcrumb>
         </div>
         <div class="header-right">
+          <ArtNotificationBell />
           <PanelThemeToggle scope="agent" />
           <span class="developer-name">{{ developerName }}</span>
           <el-dropdown trigger="click">
@@ -57,6 +58,7 @@
   import { Icon as IconifyIcon } from '@iconify/vue'
   import { useSystemConfigStore } from '@/store/modules/system-config'
   import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
+  import ArtNotificationBell from '@/components/core/layouts/art-notification/bell.vue'
   import {
     DEVELOPER_INFO_KEY,
     DEVELOPER_TOKEN_KEY,

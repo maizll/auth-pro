@@ -792,6 +792,8 @@ func settleLicensePurchaseOrder(db *sql.DB, orderNo string, paidCents int64, pay
 	}
 
 	queuePurchaseSuccessMail(ownerType, ownerID, licenseID)
+	notifyOrderPaid(ownerType, ownerID, orderNo, fmt.Sprintf("%s支付购买 %s - %s 授权", payMethodLabel(payMethod), appName, planName))
+	notifyLicenseActivated(ownerType, ownerID, agentID, licenseNo, appName)
 	return nil
 }
 
