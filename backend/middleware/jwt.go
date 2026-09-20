@@ -175,3 +175,15 @@ func RequireSuperAdmin() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// RequireDeveloper 仅允许软件源开发者角色访问，需置于 JWTAuth 之后。
+func RequireDeveloper() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetString("role") != "developer" {
+			c.JSON(http.StatusOK, gin.H{"code": 403, "message": "无权限访问开发者接口"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}

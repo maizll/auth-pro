@@ -277,18 +277,11 @@ test('后台登录忽略根路径回跳并进入管理控制台', async ({ page 
   await expect(page).toHaveURL(/\/dashboard\/console$/, { timeout: 15_000 })
 })
 
-test('后台登录允许返回独立应用商店子路由', async ({ page }) => {
+test('后台登录将旧应用商店路径转到本站应用商店', async ({ page }) => {
   await mockAdminAndTemplateAPIs(page)
-  await page.route('**/admin/app-store/templates', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'text/html',
-      body: '<!doctype html><title>App Store</title><main>独立应用商店入口</main>'
-    })
-  })
   await page.goto('/admin?redirect=%2Fadmin%2Fapp-store%2Ftemplates')
   await submitAdminLogin(page)
-  await expect(page).toHaveURL(/\/admin\/app-store\/templates$/, { timeout: 15_000 })
+  await expect(page).toHaveURL(/\/plugin-store$/, { timeout: 15_000 })
 })
 
 test('模板 API Key 缺失不影响原插件商店', async ({ page }) => {

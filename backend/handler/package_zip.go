@@ -47,40 +47,67 @@ func validatePackagePath(name string) error {
 	return nil
 }
 
-// destination must be a new private staging directory, never a live installation.
-func extractPackageZIP(payload []byte, destination string) error {
+func isPackageMetadataPath(name string) bool {
+	return strings.HasPrefix(name, "__MACOSX/") || path.Base(name) == ".DS_Store"
+}
+
+// openValidatedPackageZIP inspects a ZIP in memory and rejects traversal, symlinks,
+// duplicates, bombs, and empty/metadata-only archives. It does not write files.
+func openValidatedPackageZIP(payload []byte) (*zip.Reader, error) {
 	if int64(len(payload)) > pluginPackageMaxSize {
-		return errors.New("ZIP 不能超过 20 MiB")
+		return nil, errors.New("ZIP 不能超过 20 MiB")
 	}
 	archive, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
 	if err != nil {
-		return errors.New("插件/模板包必须是有效的 ZIP 压缩包")
+		return nil, errors.New("插件/模板包必须是有效的 ZIP 压缩包")
 	}
 	if len(archive.File) == 0 || len(archive.File) > packageMaxFiles {
-		return fmt.Errorf("ZIP 必须包含文件，且条目数不能超过 %d", packageMaxFiles)
+		return nil, fmt.Errorf("ZIP 必须包含文件，且条目数不能超过 %d", packageMaxFiles)
 	}
 	seen := make(map[string]bool)
 	var total int64
 	fileCount := 0
 	for _, entry := range archive.File {
 		if err := validatePackagePath(entry.Name); err != nil {
-			return err
+			return nil, err
 		}
 		mode := entry.Mode()
 		if mode&os.ModeSymlink != 0 || (!mode.IsRegular() && !mode.IsDir()) {
-			return errors.New("ZIP 不允许符号链接或特殊文件")
+			return nil, errors.New("ZIP 不允许符号链接或特殊文件")
 		}
 		key := strings.ToLower(strings.TrimSuffix(entry.Name, "/"))
 		if seen[key] {
-			return errors.New("ZIP 包含重复或大小写冲突的路径")
+			return nil, errors.New("ZIP 包含重复或大小写冲突的路径")
 		}
 		seen[key] = true
 		if entry.UncompressedSize64 > uint64(packageMaxExtractedBytes-total) {
-			return errors.New("ZIP 解压后总大小不能超过 100 MiB")
+			return nil, errors.New("ZIP 解压后总大小不能超过 100 MiB")
 		}
-		if strings.HasPrefix(entry.Name, "__MACOSX/") || path.Base(entry.Name) == ".DS_Store" {
+		if isPackageMetadataPath(entry.Name) || mode.IsDir() {
 			continue
 		}
+		total += int64(entry.UncompressedSize64)
+		fileCount++
+	}
+	if fileCount == 0 {
+		return nil, errors.New("ZIP 不包含可安装文件")
+	}
+	return archive, nil
+}
+
+// destination must be a new private staging directory, never a live installation.
+func extractPackageZIP(payload []byte, destination string) error {
+	archive, err := openValidatedPackageZIP(payload)
+	if err != nil {
+		return err
+	}
+	var total int64
+	fileCount := 0
+	for _, entry := range archive.File {
+		if isPackageMetadataPath(entry.Name) {
+			continue
+		}
+		mode := entry.Mode()
 		target := filepath.Join(destination, filepath.FromSlash(entry.Name))
 		if mode.IsDir() {
 			if err := os.MkdirAll(target, 0755); err != nil {

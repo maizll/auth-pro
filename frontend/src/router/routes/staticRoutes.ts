@@ -48,6 +48,16 @@ export const staticRoutes: AppRouteRecordRaw[] = [
     meta: { title: '代理商登录', isHideTab: true }
   },
   {
+    path: '/developer-panel/login',
+    name: 'DeveloperLogin',
+    component: () => import('@views/developer-panel/login/index.vue'),
+    meta: { title: '开发者登录', isHideTab: true }
+  },
+  {
+    path: '/developer',
+    redirect: '/developer-panel/login'
+  },
+  {
     path: '/agent',
     redirect: '/agent-panel/login'
   },
@@ -114,6 +124,27 @@ export const staticRoutes: AppRouteRecordRaw[] = [
         name: 'AgentPanelTickets',
         component: () => import('@views/agent-panel/tickets/index.vue'),
         meta: { title: '我的工单' }
+      },
+      {
+        path: 'become-developer',
+        name: 'AgentPanelBecomeDeveloper',
+        component: () => import('@views/agent-panel/become-developer/index.vue'),
+        meta: { title: '开发者入驻' }
+      }
+    ]
+  },
+  {
+    path: '/developer-panel',
+    name: 'DeveloperPanel',
+    redirect: '/developer-panel/login',
+    component: () => import('@views/developer-panel/layout/index.vue'),
+    meta: { title: '开发者面板', isHideTab: true },
+    children: [
+      {
+        path: 'dashboard',
+        name: 'DeveloperPanelDashboard',
+        component: () => import('@views/developer-panel/dashboard/index.vue'),
+        meta: { title: '概览' }
       }
     ]
   },

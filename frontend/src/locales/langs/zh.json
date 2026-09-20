@@ -268,6 +268,16 @@
       "mailLogs": "邮件日志"
     },
     "pluginStore": "应用商店",
+    "sourceStation": {
+      "title": "源站",
+      "applications": "入驻审核",
+      "packages": "软件目录",
+      "plugins": "软件目录",
+      "templates": "软件目录",
+      "catalog": "公开目录",
+      "ads": "广告投放",
+      "settings": "Release 设置"
+    },
     "homeTemplate": "首页模板",
     "promotionCampaigns": "活动管理",
     "onlineUpdate": "在线更新"

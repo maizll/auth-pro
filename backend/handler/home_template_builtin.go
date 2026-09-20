@@ -32,12 +32,19 @@ func builtinDefaultPreviewURL() string {
 func PublicSoftwareSourcePlugins(c *gin.Context) {
 	client, err := softwaresource.Default()
 	if err != nil {
-		writeSystemConfig(c, http.StatusOK, gin.H{"code": 503, "msg": err.Error()})
+		// 未配置远程软件源时返回本站空目录，避免应用商店首页模板整页失败。
+		writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
+			"name": "本站软件源", "sourceType": "local", "schemaVersion": homeTemplateSchemaVersion,
+			"homeTemplates": []gin.H{}, "plugins": []gin.H{},
+		}})
 		return
 	}
 	remoteCatalog, err := client.Catalog(c.Request.Context())
 	if err != nil {
-		writeSystemConfig(c, http.StatusOK, gin.H{"code": 503, "msg": err.Error()})
+		writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
+			"name": "本站软件源", "sourceType": "local", "schemaVersion": homeTemplateSchemaVersion,
+			"homeTemplates": []gin.H{}, "plugins": []gin.H{},
+		}})
 		return
 	}
 	templates := make([]gin.H, 0, len(remoteCatalog.Templates))

@@ -144,8 +144,12 @@ func main() {
 		api.GET("/software-source/templates/:id/preview", handler.PublicSoftwareSourceTemplatePreview)
 		api.POST("/internal/software-source/cache/invalidate", handler.InternalSoftwareSourceCacheInvalidate)
 
-		// 外部广告投放（上游未开放 CORS，由后端代理转发并缓存）
+		// 广告投放：默认读本站 /api/v1/public/advertisements；需要时可用环境变量代理到其他源。
 		api.GET("/advertisements", handler.PublicAdvertisements)
+		api.GET("/v1/public/advertisements", handler.PublicLocalAdvertisements)
+
+		// 本实例作为软件源源站：元数据目录、入驻审核、上架/下架、广告 CRUD。
+		handler.RegisterSourceStationRoutes(r, api)
 
 		// 用户端（需鉴权）
 		userSecured := api.Group("/user-panel")
@@ -384,9 +388,17 @@ func main() {
 	}
 	softwareSourceAdminURL := config.GetSoftwareSourceAdminURL()
 	r.GET(appstore.PagePrefix, func(c *gin.Context) {
+		if softwareSourceAdminURL == "" {
+			c.Redirect(http.StatusFound, config.LocalSoftwareSourceAdminPath)
+			return
+		}
 		c.Redirect(http.StatusFound, softwareSourceAdminURL)
 	})
 	r.GET(appstore.PagePrefix+"/*filepath", func(c *gin.Context) {
+		if softwareSourceAdminURL == "" {
+			c.Redirect(http.StatusFound, config.LocalSoftwareSourceAdminPath)
+			return
+		}
 		target := softwareSourceAdminURL
 		requestedPath := strings.Trim(strings.TrimSpace(c.Param("filepath")), "/")
 		if requestedPath == "dashboard" || requestedPath == "templates" || requestedPath == "apps" || requestedPath == "sources" {
@@ -394,6 +406,8 @@ func main() {
 		}
 		c.Redirect(http.StatusFound, target)
 	})
+	r.GET("/source", handler.SourceStationPage)
+	r.GET("/source/", handler.SourceStationPage)
 	r.NoRoute(func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
 			c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "请求的资源不存在"})
@@ -463,6 +477,7 @@ func main() {
 		if err := ensureLicenseSiteLimitSchema(db); err != nil {
 			log.Printf("ensure license site limit schema failed: %v", err)
 		}
+		handler.EnsureSourceStationSchema()
 		handler.BackfillLicensePurchaseTransactions(db)
 	}()
 

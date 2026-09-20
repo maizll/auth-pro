@@ -21,6 +21,8 @@
 
     <div id="app-global">
       <ArtGlobalComponent />
+      <!-- 管理端工作台弹窗：与代理/用户面板一样读 ?position=popup，不依赖全局组件开关 -->
+      <ArtAdPopup />
     </div>
   </div>
 </template>
