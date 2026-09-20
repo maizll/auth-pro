@@ -2,9 +2,11 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"auto_pro/middleware"
 
@@ -78,7 +80,7 @@ func TestSourceDeveloperAgentApplyWithoutBodyCreatesPending(t *testing.T) {
 
 func TestSourceDeveloperApprovedAgentTokenAccessesDeveloperAPIs(t *testing.T) {
 	router, store := sourceStationRouter(t)
-	admin, agentToken, appID := sourceApproveDeveloper(t, router, "approved-agent", "")
+	_, agentToken, _ := sourceApproveDeveloper(t, router, "approved-agent", "")
 
 	me := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/me", agentToken, "")
 	if sourceBodyCode(t, me) != 200 || !strings.Contains(me.Body.String(), sourceDeveloperRoleCode) {
@@ -98,8 +100,6 @@ func TestSourceDeveloperApprovedAgentTokenAccessesDeveloperAPIs(t *testing.T) {
 	if err != nil || len(listed) != 1 || listed[0].AgentID != dev.AgentID {
 		t.Fatalf("list developers=%+v err=%v", listed, err)
 	}
-	_ = admin
-	_ = appID
 }
 
 func TestSourceDeveloperUnapprovedAgentCannotAccessDeveloperAPIs(t *testing.T) {
@@ -142,8 +142,12 @@ func TestSourceDeveloperRejectThenReapply(t *testing.T) {
 	if sourceBodyCode(t, reject) != 200 {
 		t.Fatalf("reject=%s", reject.Body.String())
 	}
+	listed := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/applications", admin, "")
+	if sourceContainsID(sourceListIDs(t, listed), applyBody.Data.ID) {
+		t.Fatalf("rejected application still listed: %s", listed.Body.String())
+	}
 	status := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/apply/status", token, "")
-	if sourceBodyCode(t, status) != 200 || !strings.Contains(status.Body.String(), `"rejected"`) {
+	if sourceBodyCode(t, status) != 404 {
 		t.Fatalf("rejected status=%s", status.Body.String())
 	}
 	again := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", token, `{}`)
@@ -154,10 +158,14 @@ func TestSourceDeveloperRejectThenReapply(t *testing.T) {
 
 func TestSourceDeveloperCancelThenReapplyAndApprove(t *testing.T) {
 	router, _ := sourceStationRouter(t)
-	admin, token, appID := sourceApproveDeveloper(t, router, "cancel-reapply", "")
-	cancel := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(appID)+"/freeze", admin, `{}`)
-	if sourceBodyCode(t, cancel) != 200 {
+	admin, token, developerID := sourceApproveDeveloper(t, router, "cancel-reapply", "")
+	cancel := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/developers/"+itoa64(developerID)+"/freeze", admin, `{}`)
+	if sourceBodyCode(t, cancel) != 200 || !strings.Contains(cancel.Body.String(), "已取消并删除开发者资格") {
 		t.Fatalf("cancel=%s", cancel.Body.String())
+	}
+	devs := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/developers", admin, "")
+	if sourceContainsID(sourceListIDs(t, devs), developerID) {
+		t.Fatalf("cancelled developer still listed: %s", devs.Body.String())
 	}
 	me := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/me", token, "")
 	if sourceBodyCode(t, me) != 403 {
@@ -182,6 +190,59 @@ func TestSourceDeveloperCancelThenReapplyAndApprove(t *testing.T) {
 	ok := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/me", token, "")
 	if sourceBodyCode(t, ok) != 200 {
 		t.Fatalf("re-approved /me=%s", ok.Body.String())
+	}
+}
+
+func TestSourceDeveloperApproveDeletesApplication(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	_, _, token := sourceNextAgent(t, "approve-deletes-app")
+	apply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", token, `{}`)
+	var applyBody struct {
+		Data struct {
+			ID int64 `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(apply.Body.Bytes(), &applyBody); err != nil {
+		t.Fatal(err)
+	}
+	pending := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/applications", admin, "")
+	if !sourceContainsID(sourceListIDs(t, pending), applyBody.Data.ID) {
+		t.Fatalf("pending application missing: %s", pending.Body.String())
+	}
+	approve := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(applyBody.Data.ID)+"/approve", admin, `{}`)
+	if sourceBodyCode(t, approve) != 200 {
+		t.Fatalf("approve=%s", approve.Body.String())
+	}
+	listed := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/applications", admin, "")
+	if sourceContainsID(sourceListIDs(t, listed), applyBody.Data.ID) {
+		t.Fatalf("approved application still listed: %s", listed.Body.String())
+	}
+	approved := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/applications?status=approved", admin, "")
+	if sourceBodyCode(t, approved) != 400 {
+		t.Fatalf("non-pending applications list=%s", approved.Body.String())
+	}
+}
+
+func TestSourceDeveloperCancelDeletesLeftoverApplication(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin, token, developerID := sourceApproveDeveloper(t, router, "cancel-leftover", "")
+	agentID := int64(parseAgentIDFromToken(t, token))
+	store.mu.Lock()
+	store.applications[9001] = sourceApplication{
+		ID: 9001, AgentID: agentID, Username: "cancel-leftover@agents.test",
+		Status: sourceApplicationApproved, CreatedAt: time.Now().UTC(),
+	}
+	store.mu.Unlock()
+	cancel := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/developers/"+itoa64(developerID)+"/freeze", admin, `{}`)
+	if sourceBodyCode(t, cancel) != 200 {
+		t.Fatalf("cancel=%s", cancel.Body.String())
+	}
+	if _, err := store.GetApplication(9001); !errors.Is(err, errSourceNotFound) {
+		t.Fatalf("leftover application after cancel: err=%v", err)
+	}
+	if _, err := store.GetDeveloperByID(developerID); !errors.Is(err, errSourceNotFound) {
+		t.Fatalf("developer still exists after cancel: err=%v", err)
 	}
 }
 

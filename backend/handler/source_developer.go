@@ -406,12 +406,11 @@ func SourceDeveloperSubmitTemplateVersion(c *gin.Context) {
 
 func AdminSourceDeveloperApplications(c *gin.Context) {
 	status := strings.TrimSpace(c.Query("status"))
-	if status == "cancelled" {
-		status = sourceApplicationFrozen
+	if status == "" {
+		status = sourceApplicationPending
 	}
-	if status != "" && status != sourceApplicationPending && status != sourceApplicationApproved &&
-		status != sourceApplicationRejected && status != sourceApplicationFrozen {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "状态不合法"})
+	if status != sourceApplicationPending {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "申请列表仅展示待审核"})
 		return
 	}
 	items, err := currentSourceStationStore().ListApplications(status)
@@ -465,7 +464,7 @@ func AdminSourceDeveloperCancel(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已取消该开发者资格，对方无法再登录开发者端或发布内容"})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已取消并删除开发者资格，可重新申请入驻。"})
 }
 
 func currentSourceDeveloper(c *gin.Context) (sourceDeveloper, error) {
