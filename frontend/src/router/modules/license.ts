@@ -4,39 +4,30 @@ export const licenseRoutes: AppRouteRecord = {
   path: '/license',
   name: 'License',
   component: '/index/index',
+  redirect: '/license/apps',
   meta: {
-    title: '授权管理',
-    icon: 'ri:shield-keyhole-line',
+    title: 'menus.license.title',
+    icon: 'ri:apps-line',
     roles: ['R_SUPER', 'R_ADMIN']
   },
   children: [
-    {
-      path: 'dashboard',
-      name: 'LicenseDashboard',
-      component: '/license/dashboard',
-      meta: {
-        title: '授权概览',
-        icon: 'ri:dashboard-line',
-        keepAlive: false
-      }
-    },
-    {
-      path: 'list',
-      name: 'LicenseList',
-      component: '/license/list',
-      meta: {
-        title: '授权列表',
-        icon: 'ri:file-list-3-line',
-        keepAlive: true
-      }
-    },
     {
       path: 'apps',
       name: 'LicenseApps',
       component: '/license/apps',
       meta: {
-        title: '应用管理',
-        icon: 'ri:apps-line',
+        title: 'menus.license.apps',
+        icon: 'ri:apps-2-line',
+        keepAlive: true
+      }
+    },
+    {
+      path: 'versions',
+      name: 'LicenseVersions',
+      component: '/license/versions',
+      meta: {
+        title: 'menus.license.versions',
+        icon: 'ri:git-branch-line',
         keepAlive: true
       }
     },
@@ -45,11 +36,11 @@ export const licenseRoutes: AppRouteRecord = {
       name: 'AppVersions',
       component: '/license/app-versions',
       meta: {
-        title: '版本管理',
+        title: 'menus.license.versions',
         icon: 'ri:git-branch-line',
         isHide: true,
         keepAlive: false,
-        activePath: '/license/apps'
+        activePath: '/license/versions'
       }
     },
     {
@@ -57,7 +48,7 @@ export const licenseRoutes: AppRouteRecord = {
       name: 'LicensePlans',
       component: '/license/plans',
       meta: {
-        title: '套餐管理',
+        title: 'menus.license.plans',
         icon: 'ri:price-tag-3-line',
         keepAlive: true
       }
@@ -67,8 +58,18 @@ export const licenseRoutes: AppRouteRecord = {
       name: 'LicenseCards',
       component: '/license/cards',
       meta: {
-        title: '卡密管理',
+        title: 'menus.license.cards',
         icon: 'ri:coupon-3-line',
+        keepAlive: true
+      }
+    },
+    {
+      path: 'list',
+      name: 'LicenseList',
+      component: '/license/list',
+      meta: {
+        title: 'menus.license.list',
+        icon: 'ri:file-list-3-line',
         keepAlive: true
       }
     },
@@ -77,9 +78,19 @@ export const licenseRoutes: AppRouteRecord = {
       name: 'LicenseLogs',
       component: '/license/logs',
       meta: {
-        title: '验证日志',
+        title: 'menus.license.logs',
         icon: 'ri:file-text-line',
         keepAlive: true
+      }
+    },
+    {
+      path: 'dashboard',
+      name: 'LicenseDashboard',
+      component: '/license/dashboard',
+      meta: {
+        title: 'menus.license.overview',
+        icon: 'ri:dashboard-line',
+        keepAlive: false
       }
     }
   ]

@@ -19,7 +19,7 @@
             <ElTooltip
               class="box-item"
               effect="dark"
-              :content="$t(menu.meta.title)"
+              :content="formatMenuTitle(menu.meta.title)"
               placement="right"
               :offset="15"
               :hide-after="0"
@@ -27,9 +27,7 @@
             >
               <div
                 :class="{
-                  'is-active': menu.meta.isFirstLevel
-                    ? menu.path === route.path
-                    : menu.path === firstLevelMenuPath
+                  'is-active': isDualMenuActive(menu)
                 }"
                 :style="{
                   height: dualMenuShowText ? '60px' : '46px'
@@ -43,7 +41,7 @@
                   }"
                 />
                 <span v-if="dualMenuShowText" class="text-md text-g-700">
-                  {{ $t(menu.meta.title) }}
+                  {{ formatMenuTitle(menu.meta.title) }}
                 </span>
                 <div v-if="menu.meta.showBadge" class="art-badge art-badge-dual" />
               </div>
@@ -136,8 +134,8 @@
   import { useSystemConfigStore } from '@/store/modules/system-config'
   import { MenuTypeEnum, MenuWidth } from '@/enums/appEnum'
   import { useMenuStore } from '@/store/modules/menu'
-  import { isIframe } from '@/utils/navigation'
-  import { handleMenuJump } from '@/utils/navigation'
+  import { isIframe, findTopLevelMenu, handleMenuJump } from '@/utils/navigation'
+  import { formatMenuTitle } from '@/utils/router'
   import SidebarSubmenu from './widget/SidebarSubmenu.vue'
   import { useCommon } from '@/hooks/core/useCommon'
   import { useWindowSize, useTimeoutFn } from '@vueuse/core'
@@ -158,7 +156,7 @@
   const { siteName } = storeToRefs(systemConfigStore)
 
   // 组件内部状态
-  const defaultOpenedMenus = ref<string[]>([])
+  const defaultOpenedMenus = ref<string[]>(['/license'])
   const isMobileMode = ref(false)
   const showMobileModal = ref(false)
 
@@ -181,13 +179,19 @@
   const isMobileScreen = computed(() => width.value < MOBILE_BREAKPOINT)
 
   // 路由相关
-  const firstLevelMenuPath = computed(() => route.matched[0]?.path)
   const routerPath = computed(() => String(route.meta.activePath || route.path))
 
   // 菜单数据
   const firstLevelMenus = computed(() => {
     return useMenuStore().menuList.filter((menu) => !menu.meta.isHide)
   })
+
+  const isDualMenuActive = (menu: (typeof firstLevelMenus.value)[number]) => {
+    if (menu.meta.isFirstLevel) {
+      return menu.path === route.path
+    }
+    return findTopLevelMenu(firstLevelMenus.value, routerPath.value)?.path === menu.path
+  }
 
   const menuList = computed(() => {
     const menuStore = useMenuStore()
@@ -208,9 +212,9 @@
       return []
     }
 
-    // 返回当前顶级路径对应的子菜单
-    const currentTopPath = `/${route.path.split('/')[1]}`
-    const currentMenu = allMenus.find((menu) => menu.path === currentTopPath)
+    const currentMenu =
+      findTopLevelMenu(allMenus, routerPath.value) ||
+      findTopLevelMenu(allMenus, `/${route.path.split('/')[1]}`)
     return currentMenu?.children ?? []
   })
 

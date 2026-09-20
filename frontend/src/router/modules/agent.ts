@@ -5,7 +5,7 @@ export const agentRoutes: AppRouteRecord = {
   name: 'Agent',
   component: '/index/index',
   meta: {
-    title: '代理商管理',
+    title: 'menus.agent.title',
     icon: 'ri:team-line',
     roles: ['R_SUPER', 'R_ADMIN']
   },
@@ -15,7 +15,7 @@ export const agentRoutes: AppRouteRecord = {
       name: 'AgentList',
       component: '/agent/list',
       meta: {
-        title: '代理商列表',
+        title: 'menus.agent.list',
         icon: 'ri:user-star-line',
         keepAlive: true
       }
@@ -25,28 +25,8 @@ export const agentRoutes: AppRouteRecord = {
       name: 'AgentLevel',
       component: '/agent/level',
       meta: {
-        title: '等级管理',
+        title: 'menus.agent.level',
         icon: 'ri:vip-crown-line',
-        keepAlive: true
-      }
-    },
-    {
-      path: 'upgrade',
-      name: 'AgentUpgrade',
-      component: '/agent/upgrade',
-      meta: {
-        title: '升级审计',
-        icon: 'ri:user-shared-line',
-        keepAlive: true
-      }
-    },
-    {
-      path: 'recharge',
-      name: 'AgentRecharge',
-      component: '/agent/recharge',
-      meta: {
-        title: '财务流水',
-        icon: 'ri:money-cny-circle-line',
         keepAlive: true
       }
     },
@@ -55,8 +35,28 @@ export const agentRoutes: AppRouteRecord = {
       name: 'AgentQuota',
       component: '/agent/quota',
       meta: {
-        title: '开码配额',
+        title: 'menus.agent.quota',
         icon: 'ri:key-2-line',
+        keepAlive: true
+      }
+    },
+    {
+      path: 'recharge',
+      name: 'AgentRecharge',
+      component: '/agent/recharge',
+      meta: {
+        title: 'menus.agent.finance',
+        icon: 'ri:money-cny-circle-line',
+        keepAlive: true
+      }
+    },
+    {
+      path: 'upgrade',
+      name: 'AgentUpgrade',
+      component: '/agent/upgrade',
+      meta: {
+        title: 'menus.agent.upgrade',
+        icon: 'ri:user-shared-line',
         keepAlive: true
       }
     }

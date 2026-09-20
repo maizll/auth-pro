@@ -64,22 +64,28 @@ export class MenuProcessor {
   }
 
   /**
-   * 追加系统内置一级菜单
-   * 工单管理固定显示在末尾（在线更新下方），不依赖菜单表配置
+   * 追加系统内置菜单
+   * 工单归入「客户服务」，不依赖菜单表配置
    */
   private appendBuiltinMenus(menus: AppRouteRecord[]): void {
     if (this.hasMenu(menus, 'TicketManage')) return
-    menus.push({
+    const ticket: AppRouteRecord = {
       name: 'TicketManage',
       path: '/tickets',
       component: '/system/tickets',
       meta: {
-        title: '工单管理',
-        icon: 'ri:customer-service-2-line',
+        title: 'menus.customerService.tickets',
+        icon: 'ri:question-answer-line',
         keepAlive: true,
         roles: ['R_SUPER', 'R_ADMIN']
       }
-    })
+    }
+    const parent = menus.find((item) => item.name === 'CustomerService')
+    if (parent) {
+      parent.children = [...(parent.children || []), ticket]
+      return
+    }
+    menus.push(ticket)
   }
 
   /** 递归判断菜单是否已存在 */
@@ -206,11 +212,11 @@ export class MenuProcessor {
   private isNavigableRoute(route: AppRouteRecord): boolean {
     return Boolean(
       route.path &&
-        route.path !== '/' &&
-        !route.meta?.link &&
-        route.meta?.isIframe !== true &&
-        route.component &&
-        route.component !== ''
+      route.path !== '/' &&
+      !route.meta?.link &&
+      route.meta?.isIframe !== true &&
+      route.component &&
+      route.component !== ''
     )
   }
 
@@ -247,12 +253,14 @@ export class MenuProcessor {
 
   /**
    * 判断是否为合法的绝对路径
+   * 分组父级下可用 / 开头的子路径保持原书签 URL（Vue Router 嵌套绝对路径）
    */
   private isValidAbsolutePath(path: string): boolean {
     return (
       path.startsWith('http://') ||
       path.startsWith('https://') ||
-      path.startsWith('/outside/iframe/')
+      path.startsWith('/outside/iframe/') ||
+      (path.startsWith('/') && path.length > 1)
     )
   }
 

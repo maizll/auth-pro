@@ -5,8 +5,8 @@ export const piracyRoutes: AppRouteRecord = {
   name: 'Piracy',
   component: '/index/index',
   meta: {
-    title: '反盗版',
-    icon: 'ri:shield-cross-line',
+    title: 'menus.security.title',
+    icon: 'ri:shield-flash-line',
     roles: ['R_SUPER', 'R_ADMIN']
   },
   children: [
@@ -15,7 +15,7 @@ export const piracyRoutes: AppRouteRecord = {
       name: 'PiracyTracking',
       component: '/piracy/tracking',
       meta: {
-        title: '盗版追踪',
+        title: 'menus.security.tracking',
         icon: 'ri:spy-line',
         keepAlive: true
       }
@@ -25,7 +25,7 @@ export const piracyRoutes: AppRouteRecord = {
       name: 'PiracyBlacklist',
       component: '/piracy/blacklist',
       meta: {
-        title: '黑名单管理',
+        title: 'menus.security.blacklist',
         icon: 'ri:forbid-line',
         keepAlive: true
       }
@@ -35,7 +35,7 @@ export const piracyRoutes: AppRouteRecord = {
       name: 'PiracyAlerts',
       component: '/piracy/alerts',
       meta: {
-        title: '告警中心',
+        title: 'menus.security.alerts',
         icon: 'ri:alarm-warning-line',
         keepAlive: false
       }
@@ -45,7 +45,7 @@ export const piracyRoutes: AppRouteRecord = {
       name: 'PiracyReports',
       component: '/piracy/reports',
       meta: {
-        title: '数据报表',
+        title: 'menus.security.reports',
         icon: 'ri:bar-chart-box-line',
         keepAlive: false
       }

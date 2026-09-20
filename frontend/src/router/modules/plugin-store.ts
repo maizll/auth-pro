@@ -5,7 +5,7 @@ export const pluginStoreRoutes: AppRouteRecord = {
   name: 'PluginStore',
   component: '/plugin-store/index',
   meta: {
-    title: 'menus.pluginStore',
+    title: 'menus.integration.store',
     icon: 'ri:store-2-line',
     keepAlive: true,
     roles: ['R_SUPER']

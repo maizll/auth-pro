@@ -12,16 +12,6 @@ export const sourceStationRoutes: AppRouteRecord = {
   },
   children: [
     {
-      path: 'applications',
-      name: 'SourceStationApplications',
-      component: '/source-station/applications',
-      meta: {
-        title: 'menus.sourceStation.applications',
-        icon: 'ri:user-add-line',
-        keepAlive: true
-      }
-    },
-    {
       path: 'packages',
       name: 'SourceStationPackages',
       component: '/source-station/packages',
@@ -32,24 +22,12 @@ export const sourceStationRoutes: AppRouteRecord = {
       }
     },
     {
-      path: 'plugins',
-      name: 'SourceStationPlugins',
-      redirect: '/source-station/packages',
+      path: 'applications',
+      name: 'SourceStationApplications',
+      component: '/source-station/applications',
       meta: {
-        title: 'menus.sourceStation.plugins',
-        icon: 'ri:puzzle-line',
-        isHide: true,
-        keepAlive: true
-      }
-    },
-    {
-      path: 'templates',
-      name: 'SourceStationTemplates',
-      redirect: '/source-station/packages?category=home-template',
-      meta: {
-        title: 'menus.sourceStation.templates',
-        icon: 'ri:layout-4-line',
-        isHide: true,
+        title: 'menus.sourceStation.applications',
+        icon: 'ri:user-add-line',
         keepAlive: true
       }
     },
@@ -79,7 +57,29 @@ export const sourceStationRoutes: AppRouteRecord = {
       component: '/source-station/settings',
       meta: {
         title: 'menus.sourceStation.settings',
-        icon: 'ri:key-2-line',
+        icon: 'ri:settings-3-line',
+        keepAlive: true
+      }
+    },
+    {
+      path: 'plugins',
+      name: 'SourceStationPlugins',
+      redirect: '/source-station/packages',
+      meta: {
+        title: 'menus.sourceStation.plugins',
+        icon: 'ri:puzzle-line',
+        isHide: true,
+        keepAlive: true
+      }
+    },
+    {
+      path: 'templates',
+      name: 'SourceStationTemplates',
+      redirect: '/source-station/packages?category=home-template',
+      meta: {
+        title: 'menus.sourceStation.templates',
+        icon: 'ri:layout-4-line',
+        isHide: true,
         keepAlive: true
       }
     }
