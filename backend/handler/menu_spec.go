@@ -61,8 +61,8 @@ func productMenuSpecs() []productMenuSpec {
 		{ID: 903, ParentName: "SourceStation", Name: "SourceStationCatalog", Path: "catalog", Component: "/source-station/catalog", Title: "menus.sourceStation.catalog", Icon: "ri:file-list-3-line", Sort: 3, Roles: ops},
 		{ID: 904, ParentName: "SourceStation", Name: "SourceStationAds", Path: "ads", Component: "/source-station/ads", Title: "menus.sourceStation.ads", Icon: "ri:advertisement-line", Sort: 4, KeepAlive: true, Roles: ops},
 		{ID: 905, ParentName: "SourceStation", Name: "SourceStationSettings", Path: "settings", Component: "/source-station/settings", Title: "menus.sourceStation.settings", Icon: "ri:settings-3-line", Sort: 5, KeepAlive: true, Roles: ops},
-		{ID: 906, ParentName: "SourceStation", Name: "SourceStationPlugins", Path: "plugins", Redirect: "/source-station/packages", Title: "menus.sourceStation.plugins", Icon: "ri:puzzle-line", Sort: 6, IsHide: true, KeepAlive: true, Roles: ops},
-		{ID: 907, ParentName: "SourceStation", Name: "SourceStationTemplates", Path: "templates", Redirect: "/source-station/packages?category=home-template", Title: "menus.sourceStation.templates", Icon: "ri:layout-4-line", Sort: 7, IsHide: true, KeepAlive: true, Roles: ops},
+		{ID: 906, ParentName: "SourceStation", Name: "SourceStationPlugins", Path: "plugins", Component: "/source-station/packages", Redirect: "/source-station/packages", Title: "menus.sourceStation.plugins", Icon: "ri:puzzle-line", Sort: 6, IsHide: true, KeepAlive: true, Roles: ops},
+		{ID: 907, ParentName: "SourceStation", Name: "SourceStationTemplates", Path: "templates", Component: "/source-station/packages", Redirect: "/source-station/packages?category=home-template", Title: "menus.sourceStation.templates", Icon: "ri:layout-4-line", Sort: 7, IsHide: true, KeepAlive: true, Roles: ops},
 
 		{ID: 5, Name: "Piracy", Path: "/piracy", Component: "/index/index", Title: "menus.security.title", Icon: "ri:shield-flash-line", Sort: 5, Roles: ops},
 		{ID: 501, ParentName: "Piracy", Name: "PiracyTracking", Path: "tracking", Component: "/piracy/tracking", Title: "menus.security.tracking", Icon: "ri:spy-line", Sort: 1, KeepAlive: true, Roles: ops},

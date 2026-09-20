@@ -48,8 +48,8 @@ INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `redirect`,
 (903, 9, 'SourceStationCatalog',      'catalog',      '/source-station/catalog',      '',                                             'menus.sourceStation.catalog',      'ri:file-list-3-line',   3, 0, 0),
 (904, 9, 'SourceStationAds',          'ads',          '/source-station/ads',          '',                                             'menus.sourceStation.ads',          'ri:advertisement-line', 4, 1, 0),
 (905, 9, 'SourceStationSettings',     'settings',     '/source-station/settings',     '',                                             'menus.sourceStation.settings',     'ri:settings-3-line',    5, 1, 0),
-(906, 9, 'SourceStationPlugins',      'plugins',      '',                             '/source-station/packages',                      'menus.sourceStation.plugins',      'ri:puzzle-line',        6, 1, 1),
-(907, 9, 'SourceStationTemplates',    'templates',    '',                             '/source-station/packages?category=home-template', 'menus.sourceStation.templates',  'ri:layout-4-line',      7, 1, 1);
+(906, 9, 'SourceStationPlugins',      'plugins',      '/source-station/packages',      '/source-station/packages',                      'menus.sourceStation.plugins',      'ri:puzzle-line',        6, 1, 1),
+(907, 9, 'SourceStationTemplates',    'templates',    '/source-station/packages',      '/source-station/packages?category=home-template', 'menus.sourceStation.templates',  'ri:layout-4-line',      7, 1, 1);
 
 -- Piracy
 INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `title`, `icon`, `sort`, `keep_alive`) VALUES
