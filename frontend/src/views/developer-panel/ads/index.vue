@@ -6,8 +6,8 @@
           <div>
             <span class="card-title">申请广告投放</span>
             <p class="card-hint">
-              广告面向客户端，不按应用拆公开目录。提交后由管理员审核；通过后才会生成真实投放记录。图片请使用
-              https:// 外部地址，源站不存储广告素材文件（管理端上传除外）。
+              广告面向客户端，不按应用拆公开目录。提交后由管理员审核；通过后才会生成真实投放记录。图片支持本地上传（PNG
+              / JPEG / GIF / WebP，小于 2MB）或粘贴 https:// 外链。
             </p>
           </div>
         </div>
@@ -42,8 +42,24 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="图片 URL">
-          <el-input v-model="form.imageUrl" placeholder="https://..." />
+        <el-form-item label="广告图" prop="imageUrl">
+          <div class="image-field">
+            <el-upload
+              :auto-upload="false"
+              :show-file-list="false"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              :disabled="uploadingImage"
+              :on-change="handleImageFile"
+            >
+              <el-button :loading="uploadingImage">本地上传</el-button>
+            </el-upload>
+            <el-input
+              v-model="form.imageUrl"
+              placeholder="或粘贴 https:// 外链 / 本站已上传地址"
+            />
+            <p class="field-hint">支持本地上传或 https 外链，不接受 http:// 或本地路径。</p>
+            <img v-if="form.imageUrl" :src="form.imageUrl" alt="" class="image-preview" />
+          </div>
         </el-form-item>
         <el-form-item label="跳转 URL">
           <el-input v-model="form.linkUrl" placeholder="https://... 可留空" />
@@ -85,7 +101,7 @@
 <script setup lang="ts">
   import { onMounted, reactive, ref } from 'vue'
   import { useRouter } from 'vue-router'
-  import type { FormInstance, FormRules } from 'element-plus'
+  import type { FormInstance, FormRules, UploadFile } from 'element-plus'
   import { ElMessage } from 'element-plus'
   import { AD_POSITIONS, SOURCE_APPLICATION_STATUS } from '@/api/source-station'
   import {
@@ -94,6 +110,7 @@
     createSourceDeveloperAdApplication,
     fetchSourceDeveloperAdApplications,
     fetchSourceDeveloperCatalogApps,
+    uploadSourceDeveloperAdvertisementImage,
     type SourceDeveloperAdApplication,
     type SourceDeveloperCatalogApp
   } from '@/api/source-developer'
@@ -101,6 +118,7 @@
   const router = useRouter()
   const loading = ref(false)
   const saving = ref(false)
+  const uploadingImage = ref(false)
   const formRef = ref<FormInstance>()
   const apps = ref<SourceDeveloperCatalogApp[]>([])
   const applications = ref<SourceDeveloperAdApplication[]>([])
@@ -121,6 +139,23 @@
         min: 1,
         message: '请至少选择一个广告位',
         trigger: 'change'
+      }
+    ],
+    imageUrl: [
+      {
+        validator: (_rule, value, callback) => {
+          const raw = String(value || '').trim()
+          if (!raw) {
+            callback()
+            return
+          }
+          if (/^https:\/\//i.test(raw) || raw.startsWith('/api/v1/public/advertisement-files/')) {
+            callback()
+            return
+          }
+          callback(new Error('广告图片地址不合法，支持本地上传或 https 外链'))
+        },
+        trigger: 'blur'
       }
     ]
   }
@@ -178,6 +213,38 @@
     }
   }
 
+  async function handleImageFile(upload: UploadFile) {
+    const selected = upload.raw
+    if (!selected || uploadingImage.value) return
+    uploadingImage.value = true
+    try {
+      const data = new FormData()
+      data.append('file', selected)
+      const res = await uploadSourceDeveloperAdvertisementImage(data)
+      const body = unwrap(res)
+      if (!body) return
+      if (body.code !== 200) {
+        ElMessage.error(body.msg || '图片上传失败')
+        return
+      }
+      const url = (body as { data?: { url?: string } }).data?.url || ''
+      if (!url) {
+        ElMessage.error('图片上传失败')
+        return
+      }
+      form.imageUrl = url
+      ElMessage.success(body.msg || '图片已上传')
+    } catch (error: unknown) {
+      if ((error as { response?: { status?: number } })?.response?.status === 401) {
+        logoutToLogin()
+        return
+      }
+      ElMessage.error('图片上传失败')
+    } finally {
+      uploadingImage.value = false
+    }
+  }
+
   async function handleSubmit() {
     await formRef.value?.validate()
     saving.value = true
@@ -232,6 +299,29 @@
 
   .ad-form {
     max-width: 640px;
+  }
+
+  .image-field {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .field-hint {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--el-text-color-secondary);
+  }
+
+  .image-preview {
+    max-width: 100%;
+    max-height: 160px;
+    object-fit: contain;
+    border-radius: 8px;
+    border: 1px solid var(--el-border-color);
+    background: var(--el-fill-color-lighter);
   }
 
   .mb-5 {

@@ -380,6 +380,14 @@ export function createSourceDeveloperAdApplication(payload: SourceDeveloperAdApp
   )
 }
 
+export function uploadSourceDeveloperAdvertisementImage(data: FormData) {
+  return axios.post<{ code: number; msg: string; data: { url: string } }>(
+    `${BASE}/advertisements/image`,
+    data,
+    developerConfig()
+  )
+}
+
 async function triggerBlobDownload(blob: Blob, filename: string, fallbackType: string) {
   if (blob.type.includes('application/json')) {
     const body = JSON.parse(await blob.text()) as { msg?: string }

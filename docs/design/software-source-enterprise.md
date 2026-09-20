@@ -295,6 +295,7 @@ stateDiagram-v2
 | GET/POST | `/plugins/:id/versions` ；`POST /plugins/:id/versions/:version/submit` |
 | 同上 | `/templates` 对称 |
 | GET/POST | `/ad-applications` |
+| POST | `/advertisements/image`（开发者上传广告图，与管理端同目录） |
 | GET | `/starter.zip` `/skill.md` |
 
 **管理员（JWT + `RequireAdmin`）**
