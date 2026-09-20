@@ -5,7 +5,7 @@ export const orderListRoutes: AppRouteRecord = {
   name: 'OrderList',
   component: '/system/payment-orders',
   meta: {
-    title: 'menus.system.paymentOrders',
+    title: 'menus.customerService.orders',
     icon: 'ri:file-list-3-line',
     keepAlive: true,
     roles: ['R_SUPER', 'R_ADMIN']

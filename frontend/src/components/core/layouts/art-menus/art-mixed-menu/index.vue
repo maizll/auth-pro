@@ -113,18 +113,11 @@
   const isMenuItemActive = (item: AppRouteRecord): boolean => {
     const activePath = currentActivePath.value
 
-    // 如果有子菜单，递归检查子菜单
-    if (item.children?.length) {
-      return item.children.some((child) => {
-        if (child.children?.length) {
-          return isMenuItemActive(child)
-        }
-        return child.path === activePath
-      })
+    if (item.path === activePath || item.meta?.activePath === activePath) {
+      return true
     }
 
-    // 直接比较路径
-    return item.path === activePath
+    return item.children?.some((child) => isMenuItemActive(child)) ?? false
   }
 
   /**

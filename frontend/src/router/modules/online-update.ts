@@ -5,7 +5,7 @@ export const onlineUpdateRoutes: AppRouteRecord = {
   name: 'OnlineUpdate',
   component: '/online-update/index',
   meta: {
-    title: 'menus.onlineUpdate',
+    title: 'menus.integration.update',
     icon: 'ri:download-cloud-2-line',
     keepAlive: true,
     roles: ['R_SUPER']

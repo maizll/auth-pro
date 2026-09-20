@@ -4,9 +4,10 @@ export const dashboardRoutes: AppRouteRecord = {
   name: 'Dashboard',
   path: '/dashboard',
   component: '/index/index',
+  redirect: '/dashboard/console',
   meta: {
     title: 'menus.dashboard.title',
-    icon: 'ri:pie-chart-line',
+    icon: 'ri:home-smile-2-line',
     roles: ['R_SUPER', 'R_ADMIN']
   },
   children: [
@@ -17,7 +18,9 @@ export const dashboardRoutes: AppRouteRecord = {
       meta: {
         title: 'menus.dashboard.console',
         keepAlive: false,
-        fixedTab: true
+        fixedTab: true,
+        isHide: true,
+        activePath: '/dashboard'
       }
     }
   ]

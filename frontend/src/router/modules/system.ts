@@ -16,9 +16,25 @@ export const systemRoutes: AppRouteRecord = {
       component: '/system/role',
       meta: {
         title: 'menus.system.role',
-        isHide: true,
+        icon: 'ri:shield-user-line',
         keepAlive: true,
         roles: ['R_SUPER']
+      }
+    },
+    {
+      path: 'menu',
+      name: 'Menus',
+      component: '/system/menu',
+      meta: {
+        title: 'menus.system.menu',
+        icon: 'ri:menu-2-line',
+        keepAlive: true,
+        roles: ['R_SUPER'],
+        authList: [
+          { title: '新增', authMark: 'add' },
+          { title: '编辑', authMark: 'edit' },
+          { title: '删除', authMark: 'delete' }
+        ]
       }
     },
     {
@@ -71,25 +87,9 @@ export const systemRoutes: AppRouteRecord = {
       component: '/system/user-center',
       meta: {
         title: 'menus.system.userCenter',
-        isHide: true,
+        icon: 'ri:user-settings-line',
         keepAlive: true,
         isHideTab: true
-      }
-    },
-    {
-      path: 'menu',
-      name: 'Menus',
-      component: '/system/menu',
-      meta: {
-        title: 'menus.system.menu',
-        isHide: true,
-        keepAlive: true,
-        roles: ['R_SUPER'],
-        authList: [
-          { title: '新增', authMark: 'add' },
-          { title: '编辑', authMark: 'edit' },
-          { title: '删除', authMark: 'delete' }
-        ]
       }
     }
   ]

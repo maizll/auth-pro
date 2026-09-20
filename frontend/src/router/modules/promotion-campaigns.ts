@@ -5,7 +5,7 @@ export const promotionCampaignRoutes: AppRouteRecord = {
   name: 'PromotionCampaigns',
   component: '/promotion-campaigns/index',
   meta: {
-    title: 'menus.promotionCampaigns',
+    title: 'menus.customerService.campaigns',
     icon: 'ri:discount-percent-line',
     keepAlive: true,
     roles: ['R_SUPER', 'R_ADMIN']

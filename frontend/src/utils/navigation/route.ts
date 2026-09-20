@@ -83,3 +83,36 @@ export const getFirstMenuPath = (menuList: AppRouteRecord[]): string => {
 
   return ''
 }
+
+const menuPathMatches = (menuPath: string | undefined, targetPath: string): boolean => {
+  if (!menuPath) {
+    return false
+  }
+  const normalizedMenuPath = normalizePath(menuPath)
+  return targetPath === normalizedMenuPath || targetPath.startsWith(`${normalizedMenuPath}/`)
+}
+
+const menuContainsPath = (menu: AppRouteRecord, targetPath: string): boolean => {
+  if (
+    menuPathMatches(menu.path, targetPath) ||
+    menuPathMatches(menu.meta?.activePath, targetPath)
+  ) {
+    return true
+  }
+  return menu.children?.some((child) => menuContainsPath(child, targetPath)) ?? false
+}
+
+/**
+ * 根据当前路径找到对应的一级菜单（用于双列/混合菜单高亮）
+ */
+export const findTopLevelMenu = (
+  menuList: AppRouteRecord[],
+  targetPath: string
+): AppRouteRecord | undefined => {
+  if (!Array.isArray(menuList) || !targetPath) {
+    return undefined
+  }
+
+  const normalizedTarget = normalizePath(targetPath)
+  return menuList.find((menu) => !menu.meta?.isHide && menuContainsPath(menu, normalizedTarget))
+}

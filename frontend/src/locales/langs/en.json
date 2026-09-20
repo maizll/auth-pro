@@ -48,20 +48,11 @@
   "setting": {
     "menuType": {
       "title": "Menu Layout",
-      "list": [
-        "Vertical",
-        "Horizontal",
-        "Mixed",
-        "Dual"
-      ]
+      "list": ["Vertical", "Horizontal", "Mixed", "Dual"]
     },
     "theme": {
       "title": "Theme Style",
-      "list": [
-        "Light",
-        "Dark",
-        "System"
-      ]
+      "list": ["Light", "Dark", "System"]
     },
     "menu": {
       "title": "Menu Style"
@@ -71,17 +62,11 @@
     },
     "box": {
       "title": "Box Style",
-      "list": [
-        "Border",
-        "Shadow"
-      ]
+      "list": ["Border", "Shadow"]
     },
     "container": {
       "title": "Container Width",
-      "list": [
-        "Full",
-        "Boxed"
-      ]
+      "list": ["Full", "Boxed"]
     },
     "basics": {
       "title": "Basic Config",
@@ -127,14 +112,8 @@
   "notice": {
     "title": "Notice",
     "btnRead": "Mark as read",
-    "bar": [
-      "Notice",
-      "Message",
-      "Todo"
-    ],
-    "text": [
-      "No"
-    ],
+    "bar": ["Notice", "Message", "Todo"],
+    "text": ["No"],
     "viewAll": "View all"
   },
   "worktab": {
@@ -240,8 +219,58 @@
       "title": "Outside"
     },
     "dashboard": {
-      "title": "Dashboard",
-      "console": "Console"
+      "title": "Workbench",
+      "console": "Workbench"
+    },
+    "license": {
+      "title": "App License",
+      "apps": "Apps",
+      "versions": "Versions",
+      "plans": "Plans",
+      "cards": "Cards",
+      "list": "Licenses",
+      "logs": "Verify Logs",
+      "overview": "Overview"
+    },
+    "agent": {
+      "title": "Agents",
+      "list": "Agent List",
+      "level": "Levels",
+      "quota": "Quota",
+      "finance": "Finance",
+      "upgrade": "Upgrades"
+    },
+    "sourceStation": {
+      "title": "Source Ops",
+      "applications": "Review",
+      "packages": "Catalog",
+      "plugins": "Catalog",
+      "templates": "Catalog",
+      "catalog": "Public Index",
+      "ads": "Ads",
+      "settings": "Settings"
+    },
+    "security": {
+      "title": "Security",
+      "tracking": "Tracking",
+      "blacklist": "Blacklist",
+      "alerts": "Alerts",
+      "reports": "Reports"
+    },
+    "customerService": {
+      "title": "Support",
+      "users": "Users",
+      "orders": "Orders",
+      "campaigns": "Campaigns",
+      "tickets": "Tickets"
+    },
+    "integration": {
+      "title": "Integrate",
+      "sdk": "SDK Demo",
+      "docs": "Docs",
+      "templateDoc": "Templates",
+      "store": "App Store",
+      "update": "Updates"
     },
     "result": {
       "title": "Result Page",
@@ -255,32 +284,22 @@
       "serverError": "500"
     },
     "system": {
-      "title": "System Settings",
-      "user": "User Manage",
-      "role": "Role Manage",
-      "userCenter": "User Center",
-      "developerDoc": "Developer Docs",
-      "menu": "Menu Manage",
-      "config": "System Config",
-      "epayConfig": "Payment Config",
-      "paymentOrders": "Order List",
-      "mailConfig": "Mail Config",
+      "title": "Settings",
+      "user": "Users",
+      "role": "Roles",
+      "userCenter": "Profile",
+      "developerDoc": "Docs",
+      "menu": "Menus",
+      "config": "Config",
+      "epayConfig": "Payment",
+      "paymentOrders": "Orders",
+      "mailConfig": "Mail",
       "mailLogs": "Mail Logs"
     },
     "pluginStore": "App Store",
-    "sourceStation": {
-      "title": "Source Station",
-      "applications": "Developer Review",
-      "packages": "Software Catalog",
-      "plugins": "Software Catalog",
-      "templates": "Software Catalog",
-      "catalog": "Public Index",
-      "ads": "Advertisements",
-      "settings": "Release Settings"
-    },
     "homeTemplate": "Home Templates",
-    "promotionCampaigns": "Promotions",
-    "onlineUpdate": "Online Update"
+    "promotionCampaigns": "Campaigns",
+    "onlineUpdate": "Updates"
   },
   "table": {
     "form": {

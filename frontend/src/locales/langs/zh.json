@@ -48,20 +48,11 @@
   "setting": {
     "menuType": {
       "title": "菜单布局",
-      "list": [
-        "垂直",
-        "水平",
-        "混合",
-        "双列"
-      ]
+      "list": ["垂直", "水平", "混合", "双列"]
     },
     "theme": {
       "title": "主题风格",
-      "list": [
-        "浅色",
-        "深色",
-        "系统"
-      ]
+      "list": ["浅色", "深色", "系统"]
     },
     "menu": {
       "title": "菜单风格"
@@ -71,17 +62,11 @@
     },
     "box": {
       "title": "盒子样式",
-      "list": [
-        "边框",
-        "阴影"
-      ]
+      "list": ["边框", "阴影"]
     },
     "container": {
       "title": "容器宽度",
-      "list": [
-        "铺满",
-        "定宽"
-      ]
+      "list": ["铺满", "定宽"]
     },
     "basics": {
       "title": "基础配置",
@@ -127,14 +112,8 @@
   "notice": {
     "title": "通知",
     "btnRead": "标为已读",
-    "bar": [
-      "通知",
-      "消息",
-      "代办"
-    ],
-    "text": [
-      "暂无"
-    ],
+    "bar": ["通知", "消息", "代办"],
+    "text": ["暂无"],
     "viewAll": "查看全部"
   },
   "worktab": {
@@ -240,8 +219,58 @@
       "title": "内嵌页面"
     },
     "dashboard": {
-      "title": "仪表盘",
+      "title": "工作台",
       "console": "工作台"
+    },
+    "license": {
+      "title": "应用授权",
+      "apps": "应用管理",
+      "versions": "版本管理",
+      "plans": "套餐管理",
+      "cards": "卡密管理",
+      "list": "授权列表",
+      "logs": "验证日志",
+      "overview": "授权概览"
+    },
+    "agent": {
+      "title": "代理业务",
+      "list": "代理列表",
+      "level": "等级管理",
+      "quota": "开码配额",
+      "finance": "财务流水",
+      "upgrade": "升级审计"
+    },
+    "sourceStation": {
+      "title": "源站运营",
+      "applications": "入驻审核",
+      "packages": "软件目录",
+      "plugins": "软件目录",
+      "templates": "软件目录",
+      "catalog": "公开目录",
+      "ads": "广告投放",
+      "settings": "源站设置"
+    },
+    "security": {
+      "title": "安全风控",
+      "tracking": "盗版追踪",
+      "blacklist": "黑名单",
+      "alerts": "告警中心",
+      "reports": "数据报表"
+    },
+    "customerService": {
+      "title": "客户服务",
+      "users": "用户管理",
+      "orders": "订单列表",
+      "campaigns": "活动管理",
+      "tickets": "工单管理"
+    },
+    "integration": {
+      "title": "接入开发",
+      "sdk": "SDK示例",
+      "docs": "开发文档",
+      "templateDoc": "模板文档",
+      "store": "应用商店",
+      "update": "在线更新"
     },
     "result": {
       "title": "结果页面",
@@ -255,7 +284,7 @@
       "serverError": "500"
     },
     "system": {
-      "title": "系统管理",
+      "title": "系统设置",
       "user": "用户管理",
       "role": "角色管理",
       "userCenter": "个人中心",
@@ -268,16 +297,6 @@
       "mailLogs": "邮件日志"
     },
     "pluginStore": "应用商店",
-    "sourceStation": {
-      "title": "源站",
-      "applications": "入驻审核",
-      "packages": "软件目录",
-      "plugins": "软件目录",
-      "templates": "软件目录",
-      "catalog": "公开目录",
-      "ads": "广告投放",
-      "settings": "Release 设置"
-    },
     "homeTemplate": "首页模板",
     "promotionCampaigns": "活动管理",
     "onlineUpdate": "在线更新"

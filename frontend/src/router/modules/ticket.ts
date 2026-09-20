@@ -5,8 +5,8 @@ export const ticketRoutes: AppRouteRecord = {
   name: 'TicketManage',
   component: '/system/tickets',
   meta: {
-    title: '工单管理',
-    icon: 'ri:customer-service-2-line',
+    title: 'menus.customerService.tickets',
+    icon: 'ri:question-answer-line',
     keepAlive: true,
     roles: ['R_SUPER', 'R_ADMIN']
   }

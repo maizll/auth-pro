@@ -5,7 +5,7 @@ export const userManageRoutes: AppRouteRecord = {
   name: 'User',
   component: '/system/user',
   meta: {
-    title: 'menus.system.user',
+    title: 'menus.customerService.users',
     icon: 'ri:user-line',
     keepAlive: true,
     roles: ['R_SUPER', 'R_ADMIN']
