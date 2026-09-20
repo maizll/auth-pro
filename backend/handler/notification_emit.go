@@ -262,6 +262,52 @@ func notifyLicenseExpiring(ownerType string, ownerID int64, licenseNo, appName s
 	notifyOwner(ownerType, ownerID, notificationTabNotice, "授权即将到期", body, link, "license_expiring", "license", licenseNo)
 }
 
+// Remaining product events. These helpers are intentionally unused until the
+// domain handlers grow a real write path; call them instead of inventing a
+// second notification table.
+
+// TODO(v1.4.x): hook when withdraw / settlement writes a ledger row.
+func notifyWithdrawResult(ownerType string, ownerID int64, amount, status, refID string) {
+	title := "提现/结算有更新"
+	body := sourceFirstNonEmpty(amount, "一笔提现") + " 状态：" + sourceFirstNonEmpty(status, "已更新")
+	link := "/user/dashboard"
+	if ownerType == notificationRoleAgent {
+		link = "/agent-panel/finance"
+	}
+	notifyOwner(ownerType, ownerID, notificationTabMessage, title, body, link, "withdraw_updated", "withdraw", refID)
+}
+
+// TODO(v1.4.x): hook when subordinate commission is credited to an agent.
+func notifyCommissionCredited(agentID int64, amount, refID string) {
+	notifyRole(notificationRoleAgent, agentID, notificationTabMessage,
+		"下级分佣到账",
+		sourceFirstNonEmpty(amount, "一笔分佣")+" 已计入账户",
+		"/agent-panel/finance", "commission_credited", "commission", refID)
+}
+
+// TODO(v1.4.x): hook a persisted license-expired write event. Expiry is currently
+// computed at read time (expired_at <= NOW), so there is no transition to emit.
+func notifyLicenseExpired(ownerType string, ownerID int64, licenseNo, appName string) {
+	body := sourceFirstNonEmpty(appName, "应用") + " 授权 " + licenseNo + " 已过期"
+	link := "/user/licenses"
+	if ownerType == notificationRoleAgent {
+		link = "/agent-panel/licenses"
+	}
+	notifyOwner(ownerType, ownerID, notificationTabNotice, "授权已过期", body, link, "license_expired", "license", licenseNo)
+}
+
+// TODO(v1.4.x): call from LicenseToggle / LicenseDelete after loading owner_type,
+// owner_id, license_no. Toggle currently only updates status and has no owner query.
+func notifyLicenseStatusChanged(ownerType string, ownerID int64, licenseNo, appName, status string) {
+	title := "授权状态已变更"
+	body := sourceFirstNonEmpty(appName, "应用") + " 授权 " + licenseNo + " 现为 " + sourceFirstNonEmpty(status, "已更新")
+	link := "/user/licenses"
+	if ownerType == notificationRoleAgent {
+		link = "/agent-panel/licenses"
+	}
+	notifyOwner(ownerType, ownerID, notificationTabNotice, title, body, link, "license_status_changed", "license", licenseNo)
+}
+
 func catalogOwnerDeveloperID(kind, itemID string) int64 {
 	if kind == sourceKindTemplate {
 		if item, err := currentSourceStationStore().GetTemplate(itemID); err == nil {

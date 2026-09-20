@@ -217,3 +217,29 @@ func TestNotificationRejectApplyNotifiesAgent(t *testing.T) {
 		t.Fatalf("rejected agent missing message: %v", events)
 	}
 }
+
+func TestNotificationDeferredHooksStayRoleScoped(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	user := notificationToken(t, "user", 88, "user88")
+	agent := notificationToken(t, "agent", 77, "agent77")
+
+	notifyWithdrawResult(notificationRoleUser, 88, "¥10.00", "已打款", "wd-88")
+	notifyCommissionCredited(77, "¥3.20", "cms-77")
+	notifyLicenseExpired(notificationRoleUser, 88, "LIC-88", "演示应用")
+	notifyLicenseStatusChanged(notificationRoleAgent, 77, "LIC-77", "演示应用", "revoked")
+
+	userEvents := notificationListEvents(t, router, user, "")
+	if !notificationContains(userEvents, "withdraw_updated") || !notificationContains(userEvents, "license_expired") {
+		t.Fatalf("user missing deferred events: %v", userEvents)
+	}
+	if notificationContains(userEvents, "commission_credited") || notificationContains(userEvents, "license_status_changed") {
+		t.Fatal("user list leaked agent deferred events")
+	}
+	agentEvents := notificationListEvents(t, router, agent, "")
+	if !notificationContains(agentEvents, "commission_credited") || !notificationContains(agentEvents, "license_status_changed") {
+		t.Fatalf("agent missing deferred events: %v", agentEvents)
+	}
+	if notificationContains(agentEvents, "withdraw_updated") || notificationContains(agentEvents, "license_expired") {
+		t.Fatal("agent list leaked user deferred events")
+	}
+}

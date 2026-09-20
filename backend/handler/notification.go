@@ -34,6 +34,9 @@ const (
 //	notice  = 系统/运营/安全事件（入驻提审、目录提审、新工单、改密）
 //	message = 对人结果（审核结论、工单回复、订单/充值、等级变更、实名结果）
 //	todo    = 当前身份可处理的待办（管理员：待审入驻/目录/广告/工单；用户/代理：待回复工单）
+//
+// v1.4.0 ships the table + list/read APIs + four-role header wiring.
+// Deferred domain hooks live in notification_emit.go as TODO(v1.4.x).
 var (
 	notificationStoreOverride   notificationStore
 	notificationStoreOverrideMu sync.RWMutex
