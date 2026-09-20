@@ -6,10 +6,11 @@
           <div>
             <span class="card-title">公开软件源目录</span>
             <p class="card-hint">
-              消费者在「软件源管理」添加
+              软件源按应用隔离。消费者在「软件源管理」为对应应用添加
               <code>{{ publicIndexUrl }}</code>
-              。管理端按分类维护统一目录；公开 index.json 仍按分类拆出
-              <code>plugins</code> 与 <code>homeTemplates</code>，兼容旧授权端。
+              （兼容 <code>?app_key=</code>）。未带 app_key 的
+              <code>/software-source/index.json</code> 返回空目录，不会串应用。公开清单仍按分类拆出
+              <code>plugins</code> 与 <code>homeTemplates</code>。
             </p>
           </div>
           <div class="table-actions">
@@ -20,8 +21,26 @@
           </div>
         </div>
       </template>
+      <el-form inline class="mb-4">
+        <el-form-item label="应用">
+          <el-select
+            v-model="selectedAppId"
+            placeholder="请选择应用"
+            style="width: 260px"
+            @change="onAppChange"
+          >
+            <el-option
+              v-for="app in apps"
+              :key="app.id"
+              :label="app.enabled ? `${app.name}（${app.appKey}）` : `${app.name}（${app.appKey}）· 已停用`"
+              :value="app.id"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
       <el-descriptions :column="3" border>
         <el-descriptions-item label="源名称">{{ indexData?.name || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="应用">{{ selectedAppHint }}</el-descriptions-item>
         <el-descriptions-item label="插件类（兼容 plugins）">{{
           indexData?.pluginCount ?? 0
         }}</el-descriptions-item>
@@ -59,19 +78,36 @@
   import { ElMessage } from 'element-plus'
   import {
     fetchSourceAudit,
+    fetchSourceCatalogApps,
     fetchSourceIndex,
     regenerateSourceIndex,
     type SourceAuditEntry,
+    type SourceCatalogApp,
     type SourceIndexData
   } from '@/api/source-station'
 
+  const APP_STORAGE_KEY = 'source-station-catalog-app-id'
   const loading = ref(false)
   const regenerating = ref(false)
   const auditLoading = ref(false)
   const indexData = ref<SourceIndexData | null>(null)
   const audit = ref<SourceAuditEntry[]>([])
+  const apps = ref<SourceCatalogApp[]>([])
+  const selectedAppId = ref(0)
 
-  const publicIndexUrl = computed(() => `${window.location.origin}/software-source/index.json`)
+  const selectedApp = computed(
+    () => apps.value.find((item) => item.id === selectedAppId.value) || null
+  )
+  const selectedAppHint = computed(() => {
+    const app = selectedApp.value
+    if (!app) return '-'
+    return `${app.name}（${app.appKey}）`
+  })
+  const publicIndexUrl = computed(() => {
+    const app = selectedApp.value
+    const path = app?.indexUrl || (app?.appKey ? `/software-source/${app.appKey}/index.json` : '/software-source/{app_key}/index.json')
+    return `${window.location.origin}${path}`
+  })
   const prettyLive = computed(() => JSON.stringify(indexData.value?.live || {}, null, 2))
   const snapshotTime = computed(() => {
     const raw = indexData.value?.snapshot?.generatedAt
@@ -79,10 +115,33 @@
     return raw
   })
 
+  async function loadApps() {
+    const data = await fetchSourceCatalogApps()
+    apps.value = data.list || []
+    const stored = Number(localStorage.getItem(APP_STORAGE_KEY) || 0)
+    selectedAppId.value = apps.value.some((item) => item.id === stored)
+      ? stored
+      : apps.value[0]?.id || 0
+    if (selectedAppId.value) {
+      localStorage.setItem(APP_STORAGE_KEY, String(selectedAppId.value))
+    }
+  }
+
+  function onAppChange() {
+    if (selectedAppId.value) {
+      localStorage.setItem(APP_STORAGE_KEY, String(selectedAppId.value))
+    }
+    loadIndex()
+  }
+
   async function loadIndex() {
+    if (!selectedAppId.value) {
+      indexData.value = null
+      return
+    }
     loading.value = true
     try {
-      indexData.value = await fetchSourceIndex()
+      indexData.value = await fetchSourceIndex(selectedAppId.value)
     } finally {
       loading.value = false
     }
@@ -99,9 +158,13 @@
   }
 
   async function handleRegenerate() {
+    if (!selectedAppId.value) {
+      ElMessage.warning('请先选择应用')
+      return
+    }
     regenerating.value = true
     try {
-      indexData.value = await regenerateSourceIndex()
+      indexData.value = await regenerateSourceIndex(selectedAppId.value)
       ElMessage.success('已从数据库重新生成公开目录')
       await loadAudit()
     } finally {
@@ -109,9 +172,9 @@
     }
   }
 
-  onMounted(() => {
-    loadIndex()
-    loadAudit()
+  onMounted(async () => {
+    await loadApps()
+    await Promise.all([loadIndex(), loadAudit()])
   })
 </script>
 

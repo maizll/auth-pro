@@ -5,7 +5,7 @@
         <div>
           <h2 class="welcome-title">欢迎回来，{{ profile.displayName || profile.username || '开发者' }}</h2>
           <p class="welcome-desc">
-            当前可查看已登记的插件与首页模板。源站不存储源码，仅管理元数据与审核状态。
+            当前可查看已登记的插件与首页模板。提交时需绑定目标应用，目录按应用隔离。源站不存储源码，仅管理元数据与审核状态。
           </p>
         </div>
         <iconify-icon icon="ri:code-s-slash-line" width="56" color="var(--el-color-primary-light-5)" />
@@ -50,6 +50,9 @@
       <el-table v-else :data="plugins" stripe>
         <el-table-column prop="id" label="标识" min-width="140" show-overflow-tooltip />
         <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
+        <el-table-column label="应用" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ appLabel(row.appId) }}</template>
+        </el-table-column>
         <el-table-column prop="version" label="版本" width="110" />
         <el-table-column label="状态" width="110" align="center">
           <template #default="{ row }">
@@ -70,6 +73,9 @@
       <el-table v-else :data="templates" stripe>
         <el-table-column prop="id" label="标识" min-width="140" show-overflow-tooltip />
         <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
+        <el-table-column label="应用" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ appLabel(row.appId) }}</template>
+        </el-table-column>
         <el-table-column prop="version" label="版本" width="110" />
         <el-table-column label="状态" width="110" align="center">
           <template #default="{ row }">
@@ -93,8 +99,10 @@
   import {
     DEVELOPER_INFO_KEY,
     DEVELOPER_TOKEN_KEY,
+    fetchSourceDeveloperCatalogApps,
     fetchSourceDeveloperItems,
     fetchSourceDeveloperMe,
+    type SourceDeveloperCatalogApp,
     type SourceDeveloperCatalogItem,
     type SourceDeveloperProfile
   } from '@/api/source-developer'
@@ -103,6 +111,7 @@
   const loading = ref(false)
   const plugins = ref<SourceDeveloperCatalogItem[]>([])
   const templates = ref<SourceDeveloperCatalogItem[]>([])
+  const catalogApps = ref<SourceDeveloperCatalogApp[]>([])
   const profile = reactive<SourceDeveloperProfile>({
     id: 0,
     username: '',
@@ -115,6 +124,13 @@
     return SOURCE_ITEM_STATUS[value] || { label: value || '-', type: 'info' as const }
   }
 
+  function appLabel(appId?: number) {
+    if (!appId) return '-'
+    const app = catalogApps.value.find((item) => item.id === appId)
+    if (!app) return `应用 #${appId}`
+    return `${app.name}（${app.appKey}）`
+  }
+
   function logoutToLogin() {
     localStorage.removeItem(DEVELOPER_TOKEN_KEY)
     localStorage.removeItem(DEVELOPER_INFO_KEY)
@@ -124,15 +140,16 @@
   async function loadDashboard() {
     loading.value = true
     try {
-      const [meRes, itemsRes] = await Promise.all([
+      const [meRes, itemsRes, appsRes] = await Promise.all([
         fetchSourceDeveloperMe(),
-        fetchSourceDeveloperItems()
+        fetchSourceDeveloperItems(),
+        fetchSourceDeveloperCatalogApps()
       ])
-      if (meRes.status === 401 || itemsRes.status === 401) {
+      if (meRes.status === 401 || itemsRes.status === 401 || appsRes.status === 401) {
         logoutToLogin()
         return
       }
-      if (meRes.data.code === 401 || itemsRes.data.code === 401) {
+      if (meRes.data.code === 401 || itemsRes.data.code === 401 || appsRes.data.code === 401) {
         logoutToLogin()
         return
       }
@@ -148,6 +165,9 @@
           displayName: profile.displayName
         })
       )
+      if (appsRes.data.code === 200) {
+        catalogApps.value = appsRes.data.data?.list || []
+      }
       if (itemsRes.data.code === 200) {
         plugins.value = itemsRes.data.data?.plugins || []
         templates.value = itemsRes.data.data?.homeTemplates || []

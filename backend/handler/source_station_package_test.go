@@ -252,7 +252,7 @@ func TestSourcePackagePublishGitHubRelease(t *testing.T) {
 		t.Fatalf("settings=%s", save.Body.String())
 	}
 	rec := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", payload, map[string]string{
-		"kind": "plugin", "push": "1", "shelf": "1", "changelog": "首发",
+		"kind": "plugin", "push": "1", "shelf": "1", "changelog": "首发", "appId": "1",
 	})
 	body := rec.Body.String()
 	if sourceBodyCode(t, rec) != 200 {
@@ -274,7 +274,7 @@ func TestSourcePackagePublishGitHubRelease(t *testing.T) {
 	if plugin.SHA256 != sha256Hex(payload) || plugin.Status != sourceItemPublished {
 		t.Fatalf("plugin sha/status=%s %s", plugin.SHA256, plugin.Status)
 	}
-	index := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	index := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if !strings.Contains(index.Body.String(), `"demo-plugin"`) || !strings.Contains(index.Body.String(), plugin.DownloadURL) {
 		t.Fatalf("index missing published plugin: %s", index.Body.String())
 	}
@@ -285,7 +285,7 @@ func TestSourcePackagePublishPasteableDownloadURL(t *testing.T) {
 	admin := sourceAdminToken(t)
 	payload := sourcePluginTestZIP(t)
 	rec := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", payload, map[string]string{
-		"kind": "plugin", "push": "0", "shelf": "1",
+		"kind": "plugin", "push": "0", "shelf": "1", "appId": "1",
 		"downloadUrl": "https://cdn.example.com/demo-plugin-1.0.0.zip",
 	})
 	if sourceBodyCode(t, rec) != 200 {
@@ -306,8 +306,7 @@ func TestSourcePackagePublishPasteableDownloadURL(t *testing.T) {
 func TestSourcePackageParseDoesNotPersistFiles(t *testing.T) {
 	router, store := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
-	payload := makeTestZIP(t, testZIPEntry{name: "template.json", data: `{
-		"id":"clean-home","name":"清新首页","version":"1.0.0","schemaVersion":1,
+	payload := makeTestZIP(t, testZIPEntry{name: "template.json", data: `{"id":"clean-home","name":"清新首页","version":"1.0.0","schemaVersion":1,
 		"description":"模板","author":"设计组","hero":{"title":"欢迎"}
 	}`})
 	rec := sourceMultipart(t, router, "/api/v1/source/admin/packages/parse", admin, "home.zip", payload, map[string]string{"kind": "template"})
@@ -354,7 +353,7 @@ func TestSourcePackagePublishGiteeRelease(t *testing.T) {
 		t.Fatalf("settings=%s", save.Body.String())
 	}
 	rec := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", payload, map[string]string{
-		"kind": "plugin", "push": "1",
+		"kind": "plugin", "push": "1", "appId": "1",
 	})
 	if sourceBodyCode(t, rec) != 200 {
 		t.Fatalf("gitee publish=%s", rec.Body.String())
@@ -375,7 +374,7 @@ func TestSourceLockedPipelineUploadToPublicIndex(t *testing.T) {
 	router, store := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
 
-	empty := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	empty := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if !strings.Contains(empty.Body.String(), `"plugins":[]`) || !strings.Contains(empty.Body.String(), `"homeTemplates":[]`) {
 		t.Fatalf("empty index=%s", empty.Body.String())
 	}
@@ -397,7 +396,7 @@ func TestSourceLockedPipelineUploadToPublicIndex(t *testing.T) {
 	}
 
 	published := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "demo-plugin.zip", pluginZIP, map[string]string{
-		"kind": "plugin", "push": "0", "submit": "1",
+		"kind": "plugin", "push": "0", "submit": "1", "appId": "1",
 		"downloadUrl": "https://cdn.example.com/demo-plugin-1.0.0.zip",
 	})
 	if sourceBodyCode(t, published) != 200 || !strings.Contains(published.Body.String(), `"storedPackage":false`) {
@@ -410,7 +409,7 @@ func TestSourceLockedPipelineUploadToPublicIndex(t *testing.T) {
 	if plugin.DownloadURL != "https://cdn.example.com/demo-plugin-1.0.0.zip" || plugin.SHA256 != sha256Hex(pluginZIP) || plugin.Status != sourceItemReview {
 		t.Fatalf("metadata-only review state=%+v", plugin)
 	}
-	hidden := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	hidden := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if strings.Contains(hidden.Body.String(), "demo-plugin") {
 		t.Fatalf("unreviewed must not appear in index: %s", hidden.Body.String())
 	}
@@ -424,19 +423,18 @@ func TestSourceLockedPipelineUploadToPublicIndex(t *testing.T) {
 		t.Fatalf("shelf=%s", shelf.Body.String())
 	}
 
-	templateZIP := makeTestZIP(t, testZIPEntry{name: "template.json", data: `{
-		"id":"clean-home","name":"清新首页","version":"1.0.0","schemaVersion":1,
+	templateZIP := makeTestZIP(t, testZIPEntry{name: "template.json", data: `{"id":"clean-home","name":"清新首页","version":"1.0.0","schemaVersion":1,
 		"description":"简洁的授权服务首页","author":"设计组","hero":{"title":"欢迎"}
 	}`})
 	tpl := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "home.zip", templateZIP, map[string]string{
-		"kind": "template", "push": "0", "shelf": "1",
+		"kind": "template", "push": "0", "shelf": "1", "appId": "1",
 		"templateUrl": "https://cdn.example.com/templates/clean-home.zip",
 	})
 	if sourceBodyCode(t, tpl) != 200 {
 		t.Fatalf("template publish=%s", tpl.Body.String())
 	}
 
-	index := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	index := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	body := index.Body.String()
 	if !strings.Contains(body, `"demo-plugin"`) || !strings.Contains(body, "demo-plugin-1.0.0.zip") || !strings.Contains(body, plugin.SHA256) {
 		t.Fatalf("index missing plugin: %s", body)
@@ -454,7 +452,7 @@ func TestSourceLockedPipelineUploadToPublicIndex(t *testing.T) {
 	if sourceBodyCode(t, sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/demo-plugin/versions/1.0.1/approve", admin, "{}")) != 200 {
 		t.Fatal("approve 1.0.1")
 	}
-	latest := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	latest := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if !strings.Contains(latest.Body.String(), `"version":"1.0.1"`) || strings.Contains(latest.Body.String(), "demo-plugin-1.0.0.zip") {
 		t.Fatalf("index should show latest 1.0.1: %s", latest.Body.String())
 	}
@@ -463,7 +461,7 @@ func TestSourceLockedPipelineUploadToPublicIndex(t *testing.T) {
 	if sourceBodyCode(t, unshelf) != 200 {
 		t.Fatalf("unshelf=%s", unshelf.Body.String())
 	}
-	after := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	after := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if strings.Contains(after.Body.String(), "demo-plugin") {
 		t.Fatalf("unshelf must hide plugin: %s", after.Body.String())
 	}

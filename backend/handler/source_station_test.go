@@ -119,7 +119,7 @@ func TestSourceStationIndexJSONShape(t *testing.T) {
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
 
-	for _, path := range []string{"/software-source/index.json", "/auth-pro/index.json"} {
+	for _, path := range []string{"/software-source/app-a/index.json", "/auth-pro/app-a/index.json"} {
 		index, payload, sourceType, err := fetchPluginSourceManifest(context.Background(), server.URL+path)
 		if err != nil || sourceType != "json" {
 			t.Fatalf("%s type=%q err=%v body=%s", path, sourceType, err, payload)
@@ -150,7 +150,7 @@ func TestSourceStationApproveFlowFeedsPublishedIndex(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	admin, dev, _ := sourceApproveDeveloper(t, router, "dev-alice", "secret1")
 	sha := sourceTestSHA256()
-	pluginBody := `{"id":"demo-plugin","name":"Demo Plugin","version":"1.0.0","description":"授权本地插件源测试","category":"other","downloadUrl":"https://cdn.example.com/demo-plugin.zip","sha256":"` + sha + `"}`
+	pluginBody := `{"appId":1,"id":"demo-plugin","name":"Demo Plugin","version":"1.0.0","description":"授权本地插件源测试","category":"other","downloadUrl":"https://cdn.example.com/demo-plugin.zip","sha256":"` + sha + `"}`
 	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins", dev, pluginBody); sourceBodyCode(t, rec) != 200 {
 		t.Fatalf("save plugin=%s", rec.Body.String())
 	}
@@ -164,7 +164,7 @@ func TestSourceStationApproveFlowFeedsPublishedIndex(t *testing.T) {
 		t.Fatalf("shelf plugin=%s", rec.Body.String())
 	}
 
-	templateBody := `{"templateKey":"source-home","name":"源站首页","version":"1.0.0","description":"最小首页模板","schemaVersion":1,"templateUrl":"https://cdn.example.com/templates/source-home.json","sha256":"` + sha + `"}`
+	templateBody := `{"appId":1,"templateKey":"source-home","name":"源站首页","version":"1.0.0","description":"最小首页模板","schemaVersion":1,"templateUrl":"https://cdn.example.com/templates/source-home.json","sha256":"` + sha + `"}`
 	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/templates", dev, templateBody); sourceBodyCode(t, rec) != 200 {
 		t.Fatalf("save template=%s", rec.Body.String())
 	}
@@ -180,7 +180,7 @@ func TestSourceStationApproveFlowFeedsPublishedIndex(t *testing.T) {
 
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
-	index, payload, sourceType, err := fetchPluginSourceManifest(context.Background(), server.URL+"/software-source/index.json")
+	index, payload, sourceType, err := fetchPluginSourceManifest(context.Background(), server.URL+"/software-source/app-a/index.json")
 	if err != nil || sourceType != "json" || len(index.Plugins) != 1 || len(index.HomeTemplates) != 1 {
 		t.Fatalf("index=%+v err=%v body=%s", index, err, payload)
 	}
@@ -221,17 +221,17 @@ func TestSourceStationUnshelvedItemsAbsentFromIndex(t *testing.T) {
 	admin := sourceAdminToken(t)
 	sha := sourceTestSHA256()
 	register := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
-		`{"id":"ext-plugin","name":"外部插件","downloadUrl":"https://cdn.example.com/ext.zip","sha256":"`+sha+`","shelf":true}`)
+		`{"appId":1,"id":"ext-plugin","name":"外部插件","downloadUrl":"https://cdn.example.com/ext.zip","sha256":"`+sha+`","shelf":true}`)
 	if sourceBodyCode(t, register) != 200 {
 		t.Fatalf("register=%s", register.Body.String())
 	}
 	tpl := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/templates", admin,
-		`{"id":"ext-home","name":"外部首页","templateUrl":"templates/ext-home.json","sha256":"`+sha+`","schemaVersion":1,"shelf":true}`)
+		`{"appId":1,"id":"ext-home","name":"外部首页","templateUrl":"templates/ext-home.json","sha256":"`+sha+`","schemaVersion":1,"shelf":true}`)
 	if sourceBodyCode(t, tpl) != 200 {
 		t.Fatalf("register template=%s", tpl.Body.String())
 	}
 
-	live := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	live := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if live.Code != http.StatusOK || !strings.Contains(live.Body.String(), `"ext-plugin"`) || !strings.Contains(live.Body.String(), `"ext-home"`) {
 		t.Fatalf("published index=%s", live.Body.String())
 	}
@@ -245,7 +245,7 @@ func TestSourceStationUnshelvedItemsAbsentFromIndex(t *testing.T) {
 		t.Fatalf("unshelf template=%s", unshelfTpl.Body.String())
 	}
 
-	hidden := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	hidden := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if strings.Contains(hidden.Body.String(), "ext-plugin") || strings.Contains(hidden.Body.String(), "ext-home") {
 		t.Fatalf("unshelved items must be absent: %s", hidden.Body.String())
 	}
@@ -263,22 +263,22 @@ func TestSourceStationPublishRequiresSHA256AndURL(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
 	incomplete := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
-		`{"id":"no-hash","name":"缺校验","downloadUrl":"https://cdn.example.com/x.zip","shelf":true}`)
+		`{"appId":1,"id":"no-hash","name":"缺校验","downloadUrl":"https://cdn.example.com/x.zip","shelf":true}`)
 	if sourceBodyCode(t, incomplete) != 400 || !strings.Contains(incomplete.Body.String(), "sha256") {
 		t.Fatalf("missing sha256=%s", incomplete.Body.String())
 	}
 	noURL := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
-		`{"id":"no-url","name":"缺地址","sha256":"`+sourceTestSHA256()+`","shelf":true}`)
+		`{"appId":1,"id":"no-url","name":"缺地址","sha256":"`+sourceTestSHA256()+`","shelf":true}`)
 	if sourceBodyCode(t, noURL) != 400 {
 		t.Fatalf("missing url=%s", noURL.Body.String())
 	}
 	httpURL := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
-		`{"id":"plain-http","name":"明文","downloadUrl":"http://cdn.example.com/x.zip","sha256":"`+sourceTestSHA256()+`"}`)
+		`{"appId":1,"id":"plain-http","name":"明文","downloadUrl":"http://cdn.example.com/x.zip","sha256":"`+sourceTestSHA256()+`"}`)
 	if sourceBodyCode(t, httpURL) != 400 {
 		t.Fatalf("http url=%s", httpURL.Body.String())
 	}
 	draft := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/templates", admin,
-		`{"id":"draft-home","name":"草稿首页"}`)
+		`{"appId":1,"id":"draft-home","name":"草稿首页"}`)
 	if sourceBodyCode(t, draft) != 200 {
 		t.Fatalf("draft template=%s", draft.Body.String())
 	}
@@ -286,7 +286,7 @@ func TestSourceStationPublishRequiresSHA256AndURL(t *testing.T) {
 	if sourceBodyCode(t, shelf) != 400 {
 		t.Fatalf("shelf without sha/url=%s", shelf.Body.String())
 	}
-	live := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	live := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if strings.Contains(live.Body.String(), "no-hash") || strings.Contains(live.Body.String(), "draft-home") {
 		t.Fatalf("incomplete items leaked into index: %s", live.Body.String())
 	}
@@ -497,11 +497,11 @@ func TestSourceStationPluginVersionUpdateUnshelfAndRollback(t *testing.T) {
 	sha1 := sourceTestSHA256()
 	sha2 := strings.Repeat("cd", 32)
 	register := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
-		`{"id":"up-plugin","name":"可更新插件","version":"1.0.0","downloadUrl":"https://cdn.example.com/up-1.0.0.zip","sha256":"`+sha1+`","changelog":"首发","minVersion":"1.0.0","forceUpdate":false,"shelf":true}`)
+		`{"appId":1,"id":"up-plugin","name":"可更新插件","version":"1.0.0","downloadUrl":"https://cdn.example.com/up-1.0.0.zip","sha256":"`+sha1+`","changelog":"首发","minVersion":"1.0.0","forceUpdate":false,"shelf":true}`)
 	if sourceBodyCode(t, register) != 200 {
 		t.Fatalf("register v1=%s", register.Body.String())
 	}
-	v1 := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	v1 := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if !strings.Contains(v1.Body.String(), `"1.0.0"`) || !strings.Contains(v1.Body.String(), "up-1.0.0.zip") {
 		t.Fatalf("index v1=%s", v1.Body.String())
 	}
@@ -515,7 +515,7 @@ func TestSourceStationPluginVersionUpdateUnshelfAndRollback(t *testing.T) {
 	if sourceBodyCode(t, submit) != 200 {
 		t.Fatalf("approve v1.0.1=%s", submit.Body.String())
 	}
-	latest := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	latest := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if !strings.Contains(latest.Body.String(), `"version":"1.0.1"`) || !strings.Contains(latest.Body.String(), "up-1.0.1.zip") {
 		t.Fatalf("index should show latest 1.0.1: %s", latest.Body.String())
 	}
@@ -539,7 +539,7 @@ func TestSourceStationPluginVersionUpdateUnshelfAndRollback(t *testing.T) {
 	if sourceBodyCode(t, unshelf) != 200 {
 		t.Fatalf("unshelf=%s", unshelf.Body.String())
 	}
-	hidden := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	hidden := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if strings.Contains(hidden.Body.String(), "up-plugin") {
 		t.Fatalf("unshelf must hide plugin: %s", hidden.Body.String())
 	}
@@ -552,7 +552,7 @@ func TestSourceStationPluginVersionUpdateUnshelfAndRollback(t *testing.T) {
 	if sourceBodyCode(t, rollback) != 200 {
 		t.Fatalf("rollback=%s", rollback.Body.String())
 	}
-	rolled := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	rolled := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if !strings.Contains(rolled.Body.String(), `"version":"1.0.0"`) || !strings.Contains(rolled.Body.String(), "up-1.0.0.zip") {
 		t.Fatalf("rollback should restore 1.0.0 in index: %s", rolled.Body.String())
 	}

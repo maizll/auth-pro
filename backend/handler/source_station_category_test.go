@@ -47,15 +47,15 @@ func TestSourceCatalogItemsFilterByCategory(t *testing.T) {
 	admin := sourceAdminToken(t)
 	sha := sourceTestSHA256()
 	if rec := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
-		`{"id":"pay-plugin","name":"支付插件","category":"payment","downloadUrl":"https://cdn.example.com/pay.zip","sha256":"`+sha+`"}`); sourceBodyCode(t, rec) != 200 {
+		`{"appId":1,"id":"pay-plugin","name":"支付插件","category":"payment","downloadUrl":"https://cdn.example.com/pay.zip","sha256":"`+sha+`"}`); sourceBodyCode(t, rec) != 200 {
 		t.Fatalf("register payment=%s", rec.Body.String())
 	}
 	if rec := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
-		`{"id":"misc-plugin","name":"其他插件","category":"other","downloadUrl":"https://cdn.example.com/misc.zip","sha256":"`+sha+`"}`); sourceBodyCode(t, rec) != 200 {
+		`{"appId":1,"id":"misc-plugin","name":"其他插件","category":"other","downloadUrl":"https://cdn.example.com/misc.zip","sha256":"`+sha+`"}`); sourceBodyCode(t, rec) != 200 {
 		t.Fatalf("register other=%s", rec.Body.String())
 	}
 	if rec := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/templates", admin,
-		`{"id":"clean-home","name":"清新首页","templateUrl":"https://cdn.example.com/home.zip","sha256":"`+sha+`","schemaVersion":1}`); sourceBodyCode(t, rec) != 200 {
+		`{"appId":1,"id":"clean-home","name":"清新首页","templateUrl":"https://cdn.example.com/home.zip","sha256":"`+sha+`","schemaVersion":1}`); sourceBodyCode(t, rec) != 200 {
 		t.Fatalf("register template=%s", rec.Body.String())
 	}
 
@@ -82,11 +82,11 @@ func TestSourceCatalogIndexDerivesPluginsAndHomeTemplatesByCategory(t *testing.T
 	admin := sourceAdminToken(t)
 	sha := sourceTestSHA256()
 	sourceRegisterAndPublish(t, router, admin, "plugin", "pay-plugin",
-		`{"id":"pay-plugin","name":"支付插件","category":"payment","downloadUrl":"https://cdn.example.com/pay.zip","sha256":"`+sha+`"}`)
+		`{"appId":1,"id":"pay-plugin","name":"支付插件","category":"payment","downloadUrl":"https://cdn.example.com/pay.zip","sha256":"`+sha+`"}`)
 	sourceRegisterAndPublish(t, router, admin, "template", "clean-home",
-		`{"id":"clean-home","name":"清新首页","category":"home-template","templateUrl":"https://cdn.example.com/home.zip","sha256":"`+sha+`","schemaVersion":1}`)
+		`{"appId":1,"id":"clean-home","name":"清新首页","category":"home-template","templateUrl":"https://cdn.example.com/home.zip","sha256":"`+sha+`","schemaVersion":1}`)
 
-	live := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	live := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if live.Code != http.StatusOK {
 		t.Fatalf("index status=%d body=%s", live.Code, live.Body.String())
 	}
@@ -124,12 +124,12 @@ func TestSourceRegisterRejectsCrossKindCategory(t *testing.T) {
 	admin := sourceAdminToken(t)
 	sha := sourceTestSHA256()
 	plugin := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
-		`{"id":"bad-plugin","name":"错分类","category":"home-template","downloadUrl":"https://cdn.example.com/x.zip","sha256":"`+sha+`"}`)
+		`{"appId":1,"id":"bad-plugin","name":"错分类","category":"home-template","downloadUrl":"https://cdn.example.com/x.zip","sha256":"`+sha+`"}`)
 	if sourceBodyCode(t, plugin) != 400 || !strings.Contains(plugin.Body.String(), "分类") {
 		t.Fatalf("plugin home-template should be rejected: %s", plugin.Body.String())
 	}
 	tpl := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/templates", admin,
-		`{"id":"bad-home","name":"错分类","category":"payment","templateUrl":"https://cdn.example.com/t.zip","sha256":"`+sha+`","schemaVersion":1}`)
+		`{"appId":1,"id":"bad-home","name":"错分类","category":"payment","templateUrl":"https://cdn.example.com/t.zip","sha256":"`+sha+`","schemaVersion":1}`)
 	if sourceBodyCode(t, tpl) != 400 || !strings.Contains(tpl.Body.String(), "分类") {
 		t.Fatalf("template payment should be rejected: %s", tpl.Body.String())
 	}
@@ -140,7 +140,7 @@ func TestSourceTemplateDefaultsHomeTemplateCategory(t *testing.T) {
 	admin := sourceAdminToken(t)
 	sha := sourceTestSHA256()
 	rec := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/templates", admin,
-		`{"id":"plain-home","name":"默认分类","templateUrl":"https://cdn.example.com/t.zip","sha256":"`+sha+`","schemaVersion":1}`)
+		`{"appId":1,"id":"plain-home","name":"默认分类","templateUrl":"https://cdn.example.com/t.zip","sha256":"`+sha+`","schemaVersion":1}`)
 	if sourceBodyCode(t, rec) != 200 {
 		t.Fatalf("register=%s", rec.Body.String())
 	}
@@ -163,12 +163,12 @@ func TestSourceCustomCategoryAppearsInFilterAndIndex(t *testing.T) {
 	}
 	sha := sourceTestSHA256()
 	sourceRegisterAndPublish(t, router, admin, "plugin", "theme-pack",
-		`{"id":"theme-pack","name":"主题包","category":"theme","downloadUrl":"https://cdn.example.com/theme.zip","sha256":"`+sha+`"}`)
+		`{"appId":1,"id":"theme-pack","name":"主题包","category":"theme","downloadUrl":"https://cdn.example.com/theme.zip","sha256":"`+sha+`"}`)
 	filtered := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/catalog-items?category=theme", admin, "")
 	if ids := sourceCatalogItemIDs(t, filtered.Body.Bytes()); len(ids) != 1 || ids[0] != "theme-pack" {
 		t.Fatalf("theme filter=%v body=%s", ids, filtered.Body.String())
 	}
-	live := sourceJSON(t, router, http.MethodGet, "/software-source/index.json", "", "")
+	live := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if !strings.Contains(live.Body.String(), `"theme-pack"`) || !strings.Contains(live.Body.String(), `"category":"theme"`) {
 		t.Fatalf("index should publish custom plugin category: %s", live.Body.String())
 	}

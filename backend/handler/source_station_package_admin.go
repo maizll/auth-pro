@@ -143,6 +143,15 @@ func AdminSourcePackagePublish(c *gin.Context) {
 	changelog := truncateText(c.PostForm("changelog"), 2000)
 	minVersion := truncateText(c.PostForm("minVersion"), 40)
 	forceUpdate := formFlag(c, "forceUpdate")
+	appID, appErr := requestSourceCatalogAppID(c)
+	if appErr != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": appErr.Error()})
+		return
+	}
+	if appID <= 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": errSourceAppRequired.Error()})
+		return
+	}
 
 	var (
 		pluginView   gin.H
@@ -152,7 +161,7 @@ func AdminSourcePackagePublish(c *gin.Context) {
 	)
 	if kind == sourceKindTemplate {
 		item, convErr := adminTemplateFromRequest(sourceTemplateDraftRequest{
-			ID: manifest.ID, TemplateKey: manifest.ID, Name: manifest.Name, Description: manifest.Description,
+			ID: manifest.ID, AppID: appID, TemplateKey: manifest.ID, Name: manifest.Name, Description: manifest.Description,
 			Version: manifest.Version, SchemaVersion: manifest.SchemaVersion, SHA256: manifest.SHA256,
 			TemplateURL: location, Changelog: changelog, MinVersion: minVersion, ForceUpdate: forceUpdate,
 			Author: manifest.Author,
@@ -174,7 +183,7 @@ func AdminSourcePackagePublish(c *gin.Context) {
 			}
 		}
 		if shelf {
-			if pubErr := publishSourcePackageItem(sourceKindTemplate, saved.ID, manifest.Version, actor); pubErr != nil {
+			if pubErr := publishSourcePackageItem(sourceKindTemplate, saved.ID, saved.Version, actor); pubErr != nil {
 				writeSourceDeveloperStoreError(c, pubErr)
 				return
 			}
@@ -188,7 +197,7 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		itemID = saved.ID
 	} else {
 		item, convErr := adminPluginFromRequest(sourcePluginDraftRequest{
-			ID: manifest.ID, Category: manifest.Category, Name: manifest.Name, Description: manifest.Description,
+			ID: manifest.ID, AppID: appID, Category: manifest.Category, Name: manifest.Name, Description: manifest.Description,
 			Icon: manifest.Icon, Version: manifest.Version, SHA256: manifest.SHA256, DownloadURL: location,
 			Changelog: changelog, MinVersion: minVersion, ForceUpdate: forceUpdate, Author: manifest.Author,
 		})
@@ -209,7 +218,7 @@ func AdminSourcePackagePublish(c *gin.Context) {
 			}
 		}
 		if shelf {
-			if pubErr := publishSourcePackageItem(sourceKindPlugin, saved.ID, manifest.Version, actor); pubErr != nil {
+			if pubErr := publishSourcePackageItem(sourceKindPlugin, saved.ID, saved.Version, actor); pubErr != nil {
 				writeSourceDeveloperStoreError(c, pubErr)
 				return
 			}
@@ -253,9 +262,7 @@ func AdminSourcePackagePublish(c *gin.Context) {
 }
 
 func publishSourcePackageItem(kind, id, version, actor string) error {
-	if _, err := currentSourceStationStore().SetVersionStatus(kind, id, version, sourceVersionPublished, actor, "package publish"); err != nil {
-		return err
-	}
+	_ = version
 	if kind == sourceKindTemplate {
 		item, err := currentSourceStationStore().GetTemplate(id)
 		if err != nil {

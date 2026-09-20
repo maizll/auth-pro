@@ -271,7 +271,9 @@
         </template>
       </ElTable>
       <div class="source-tip">
-        支持 JSON 清单 URL 或 HTTP(S) Git 仓库地址；Git 仓库根目录需包含 index.json。
+        支持 JSON 清单 URL（本站源站请用
+        <code>/software-source/{app_key}/index.json</code>，每个应用一条，避免串目录）或 HTTP(S)
+        Git 仓库地址；Git 仓库根目录需包含 index.json。
       </div>
     </ElDialog>
 

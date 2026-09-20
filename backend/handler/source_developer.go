@@ -24,6 +24,7 @@ type sourceDeveloperApplyRequest struct {
 
 type sourcePluginDraftRequest struct {
 	ID          string       `json:"id"`
+	AppID       int64        `json:"appId"`
 	Category    string       `json:"category"`
 	Name        string       `json:"name"`
 	Description string       `json:"description"`
@@ -40,6 +41,7 @@ type sourcePluginDraftRequest struct {
 
 type sourceTemplateDraftRequest struct {
 	ID            string       `json:"id"`
+	AppID         int64        `json:"appId"`
 	Category      string       `json:"category"`
 	TemplateKey   string       `json:"templateKey"`
 	Name          string       `json:"name"`
@@ -441,7 +443,7 @@ func sourceApplicationView(item sourceApplication) gin.H {
 
 func sourcePluginView(item sourcePlugin) gin.H {
 	return gin.H{
-		"id": item.ID, "developerId": item.DeveloperID, "category": item.Category, "name": item.Name,
+		"id": item.ID, "developerId": item.DeveloperID, "appId": item.AppID, "category": item.Category, "name": item.Name,
 		"description": item.Description, "icon": item.Icon, "version": item.Version, "author": item.Author,
 		"sha256": item.SHA256, "downloadUrl": item.DownloadURL, "changelog": item.Changelog,
 		"latestVersion": item.LatestVersion, "minVersion": item.MinVersion, "forceUpdate": item.ForceUpdate,
@@ -456,7 +458,7 @@ func sourceTemplateView(item sourceTemplate) gin.H {
 		category = sourceCategoryHomeTemplate
 	}
 	return gin.H{
-		"id": item.ID, "developerId": item.DeveloperID, "category": category, "templateKey": item.TemplateKey, "name": item.Name,
+		"id": item.ID, "developerId": item.DeveloperID, "appId": item.AppID, "category": category, "templateKey": item.TemplateKey, "name": item.Name,
 		"description": item.Description, "version": item.Version, "schemaVersion": item.SchemaVersion,
 		"sha256": item.SHA256, "templateUrl": item.TemplateURL, "changelog": item.Changelog,
 		"latestVersion": item.LatestVersion, "minVersion": item.MinVersion, "forceUpdate": item.ForceUpdate,
@@ -524,6 +526,7 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 	return sourcePlugin{
 		ID:          pluginID,
 		DeveloperID: developer.ID,
+		AppID:       req.AppID,
 		Category:    category,
 		Name:        name,
 		Description: truncateText(req.Description, 500),
@@ -589,6 +592,7 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 	return sourceTemplate{
 		ID:            templateKey,
 		DeveloperID:   developer.ID,
+		AppID:         req.AppID,
 		Category:      category,
 		TemplateKey:   templateKey,
 		Name:          name,
@@ -615,7 +619,8 @@ func writeSourceDeveloperStoreError(c *gin.Context, err error) {
 	case errors.Is(err, errSourceConflict), errors.Is(err, errApplicationPending), errors.Is(err, errApplicationReviewed),
 		errors.Is(err, errApplicationNotCancellable), errors.Is(err, errDeveloperAlreadyCancelled),
 		errors.Is(err, errSourcePublishIncomplete), errors.Is(err, errSourceInvalidStatus),
-		errors.Is(err, errSourceVersionImmutable), errors.Is(err, errSourceVersionNotLatest):
+		errors.Is(err, errSourceVersionImmutable), errors.Is(err, errSourceVersionNotLatest),
+		errors.Is(err, errSourceAppRequired), errors.Is(err, errSourceAppNotFound):
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 	case errors.Is(err, errSourceForbidden), errors.Is(err, errDeveloperDisabled):
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": err.Error()})

@@ -40,6 +40,11 @@ func AdminSourceCancelDeveloper(c *gin.Context) {
 }
 
 func AdminSourcePlugins(c *gin.Context) {
+	appID, err := requestSourceCatalogAppID(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
 	items, err := currentSourceStationStore().ListPlugins(strings.TrimSpace(c.Query("status")))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取插件目录失败"})
@@ -47,7 +52,9 @@ func AdminSourcePlugins(c *gin.Context) {
 	}
 	list := make([]gin.H, 0, len(items))
 	for _, item := range items {
-		list = append(list, sourcePluginView(item))
+		if matchSourceCatalogAppID(item.AppID, appID) {
+			list = append(list, sourcePluginView(item))
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": list, "total": len(list)}})
 }
@@ -69,10 +76,19 @@ func AdminSourceRegisterPlugin(c *gin.Context) {
 		return
 	}
 	if req.Shelf {
-		saved, err = currentSourceStationStore().SetPluginStatus(saved.ID, sourceItemPublished, c.GetString("username"), "admin register")
-		if err != nil {
-			writeSourceDeveloperStoreError(c, err)
-			return
+		if saved.Status != sourceItemApproved && saved.Status != sourceItemHidden && saved.Status != sourceItemPublished {
+			saved, err = currentSourceStationStore().SetPluginStatus(saved.ID, sourceItemApproved, c.GetString("username"), "admin register")
+			if err != nil {
+				writeSourceDeveloperStoreError(c, err)
+				return
+			}
+		}
+		if saved.Status != sourceItemPublished {
+			saved, err = currentSourceStationStore().SetPluginStatus(saved.ID, sourceItemPublished, c.GetString("username"), "admin register")
+			if err != nil {
+				writeSourceDeveloperStoreError(c, err)
+				return
+			}
 		}
 		persistIndexSnapshot(c.GetString("username"))
 	}
@@ -100,6 +116,11 @@ func AdminSourcePluginDeprecate(c *gin.Context) {
 }
 
 func AdminSourceTemplates(c *gin.Context) {
+	appID, err := requestSourceCatalogAppID(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
 	items, err := currentSourceStationStore().ListTemplates(strings.TrimSpace(c.Query("status")))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取模板目录失败"})
@@ -107,7 +128,9 @@ func AdminSourceTemplates(c *gin.Context) {
 	}
 	list := make([]gin.H, 0, len(items))
 	for _, item := range items {
-		list = append(list, sourceTemplateView(item))
+		if matchSourceCatalogAppID(item.AppID, appID) {
+			list = append(list, sourceTemplateView(item))
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": list, "total": len(list)}})
 }
@@ -129,10 +152,19 @@ func AdminSourceRegisterTemplate(c *gin.Context) {
 		return
 	}
 	if req.Shelf {
-		saved, err = currentSourceStationStore().SetTemplateStatus(saved.ID, sourceItemPublished, c.GetString("username"), "admin register")
-		if err != nil {
-			writeSourceDeveloperStoreError(c, err)
-			return
+		if saved.Status != sourceItemApproved && saved.Status != sourceItemHidden && saved.Status != sourceItemPublished {
+			saved, err = currentSourceStationStore().SetTemplateStatus(saved.ID, sourceItemApproved, c.GetString("username"), "admin register")
+			if err != nil {
+				writeSourceDeveloperStoreError(c, err)
+				return
+			}
+		}
+		if saved.Status != sourceItemPublished {
+			saved, err = currentSourceStationStore().SetTemplateStatus(saved.ID, sourceItemPublished, c.GetString("username"), "admin register")
+			if err != nil {
+				writeSourceDeveloperStoreError(c, err)
+				return
+			}
 		}
 		persistIndexSnapshot(c.GetString("username"))
 	}
@@ -160,7 +192,12 @@ func AdminSourceTemplateDeprecate(c *gin.Context) {
 }
 
 func AdminSourceIndexSnapshot(c *gin.Context) {
-	payload, catalog, err := sourceCatalogJSON()
+	app, err := resolveAdminIndexApp(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	payload, catalog, err := sourceCatalogJSONForApp(app)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "生成目录失败"})
 		return
@@ -169,6 +206,9 @@ func AdminSourceIndexSnapshot(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
 		"live":          json.RawMessage(payload),
 		"name":          catalog.Name,
+		"appKey":        catalog.AppKey,
+		"appId":         catalog.AppID,
+		"indexUrl":      catalog.IndexURL,
 		"pluginCount":   len(catalog.Plugins),
 		"templateCount": len(catalog.HomeTemplates),
 		"snapshot":      snap,
@@ -176,8 +216,13 @@ func AdminSourceIndexSnapshot(c *gin.Context) {
 }
 
 func AdminSourceIndexRegenerate(c *gin.Context) {
+	app, err := resolveAdminIndexApp(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
 	persistIndexSnapshot(c.GetString("username"))
-	payload, catalog, err := sourceCatalogJSON()
+	payload, catalog, err := sourceCatalogJSONForApp(app)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "生成目录失败"})
 		return
@@ -185,9 +230,38 @@ func AdminSourceIndexRegenerate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已从数据库重新生成公开目录", "data": gin.H{
 		"live":          json.RawMessage(payload),
 		"name":          catalog.Name,
+		"appKey":        catalog.AppKey,
+		"appId":         catalog.AppID,
+		"indexUrl":      catalog.IndexURL,
 		"pluginCount":   len(catalog.Plugins),
 		"templateCount": len(catalog.HomeTemplates),
 	}})
+}
+
+func resolveAdminIndexApp(c *gin.Context) (sourceCatalogApp, error) {
+	if id, err := parseSourceCatalogAppIDValue(c.Query("app_id")); err != nil {
+		return sourceCatalogApp{}, err
+	} else if id > 0 {
+		return currentSourceStationStore().GetCatalogAppByID(id)
+	}
+	appKey := strings.TrimSpace(c.Query("app_key"))
+	if appKey == "" {
+		appKey = strings.TrimSpace(c.Query("appKey"))
+	}
+	if appKey != "" {
+		return currentSourceStationStore().GetCatalogAppByKey(appKey)
+	}
+	apps, err := currentSourceStationStore().ListCatalogApps()
+	if err != nil {
+		return sourceCatalogApp{}, err
+	}
+	if len(apps) == 1 {
+		return apps[0], nil
+	}
+	if len(apps) == 0 {
+		return sourceCatalogApp{}, errSourceAppRequired
+	}
+	return apps[0], nil
 }
 
 func AdminSourceAudit(c *gin.Context) {
@@ -348,6 +422,7 @@ func adminPluginFromRequest(req sourcePluginDraftRequest) (sourcePlugin, error) 
 	}
 	return sourcePlugin{
 		ID:          pluginID,
+		AppID:       req.AppID,
 		Category:    category,
 		Name:        name,
 		Description: truncateText(req.Description, 500),
@@ -406,6 +481,7 @@ func adminTemplateFromRequest(req sourceTemplateDraftRequest) (sourceTemplate, e
 	}
 	return sourceTemplate{
 		ID:            templateKey,
+		AppID:         req.AppID,
 		Category:      category,
 		TemplateKey:   templateKey,
 		Name:          name,
