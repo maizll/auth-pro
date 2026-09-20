@@ -111,7 +111,7 @@
     loading.value = true
     try {
       const data = await fetchSourceApplications('pending')
-      applications.value = data.list || []
+      applications.value = (data.list || []).filter((item) => item.status === 'pending')
     } finally {
       loading.value = false
     }
@@ -121,7 +121,7 @@
     devLoading.value = true
     try {
       const data = await fetchSourceDevelopers()
-      developers.value = data.list || []
+      developers.value = (data.list || []).filter((item) => item.enabled !== false)
     } finally {
       devLoading.value = false
     }

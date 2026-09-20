@@ -41,6 +41,10 @@ const (
 
 	sourceKindPlugin   = "plugin"
 	sourceKindTemplate = "template"
+
+	// Real local table names. There is no source_applications table.
+	mysqlPurgeInactiveApplicationsSQL = "DELETE FROM source_developer_applications WHERE status IN ('frozen','cancelled','approved','rejected')"
+	mysqlPurgeDisabledDevelopersSQL   = "DELETE FROM source_developers WHERE enabled=0"
 )
 
 var (
@@ -466,10 +470,13 @@ func newMemorySourceStore() *memorySourceStore {
 		nextAuditID: 1,
 	}
 	store.revision.Store(1)
+	_ = store.purgeInactiveDeveloperQualifications()
 	return store
 }
 
-func (store *memorySourceStore) Ensure() error { return nil }
+func (store *memorySourceStore) Ensure() error {
+	return store.purgeInactiveDeveloperQualifications()
+}
 
 func (store *memorySourceStore) ListCatalogApps() ([]sourceCatalogApp, error) {
 	store.mu.Lock()
@@ -1089,11 +1096,42 @@ func (store *memorySourceStore) FreezeDeveloper(id int64, actor, note string) er
 	return nil
 }
 
+func isActiveDeveloperQualification(item sourceDeveloper) bool {
+	return item.Enabled
+}
+
+func isRetainedDeveloperApplication(item sourceApplication) bool {
+	return item.Status == sourceApplicationPending
+}
+
+func (store *memorySourceStore) purgeInactiveDeveloperQualifications() error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.purgeInactiveDeveloperQualificationsLocked()
+	return nil
+}
+
+func (store *memorySourceStore) purgeInactiveDeveloperQualificationsLocked() {
+	for id, app := range store.applications {
+		if !isRetainedDeveloperApplication(app) {
+			delete(store.applications, id)
+		}
+	}
+	for id, dev := range store.developers {
+		if !isActiveDeveloperQualification(dev) {
+			delete(store.developers, id)
+		}
+	}
+}
+
 func (store *memorySourceStore) ListDevelopers() ([]sourceDeveloper, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	result := make([]sourceDeveloper, 0, len(store.developers))
 	for _, item := range store.developers {
+		if !isActiveDeveloperQualification(item) {
+			continue
+		}
 		copyItem := item
 		copyItem.PasswordHash = ""
 		result = append(result, copyItem)
@@ -1554,6 +1592,19 @@ func ensureSourceStationStorage(db *sql.DB) error {
 	_, _ = db.Exec(`INSERT IGNORE INTO roles (role_name, role_code, description, discount, enabled)
 		VALUES (?, ?, '软件源开发者，可提交插件与首页模板元数据', 10.0, 1)`,
 		sourceDeveloperRoleName, sourceDeveloperRoleCode)
+	if err := mysqlPurgeInactiveDeveloperQualifications(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+func mysqlPurgeInactiveDeveloperQualifications(db *sql.DB) error {
+	if _, err := db.Exec(mysqlPurgeInactiveApplicationsSQL); err != nil {
+		return err
+	}
+	if _, err := db.Exec(mysqlPurgeDisabledDevelopersSQL); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -2387,7 +2438,7 @@ func (mysqlSourceStore) ListDevelopers() ([]sourceDeveloper, error) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(`SELECT id, COALESCE(application_id, 0), COALESCE(agent_id, 0), username, '' AS password_hash, email, display_name, enabled, created_at FROM source_developers ORDER BY id ASC`)
+	rows, err := db.Query(`SELECT id, COALESCE(application_id, 0), COALESCE(agent_id, 0), username, '' AS password_hash, email, display_name, enabled, created_at FROM source_developers WHERE enabled=1 ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
 	}

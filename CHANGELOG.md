@@ -1,5 +1,12 @@
 # 更新日志
 
+## [源站] 2026-09-20 — 取消开发者后清除冻结残留
+
+- 取消开发者仍是硬删除资格与相关入驻申请（不冻结、不留单）。
+- 启动时一次性清掉 `source_developer_applications` 中 `frozen/cancelled/approved/rejected` 行（例如 zxcv25 的 frozen 残留），以及 `source_developers` 中 `enabled=0` 的资格行；不碰 `source_applications`（该表不存在），也不动代理商账号。
+- 开发者列表只返回启用中的资格；入驻审核列表仍仅待审核。
+- 申请状态不再把禁用资格映射成「已冻结」鬼影行。
+
 ## [v1.4.0] 2026-09-20 — 四端统一站内通知中心
 
 - 管理后台、用户端、代理端、开发者端顶栏共用 `ArtNotification` 铃铛，数据来自 `GET/POST /api/v1/notifications*`，不再使用演示 mock。
