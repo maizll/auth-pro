@@ -51,11 +51,12 @@ export interface MenuEditForm {
 
 export function mapManageRowToForm(row: ManageMenuRow | null | undefined): MenuEditForm | null {
   if (!row) return null
-  const title = resolveMenuTitle(row.title || row.meta?.title, '')
+  // 弹窗「名称」绑的是 form.name；接口行是 title（常为 menus.*），必须解析后再写入。
+  const title = resolveMenuTitle(row.title || row.meta?.title, String(row.name || ''))
   return {
     id: Number(row.id || 0),
     parentId: Number(row.parentId ?? row.parent_id ?? 0) || 0,
-    name: title || String(row.name || ''),
+    name: title,
     path: row.path || '',
     label: row.name || '',
     component: row.component || '',

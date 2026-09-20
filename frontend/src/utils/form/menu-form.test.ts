@@ -69,4 +69,22 @@ const saved = toMenuSavePayload({
 })
 assert.equal(saved.title, '')
 
+// 编辑路径：列表行只有 title/name → 打开弹窗回填中文 → 保存非空 title → 再打开仍非空
+const listRow = {
+  id: 210,
+  parentId: 0,
+  name: 'PluginStore',
+  path: '/plugin-store',
+  title: 'menus.integration.store'
+}
+const opened = mapManageRowToForm(listRow)
+assert.ok(opened)
+assert.equal(opened.name, '应用商店')
+assert.ok(opened.name.trim())
+const persist = toMenuSavePayload(opened)
+assert.equal(persist.title, '应用商店')
+assert.ok(persist.title)
+const reopened = mapManageRowToForm({ ...listRow, title: persist.title })
+assert.equal(reopened?.name, '应用商店')
+
 console.log('menu-form ok')

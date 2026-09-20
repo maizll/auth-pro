@@ -96,3 +96,19 @@ export function stripDemoMenus<T extends { name?: string; children?: T[] }>(item
       item.children?.length ? { ...item, children: stripDemoMenus(item.children) } : item
     )
 }
+
+/** 管理列表「名称」列：解析 i18n key，空 title 回退路由 name，保证可读且非空。 */
+export function formatManageMenuName(row: { title?: string | null; name?: string | null }): string {
+  return resolveMenuTitle(row.title, String(row.name || ''))
+}
+
+/** 把管理树的 title 写成可读中文，编辑回填和表格默认单元格都能直接用。 */
+export function resolveManageMenuTree<
+  T extends { title?: string; name?: string; children?: T[] }
+>(items: T[]): T[] {
+  return items.map((item) => ({
+    ...item,
+    title: formatManageMenuName(item),
+    children: item.children?.length ? resolveManageMenuTree(item.children) : item.children
+  }))
+}

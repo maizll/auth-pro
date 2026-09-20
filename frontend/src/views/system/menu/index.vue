@@ -56,7 +56,7 @@
   import MenuDialog from './modules/menu-dialog.vue'
   import { fetchMenuManageList, fetchCreateMenu, fetchUpdateMenu, fetchDeleteMenu } from '@/api/system-manage'
   import { toMenuSavePayload } from '@/utils/form/menu-form'
-  import { resolveMenuTitle, stripDemoMenus } from '@/utils/form/menu-title'
+  import { formatManageMenuName, resolveManageMenuTree, stripDemoMenus } from '@/utils/form/menu-title'
   import { reloadDynamicMenus } from '@/router/guards/beforeEach'
   import { ElTag, ElMessage, ElMessageBox } from 'element-plus'
   import { useRouter } from 'vue-router'
@@ -110,7 +110,7 @@
     loading.value = true
     try {
       const res = await fetchMenuManageList()
-      tableData.value = stripDemoMenus(res || [])
+      tableData.value = resolveManageMenuTree(stripDemoMenus(res || []))
     } finally {
       loading.value = false
     }
@@ -131,7 +131,7 @@
       prop: 'title',
       label: '菜单名称',
       minWidth: 160,
-      formatter: (row: MenuItem) => resolveMenuTitle(row.title, row.name)
+      formatter: (row: MenuItem) => formatManageMenuName(row)
     },
     {
       prop: 'type',
@@ -200,7 +200,7 @@
     for (const item of items) {
       const searchName = appliedFilters.name?.toLowerCase().trim() || ''
       const searchRoute = appliedFilters.route?.toLowerCase().trim() || ''
-      const menuTitle = resolveMenuTitle(item.title, item.name).toLowerCase()
+      const menuTitle = formatManageMenuName(item).toLowerCase()
       const menuPath = (item.path || '').toLowerCase()
       const nameMatch = !searchName || menuTitle.includes(searchName)
       const routeMatch = !searchRoute || menuPath.includes(searchRoute)
@@ -219,11 +219,16 @@
   const filteredTableData = computed(() => searchMenu(tableData.value))
 
   const handleAddMenu = (): void => {
+    dialogType.value = 'menu'
     editData.value = null
     dialogVisible.value = true
   }
   const handleEditMenu = (row: MenuItem): void => {
-    editData.value = row
+    dialogType.value = 'menu'
+    editData.value = {
+      ...row,
+      title: formatManageMenuName(row)
+    }
     dialogVisible.value = true
   }
 

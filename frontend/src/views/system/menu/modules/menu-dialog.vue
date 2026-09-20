@@ -387,7 +387,8 @@
         form.menuType = props.type
       }
       formEpoch.value += 1
-    }
+    },
+    { flush: 'sync' }
   )
 
   watch(
