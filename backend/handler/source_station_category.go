@@ -203,6 +203,9 @@ func listSourceCatalogItems(status, category string, appID int64) ([]gin.H, erro
 		if !matchSourceCatalogAppID(plugin.AppID, appID) {
 			continue
 		}
+		if !includeSourceCatalogItem(plugin.Status, status) {
+			continue
+		}
 		view := sourceCatalogItemFromPlugin(plugin)
 		if category == "" || view["category"] == category {
 			items = append(items, view)
@@ -210,6 +213,9 @@ func listSourceCatalogItems(status, category string, appID int64) ([]gin.H, erro
 	}
 	for _, template := range templates {
 		if !matchSourceCatalogAppID(template.AppID, appID) {
+			continue
+		}
+		if !includeSourceCatalogItem(template.Status, status) {
 			continue
 		}
 		view := sourceCatalogItemFromTemplate(template)
@@ -228,6 +234,16 @@ func listSourceCatalogItems(status, category string, appID int64) ([]gin.H, erro
 		return left > right
 	})
 	return items, nil
+}
+
+// includeSourceCatalogItem hides deprecated rows from the default shelf so
+// 弃用 is terminal removal from the live workbench. Pass status=deprecated
+// (or any other explicit status) to audit those rows.
+func includeSourceCatalogItem(itemStatus, filter string) bool {
+	if filter != "" {
+		return itemStatus == filter
+	}
+	return itemStatus != sourceItemDeprecated
 }
 
 func sourceCatalogItemFromPlugin(item sourcePlugin) gin.H {

@@ -142,7 +142,7 @@ func AdminSourcePluginUnshelf(c *gin.Context) {
 }
 
 func AdminSourcePluginDeprecate(c *gin.Context) {
-	adminSetPluginStatus(c, sourceItemDeprecated, "已标记弃用")
+	adminSetPluginStatus(c, sourceItemDeprecated, "已弃用：已从公开软件源目录清除，不再展示")
 }
 
 func AdminSourceTemplates(c *gin.Context) {
@@ -249,7 +249,7 @@ func AdminSourceTemplateUnshelf(c *gin.Context) {
 }
 
 func AdminSourceTemplateDeprecate(c *gin.Context) {
-	adminSetTemplateStatus(c, sourceItemDeprecated, "已标记弃用")
+	adminSetTemplateStatus(c, sourceItemDeprecated, "已弃用：已从公开软件源目录清除，不再展示")
 }
 
 func AdminSourceIndexSnapshot(c *gin.Context) {
@@ -377,7 +377,7 @@ func AdminSourcePluginVersionReject(c *gin.Context) {
 }
 
 func AdminSourcePluginVersionDeprecate(c *gin.Context) {
-	adminSetReleaseStatus(c, sourceKindPlugin, sourceVersionDeprecated, "版本已弃用（元数据保留）")
+	adminSetReleaseStatus(c, sourceKindPlugin, sourceVersionDeprecated, "版本已弃用：若已无其他已发布版本，条目会从公开软件源目录清除，不再展示")
 }
 
 func AdminSourcePluginVersionLatest(c *gin.Context) {
@@ -401,7 +401,7 @@ func AdminSourceTemplateVersionReject(c *gin.Context) {
 }
 
 func AdminSourceTemplateVersionDeprecate(c *gin.Context) {
-	adminSetReleaseStatus(c, sourceKindTemplate, sourceVersionDeprecated, "版本已弃用（元数据保留）")
+	adminSetReleaseStatus(c, sourceKindTemplate, sourceVersionDeprecated, "版本已弃用：若已无其他已发布版本，条目会从公开软件源目录清除，不再展示")
 }
 
 func AdminSourceTemplateVersionLatest(c *gin.Context) {

@@ -28,7 +28,7 @@ AuthPro 源站只登记**元数据 + 外部地址**，不保存源码或 ZIP。�
 4. 插件必填：id, name, version, description, author（字符串或对象，name 必填）。`kind` 可选，若填必须为 `plugin`。
 5. 模板必填：`kind: "template"`、id 或 templateKey、name、version、description、author、`schemaVersion: 1`、`hero.title`。**禁止 `scripts`。** category 省略则自动 `home-template`。
 6. 分类：插件用 payment / realname / other（或管理端**插件** extras，例如标识 `template`、名称「模板」）；模板用 home-template。种类与清单必须一致。插件 extras 会出现在应用商店二级筛选，但仍在 `plugins` 数组。
-7. 每个包绑定一个 `appId`。公开索引：`/software-source/{app_key}/index.json`。上架后自动进入该应用软件源目录。
+7. 每个包绑定一个 `appId`。公开索引：`/software-source/{app_key}/index.json`。上架后自动进入该应用软件源目录。弃用后会从公开软件源目录清除，不再展示。
 8. ZIP 硬校验失败即拒绝：非 ZIP、>20MiB、路径穿越、符号链接、缺清单、模板缺 kind。
 9. 提交流：draft → review → approved → published。上架需要 64 位 sha256 + 外部地址。
 

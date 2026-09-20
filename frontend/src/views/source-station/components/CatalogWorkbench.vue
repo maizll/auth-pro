@@ -18,7 +18,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
-          <el-select v-model="searchForm.status" placeholder="全部" clearable style="width: 140px">
+          <el-select v-model="searchForm.status" placeholder="默认（不含已弃用）" clearable style="width: 180px">
             <el-option label="草稿" value="draft" />
             <el-option label="待审核" value="review" />
             <el-option label="已通过" value="approved" />
@@ -54,7 +54,7 @@
             <p class="card-hint">
               插件按应用分区：先选应用，再按分类（支付 / 实名 / 其他 / 首页模板）筛选。源站只保存元数据与外部
               HTTPS 地址，从不存储源码。上架后自动进入该应用软件源目录；下架只从
-              <code>{{ publicIndexPath }}</code> 隐藏，不会远程卸载已安装实例。
+              <code>{{ publicIndexPath }}</code> 隐藏，不会远程卸载已安装实例。弃用后会从公开软件源目录清除，不再展示；默认列表也不再把它当作在架货架项（可用状态筛「已弃用」审计）。
             </p>
           </div>
           <div class="table-actions">
