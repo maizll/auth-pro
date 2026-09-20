@@ -176,10 +176,23 @@ func RequireSuperAdmin() gin.HandlerFunc {
 	}
 }
 
-// RequireDeveloper 仅允许软件源开发者角色访问，需置于 JWTAuth 之后。
+// RequireAgent 仅允许代理商角色访问，需置于 JWTAuth 之后。
+func RequireAgent() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetString("role") != "agent" {
+			c.JSON(http.StatusOK, gin.H{"code": 403, "message": "无权限访问代理商接口"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequireDeveloper 允许软件源开发者 JWT，或已绑定开发者资格的代理商 JWT。
 func RequireDeveloper() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.GetString("role") != "developer" {
+		role := c.GetString("role")
+		if role != "developer" && role != "agent" {
 			c.JSON(http.StatusOK, gin.H{"code": 403, "message": "无权限访问开发者接口"})
 			c.Abort()
 			return

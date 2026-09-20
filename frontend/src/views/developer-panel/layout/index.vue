@@ -52,12 +52,16 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, ref } from 'vue'
+  import { computed, onMounted, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { Icon as IconifyIcon } from '@iconify/vue'
   import { useSystemConfigStore } from '@/store/modules/system-config'
   import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
-  import { DEVELOPER_INFO_KEY, DEVELOPER_TOKEN_KEY } from '@/api/source-developer'
+  import {
+    DEVELOPER_INFO_KEY,
+    DEVELOPER_TOKEN_KEY,
+    fetchSourceDeveloperMe
+  } from '@/api/source-developer'
 
   const route = useRoute()
   const router = useRouter()
@@ -89,8 +93,23 @@
   function handleLogout() {
     localStorage.removeItem(DEVELOPER_TOKEN_KEY)
     localStorage.removeItem(DEVELOPER_INFO_KEY)
-    router.push('/developer-panel/login')
+    if (localStorage.getItem('agent_panel_token')) {
+      router.push('/agent-panel/become-developer')
+      return
+    }
+    router.push('/agent-panel/login')
   }
+
+  onMounted(async () => {
+    try {
+      const { data, status } = await fetchSourceDeveloperMe()
+      if (status === 401 || data.code === 401 || data.code === 403) {
+        router.replace('/agent-panel/become-developer')
+      }
+    } catch {
+      /* Keep the shell; page requests will handle auth errors. */
+    }
+  })
 </script>
 
 <style scoped lang="scss">

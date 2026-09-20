@@ -16,6 +16,7 @@ export interface SourceListResponse<T> {
 
 export interface SourceApplication {
   id: number
+  agentId?: number
   username: string
   email: string
   displayName: string
@@ -29,6 +30,7 @@ export interface SourceApplication {
 
 export interface SourceDeveloper {
   id: number
+  agentId?: number
   username: string
   email: string
   displayName: string

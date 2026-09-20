@@ -4,27 +4,25 @@ const BASE = '/api/v1/source/developer'
 
 export const DEVELOPER_TOKEN_KEY = 'developer_panel_token'
 export const DEVELOPER_INFO_KEY = 'developer_panel_info'
-export const AGENT_DEVELOPER_APPLY_KEY = 'agent_panel_developer_apply_username'
+export const AGENT_TOKEN_KEY = 'agent_panel_token'
+export const AGENT_INFO_KEY = 'agent_panel_info'
 
 export const DEVELOPER_USERNAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,58}$/
 
-export interface SourceDeveloperApplyPayload {
-  username: string
-  password: string
-  email: string
-  displayName: string
-  reason: string
-}
-
 export interface SourceDeveloperApplyResult {
   id: number
+  agentId?: number
   username: string
+  displayName?: string
   status: string
 }
 
 export interface SourceDeveloperApplyStatus {
   id?: number
+  agentId?: number
   username: string
+  displayName?: string
+  email?: string
   status: string
   enabled?: boolean
   reviewNote?: string
@@ -83,54 +81,75 @@ export const DEVELOPER_APPLY_STATUS: Record<
   pending: {
     label: '审核中',
     type: 'warning',
-    description: '入驻申请已提交，请等待管理员审核。'
+    description: '入驻申请已提交，请等待管理员在源站「入驻审核」中处理。'
   },
   approved: {
     label: '已通过',
     type: 'success',
-    description: '申请已通过，可使用开发者账号登录开发者端。'
+    description: '申请已通过，可使用当前代理商账号进入开发者端。'
   },
   rejected: {
     label: '已拒绝',
     type: 'danger',
-    description: '入驻申请未通过。同一用户名不可重复申请，请更换用户名后重新提交。'
+    description: '入驻申请未通过。可再次一键申请，仍使用当前代理商账号。'
   },
   frozen: {
     label: '已取消',
     type: 'danger',
-    description: '开发者资格已被取消，无法再登录开发者端或发布内容。如需重新入驻，请更换用户名后再次申请。'
+    description: '开发者资格已被取消，无法进入开发者端或发布内容。可再次一键申请。'
   },
   cancelled: {
     label: '已取消',
     type: 'danger',
-    description: '开发者资格已被取消，无法再登录开发者端或发布内容。如需重新入驻，请更换用户名后再次申请。'
+    description: '开发者资格已被取消，无法进入开发者端或发布内容。可再次一键申请。'
   }
 }
 
-export function developerAuthHeaders(): AxiosRequestConfig['headers'] {
-  return { Authorization: `Bearer ${localStorage.getItem(DEVELOPER_TOKEN_KEY) || ''}` }
+export function agentAuthHeaders(): AxiosRequestConfig['headers'] {
+  return { Authorization: `Bearer ${localStorage.getItem(AGENT_TOKEN_KEY) || ''}` }
 }
 
-export function applySourceDeveloper(payload: SourceDeveloperApplyPayload) {
+export function developerAuthHeaders(): AxiosRequestConfig['headers'] {
+  const token =
+    localStorage.getItem(DEVELOPER_TOKEN_KEY) || localStorage.getItem(AGENT_TOKEN_KEY) || ''
+  return { Authorization: `Bearer ${token}` }
+}
+
+export function enterDeveloperSessionFromAgent() {
+  const token = localStorage.getItem(AGENT_TOKEN_KEY) || ''
+  if (!token) return false
+  localStorage.setItem(DEVELOPER_TOKEN_KEY, token)
+  try {
+    const info = JSON.parse(localStorage.getItem(AGENT_INFO_KEY) || '{}') as {
+      email?: string
+      name?: string
+    }
+    localStorage.setItem(
+      DEVELOPER_INFO_KEY,
+      JSON.stringify({
+        username: info.email || '',
+        displayName: info.name || info.email || ''
+      })
+    )
+  } catch {
+    /* Ignore malformed agent profile. */
+  }
+  return true
+}
+
+export function applySourceDeveloper() {
   return axios.post<{ code: number; msg: string; data: SourceDeveloperApplyResult }>(
     `${BASE}/apply`,
-    payload
+    {},
+    { headers: agentAuthHeaders() }
   )
 }
 
-export function fetchSourceDeveloperApplyStatus(username: string) {
-  return axios.post<{ code: number; msg: string; data: SourceDeveloperApplyStatus }>(
+export function fetchSourceDeveloperApplyStatus() {
+  return axios.get<{ code: number; msg: string; data: SourceDeveloperApplyStatus }>(
     `${BASE}/apply/status`,
-    { username }
+    { headers: agentAuthHeaders() }
   )
-}
-
-export function loginSourceDeveloper(username: string, password: string) {
-  return axios.post<{
-    code: number
-    msg: string
-    data: { token: string; username: string; displayName: string }
-  }>(`${BASE}/login`, { username, password })
 }
 
 export function fetchSourceDeveloperMe() {
@@ -153,16 +172,6 @@ export function fetchSourceDeveloperCatalogApps() {
   }>(`${BASE}/apps`, {
     headers: developerAuthHeaders()
   })
-}
-
-export function rememberDeveloperApplyUsername(username: string) {
-  const value = username.trim().toLowerCase()
-  if (!value) return
-  localStorage.setItem(AGENT_DEVELOPER_APPLY_KEY, value)
-}
-
-export function loadRememberedDeveloperApplyUsername() {
-  return (localStorage.getItem(AGENT_DEVELOPER_APPLY_KEY) || '').trim().toLowerCase()
 }
 
 export interface SourceDeveloperCategory {

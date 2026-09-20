@@ -4,16 +4,16 @@
       <div>
         <p class="eyebrow">SOURCE DEVELOPER</p>
         <h1>开发者入驻</h1>
-        <p>申请源站开发者账号。审核通过后，可登录开发者端提交插件与首页模板元数据。</p>
+        <p>使用当前代理商账号一键申请。审核通过后，无需另设用户名密码即可进入开发者端。</p>
       </div>
       <div class="hero-aside">
-        <span>开发者账号独立于代理商登录</span>
-        <strong>需单独设置用户名和密码</strong>
-        <small>与代理商面板账号不互通，请妥善保存</small>
+        <span>复用代理商登录</span>
+        <strong>一键申请，无需新账号</strong>
+        <small>管理员在源站「入驻审核」通过后即可进入</small>
       </div>
     </header>
 
-    <section v-if="view === 'status' && applyStatus" class="result-card">
+    <section v-if="applyStatus" class="result-card">
       <div class="result-icon" :class="`is-${statusMeta.type}`">
         <iconify-icon :icon="statusIcon" width="32" />
       </div>
@@ -22,8 +22,8 @@
       <p class="result-description">{{ statusMeta.description }}</p>
       <div class="result-grid">
         <div>
-          <span>开发者用户名</span>
-          <strong>{{ applyStatus.username }}</strong>
+          <span>代理商账号</span>
+          <strong>{{ applyStatus.displayName || applyStatus.username || agentLabel }}</strong>
         </div>
         <div>
           <span>当前状态</span>
@@ -42,19 +42,17 @@
       />
       <div class="result-actions">
         <el-button :loading="checking" @click="refreshStatus">刷新状态</el-button>
-        <el-button v-if="applyStatus.status === 'approved'" type="primary" @click="goDeveloperLogin">
-          前往开发者登录
+        <el-button v-if="applyStatus.status === 'approved'" type="primary" @click="enterDeveloper">
+          进入开发者端
           <iconify-icon icon="ri:arrow-right-line" />
         </el-button>
-        <el-button v-else-if="applyStatus.status === 'rejected'" type="primary" @click="resetToForm">
-          更换用户名重新申请
-        </el-button>
         <el-button
-          v-else-if="applyStatus.status === 'frozen' || applyStatus.status === 'cancelled'"
+          v-else-if="applyStatus.status === 'rejected' || applyStatus.status === 'frozen' || applyStatus.status === 'cancelled'"
           type="primary"
-          @click="resetToForm"
+          :loading="submitting"
+          @click="submitApply"
         >
-          更换用户名重新申请
+          重新申请
         </el-button>
       </div>
     </section>
@@ -64,62 +62,23 @@
         <div class="section-title">
           <span>01</span>
           <div>
-            <h2>填写入驻资料</h2>
-            <p>提交后由管理员在源站后台审核</p>
+            <h2>一键申请</h2>
+            <p>提交后由管理员在源站后台审核，不另设开发者密码</p>
           </div>
         </div>
-
-        <el-form
-          ref="formRef"
-          :model="form"
-          :rules="rules"
-          label-position="top"
-          @keyup.enter="submitApply"
+        <p class="apply-copy">
+          将以当前登录的代理商账号（{{ agentLabel }}）申请开发者资格。通过后使用同一套登录凭证进入开发者端。
+        </p>
+        <el-button
+          type="primary"
+          size="large"
+          class="submit-button"
+          :loading="submitting"
+          @click="submitApply"
         >
-          <el-form-item label="开发者用户名" prop="username">
-            <el-input
-              v-model="form.username"
-              maxlength="59"
-              placeholder="2-59 位小写字母、数字或连字符"
-              @blur="form.username = normalizeUsername(form.username)"
-            />
-          </el-form-item>
-          <el-form-item label="开发者登录密码" prop="password">
-            <el-input
-              v-model="form.password"
-              type="password"
-              show-password
-              maxlength="64"
-              placeholder="至少 6 位，用于开发者端登录"
-            />
-          </el-form-item>
-          <el-form-item label="显示名" prop="displayName">
-            <el-input v-model="form.displayName" maxlength="80" placeholder="默认使用用户名" />
-          </el-form-item>
-          <el-form-item label="邮箱" prop="email">
-            <el-input v-model="form.email" maxlength="100" placeholder="便于审核联系" />
-          </el-form-item>
-          <el-form-item label="申请说明" prop="reason">
-            <el-input
-              v-model="form.reason"
-              type="textarea"
-              :rows="4"
-              maxlength="500"
-              show-word-limit
-              placeholder="说明计划上架的插件或模板，以及使用场景"
-            />
-          </el-form-item>
-          <el-button
-            type="primary"
-            size="large"
-            class="submit-button"
-            :loading="submitting"
-            @click="submitApply"
-          >
-            <iconify-icon icon="ri:send-plane-line" />
-            提交入驻申请
-          </el-button>
-        </el-form>
+          <iconify-icon icon="ri:send-plane-line" />
+          申请成为开发者
+        </el-button>
       </section>
 
       <aside class="tips-card">
@@ -127,7 +86,7 @@
           <span>02</span>
           <div>
             <h2>审核说明</h2>
-            <p>提交后可随时查询进度</p>
+            <p>每个代理商仅保留一条待审核或已通过绑定</p>
           </div>
         </div>
         <ul class="tips-list">
@@ -136,96 +95,49 @@
             管理员在源站「入驻审核」中处理：待审核可选择通过或拒绝；已通过后可取消开发者资格。
           </li>
           <li>
-            <iconify-icon icon="ri:lock-line" />
-            开发者密码与代理商登录密码相互独立，请勿混用。
+            <iconify-icon icon="ri:user-shared-line" />
+            开发者端与代理商面板共用当前登录，无需第二套用户名密码。
           </li>
           <li>
             <iconify-icon icon="ri:time-line" />
             审核期间可在本页刷新状态；通过后即可进入开发者端。
           </li>
         </ul>
-
-        <div class="lookup">
-          <p class="lookup-label">已提交过申请？查询审核状态</p>
-          <el-input
-            v-model="lookupUsername"
-            maxlength="59"
-            placeholder="输入开发者用户名"
-            @keyup.enter="lookupStatus"
-          >
-            <template #append>
-              <el-button :loading="checking" @click="lookupStatus">查询</el-button>
-            </template>
-          </el-input>
-        </div>
       </aside>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, reactive, ref } from 'vue'
+  import { computed, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { Icon as IconifyIcon } from '@iconify/vue'
-  import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import {
+    AGENT_INFO_KEY,
     DEVELOPER_APPLY_STATUS,
-    DEVELOPER_USERNAME_PATTERN,
     applySourceDeveloper,
+    enterDeveloperSessionFromAgent,
     fetchSourceDeveloperApplyStatus,
-    loadRememberedDeveloperApplyUsername,
-    rememberDeveloperApplyUsername,
     type SourceDeveloperApplyStatus
   } from '@/api/source-developer'
 
   const router = useRouter()
-  const formRef = ref<FormInstance>()
   const submitting = ref(false)
   const checking = ref(false)
-  const view = ref<'form' | 'status'>('form')
   const applyStatus = ref<SourceDeveloperApplyStatus | null>(null)
-  const lookupUsername = ref('')
 
-  const form = reactive({
-    username: '',
-    password: '',
-    email: '',
-    displayName: '',
-    reason: ''
+  const agentLabel = computed(() => {
+    try {
+      const info = JSON.parse(localStorage.getItem(AGENT_INFO_KEY) || '{}') as {
+        email?: string
+        name?: string
+      }
+      return info.name || info.email || '当前代理商'
+    } catch {
+      return '当前代理商'
+    }
   })
-
-  const rules: FormRules = {
-    username: [
-      { required: true, message: '请输入开发者用户名', trigger: 'blur' },
-      {
-        validator: (_rule, value: string, callback) => {
-          if (!DEVELOPER_USERNAME_PATTERN.test(normalizeUsername(value))) {
-            callback(new Error('用户名需为 2-59 位小写字母、数字或连字符'))
-            return
-          }
-          callback()
-        },
-        trigger: 'blur'
-      }
-    ],
-    password: [
-      { required: true, message: '请设置开发者登录密码', trigger: 'blur' },
-      { min: 6, message: '密码至少 6 位', trigger: 'blur' }
-    ],
-    email: [
-      {
-        validator: (_rule, value: string, callback) => {
-          if (!value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) {
-            callback()
-            return
-          }
-          callback(new Error('请输入有效邮箱'))
-        },
-        trigger: 'blur'
-      }
-    ],
-    reason: [{ required: true, message: '请填写申请说明', trigger: 'blur' }]
-  }
 
   const statusMeta = computed(() => {
     const status = applyStatus.value?.status || ''
@@ -243,7 +155,7 @@
       case 'pending':
         return '入驻申请审核中'
       case 'approved':
-        return '申请已通过，可登录开发者端'
+        return '申请已通过，可进入开发者端'
       case 'rejected':
         return '入驻申请未通过'
       case 'frozen':
@@ -265,43 +177,16 @@
     }
   })
 
-  function normalizeUsername(value: string) {
-    return value.trim().toLowerCase()
-  }
-
-  function readAgentProfile() {
-    try {
-      return JSON.parse(localStorage.getItem('agent_panel_info') || '{}') as {
-        email?: string
-        name?: string
-      }
-    } catch {
-      return {}
-    }
-  }
-
-  function showStatus(data: SourceDeveloperApplyStatus) {
-    applyStatus.value = data
-    view.value = 'status'
-    lookupUsername.value = data.username
-    rememberDeveloperApplyUsername(data.username)
-  }
-
-  async function loadStatus(username: string, silent = false) {
-    const value = normalizeUsername(username)
-    if (!value) {
-      if (!silent) ElMessage.warning('请输入开发者用户名')
-      return false
-    }
+  async function loadStatus(silent = false) {
     checking.value = true
     try {
-      const { data } = await fetchSourceDeveloperApplyStatus(value)
+      const { data } = await fetchSourceDeveloperApplyStatus()
       if (data.code === 200 && data.data?.status) {
-        showStatus(data.data)
+        applyStatus.value = data.data
         return true
       }
       if (data.code === 404) {
-        if (!silent) ElMessage.warning(data.msg || '未找到入驻申请')
+        applyStatus.value = null
         return false
       }
       if (!silent) ElMessage.error(data.msg || '查询申请失败')
@@ -315,62 +200,38 @@
   }
 
   async function refreshStatus() {
-    if (!applyStatus.value?.username) return
-    const found = await loadStatus(applyStatus.value.username)
+    const found = await loadStatus()
     if (found) ElMessage.success('状态已更新')
   }
 
-  async function lookupStatus() {
-    await loadStatus(lookupUsername.value)
-  }
-
-  function resetToForm() {
-    view.value = 'form'
-    applyStatus.value = null
-    form.username = ''
-    form.password = ''
-    form.reason = ''
-  }
-
-  function goDeveloperLogin() {
-    const username = applyStatus.value?.username || ''
-    router.push({
-      path: '/developer-panel/login',
-      query: username ? { username, approved: '1' } : { approved: '1' }
-    })
+  function enterDeveloper() {
+    if (!enterDeveloperSessionFromAgent()) {
+      ElMessage.warning('请先使用代理商账号登录')
+      router.push('/agent-panel/login')
+      return
+    }
+    router.push('/developer-panel/dashboard')
   }
 
   async function submitApply() {
-    if (!formRef.value || submitting.value) return
-    const valid = await formRef.value.validate().catch(() => false)
-    if (!valid) return
-
+    if (submitting.value) return
     submitting.value = true
     try {
-      const payload = {
-        username: normalizeUsername(form.username),
-        password: form.password,
-        email: form.email.trim(),
-        displayName: form.displayName.trim(),
-        reason: form.reason.trim()
-      }
-      const { data } = await applySourceDeveloper(payload)
+      const { data } = await applySourceDeveloper()
       if (data.code !== 200) {
         ElMessage.error(data.msg || '提交申请失败')
-        if (data.code === 400 && /审核中/.test(data.msg || '')) {
-          await loadStatus(payload.username, true)
-        }
+        if (data.code === 400) await loadStatus(true)
         return
       }
-      rememberDeveloperApplyUsername(payload.username)
       ElMessage.success(data.msg || '入驻申请已提交')
-      await loadStatus(payload.username, true)
-      if (view.value !== 'status') {
-        showStatus({
+      await loadStatus(true)
+      if (!applyStatus.value) {
+        applyStatus.value = {
           id: data.data?.id,
-          username: data.data?.username || payload.username,
+          username: data.data?.username || '',
+          displayName: data.data?.displayName,
           status: data.data?.status || 'pending'
-        })
+        }
       }
     } catch {
       ElMessage.error('提交申请失败，请稍后重试')
@@ -380,13 +241,7 @@
   }
 
   onMounted(async () => {
-    const profile = readAgentProfile()
-    form.email = profile.email || ''
-    form.displayName = profile.name || ''
-    lookupUsername.value = loadRememberedDeveloperApplyUsername()
-    if (lookupUsername.value) {
-      await loadStatus(lookupUsername.value, true)
-    }
+    await loadStatus(true)
   })
 </script>
 
@@ -515,6 +370,13 @@
     }
   }
 
+  .apply-copy {
+    margin: 0 0 18px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--el-text-color-regular);
+  }
+
   .submit-button {
     width: 100%;
     margin-top: 4px;
@@ -528,7 +390,7 @@
     display: grid;
     gap: 10px;
     padding: 0;
-    margin: 0 0 18px;
+    margin: 0;
     list-style: none;
 
     li {
@@ -545,12 +407,6 @@
       margin-top: 2px;
       color: var(--el-color-primary);
     }
-  }
-
-  .lookup-label {
-    margin: 0 0 8px;
-    font-size: 12px;
-    color: var(--el-text-color-secondary);
   }
 
   .result-card {

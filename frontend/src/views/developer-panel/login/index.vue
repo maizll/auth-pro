@@ -27,59 +27,22 @@
 
       <div class="login-right">
         <div class="login-form-wrapper">
-          <h2 class="form-title">开发者登录</h2>
-          <p class="form-subtitle">请输入已通过审核的开发者账号</p>
+          <h2 class="form-title">进入开发者端</h2>
+          <p class="form-subtitle">请使用代理商账号登录后进入开发者端</p>
           <el-alert
-            v-if="approvedNotice"
             class="approved-notice"
-            title="申请已通过，可登录开发者端"
-            description="请使用入驻时设置的用户名和密码登录。开发者账号与代理商账号相互独立。"
-            type="success"
+            title="开发者端复用代理商登录"
+            description="不再使用独立的开发者用户名和密码。请先登录代理商面板，审核通过后即可一键进入。"
+            type="info"
             :closable="false"
             show-icon
           />
-
-          <el-form
-            ref="loginFormRef"
-            :model="loginForm"
-            :rules="loginRules"
-            class="login-form"
-            @keyup.enter="handleLogin"
-          >
-            <el-form-item prop="username">
-              <el-input
-                v-model="loginForm.username"
-                placeholder="开发者用户名"
-                size="large"
-                prefix-icon="ri-user-line"
-              />
-            </el-form-item>
-            <el-form-item prop="password">
-              <el-input
-                v-model="loginForm.password"
-                type="password"
-                placeholder="开发者登录密码"
-                size="large"
-                show-password
-                prefix-icon="ri-lock-line"
-              />
-            </el-form-item>
-            <el-form-item>
-              <el-button
-                type="primary"
-                size="large"
-                :loading="loading"
-                class="login-btn"
-                @click="handleLogin"
-              >
-                登 录
-              </el-button>
-            </el-form-item>
-          </el-form>
-
+          <el-button type="primary" size="large" class="login-btn" :loading="loading" @click="goAgentLogin">
+            前往代理商登录
+          </el-button>
           <div class="login-footer">
-            <span>还没有开发者账号？</span>
-            <el-link type="primary" :underline="false" @click="goApply">前往代理商面板申请入驻</el-link>
+            <span>已是代理商？</span>
+            <el-link type="primary" :underline="false" @click="goApply">前往开发者入驻</el-link>
           </div>
         </div>
       </div>
@@ -88,15 +51,15 @@
 </template>
 
 <script setup lang="ts">
-  import { onMounted, reactive, ref } from 'vue'
+  import { onMounted, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
-  import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
   import { useSystemConfigStore } from '@/store/modules/system-config'
   import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
   import {
-    DEVELOPER_INFO_KEY,
+    AGENT_TOKEN_KEY,
     DEVELOPER_TOKEN_KEY,
-    loginSourceDeveloper
+    enterDeveloperSessionFromAgent,
+    fetchSourceDeveloperApplyStatus
   } from '@/api/source-developer'
 
   const router = useRouter()
@@ -104,68 +67,50 @@
   const systemConfigStore = useSystemConfigStore()
   const { siteName } = storeToRefs(systemConfigStore)
   const loading = ref(false)
-  const loginFormRef = ref<FormInstance>()
-  const approvedNotice = ref(route.query.approved === '1')
 
-  const loginForm = reactive({
-    username: typeof route.query.username === 'string' ? route.query.username : '',
-    password: ''
-  })
+  function developerRedirect() {
+    return typeof route.query.redirect === 'string' &&
+      route.query.redirect.startsWith('/developer-panel')
+      ? route.query.redirect
+      : '/developer-panel/dashboard'
+  }
 
-  const loginRules: FormRules = {
-    username: [{ required: true, message: '请输入开发者用户名', trigger: 'blur' }],
-    password: [{ required: true, message: '请输入开发者登录密码', trigger: 'blur' }]
+  function goAgentLogin() {
+    router.push({
+      path: '/agent-panel/login',
+      query: { redirect: developerRedirect() }
+    })
   }
 
   function goApply() {
     router.push('/agent-panel/become-developer')
   }
 
-  function handleLogin() {
-    loginFormRef.value?.validate(async (valid: boolean) => {
-      if (!valid) return
-      loading.value = true
-      try {
-        const { data } = await loginSourceDeveloper(
-          loginForm.username.trim().toLowerCase(),
-          loginForm.password
-        )
-        if (data.code === 200 && data.data?.token) {
-          localStorage.setItem(DEVELOPER_TOKEN_KEY, data.data.token)
-          localStorage.setItem(
-            DEVELOPER_INFO_KEY,
-            JSON.stringify({
-              username: data.data.username,
-              displayName: data.data.displayName
-            })
-          )
-          ElMessage.success('登录成功')
-          const redirect =
-            typeof route.query.redirect === 'string' &&
-            route.query.redirect.startsWith('/developer-panel')
-              ? route.query.redirect
-              : '/developer-panel/dashboard'
-          router.push(redirect)
-          return
-        }
-        ElMessage.error(data.msg || '登录失败')
-      } catch {
-        ElMessage.error('请求失败，请重试')
-      } finally {
-        loading.value = false
+  async function tryEnterFromAgent() {
+    const agentToken = localStorage.getItem(AGENT_TOKEN_KEY)
+    if (!agentToken) return false
+    loading.value = true
+    try {
+      const { data } = await fetchSourceDeveloperApplyStatus()
+      if (data.code === 200 && data.data?.status === 'approved') {
+        enterDeveloperSessionFromAgent()
+        router.replace(developerRedirect())
+        return true
       }
-    })
+      router.replace('/agent-panel/become-developer')
+      return true
+    } catch {
+      return false
+    } finally {
+      loading.value = false
+    }
   }
 
-  onMounted(() => {
-    if (approvedNotice.value) return
-    if (!localStorage.getItem(DEVELOPER_TOKEN_KEY)) return
-    const redirect =
-      typeof route.query.redirect === 'string' &&
-      route.query.redirect.startsWith('/developer-panel')
-        ? route.query.redirect
-        : '/developer-panel/dashboard'
-    router.replace(redirect)
+  onMounted(async () => {
+    if (await tryEnterFromAgent()) return
+    if (localStorage.getItem(DEVELOPER_TOKEN_KEY)) {
+      router.replace(developerRedirect())
+    }
   })
 </script>
 
@@ -276,26 +221,12 @@
       margin: -12px 0 22px;
     }
 
-    .login-form {
-      :deep(.el-input__wrapper) {
-        min-height: 46px;
-        background: var(--el-fill-color-lighter);
-        border-radius: 12px;
-        box-shadow: 0 0 0 1px var(--el-border-color-lighter) inset;
-      }
-
-      :deep(.el-input__wrapper.is-focus) {
-        background: var(--el-bg-color);
-        box-shadow: 0 0 0 1px var(--el-color-primary) inset;
-      }
-
-      .login-btn {
-        width: 100%;
-        height: 46px;
-        font-size: 16px;
-        font-weight: 600;
-        border-radius: 12px;
-      }
+    .login-btn {
+      width: 100%;
+      height: 46px;
+      font-size: 16px;
+      font-weight: 600;
+      border-radius: 12px;
     }
 
     .login-footer {

@@ -15,7 +15,7 @@ const developerStarterZipName = "auth-pro-developer-starter.zip"
 
 func SourceDeveloperStarterZIP(c *gin.Context) {
 	if _, err := currentSourceDeveloper(c); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	payload, err := buildDeveloperStarterZIP()
@@ -29,7 +29,7 @@ func SourceDeveloperStarterZIP(c *gin.Context) {
 
 func SourceDeveloperSkillMarkdown(c *gin.Context) {
 	if _, err := currentSourceDeveloper(c); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	c.Header("Content-Disposition", `attachment; filename="SKILL.md"`)

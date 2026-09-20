@@ -200,6 +200,10 @@ func AdminSourceCatalogApps(c *gin.Context) {
 }
 
 func SourceDeveloperCatalogApps(c *gin.Context) {
+	if _, err := currentSourceDeveloper(c); err != nil {
+		writeCurrentSourceDeveloperError(c, err)
+		return
+	}
 	AdminSourceCatalogApps(c)
 }
 
