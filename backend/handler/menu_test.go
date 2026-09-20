@@ -177,8 +177,8 @@ func TestBuildMenuTreeExposesProcessorFields(t *testing.T) {
 		}
 	}
 	meta, _ := node["meta"].(map[string]any)
-	if meta["title"] != "menus.license.title" {
-		t.Errorf("meta.title = %v", meta["title"])
+	if meta["title"] != "应用授权" {
+		t.Errorf("meta.title = %v, want 应用授权", meta["title"])
 	}
 	if meta["icon"] != "ri:apps-line" {
 		t.Errorf("meta.icon = %v", meta["icon"])
@@ -244,6 +244,21 @@ func TestInvalidMenuParentRejectsSelfAndDescendant(t *testing.T) {
 	}
 	if invalidMenuParent(801, 2, parentByID) != false {
 		t.Fatal("sibling top-level parent is valid")
+	}
+}
+
+func TestResolveMenuTitleUsesChinese(t *testing.T) {
+	if got := resolveMenuTitle("menus.integration.store"); got != "应用商店" {
+		t.Fatalf("store title = %q", got)
+	}
+	if got := resolveMenuTitle("我的商店"); got != "我的商店" {
+		t.Fatalf("custom title should pass through, got %q", got)
+	}
+	if !isDemoProductMenu("Result") || !isDemoProductMenu("Exception404") {
+		t.Fatal("demo menus must be recognized")
+	}
+	if isDemoProductMenu("PluginStore") {
+		t.Fatal("product menus are not demo")
 	}
 }
 

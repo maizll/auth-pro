@@ -123,7 +123,7 @@ func buildMenuTree(menus []menuRow, parentID int64) []*menuResponse {
 			Component: m.Component,
 			Redirect:  m.Redirect,
 			Meta: menuMeta{
-				Title:      m.Title,
+				Title:      resolveMenuTitle(m.Title),
 				Icon:       m.Icon,
 				IsHide:     m.IsHide,
 				IsHideTab:  m.IsHideTab,
@@ -187,6 +187,10 @@ func MenuManageList(c *gin.Context) {
 		rows.Scan(&m.ID, &m.ParentID, &m.Name, &m.Path, &m.Component, &m.Redirect,
 			&m.Title, &m.Icon, &m.Sort, &m.IsHide, &m.IsHideTab, &m.IsFullPage,
 			&m.KeepAlive, &m.FixedTab, &m.Enabled)
+		m.Title = resolveMenuTitle(m.Title)
+		if isDemoProductMenu(m.Name) {
+			continue
+		}
 		all = append(all, m)
 	}
 
@@ -242,6 +246,9 @@ func MenuManageCreate(c *gin.Context) {
 	if req.Name == "" || req.Path == "" {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "名称和路径不能为空"})
 		return
+	}
+	if req.Title == "" {
+		req.Title = req.Name
 	}
 	if invalidMenuParent(0, req.ParentID, loadMenuParentIndex(db)) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "不能选择自身或下级菜单作为上级"})
@@ -303,6 +310,9 @@ func MenuManageUpdate(c *gin.Context) {
 	if invalidMenuParent(menuID, req.ParentID, loadMenuParentIndex(db)) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "不能选择自身或下级菜单作为上级"})
 		return
+	}
+	if req.Title == "" {
+		req.Title = req.Name
 	}
 
 	enabledInt := 0

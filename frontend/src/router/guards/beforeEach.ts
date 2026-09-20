@@ -99,6 +99,34 @@ export function resetRouteInitState(): void {
 }
 
 /**
+ * 菜单管理保存后刷新侧栏与动态路由，不必清浏览器缓存。
+ * 标题/排序/上级立即反映在侧栏；若新页面打开 404，再硬刷新一次即可。
+ */
+export async function reloadDynamicMenus(router?: Router): Promise<void> {
+  const menuList = await menuProcessor.getMenuList()
+  if (!menuProcessor.validateMenuList(menuList)) {
+    return
+  }
+  const menuStore = useMenuStore()
+  menuStore.setMenuList(menuList)
+  if (!routeRegistry) {
+    return
+  }
+  const current = router?.currentRoute.value
+  routeRegistry.unregister()
+  menuStore.clearRemoveRouteFns()
+  routeRegistry.register(menuList)
+  menuStore.addRemoveRouteFns(routeRegistry.getRemoveRouteFns())
+  if (router && current) {
+    await router.replace({
+      path: current.path,
+      query: current.query,
+      hash: current.hash
+    })
+  }
+}
+
+/**
  * 设置路由全局前置守卫
  */
 export function setupBeforeEachGuard(router: Router): void {

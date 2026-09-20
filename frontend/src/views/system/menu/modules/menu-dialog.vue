@@ -40,11 +40,12 @@
   import type { FormRules } from 'element-plus'
   import { ElIcon, ElTooltip } from 'element-plus'
   import { QuestionFilled } from '@element-plus/icons-vue'
-  import { formatMenuTitle } from '@/utils/router'
   import type { AppRouteRecord } from '@/types/router'
   import type { FormItem } from '@/components/core/forms/art-form/index.vue'
   import ArtForm from '@/components/core/forms/art-form/index.vue'
   import { buildParentMenuOptions, isInvalidMenuParent } from '@/utils/form/menu-parent'
+  import { mapManageRowToForm } from '@/utils/form/menu-form'
+  import { resolveMenuTitle } from '@/utils/form/menu-title'
   import { useWindowSize } from '@vueuse/core'
 
   const { width } = useWindowSize()
@@ -143,7 +144,7 @@
   const rules = reactive<FormRules>({
     name: [
       { required: true, message: '请输入菜单名称', trigger: 'blur' },
-      { min: 2, max: 20, message: '长度在 2 到 20 个字符', trigger: 'blur' }
+      { min: 1, max: 40, message: '长度在 1 到 40 个字符', trigger: 'blur' }
     ],
     path: [{ required: true, message: '请输入路由地址', trigger: 'blur' }],
     label: [{ required: true, message: '输入权限标识', trigger: 'blur' }],
@@ -165,7 +166,7 @@
           span: 24,
           props: {
             data: buildParentMenuOptions(props.menus || [], form.id || 0, (node) =>
-              formatMenuTitle(String(node.title || node.name || ''))
+              resolveMenuTitle(String(node.title || ''), String(node.name || ''))
             ),
             props: { label: 'label', value: 'id', children: 'children' },
             checkStrictly: true,
@@ -176,7 +177,12 @@
             style: { width: '100%' }
           }
         },
-        { label: '菜单名称', key: 'name', type: 'input', props: { placeholder: '菜单名称' } },
+        {
+          label: '菜单名称',
+          key: 'name',
+          type: 'input',
+          props: { placeholder: '中文显示标题，如：应用商店' }
+        },
         {
           label: createLabelTooltip(
             '路由地址',
@@ -207,7 +213,7 @@
           label: '菜单排序',
           key: 'sort',
           type: 'number',
-          props: { min: 1, controlsPosition: 'right', style: { width: '100%' } }
+          props: { min: 0, controlsPosition: 'right', style: { width: '100%' } }
         },
         {
           label: '外部链接',
@@ -277,34 +283,42 @@
     form.menuType = 'menu'
     form.id = 0
     form.parentId = 0
+    form.name = ''
+    form.label = ''
+    form.path = ''
+  }
+
+  const applyMappedForm = (mapped: ReturnType<typeof mapManageRowToForm>) => {
+    if (!mapped) return
+    form.id = mapped.id
+    form.parentId = mapped.parentId
+    form.name = mapped.name
+    form.path = mapped.path
+    form.label = mapped.label
+    form.component = mapped.component
+    form.icon = mapped.icon
+    form.sort = mapped.sort
+    form.keepAlive = mapped.keepAlive
+    form.isHide = mapped.isHide
+    form.isHideTab = mapped.isHideTab
+    form.isEnable = mapped.isEnable
+    form.fixedTab = mapped.fixedTab
+    form.isFullPage = mapped.isFullPage
+    form.roles = mapped.roles
   }
 
   const loadFormData = (): void => {
     if (!props.editData) return
     isEdit.value = true
     if (form.menuType === 'menu') {
+      applyMappedForm(mapManageRowToForm(props.editData))
       const row = props.editData
-      form.id = row.id || 0
-      form.parentId = Number(row.parentId ?? row.parent_id ?? 0) || 0
-      form.name = formatMenuTitle(row.title || row.meta?.title || '')
-      form.path = row.path || ''
-      form.label = row.name || ''
-      form.component = row.component || ''
-      form.icon = row.icon || row.meta?.icon || ''
-      form.sort = row.sort || row.meta?.sort || 1
       form.isMenu = row.meta?.isMenu ?? true
-      form.keepAlive = row.keepAlive ?? row.meta?.keepAlive ?? false
-      form.isHide = row.isHide ?? row.meta?.isHide ?? false
-      form.isHideTab = row.isHideTab ?? row.meta?.isHideTab ?? false
-      form.isEnable = row.enabled ?? row.meta?.isEnable ?? true
       form.link = row.meta?.link || ''
       form.isIframe = row.meta?.isIframe ?? false
       form.showBadge = row.meta?.showBadge ?? false
       form.showTextBadge = row.meta?.showTextBadge || ''
-      form.fixedTab = row.fixedTab ?? row.meta?.fixedTab ?? false
       form.activePath = row.meta?.activePath || ''
-      form.roles = row.meta?.roles || []
-      form.isFullPage = row.isFullPage ?? row.meta?.isFullPage ?? false
     } else {
       const row = props.editData
       form.authName = row.title || ''
@@ -333,6 +347,7 @@
     emit('update:visible', false)
   }
   const handleClosed = (): void => {
+    if (props.visible) return
     resetForm()
     isEdit.value = false
   }
@@ -342,6 +357,7 @@
     (newVal) => {
       if (newVal) {
         form.menuType = props.type
+        isEdit.value = !!props.editData
         nextTick(() => {
           if (props.editData) loadFormData()
         })

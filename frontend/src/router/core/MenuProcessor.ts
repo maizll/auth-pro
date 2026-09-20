@@ -14,6 +14,7 @@ import { fetchGetMenuList } from '@/api/system-manage'
 import { asyncRoutes } from '../routes/asyncRoutes'
 import { RoutesAlias } from '../routesAlias'
 import { formatMenuTitle } from '@/utils'
+import { resolveMenuTitle } from '@/utils/form/menu-title'
 
 export class MenuProcessor {
   /**
@@ -58,9 +59,20 @@ export class MenuProcessor {
    */
   private async processBackendMenu(): Promise<AppRouteRecord[]> {
     const list = await fetchGetMenuList()
-    const menus = this.filterEmptyMenus(list)
+    const menus = this.filterEmptyMenus(this.resolveTitles(list))
     this.appendBuiltinMenus(menus)
     return menus
+  }
+
+  private resolveTitles(menuList: AppRouteRecord[]): AppRouteRecord[] {
+    return menuList.map((item) => ({
+      ...item,
+      meta: {
+        ...item.meta,
+        title: resolveMenuTitle(item.meta?.title, String(item.name || ''))
+      },
+      children: item.children?.length ? this.resolveTitles(item.children) : item.children
+    }))
   }
 
   /**
@@ -74,7 +86,7 @@ export class MenuProcessor {
       path: '/tickets',
       component: '/system/tickets',
       meta: {
-        title: 'menus.customerService.tickets',
+        title: resolveMenuTitle('menus.customerService.tickets'),
         icon: 'ri:question-answer-line',
         keepAlive: true,
         roles: ['R_SUPER', 'R_ADMIN']
