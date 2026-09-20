@@ -136,7 +136,7 @@ func developerStarterReadme() string {
 1. 按示例改清单，打成 ZIP（清单位于根目录或一层子目录）。
 2. 把 ZIP 放到你自己的 HTTPS 空间，计算 64 位 sha256。
 3. 登录开发者面板，绑定目标应用，填写元数据并提交审核。
-4. 公开目录按应用隔离：` + "`/software-source/{app_key}/index.json`" + `。自定义插件分类会出现在应用商店筛选页签。
+4. 公开目录按应用隔离：` + "`/software-source/{app_key}/index.json`" + `。上架后自动进入该应用软件源目录；自定义插件分类会出现在应用商店筛选页签。
 
 完整规则见 ` + "`docs/`" + `。机器可读 schema：` + "`GET /software-source/package-schema.json`" + `。
 `

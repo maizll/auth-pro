@@ -95,7 +95,7 @@ demo-widget.zip
 2. 在开发者面板「我的插件」**登记**元数据，状态为草稿（draft）。
 3. 补齐 downloadUrl 与 sha256 后**提交审核**（review）。
 4. 管理员通过（approved）或驳回（rejected）；驳回后可改再提交。
-5. 管理员**上架**后写入该应用 `index.json`（published）。更新请走[多版本](./versions.md)。
+5. 管理员**上架**后自动进入该应用软件源目录（`index.json` 的 `plugins`，published）。更新请走[多版本](./versions.md)。
 
 ## 7. 常见错误与排查
 
@@ -113,5 +113,6 @@ demo-widget.zip
 
 | 日期 | 变更 | 兼容性 |
 | --- | --- | --- |
+| 2026-09-20 | 上架后自动进入该应用软件源目录（`plugins`） | 旧消费者兼容 |
 | 2026-09-20 | 建议 plugin.json 声明 `kind: "plugin"`；填写 `template` 会被拒绝 | 省略 kind 仍视为插件，**非 breaking** |
 | 2026-09-20 | 自定义插件分类（含标识恰好为 `template`）写入 index.categories，并作为应用商店筛选页签 | 公开 index 仍拆 plugins / homeTemplates |

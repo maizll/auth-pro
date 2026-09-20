@@ -84,6 +84,9 @@ func fetchPluginSourceManifest(ctx context.Context, rawURL string) (*remotePlugi
 	if _, err := validatePluginSourceURL(rawURL); err != nil {
 		return nil, nil, "", err
 	}
+	if payload, index, ok := lookupLocalSoftwareSourceIndex(rawURL); ok {
+		return index, payload, "json", nil
+	}
 	preferGit := looksLikeGitRepositoryURL(rawURL)
 	if !preferGit {
 		payload, err := fetchPluginHTTP(ctx, rawURL, pluginManifestMaxSize, 10*time.Second)
@@ -129,6 +132,10 @@ func parsePluginSourceManifest(payload []byte) (*remotePluginIndex, error) {
 }
 
 func loadPluginSourceIndex(ctx context.Context, db *sql.DB, source pluginSourceRecord, force bool) (*remotePluginIndex, error) {
+	if payload, index, ok := lookupLocalSoftwareSourceIndex(source.URL); ok {
+		_ = cachePluginSourceManifest(db, source.ID, "json", payload, "")
+		return index, nil
+	}
 	cache, cacheErr := readCachedPluginSource(db, source.ID)
 	if !force && cacheErr == nil && time.Now().Before(cache.ExpiresAt) {
 		return parsePluginSourceManifest(cache.Manifest)

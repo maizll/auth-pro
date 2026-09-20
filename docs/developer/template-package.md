@@ -93,7 +93,7 @@ demo-home.zip
 1. 编写含 `kind: "template"` 的 `template.json`，打 ZIP 并托管。
 2. 开发者面板「我的模板」登记草稿。
 3. 提交审核 → 管理员通过 / 驳回。
-4. 上架后进入该应用 `homeTemplates`。
+4. 上架后自动进入该应用软件源目录的 `homeTemplates`。
 5. 改包请新增版本，见 [更新与多版本](./versions.md)。
 
 ## 7. 常见错误与排查
@@ -110,5 +110,6 @@ demo-home.zip
 
 | 日期 | 变更 | 兼容性 |
 | --- | --- | --- |
+| 2026-09-20 | 上架后自动进入该应用软件源目录（`homeTemplates`） | 旧消费者兼容 |
 | 2026-09-20 | **要求** `kind: "template"` | **Breaking**：旧 template.json 缺 kind 会被拒绝 |
 | 2026-09-20 | category 省略自动绑定 `home-template` | 兼容；无需手工选分类 |

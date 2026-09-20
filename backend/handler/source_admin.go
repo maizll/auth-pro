@@ -345,9 +345,7 @@ func adminSetPluginStatus(c *gin.Context, status, okMsg string) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	if status == sourceItemPublished || status == sourceItemHidden || status == sourceItemDeprecated {
-		persistIndexSnapshot(c.GetString("username"))
-	}
+	persistIndexSnapshot(c.GetString("username"))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": okMsg, "data": sourcePluginView(saved)})
 }
 
@@ -358,9 +356,7 @@ func adminSetTemplateStatus(c *gin.Context, status, okMsg string) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	if status == sourceItemPublished || status == sourceItemHidden || status == sourceItemDeprecated {
-		persistIndexSnapshot(c.GetString("username"))
-	}
+	persistIndexSnapshot(c.GetString("username"))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": okMsg, "data": sourceTemplateView(saved)})
 }
 
@@ -433,9 +429,7 @@ func adminSetReleaseStatus(c *gin.Context, kind, status, okMsg string) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	if status == sourceVersionPublished || status == sourceVersionDeprecated {
-		persistIndexSnapshot(c.GetString("username"))
-	}
+	persistIndexSnapshot(c.GetString("username"))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": okMsg, "data": sourceReleaseView(saved)})
 }
 

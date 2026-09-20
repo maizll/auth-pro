@@ -138,20 +138,6 @@ func SourceStationIndex(c *gin.Context) {
 	writeUnscopedSourceIndex(c)
 }
 
-func persistIndexSnapshot(actor string) {
-	apps, err := currentSourceStationStore().ListCatalogApps()
-	if err != nil {
-		return
-	}
-	for _, app := range apps {
-		payload, _, err := sourceCatalogJSONForApp(app)
-		if err != nil {
-			continue
-		}
-		_ = currentSourceStationStore().SaveIndexSnapshot(string(payload), actor)
-	}
-}
-
 func AdminSourceAdvertisements(c *gin.Context) {
 	records, err := currentSourceStationStore().ListAdvertisements("")
 	if err != nil {

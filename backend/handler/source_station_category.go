@@ -166,6 +166,7 @@ func AdminSourceCatalogCategoriesSave(c *gin.Context) {
 		ActorType: "admin", ActorName: c.GetString("username"), Action: "categories",
 		TargetType: "catalog", TargetID: "extras", Detail: truncateText(strings.Join(categoryKeys(normalized), ","), 500),
 	})
+	persistIndexSnapshot(c.GetString("username"))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已保存目录分类", "data": gin.H{
 		"list":   resolveSourceCatalogCategories(),
 		"extras": normalized,
