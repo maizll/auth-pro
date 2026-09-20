@@ -480,7 +480,7 @@ sequenceDiagram
 
 ## 9. 运营后台信息架构
 
-现有菜单（`frontend/src/router/modules/source-station.ts`），不要另做一套 IA。
+现有菜单以「系统 → 菜单管理」/ 后端 `menus` 为准（与 `frontend/src/router/modules/source-station.ts` 组件注册对齐），不要另做一套 IA。
 
 | 菜单 | 路径 | 职责 |
 | --- | --- | --- |
