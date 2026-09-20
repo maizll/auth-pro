@@ -1,4 +1,5 @@
 {
+  "kind": "template",
   "id": "demo-home",
   "templateKey": "demo-home",
   "name": "演示首页",

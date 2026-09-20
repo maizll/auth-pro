@@ -45,6 +45,7 @@ type sourcePackageManifest struct {
 }
 
 type pluginPackageJSON struct {
+	Kind        string          `json:"kind"`
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
 	Version     string          `json:"version"`
@@ -55,11 +56,13 @@ type pluginPackageJSON struct {
 }
 
 type templatePackageJSON struct {
+	Kind          string          `json:"kind"`
 	ID            string          `json:"id"`
 	TemplateKey   string          `json:"templateKey"`
 	Name          string          `json:"name"`
 	Version       string          `json:"version"`
 	Description   string          `json:"description"`
+	Category      string          `json:"category"`
 	SchemaVersion int             `json:"schemaVersion"`
 	Author        json.RawMessage `json:"author"`
 	Hero          json.RawMessage `json:"hero"`
@@ -106,8 +109,8 @@ func sourcePackageSchemaDocument() gin.H {
 			"publish":  "POST /api/v1/source/admin/packages/publish",
 			"schema":   "GET /api/v1/source/admin/packages/schema 与 GET /software-source/package-schema.json",
 			"file":     "multipart 字段 file，必须是 ZIP，≤ 20 MiB",
-			"kind":     "可选 plugin | template；缺省时按包内清单或 category 识别，两种清单都没有则拒绝",
-			"category": "可选。与 kind 对应：支付/实名/其他等为插件分类，home-template 为首页模板。管理端按分类区分，不再要求先选「插件或模板」。",
+			"kind":     "可选 plugin | template；缺省时按包内清单文件名识别。template.json 必须自带 kind=template；plugin.json 若填写 kind 必须为 plugin",
+			"category": "可选。与清单 kind 对应：插件分类不可用于模板，模板分类不可用于插件。模板缺省自动绑定 home-template。",
 		},
 		"zip": gin.H{
 			"required":             true,
@@ -123,24 +126,26 @@ func sourcePackageSchemaDocument() gin.H {
 			"manifest": "plugin.json",
 			"required": []string{"id", "name", "version", "description", "author"},
 			"fields": gin.H{
+				"kind":        "可选。若填写必须为 plugin；填写 template 会被拒绝",
 				"id":          "必填，2-59 位小写字母、数字或连字符（^[a-z0-9][a-z0-9-]{1,58}$）",
 				"name":        "必填，≤100 字",
 				"version":     "必填，^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$",
 				"description": "必填，≤500 字",
 				"author":      "必填，字符串或 {name,url,email}；name 必填",
-				"category":    "可选。内置 payment | realname | other，也可使用管理端配置的插件分类；缺省 other。首页模板请用 home-template",
+				"category":    "可选。内置 payment | realname | other，也可使用管理端配置的插件分类；缺省 other。禁止使用模板类分类",
 				"icon":        "可选，≤80 字",
 			},
 			"example": map[string]any{
-				"id": "demo-plugin", "name": "演示插件", "version": "1.0.0",
+				"kind": "plugin", "id": "demo-plugin", "name": "演示插件", "version": "1.0.0",
 				"description": "授权本地插件源测试", "author": map[string]string{"name": "源站"},
 				"category": "other",
 			},
 		},
 		"homeTemplate": gin.H{
 			"manifest": "template.json",
-			"required": []string{"id 或 templateKey", "name", "version", "description", "schemaVersion", "author", "hero.title"},
+			"required": []string{"kind", "id 或 templateKey", "name", "version", "description", "schemaVersion", "author", "hero.title"},
 			"fields": gin.H{
+				"kind":          "必填，必须为 template。据此自动绑定模板类分类，无需运营手工选择",
 				"id":            "与 templateKey 至少填一个，规则同插件 id",
 				"name":          "必填，≤100 字",
 				"version":       "必填，规则同插件 version",
@@ -149,10 +154,10 @@ func sourcePackageSchemaDocument() gin.H {
 				"author":        "必填，字符串或 {name,url,email}；name 必填",
 				"hero.title":    "必填（声明式模板 schema v1）",
 				"scripts":       "禁止",
-				"category":      "可选，须为模板类分类，缺省 home-template",
+				"category":      "可选，须为模板类分类；缺省自动填充 home-template",
 			},
 			"example": map[string]any{
-				"id": "clean-home", "name": "清新首页", "version": "1.0.0",
+				"kind": "template", "id": "clean-home", "name": "清新首页", "version": "1.0.0",
 				"description": "简洁的授权服务首页", "schemaVersion": 1,
 				"author": map[string]string{"name": "设计组"},
 				"hero":   map[string]string{"title": "专业授权服务"},
@@ -287,6 +292,9 @@ func fillPluginManifest(base sourcePackageManifest, raw []byte, manifestPath str
 	if err != nil {
 		return sourcePackageManifest{}, err
 	}
+	if _, err := normalizePackageManifestKind(doc.Kind, sourceKindPlugin, "plugin.json"); err != nil {
+		return sourcePackageManifest{}, err
+	}
 	base.Kind = sourceKindPlugin
 	base.ID = id
 	base.Name = name
@@ -357,6 +365,9 @@ func fillTemplateManifest(base sourcePackageManifest, raw []byte, manifestPath s
 	if err != nil {
 		return sourcePackageManifest{}, err
 	}
+	if _, err := normalizePackageManifestKind(doc.Kind, sourceKindTemplate, "template.json"); err != nil {
+		return sourcePackageManifest{}, err
+	}
 	base.Kind = sourceKindTemplate
 	base.ID = id
 	base.Name = truncateText(name, 100)
@@ -364,9 +375,40 @@ func fillTemplateManifest(base sourcePackageManifest, raw []byte, manifestPath s
 	base.Description = truncateText(description, 500)
 	base.Author = author
 	base.SchemaVersion = doc.SchemaVersion
-	base.Category = sourceCategoryHomeTemplate
+	if category := strings.TrimSpace(doc.Category); category != "" {
+		assigned, assignErr := normalizeAssignedCatalogCategory(sourceKindTemplate, category)
+		if assignErr != nil {
+			return sourcePackageManifest{}, rejectSourcePackage("category", "format", "template.json 字段 category 不合法："+assignErr.Error())
+		}
+		base.Category = assigned
+	} else {
+		base.Category = sourceCategoryHomeTemplate
+	}
 	base.ManifestPath = manifestPath
 	return base, nil
+}
+
+func normalizePackageManifestKind(raw, expected, manifest string) (string, error) {
+	kind := strings.ToLower(strings.TrimSpace(raw))
+	if expected == sourceKindTemplate {
+		if kind == "" {
+			return "", rejectSourcePackage("kind", "required", manifest+" 缺少 kind（必须为 template）")
+		}
+		if kind == sourceKindPlugin {
+			return "", rejectSourcePackage("kind", "mismatch", manifest+" 的 kind 不能是 plugin")
+		}
+		if kind != sourceKindTemplate {
+			return "", rejectSourcePackage("kind", "invalid", manifest+" 字段 kind 必须为 template")
+		}
+		return sourceKindTemplate, nil
+	}
+	if kind == sourceKindTemplate {
+		return "", rejectSourcePackage("kind", "mismatch", manifest+" 的 kind 不能是 template")
+	}
+	if kind != "" && kind != sourceKindPlugin {
+		return "", rejectSourcePackage("kind", "invalid", manifest+" 字段 kind 若填写必须为 plugin")
+	}
+	return sourceKindPlugin, nil
 }
 
 func requireSourceAuthor(raw json.RawMessage, manifest string) (sourceAuthor, error) {

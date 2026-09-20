@@ -234,11 +234,97 @@ func pluginConfigured(db *sql.DB, id string) bool {
 // AdminPluginList 插件列表，按分类分组返回；合并本地插件与各软件源的远程插件。
 // 支持 ?source=<id> 只看某个软件源、?source=local 只看本地、?q= 关键词过滤。
 func normalizePluginCategory(category string) string {
-	switch category {
-	case "payment", "realname":
-		return category
+	return displayPluginCategory(category)
+}
+
+func displayPluginCategory(category string) string {
+	key := strings.ToLower(strings.TrimSpace(category))
+	if key == "" || key == sourceCategoryHomeTemplate {
+		return "other"
 	}
-	return "other"
+	return key
+}
+
+func pluginStoreCategoryTitle(key, label string) string {
+	if title := strings.TrimSpace(label); title != "" {
+		return title
+	}
+	switch key {
+	case "payment":
+		return "支付插件"
+	case "realname":
+		return "实名认证服务商"
+	case "other":
+		return "其他插件"
+	case sourceCategoryHomeTemplate:
+		return "首页模板"
+	default:
+		return key
+	}
+}
+
+func matchPluginKeyword(plugin pluginInfo, keyword string) bool {
+	if keyword == "" {
+		return true
+	}
+	needle := strings.ToLower(keyword)
+	return strings.Contains(strings.ToLower(plugin.Name), needle) ||
+		strings.Contains(strings.ToLower(plugin.Description), needle) ||
+		strings.Contains(strings.ToLower(plugin.ID), needle)
+}
+
+func buildPluginStoreGroups(local, remote []pluginInfo, indexes []*remotePluginIndex, keyword string) []categoryGroup {
+	labels := map[string]string{}
+	order := make([]string, 0, 8)
+	seen := map[string]bool{}
+	for _, item := range []struct{ key, title string }{
+		{"payment", "支付插件"},
+		{"realname", "实名认证服务商"},
+		{"other", "其他插件"},
+	} {
+		labels[item.key] = item.title
+		order = append(order, item.key)
+		seen[item.key] = true
+	}
+	for _, index := range indexes {
+		if index == nil {
+			continue
+		}
+		for _, category := range index.Categories {
+			key := strings.ToLower(strings.TrimSpace(category.Key))
+			// Skip template-KIND categories (home-template etc). Do NOT skip a plugin extra
+			// whose key happens to be "template" — that is a valid custom plugin category.
+			if key == "" || category.Kind == sourceKindTemplate || key == sourceCategoryHomeTemplate {
+				continue
+			}
+			if category.Label != "" {
+				labels[key] = category.Label
+			}
+			if !seen[key] {
+				order = append(order, key)
+				seen[key] = true
+			}
+		}
+	}
+	all := append(append([]pluginInfo{}, local...), remote...)
+	for _, plugin := range all {
+		key := displayPluginCategory(plugin.Category)
+		if !seen[key] {
+			order = append(order, key)
+			seen[key] = true
+		}
+	}
+	groups := make([]categoryGroup, 0, len(order))
+	for _, key := range order {
+		group := categoryGroup{Category: key, Title: pluginStoreCategoryTitle(key, labels[key]), Plugins: []pluginInfo{}}
+		for _, plugin := range all {
+			if displayPluginCategory(plugin.Category) == key && matchPluginKeyword(plugin, keyword) {
+				group.Plugins = append(group.Plugins, plugin)
+			}
+		}
+		groups = append(groups, group)
+	}
+	return groups
 }
 
 // loadLocalPluginIDs 返回本地已有的插件 id（内置 + plugins 目录下已完成安装）。

@@ -168,7 +168,7 @@ export const staticRoutes: AppRouteRecordRaw[] = [
         path: 'guide',
         name: 'DeveloperPanelGuide',
         component: () => import('@views/developer-panel/guide/index.vue'),
-        meta: { title: '接入说明' }
+        meta: { title: '开发文档' }
       }
     ]
   },

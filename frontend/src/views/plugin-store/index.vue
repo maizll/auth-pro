@@ -4,7 +4,9 @@
       <div class="store-header">
         <div>
           <h2 class="store-title">应用商店</h2>
-          <p class="store-subtitle">按分区浏览插件，支持从软件源下载远程插件</p>
+          <p class="store-subtitle">
+            按软件源 index.categories 筛选（含自定义分类）；首页模板单独分区
+          </p>
         </div>
         <div class="store-header-actions">
           <ElButton :icon="FolderAdd" @click="sourceDialogVisible = true">软件源管理</ElButton>
@@ -15,10 +17,12 @@
       <div class="store-toolbar">
         <ElTabs v-model="activeTab" class="store-tabs" @tab-change="loadPlugins">
           <ElTabPane label="全部插件" name="all" />
-          <ElTabPane label="支付插件" name="payment" />
-          <ElTabPane label="实名认证服务商" name="realname" />
-          <ElTabPane label="首页模板" name="home-template" />
-          <ElTabPane label="其他插件" name="other" />
+          <ElTabPane
+            v-for="tab in storeTabs"
+            :key="tab.name"
+            :label="tab.label"
+            :name="tab.name"
+          />
         </ElTabs>
         <ElInput
           v-model="searchText"
@@ -322,6 +326,20 @@
   const addingSource = ref(false)
   const newSourceUrl = ref('')
   const newSourceName = ref('')
+
+  const storeTabs = computed(() => {
+    const tabs: { name: string; label: string }[] = []
+    const seen = new Set<string>(['all'])
+    for (const group of categories.value) {
+      if (!group.category || seen.has(group.category)) continue
+      seen.add(group.category)
+      tabs.push({ name: group.category, label: group.title || group.category })
+    }
+    if (!seen.has('home-template')) {
+      tabs.push({ name: 'home-template', label: '首页模板' })
+    }
+    return tabs
+  })
 
   const visibleGroups = computed(() => {
     if (activeTab.value === 'all') return categories.value.filter((g) => g.plugins.length)

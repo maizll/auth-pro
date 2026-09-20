@@ -53,7 +53,7 @@
             <span class="card-title">软件目录（共 {{ tableData.length }} 条）</span>
             <p class="card-hint">
               插件按应用分区：先选应用，再按分类（支付 / 实名 / 其他 / 首页模板）筛选。源站只保存元数据与外部
-              HTTPS 地址，从不存储源码。下架只从该应用的公开目录
+              HTTPS 地址，从不存储源码。上架后自动进入该应用软件源目录；下架只从
               <code>{{ publicIndexPath }}</code> 隐藏，不会远程卸载已安装实例。
             </p>
           </div>
@@ -93,8 +93,16 @@
         </el-table-column>
         <el-table-column prop="sha256" label="SHA256" min-width="160" show-overflow-tooltip />
         <el-table-column prop="updatedAt" label="更新时间" width="170" />
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="340" fixed="right">
           <template #default="{ row }">
+            <el-button
+              v-if="canEditItem(row.status)"
+              link
+              type="primary"
+              size="small"
+              @click="openEdit(row)"
+              >编辑</el-button
+            >
             <el-button
               v-if="canAction(row.status, 'approve')"
               link
@@ -229,6 +237,62 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="editVisible" title="编辑目录项" width="560px" destroy-on-close>
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        class="mb-3"
+        title="已上架条目可直接改名称、地址、校验码等元数据，不会自动退回待审核。标识与所属应用创建后不可改。"
+      />
+      <el-form ref="editRef" :model="editForm" :rules="editRules" label-width="110px">
+        <el-form-item label="应用">
+          <el-input :model-value="editApp ? appLabel(editApp) : '-'" disabled />
+        </el-form-item>
+        <el-form-item label="标识">
+          <el-input v-model="editForm.id" disabled />
+        </el-form-item>
+        <el-form-item label="分类" prop="category">
+          <el-select v-model="editForm.category" style="width: 100%">
+            <el-option
+              v-for="item in editCategoryOptions"
+              :key="item.key"
+              :label="item.label"
+              :value="item.key"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="名称" prop="name">
+          <el-input v-model="editForm.name" maxlength="100" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="editForm.description" type="textarea" :rows="2" maxlength="500" />
+        </el-form-item>
+        <el-form-item :label="editIsTemplate ? 'templateUrl' : 'downloadUrl'" prop="location">
+          <el-input v-model="editForm.location" placeholder="https://..." />
+        </el-form-item>
+        <el-form-item label="sha256" prop="sha256">
+          <el-input v-model="editForm.sha256" />
+        </el-form-item>
+        <el-form-item label="作者">
+          <el-input v-model="editForm.authorName" placeholder="作者名称" />
+        </el-form-item>
+        <el-form-item v-if="!editIsTemplate" label="图标">
+          <el-input v-model="editForm.icon" placeholder="ri:puzzle-line" />
+        </el-form-item>
+        <el-form-item label="changelog">
+          <el-input v-model="editForm.changelog" type="textarea" :rows="2" />
+        </el-form-item>
+        <el-form-item label="审计备注">
+          <el-input v-model="editForm.note" placeholder="可选，写入审计日志" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible = false">取消</el-button>
+        <el-button type="primary" :loading="editing" @click="handleEdit">保存</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="registerVisible" title="登记外部地址" width="560px" destroy-on-close>
       <el-form ref="registerRef" :model="registerForm" :rules="registerRules" label-width="110px">
         <el-form-item label="应用" prop="appId">
@@ -289,8 +353,9 @@
 
     <el-dialog v-model="categoryVisible" title="目录分类" width="560px" destroy-on-close>
       <p class="card-hint mb-3">
-        内置分类覆盖原来的插件分区和首页模板，并作为应用内的二级筛选。额外分类可自行添加，公开
-        index.json 仍按分类拆成 plugins / homeTemplates 以兼容旧消费者。
+        内置分类覆盖原来的插件分区和首页模板，并作为应用内的二级筛选。额外分类可自行添加；公开
+        index.json 仍按分类拆成 plugins / homeTemplates 以兼容旧消费者，同时把 extras 写入
+        categories，应用商店会按这些分类生成筛选页签（例如自定义标识 template、名称「模板」）。
       </p>
       <el-table :data="categories" size="small" class="mb-3">
         <el-table-column prop="label" label="名称" min-width="120" />
@@ -436,6 +501,8 @@
     publishSourcePackage,
     registerSourcePlugin,
     registerSourceTemplate,
+    updateSourcePlugin,
+    updateSourceTemplate,
     saveSourceCatalogCategories,
     setSourcePluginStatus,
     setSourceTemplateStatus,
@@ -500,6 +567,29 @@
     category: 'other',
     shelf: false
   })
+  const editVisible = ref(false)
+  const editing = ref(false)
+  const editRef = ref<FormInstance>()
+  const editingItem = ref<SourceCatalogItem | null>(null)
+  const editForm = reactive({
+    id: '',
+    name: '',
+    description: '',
+    location: '',
+    sha256: '',
+    authorName: '',
+    changelog: '',
+    category: '',
+    icon: '',
+    note: ''
+  })
+  const editRules: FormRules = {
+    category: [{ required: true, message: '请选择分类', trigger: 'change' }],
+    name: [{ required: true, message: '请填写名称', trigger: 'blur' }],
+    location: [{ required: true, message: '请填写外部地址', trigger: 'blur' }],
+    sha256: [{ required: true, message: '请填写 sha256', trigger: 'blur' }]
+  }
+
   const registerRules: FormRules = {
     appId: [{ required: true, type: 'number', min: 1, message: '请选择应用', trigger: 'change' }],
     category: [{ required: true, message: '请选择分类', trigger: 'change' }],
@@ -524,6 +614,16 @@
 
   const registerIsTemplate = computed(
     () => categoryKind(registerForm.category) === 'template'
+  )
+  const editIsTemplate = computed(
+    () => editingItem.value?.kind === 'template' || categoryKind(editForm.category) === 'template'
+  )
+  const editCategoryOptions = computed(() => {
+    const kind = editingItem.value?.kind || categoryKind(editForm.category)
+    return categories.value.filter((item) => item.kind === kind)
+  })
+  const editApp = computed(
+    () => apps.value.find((item) => item.id === editingItem.value?.appId) || apps.value[0]
   )
   const currentIsTemplate = computed(() => currentItem.value?.kind === 'template')
   const uploadCategoryOptions = computed(() => {
@@ -578,6 +678,10 @@
       default:
         return false
     }
+  }
+
+  function canEditItem(status: string) {
+    return ['draft', 'review', 'approved', 'published', 'hidden'].includes(status)
   }
 
   function canAction(
@@ -740,6 +844,67 @@
       await loadItems()
     } finally {
       publishing.value = false
+    }
+  }
+
+  function openEdit(row: SourceCatalogItem) {
+    editingItem.value = row
+    editForm.id = row.id
+    editForm.name = row.name
+    editForm.description = row.description || ''
+    editForm.location = itemLocation(row)
+    editForm.sha256 = row.sha256 || ''
+    editForm.authorName = row.author?.name || ''
+    editForm.changelog = row.changelog || ''
+    editForm.category = row.category
+    editForm.icon = row.icon || ''
+    editForm.note = ''
+    editVisible.value = true
+  }
+
+  async function handleEdit() {
+    if (!editingItem.value) return
+    await editRef.value?.validate()
+    editing.value = true
+    try {
+      const note = editForm.note.trim() || '管理员编辑目录元数据（保持原状态）'
+      if (editIsTemplate.value) {
+        await updateSourceTemplate(editingItem.value.id, {
+          id: editingItem.value.id,
+          appId: editingItem.value.appId,
+          templateKey: editingItem.value.templateKey || editingItem.value.id,
+          name: editForm.name,
+          description: editForm.description,
+          version: editingItem.value.version || '1.0.0',
+          schemaVersion: editingItem.value.schemaVersion || 1,
+          templateUrl: editForm.location,
+          sha256: editForm.sha256,
+          changelog: editForm.changelog,
+          category: editForm.category,
+          author: { name: editForm.authorName },
+          note
+        })
+      } else {
+        await updateSourcePlugin(editingItem.value.id, {
+          id: editingItem.value.id,
+          appId: editingItem.value.appId,
+          name: editForm.name,
+          description: editForm.description,
+          version: editingItem.value.version || '1.0.0',
+          downloadUrl: editForm.location,
+          sha256: editForm.sha256,
+          changelog: editForm.changelog,
+          category: editForm.category,
+          icon: editForm.icon,
+          author: { name: editForm.authorName },
+          note
+        })
+      }
+      ElMessage.success('已更新目录元数据')
+      editVisible.value = false
+      await loadItems()
+    } finally {
+      editing.value = false
     }
   }
 

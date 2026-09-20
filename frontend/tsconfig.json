@@ -20,7 +20,8 @@
       "@utils/*": ["src/utils/*"],
       "@stores/*": ["src/store/*"],
       "@plugins/*": ["src/plugins/*"],
-      "@styles/*": ["src/assets/styles/*"]
+      "@styles/*": ["src/assets/styles/*"],
+      "@developer-docs/*": ["../docs/developer/*"]
     }
   },
   "include": ["src/**/*", "src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"],

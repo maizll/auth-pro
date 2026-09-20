@@ -44,7 +44,8 @@ export default ({ mode }: { mode: string }) => {
         '@icons': resolvePath('src/assets/icons'),
         '@utils': resolvePath('src/utils'),
         '@stores': resolvePath('src/store'),
-        '@styles': resolvePath('src/assets/styles')
+        '@styles': resolvePath('src/assets/styles'),
+        '@developer-docs': resolvePath('../docs/developer')
       }
     },
     build: {

@@ -306,7 +306,7 @@ func TestSourcePackagePublishPasteableDownloadURL(t *testing.T) {
 func TestSourcePackageParseDoesNotPersistFiles(t *testing.T) {
 	router, store := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
-	payload := makeTestZIP(t, testZIPEntry{name: "template.json", data: `{"id":"clean-home","name":"清新首页","version":"1.0.0","schemaVersion":1,
+	payload := makeTestZIP(t, testZIPEntry{name: "template.json", data: `{"kind":"template","id":"clean-home","name":"清新首页","version":"1.0.0","schemaVersion":1,
 		"description":"模板","author":"设计组","hero":{"title":"欢迎"}
 	}`})
 	rec := sourceMultipart(t, router, "/api/v1/source/admin/packages/parse", admin, "home.zip", payload, map[string]string{"kind": "template"})
@@ -423,7 +423,7 @@ func TestSourceLockedPipelineUploadToPublicIndex(t *testing.T) {
 		t.Fatalf("shelf=%s", shelf.Body.String())
 	}
 
-	templateZIP := makeTestZIP(t, testZIPEntry{name: "template.json", data: `{"id":"clean-home","name":"清新首页","version":"1.0.0","schemaVersion":1,
+	templateZIP := makeTestZIP(t, testZIPEntry{name: "template.json", data: `{"kind":"template","id":"clean-home","name":"清新首页","version":"1.0.0","schemaVersion":1,
 		"description":"简洁的授权服务首页","author":"设计组","hero":{"title":"欢迎"}
 	}`})
 	tpl := sourceMultipart(t, router, "/api/v1/source/admin/packages/publish", admin, "home.zip", templateZIP, map[string]string{
