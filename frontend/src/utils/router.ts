@@ -10,6 +10,7 @@ import NProgress from 'nprogress'
 import 'nprogress/nprogress.css'
 import i18n, { $t } from '@/locales'
 import { useSystemConfigStore } from '@/store/modules/system-config'
+import { MENU_TITLE_ZH } from '@/utils/form/menu-title'
 
 /** 扩展的路由配置类型 */
 export type AppRouteRecordRaw = RouteRecordRaw & {
@@ -47,17 +48,13 @@ export const setPageTitle = (to: RouteLocationNormalized): void => {
  * @returns 格式化后的菜单标题
  */
 export const formatMenuTitle = (title: string): string => {
-  if (title) {
+    if (!title) return ''
+    if (MENU_TITLE_ZH[title]) return MENU_TITLE_ZH[title]
     if (title.startsWith('menus.')) {
-      // 使用 te() 方法检查翻译键值是否存在，避免控制台警告
       if (i18n.global.te(title)) {
         return $t(title)
-      } else {
-        // 如果翻译不存在，返回键值的最后部分作为fallback
-        return title.split('.').pop() || title
       }
+      return title.split('.').pop() || title
     }
     return title
   }
-  return ''
-}

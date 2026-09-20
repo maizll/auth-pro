@@ -9,6 +9,7 @@
     @closed="handleClosed"
   >
     <ArtForm
+      :key="formEpoch"
       ref="formRef"
       v-model="form"
       :items="formItems"
@@ -40,10 +41,12 @@
   import type { FormRules } from 'element-plus'
   import { ElIcon, ElTooltip } from 'element-plus'
   import { QuestionFilled } from '@element-plus/icons-vue'
-  import { formatMenuTitle } from '@/utils/router'
   import type { AppRouteRecord } from '@/types/router'
   import type { FormItem } from '@/components/core/forms/art-form/index.vue'
   import ArtForm from '@/components/core/forms/art-form/index.vue'
+  import { buildParentMenuOptions, isInvalidMenuParent } from '@/utils/form/menu-parent'
+  import { mapManageRowToForm } from '@/utils/form/menu-form'
+  import { resolveMenuTitle } from '@/utils/form/menu-title'
   import { useWindowSize } from '@vueuse/core'
 
   const { width } = useWindowSize()
@@ -60,6 +63,7 @@
 
   interface MenuFormData {
     id: number
+    parentId: number
     name: string
     path: string
     label: string
@@ -90,6 +94,7 @@
     editData?: AppRouteRecord | any
     type?: 'menu' | 'button'
     lockType?: boolean
+    menus?: Array<{ id: number; title?: string; name?: string; children?: any[] }>
   }
 
   interface Emits {
@@ -100,16 +105,19 @@
   const props = withDefaults(defineProps<Props>(), {
     visible: false,
     type: 'menu',
-    lockType: false
+    lockType: false,
+    menus: () => []
   })
   const emit = defineEmits<Emits>()
 
   const formRef = ref()
   const isEdit = ref(false)
+  const formEpoch = ref(0)
 
   const form = reactive<MenuFormData & { menuType: 'menu' | 'button' }>({
     menuType: 'menu',
     id: 0,
+    parentId: 0,
     name: '',
     path: '',
     label: '',
@@ -138,7 +146,7 @@
   const rules = reactive<FormRules>({
     name: [
       { required: true, message: '请输入菜单名称', trigger: 'blur' },
-      { min: 2, max: 20, message: '长度在 2 到 20 个字符', trigger: 'blur' }
+      { min: 1, max: 40, message: '长度在 1 到 40 个字符', trigger: 'blur' }
     ],
     path: [{ required: true, message: '请输入路由地址', trigger: 'blur' }],
     label: [{ required: true, message: '输入权限标识', trigger: 'blur' }],
@@ -153,7 +161,30 @@
     if (form.menuType === 'menu') {
       return [
         ...baseItems,
-        { label: '菜单名称', key: 'name', type: 'input', props: { placeholder: '菜单名称' } },
+        {
+          label: '上级菜单',
+          key: 'parentId',
+          type: 'treeselect',
+          span: 24,
+          props: {
+            data: buildParentMenuOptions(props.menus || [], form.id || 0, (node) =>
+              resolveMenuTitle(String(node.title || ''), String(node.name || ''))
+            ),
+            props: { label: 'label', value: 'id', children: 'children' },
+            checkStrictly: true,
+            defaultExpandAll: true,
+            clearable: true,
+            placeholder: '无 / 顶级菜单',
+            renderAfterExpand: false,
+            style: { width: '100%' }
+          }
+        },
+        {
+          label: '菜单名称',
+          key: 'name',
+          type: 'input',
+          props: { placeholder: '中文显示标题，如：应用商店' }
+        },
         {
           label: createLabelTooltip(
             '路由地址',
@@ -184,7 +215,7 @@
           label: '菜单排序',
           key: 'sort',
           type: 'number',
-          props: { min: 1, controlsPosition: 'right', style: { width: '100%' } }
+          props: { min: 0, controlsPosition: 'right', style: { width: '100%' } }
         },
         {
           label: '外部链接',
@@ -250,35 +281,66 @@
   })
 
   const resetForm = (): void => {
-    formRef.value?.reset()
+    // 不要调用 ArtForm.reset()：它会按首次挂载的空快照删掉 name 等字段，
+    // 并与 ElDialog @closed 竞态，导致再次打开编辑时「名称」空白。
     form.menuType = 'menu'
+    form.id = 0
+    form.parentId = 0
+    form.name = ''
+    form.label = ''
+    form.path = ''
+    form.component = ''
+    form.icon = ''
+    form.sort = 1
+    form.keepAlive = true
+    form.isHide = false
+    form.isHideTab = false
+    form.isEnable = true
+    form.fixedTab = false
+    form.isFullPage = false
+    form.roles = []
+    form.link = ''
+    form.isIframe = false
+    form.showBadge = false
+    form.showTextBadge = ''
+    form.activePath = ''
+    form.authName = ''
+    form.authLabel = ''
+    form.authIcon = ''
+    form.authSort = 1
+  }
+
+  const applyMappedForm = (mapped: ReturnType<typeof mapManageRowToForm>) => {
+    if (!mapped) return
+    form.id = mapped.id
+    form.parentId = mapped.parentId
+    form.name = mapped.name
+    form.path = mapped.path
+    form.label = mapped.label
+    form.component = mapped.component
+    form.icon = mapped.icon
+    form.sort = mapped.sort
+    form.keepAlive = mapped.keepAlive
+    form.isHide = mapped.isHide
+    form.isHideTab = mapped.isHideTab
+    form.isEnable = mapped.isEnable
+    form.fixedTab = mapped.fixedTab
+    form.isFullPage = mapped.isFullPage
+    form.roles = mapped.roles
   }
 
   const loadFormData = (): void => {
     if (!props.editData) return
     isEdit.value = true
     if (form.menuType === 'menu') {
+      applyMappedForm(mapManageRowToForm(props.editData))
       const row = props.editData
-      form.id = row.id || 0
-      form.name = formatMenuTitle(row.meta?.title || '')
-      form.path = row.path || ''
-      form.label = row.name || ''
-      form.component = row.component || ''
-      form.icon = row.meta?.icon || ''
-      form.sort = row.meta?.sort || 1
       form.isMenu = row.meta?.isMenu ?? true
-      form.keepAlive = row.meta?.keepAlive ?? false
-      form.isHide = row.meta?.isHide ?? false
-      form.isHideTab = row.meta?.isHideTab ?? false
-      form.isEnable = row.meta?.isEnable ?? true
       form.link = row.meta?.link || ''
       form.isIframe = row.meta?.isIframe ?? false
       form.showBadge = row.meta?.showBadge ?? false
       form.showTextBadge = row.meta?.showTextBadge || ''
-      form.fixedTab = row.meta?.fixedTab ?? false
       form.activePath = row.meta?.activePath || ''
-      form.roles = row.meta?.roles || []
-      form.isFullPage = row.meta?.isFullPage ?? false
     } else {
       const row = props.editData
       form.authName = row.title || ''
@@ -292,9 +354,12 @@
     if (!formRef.value) return
     try {
       await formRef.value.validate()
+      if (form.parentId == null) form.parentId = 0
+      if (form.menuType === 'menu' && isInvalidMenuParent(form.id, form.parentId, props.menus || [])) {
+        ElMessage.error('不能选择自身或下级菜单作为上级')
+        return
+      }
       emit('submit', { ...form })
-      ElMessage.success(`${isEdit.value ? '编辑' : '新增'}成功`)
-      handleCancel()
     } catch {
       ElMessage.error('表单校验失败，请检查输入')
     }
@@ -304,26 +369,39 @@
     emit('update:visible', false)
   }
   const handleClosed = (): void => {
+    if (props.visible) return
     resetForm()
     isEdit.value = false
   }
 
   watch(
-    () => props.visible,
-    (newVal) => {
-      if (newVal) {
+    () => [props.visible, props.editData] as const,
+    ([visible]) => {
+      if (!visible) return
+      form.menuType = props.type
+      isEdit.value = !!props.editData
+      if (props.editData) {
+        loadFormData()
+      } else {
+        resetForm()
         form.menuType = props.type
-        nextTick(() => {
-          if (props.editData) loadFormData()
-        })
       }
-    }
+      formEpoch.value += 1
+    },
+    { flush: 'sync' }
   )
 
   watch(
     () => props.type,
     (newType) => {
       if (props.visible) form.menuType = newType
+    }
+  )
+
+  watch(
+    () => form.parentId,
+    (value) => {
+      if (value == null || value === ('' as unknown as number)) form.parentId = 0
     }
   )
 </script>

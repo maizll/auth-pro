@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -36,9 +37,12 @@ func TestMenuSeedSQLFollowsWorkflowNav(t *testing.T) {
 		}
 	}
 	for _, name := range []string{"PluginStore", "OnlineUpdate"} {
-		if seedHasTopLevelMenu(seed, name) {
-			t.Errorf("%s must sit under Sdk, not as a top-level menu", name)
+		if !seedHasTopLevelMenu(seed, name) {
+			t.Errorf("%s must be a top-level menu (parent_id=0), not nested under Sdk", name)
 		}
+	}
+	if sdkChildren := seedChildNames(seed, 8); !sameStringSet(sdkChildren, []string{"SdkIndex", "DeveloperDoc", "DefaultHomeTemplateDoc"}) {
+		t.Errorf("Sdk children = %v, want SDK/docs/template only", sdkChildren)
 	}
 }
 
@@ -55,7 +59,7 @@ func TestProductMenuSpecFollowsWorkflowOrder(t *testing.T) {
 	got := topLevelProductMenuNames()
 	want := []string{
 		"Dashboard", "License", "Agent", "SourceStation", "Piracy",
-		"CustomerService", "Sdk", "System",
+		"CustomerService", "Sdk", "PluginStore", "OnlineUpdate", "System",
 	}
 	if len(got) < len(want) {
 		t.Fatalf("top-level product menus = %v, want at least %v", got, want)
@@ -93,8 +97,8 @@ func TestProductMenuSpecIncludesWorkflowPages(t *testing.T) {
 		"User":                   "CustomerService",
 		"OrderList":              "CustomerService",
 		"PromotionCampaigns":     "CustomerService",
-		"PluginStore":            "Sdk",
-		"OnlineUpdate":           "Sdk",
+		"PluginStore":            "",
+		"OnlineUpdate":           "",
 		"DeveloperDoc":           "Sdk",
 		"DefaultHomeTemplateDoc": "Sdk",
 		"AgentList":              "Agent",
@@ -173,8 +177,8 @@ func TestBuildMenuTreeExposesProcessorFields(t *testing.T) {
 		}
 	}
 	meta, _ := node["meta"].(map[string]any)
-	if meta["title"] != "menus.license.title" {
-		t.Errorf("meta.title = %v", meta["title"])
+	if meta["title"] != "应用授权" {
+		t.Errorf("meta.title = %v, want 应用授权", meta["title"])
 	}
 	if meta["icon"] != "ri:apps-line" {
 		t.Errorf("meta.icon = %v", meta["icon"])
@@ -195,6 +199,66 @@ func TestBuildMenuTreeExposesProcessorFields(t *testing.T) {
 	}
 	if hidden == nil || !hidden.Meta.IsHide {
 		t.Fatal("hidden AppVersions must keep isHide for MenuProcessor sidebar filter")
+	}
+}
+
+func TestUpsertMovesPluginStoreAndOnlineUpdateToTopLevel(t *testing.T) {
+	existing := []menuRow{
+		{ID: 8, ParentID: 0, Name: "Sdk", Title: "接入开发", Sort: 7},
+		{ID: 210, ParentID: 8, Name: "PluginStore", Title: "我的商店", Icon: "ri:star-line", Sort: 4},
+		{ID: 211, ParentID: 8, Name: "OnlineUpdate", Title: "自定义更新", Sort: 5},
+		{ID: 2, ParentID: 0, Name: "System", Title: "我的系统", Icon: "ri:settings-3-line", Sort: 8},
+		{ID: 801, ParentID: 8, Name: "SdkIndex", Title: "SDK 示例", Sort: 1},
+	}
+
+	got := upsertMenuRows(existing, productMenuSpecs(), false)
+	byName := map[string]menuRow{}
+	for _, row := range got {
+		byName[row.Name] = row
+	}
+
+	if byName["PluginStore"].ParentID != 0 || byName["OnlineUpdate"].ParentID != 0 {
+		t.Fatalf("store/update parent_id = %d/%d, want 0 (top-level)", byName["PluginStore"].ParentID, byName["OnlineUpdate"].ParentID)
+	}
+	if byName["PluginStore"].Title != "我的商店" || byName["OnlineUpdate"].Title != "自定义更新" {
+		t.Fatalf("custom titles must stick: store=%q update=%q", byName["PluginStore"].Title, byName["OnlineUpdate"].Title)
+	}
+	if byName["System"].Title != "我的系统" || byName["System"].Sort != 8 {
+		t.Fatalf("unrelated System title/sort must stick: %+v", byName["System"])
+	}
+	if byName["SdkIndex"].ParentID != 8 {
+		t.Fatalf("SdkIndex must stay under Sdk, parent=%d", byName["SdkIndex"].ParentID)
+	}
+}
+
+func TestInvalidMenuParentRejectsSelfAndDescendant(t *testing.T) {
+	parentByID := map[int64]int64{8: 0, 801: 8, 802: 8}
+	if invalidMenuParent(8, 8, parentByID) != true {
+		t.Fatal("cannot parent Sdk to itself")
+	}
+	if invalidMenuParent(8, 801, parentByID) != true {
+		t.Fatal("cannot parent Sdk to its child")
+	}
+	if invalidMenuParent(801, 0, parentByID) != false {
+		t.Fatal("top-level parent is valid")
+	}
+	if invalidMenuParent(801, 2, parentByID) != false {
+		t.Fatal("sibling top-level parent is valid")
+	}
+}
+
+func TestResolveMenuTitleUsesChinese(t *testing.T) {
+	if got := resolveMenuTitle("menus.integration.store"); got != "应用商店" {
+		t.Fatalf("store title = %q", got)
+	}
+	if got := resolveMenuTitle("我的商店"); got != "我的商店" {
+		t.Fatalf("custom title should pass through, got %q", got)
+	}
+	if !isDemoProductMenu("Result") || !isDemoProductMenu("Exception404") {
+		t.Fatal("demo menus must be recognized")
+	}
+	if isDemoProductMenu("PluginStore") {
+		t.Fatal("product menus are not demo")
 	}
 }
 
@@ -279,6 +343,18 @@ func seedMenuIsHidden(seed, name string) bool {
 		}
 	}
 	return false
+}
+
+func seedChildNames(seed string, parentID int) []string {
+	var names []string
+	wantParent := strconv.Itoa(parentID)
+	for _, line := range strings.Split(seed, "\n") {
+		fields := splitSQLValueLine(line)
+		if len(fields) >= 3 && fields[1] == wantParent && fields[2] != "" {
+			names = append(names, fields[2])
+		}
+	}
+	return names
 }
 
 func splitSQLValueLine(line string) []string {

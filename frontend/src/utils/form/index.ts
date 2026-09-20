@@ -16,3 +16,9 @@ export * from './catalog-slug'
 
 // 源站目录分类（自定义 extras 可删）
 export * from './catalog-category'
+
+// 菜单上级选择（禁止选自身/子孙）
+export * from './menu-parent'
+
+export * from './menu-title'
+export * from './menu-form'

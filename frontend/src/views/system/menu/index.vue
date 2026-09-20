@@ -42,6 +42,7 @@
         v-model:visible="dialogVisible"
         :type="dialogType"
         :editData="editData"
+        :menus="tableData"
         :lockType="lockMenuType"
         @submit="handleSubmit"
       />
@@ -53,11 +54,16 @@
   import ArtButtonTable from '@/components/core/forms/art-button-table/index.vue'
   import { useTableColumns } from '@/hooks/core/useTableColumns'
   import MenuDialog from './modules/menu-dialog.vue'
-  import { fetchMenuManageList, fetchDeleteMenu } from '@/api/system-manage'
-  import { formatMenuTitle } from '@/utils/router'
-  import { ElTag, ElMessageBox } from 'element-plus'
+  import { fetchMenuManageList, fetchCreateMenu, fetchUpdateMenu, fetchDeleteMenu } from '@/api/system-manage'
+  import { toMenuSavePayload } from '@/utils/form/menu-form'
+  import { formatManageMenuName, resolveManageMenuTree, stripDemoMenus } from '@/utils/form/menu-title'
+  import { reloadDynamicMenus } from '@/router/guards/beforeEach'
+  import { ElTag, ElMessage, ElMessageBox } from 'element-plus'
+  import { useRouter } from 'vue-router'
 
   defineOptions({ name: 'Menus' })
+
+  const router = useRouter()
 
   interface MenuItem {
     id: number
@@ -104,7 +110,7 @@
     loading.value = true
     try {
       const res = await fetchMenuManageList()
-      tableData.value = res || []
+      tableData.value = resolveManageMenuTree(stripDemoMenus(res || []))
     } finally {
       loading.value = false
     }
@@ -125,7 +131,7 @@
       prop: 'title',
       label: '菜单名称',
       minWidth: 160,
-      formatter: (row: MenuItem) => formatMenuTitle(row.title || row.name)
+      formatter: (row: MenuItem) => formatManageMenuName(row)
     },
     {
       prop: 'type',
@@ -143,6 +149,13 @@
       formatter: (row: MenuItem) => row.component || '-'
     },
     { prop: 'sort', label: '排序', width: 70 },
+    {
+      prop: 'isHide',
+      label: '侧栏',
+      width: 80,
+      formatter: (row: MenuItem) =>
+        h(ElTag, { type: row.isHide ? 'info' : 'success' }, () => (row.isHide ? '隐藏' : '显示'))
+    },
     {
       prop: 'enabled',
       label: '状态',
@@ -187,7 +200,7 @@
     for (const item of items) {
       const searchName = appliedFilters.name?.toLowerCase().trim() || ''
       const searchRoute = appliedFilters.route?.toLowerCase().trim() || ''
-      const menuTitle = (item.title || item.name || '').toLowerCase()
+      const menuTitle = formatManageMenuName(item).toLowerCase()
       const menuPath = (item.path || '').toLowerCase()
       const nameMatch = !searchName || menuTitle.includes(searchName)
       const routeMatch = !searchRoute || menuPath.includes(searchRoute)
@@ -206,16 +219,45 @@
   const filteredTableData = computed(() => searchMenu(tableData.value))
 
   const handleAddMenu = (): void => {
+    dialogType.value = 'menu'
     editData.value = null
     dialogVisible.value = true
   }
   const handleEditMenu = (row: MenuItem): void => {
-    editData.value = row
+    dialogType.value = 'menu'
+    editData.value = {
+      ...row,
+      title: formatManageMenuName(row)
+    }
     dialogVisible.value = true
   }
 
-  const handleSubmit = (): void => {
-    getMenuList()
+  const refreshSidebar = async (): Promise<void> => {
+    try {
+      await reloadDynamicMenus(router)
+    } catch (error) {
+      console.warn('[菜单管理] 侧栏刷新失败，请硬刷新一次', error)
+    }
+  }
+
+  const handleSubmit = async (data: Record<string, any>): Promise<void> => {
+    const title = String(data.name || '').trim()
+    if (!title) {
+      ElMessage.error('请输入菜单名称')
+      return
+    }
+    try {
+      if (data.id) {
+        await fetchUpdateMenu(data.id, toMenuSavePayload(data))
+      } else {
+        await fetchCreateMenu(toMenuSavePayload(data))
+      }
+      dialogVisible.value = false
+      await getMenuList()
+      await refreshSidebar()
+    } catch {
+      /* request already toasts */
+    }
   }
 
   const handleDeleteMenu = async (row: MenuItem): Promise<void> => {
@@ -226,9 +268,11 @@
         type: 'warning'
       })
       await fetchDeleteMenu(row.id)
-      getMenuList()
-    } catch {
-      /* cancelled */
+      await getMenuList()
+      await refreshSidebar()
+    } catch (error: any) {
+      if (error === 'cancel' || error === 'close') return
+      /* request already toasts API errors such as 该菜单下有子菜单 */
     }
   }
 

@@ -3,6 +3,7 @@ package handler
 import (
 	"database/sql"
 	"net/http"
+	"strconv"
 
 	"auto_pro/config"
 
@@ -122,7 +123,7 @@ func buildMenuTree(menus []menuRow, parentID int64) []*menuResponse {
 			Component: m.Component,
 			Redirect:  m.Redirect,
 			Meta: menuMeta{
-				Title:      m.Title,
+				Title:      resolveMenuTitle(m.Title),
 				Icon:       m.Icon,
 				IsHide:     m.IsHide,
 				IsHideTab:  m.IsHideTab,
@@ -186,6 +187,10 @@ func MenuManageList(c *gin.Context) {
 		rows.Scan(&m.ID, &m.ParentID, &m.Name, &m.Path, &m.Component, &m.Redirect,
 			&m.Title, &m.Icon, &m.Sort, &m.IsHide, &m.IsHideTab, &m.IsFullPage,
 			&m.KeepAlive, &m.FixedTab, &m.Enabled)
+		m.Title = resolveMenuTitle(m.Title)
+		if isDemoProductMenu(m.Name) {
+			continue
+		}
 		all = append(all, m)
 	}
 
@@ -242,6 +247,13 @@ func MenuManageCreate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "名称和路径不能为空"})
 		return
 	}
+	if req.Title == "" {
+		req.Title = req.Name
+	}
+	if invalidMenuParent(0, req.ParentID, loadMenuParentIndex(db)) {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "不能选择自身或下级菜单作为上级"})
+		return
+	}
 
 	result, err := db.Exec(`INSERT INTO menus (parent_id, name, path, component, redirect, title, icon, sort, is_hide, is_hide_tab, is_full_page, keep_alive, fixed_tab)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -290,6 +302,19 @@ func MenuManageUpdate(c *gin.Context) {
 		return
 	}
 
+	menuID, err := strconv.ParseInt(id, 10, 64)
+	if err != nil || menuID == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+	if invalidMenuParent(menuID, req.ParentID, loadMenuParentIndex(db)) {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "不能选择自身或下级菜单作为上级"})
+		return
+	}
+	if req.Title == "" {
+		req.Title = req.Name
+	}
+
 	enabledInt := 0
 	if req.Enabled {
 		enabledInt = 1
@@ -331,6 +356,51 @@ func MenuManageDelete(c *gin.Context) {
 	db.Exec("DELETE FROM menus WHERE id=?", id)
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "删除成功"})
+}
+
+func loadMenuParentIndex(db *sql.DB) map[int64]int64 {
+	out := map[int64]int64{}
+	if db == nil {
+		return out
+	}
+	rows, err := db.Query("SELECT id, parent_id FROM menus")
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, parentID int64
+		if rows.Scan(&id, &parentID) == nil {
+			out[id] = parentID
+		}
+	}
+	return out
+}
+
+func invalidMenuParent(menuID, parentID int64, parentByID map[int64]int64) bool {
+	if parentID == 0 {
+		return false
+	}
+	if menuID != 0 && parentID == menuID {
+		return true
+	}
+	seen := map[int64]bool{}
+	if menuID != 0 {
+		seen[menuID] = true
+	}
+	cur := parentID
+	for cur != 0 {
+		if seen[cur] {
+			return true
+		}
+		seen[cur] = true
+		next, ok := parentByID[cur]
+		if !ok {
+			return false
+		}
+		cur = next
+	}
+	return false
 }
 
 func removeHomeTemplateMenu(db *sql.DB) {

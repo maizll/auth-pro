@@ -8,8 +8,10 @@ INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `redirect`,
 (9,  0, 'SourceStation',    '/source-station',    '/index/index', '/source-station/packages',    'menus.sourceStation.title',    'ri:database-2-line',         4, 0),
 (5,  0, 'Piracy',           '/piracy',            '/index/index', '',                            'menus.security.title',         'ri:shield-flash-line',       5, 0),
 (10, 0, 'CustomerService',  '/customer-service',  '/index/index', '/user-manage',                'menus.customerService.title',  'ri:customer-service-2-line', 6, 0),
-(8,  0, 'Sdk',              '/sdk',               '/index/index', '',                            'menus.integration.title',      'ri:code-box-line',           7, 0),
-(2,  0, 'System',           '/system',            '/index/index', '',                            'menus.system.title',           'ri:settings-3-line',         8, 0);
+(8,   0, 'Sdk',              '/sdk',               '/index/index', '',                            'menus.integration.title',      'ri:code-box-line',           7, 0),
+(210, 0, 'PluginStore',      '/plugin-store',      '/plugin-store/index', '',                     'menus.integration.store',      'ri:store-2-line',            8, 1),
+(211, 0, 'OnlineUpdate',     '/online-update',     '/online-update/index', '',                    'menus.integration.update',     'ri:download-cloud-2-line',   9, 1),
+(2,   0, 'System',           '/system',            '/index/index', '',                            'menus.system.title',           'ri:settings-3-line',         10, 0);
 
 -- 模板演示页：保留在库中但默认隐藏，不进侧栏
 INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `title`, `icon`, `sort`, `keep_alive`, `is_hide`) VALUES
@@ -65,13 +67,11 @@ INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `title`, `i
 (212,  10, 'PromotionCampaigns',  '/promotion-campaigns',  '/promotion-campaigns/index',   'menus.customerService.campaigns', 'ri:discount-percent-line',  3, 1),
 (1001, 10, 'TicketManage',        '/tickets',              '/system/tickets',              'menus.customerService.tickets',   'ri:question-answer-line',   4, 1);
 
--- SDK / integration
+-- SDK / integration（仅 SDK / 文档 / 模板；应用商店与在线更新为一级菜单）
 INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `title`, `icon`, `sort`, `keep_alive`) VALUES
 (801, 8, 'SdkIndex',                 'index',                  '/sdk/index',                       'menus.integration.sdk',         'ri:code-s-slash-line',       1, 1),
 (802, 8, 'DeveloperDoc',             'developer-doc',          '/sdk/developer-doc',               'menus.integration.docs',        'ri:file-code-line',          2, 1),
-(803, 8, 'DefaultHomeTemplateDoc',   'default-home-template',  '/sdk/default-home-template-doc',   'menus.integration.templateDoc', 'ri:layout-4-line',           3, 1),
-(210, 8, 'PluginStore',              '/plugin-store',          '/plugin-store/index',              'menus.integration.store',       'ri:store-2-line',            4, 1),
-(211, 8, 'OnlineUpdate',             '/online-update',         '/online-update/index',             'menus.integration.update',      'ri:download-cloud-2-line',   5, 1);
+(803, 8, 'DefaultHomeTemplateDoc',   'default-home-template',  '/sdk/default-home-template-doc',   'menus.integration.templateDoc', 'ri:layout-4-line',           3, 1);
 
 -- System
 INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `title`, `icon`, `sort`, `keep_alive`, `is_hide`, `is_hide_tab`) VALUES

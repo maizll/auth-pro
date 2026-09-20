@@ -7,6 +7,8 @@ import { licenseRoutes } from './license'
 import { agentRoutes } from './agent'
 import { piracyRoutes } from './piracy'
 import { sdkRoutes } from './sdk'
+import { pluginStoreRoutes } from './plugin-store'
+import { onlineUpdateRoutes } from './online-update'
 import { sourceStationRoutes } from './source-station'
 import { customerServiceRoutes } from './customer-service'
 
@@ -23,6 +25,8 @@ export const routeModules: AppRouteRecord[] = [
   piracyRoutes,
   customerServiceRoutes,
   sdkRoutes,
+  pluginStoreRoutes,
+  onlineUpdateRoutes,
   systemRoutes,
   resultRoutes,
   exceptionRoutes
