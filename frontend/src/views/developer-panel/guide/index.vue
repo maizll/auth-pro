@@ -24,7 +24,7 @@
         :closable="false"
         show-icon
         class="mb-4"
-        title="源站不存储源码。你把 ZIP 放到自己的 HTTPS 空间，面板里只登记元数据、downloadUrl/templateUrl 和 sha256。"
+        title="源站不存储源码。你把 ZIP 放到自己的 HTTPS 空间，面板里只登记名称、下载/模板地址和校验码。"
       />
     </el-card>
 
