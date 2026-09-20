@@ -5,8 +5,18 @@
         <div>
           <h2 class="welcome-title">欢迎回来，{{ profile.displayName || profile.username || '开发者' }}</h2>
           <p class="welcome-desc">
-            当前可查看已登记的插件与首页模板。提交时需绑定目标应用，目录按应用隔离。源站不存储源码，仅管理元数据与审核状态。
+            在侧栏提交插件、首页模板或广告申请。目录按应用隔离；源站不存储源码，只管理元数据与审核状态。
           </p>
+          <div class="welcome-actions">
+            <el-button type="primary" @click="router.push('/developer-panel/plugins?create=1')">
+              登记插件
+            </el-button>
+            <el-button @click="router.push('/developer-panel/templates?create=1')">登记模板</el-button>
+            <el-button @click="router.push('/developer-panel/ads')">申请广告</el-button>
+            <el-button text type="primary" @click="router.push('/developer-panel/guide')">
+              接入说明
+            </el-button>
+          </div>
         </div>
         <iconify-icon icon="ri:code-s-slash-line" width="56" color="var(--el-color-primary-light-5)" />
       </div>
@@ -33,18 +43,32 @@
       </div>
       <div class="art-card p-5 stat-card">
         <div class="stat-icon" style="background: var(--el-color-warning-light-9)">
-          <iconify-icon icon="ri:user-3-line" width="22" color="var(--el-color-warning)" />
+          <iconify-icon icon="ri:time-line" width="22" color="var(--el-color-warning)" />
         </div>
         <div class="stat-info">
-          <span class="stat-num">{{ profile.username || '-' }}</span>
-          <span class="stat-label">开发者账号</span>
+          <span class="stat-num">{{ pendingCount }}</span>
+          <span class="stat-label">待审核</span>
+        </div>
+      </div>
+      <div class="art-card p-5 stat-card">
+        <div class="stat-icon" style="background: var(--el-color-info-light-9)">
+          <iconify-icon icon="ri:advertisement-line" width="22" color="var(--el-color-info)" />
+        </div>
+        <div class="stat-info">
+          <span class="stat-num">{{ pendingAds }}</span>
+          <span class="stat-label">广告申请待审</span>
         </div>
       </div>
     </div>
 
     <el-card shadow="never" class="mb-5">
       <template #header>
-        <span class="card-title">我的插件</span>
+        <div class="card-header">
+          <span class="card-title">我的插件</span>
+          <el-button link type="primary" @click="router.push('/developer-panel/plugins')">
+            管理
+          </el-button>
+        </div>
       </template>
       <el-empty v-if="!plugins.length" description="暂无插件草稿。审核通过后，可在此查看已提交的目录项。" />
       <el-table v-else :data="plugins" stripe>
@@ -67,7 +91,12 @@
 
     <el-card shadow="never">
       <template #header>
-        <span class="card-title">我的首页模板</span>
+        <div class="card-header">
+          <span class="card-title">我的首页模板</span>
+          <el-button link type="primary" @click="router.push('/developer-panel/templates')">
+            管理
+          </el-button>
+        </div>
       </template>
       <el-empty v-if="!templates.length" description="暂无模板草稿。审核通过后，可在此查看已提交的目录项。" />
       <el-table v-else :data="templates" stripe>
@@ -91,7 +120,7 @@
 </template>
 
 <script setup lang="ts">
-  import { onMounted, reactive, ref } from 'vue'
+  import { computed, onMounted, reactive, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { Icon as IconifyIcon } from '@iconify/vue'
   import { ElMessage } from 'element-plus'
@@ -99,6 +128,7 @@
   import {
     DEVELOPER_INFO_KEY,
     DEVELOPER_TOKEN_KEY,
+    fetchSourceDeveloperAdApplications,
     fetchSourceDeveloperCatalogApps,
     fetchSourceDeveloperItems,
     fetchSourceDeveloperMe,
@@ -112,6 +142,7 @@
   const plugins = ref<SourceDeveloperCatalogItem[]>([])
   const templates = ref<SourceDeveloperCatalogItem[]>([])
   const catalogApps = ref<SourceDeveloperCatalogApp[]>([])
+  const pendingAds = ref(0)
   const profile = reactive<SourceDeveloperProfile>({
     id: 0,
     username: '',
@@ -119,6 +150,11 @@
     email: '',
     roleCode: ''
   })
+  const pendingCount = computed(
+    () =>
+      plugins.value.filter((item) => item.status === 'review').length +
+      templates.value.filter((item) => item.status === 'review').length
+  )
 
   function statusMeta(value: string) {
     return SOURCE_ITEM_STATUS[value] || { label: value || '-', type: 'info' as const }
@@ -140,16 +176,27 @@
   async function loadDashboard() {
     loading.value = true
     try {
-      const [meRes, itemsRes, appsRes] = await Promise.all([
+      const [meRes, itemsRes, appsRes, adsRes] = await Promise.all([
         fetchSourceDeveloperMe(),
         fetchSourceDeveloperItems(),
-        fetchSourceDeveloperCatalogApps()
+        fetchSourceDeveloperCatalogApps(),
+        fetchSourceDeveloperAdApplications('pending')
       ])
-      if (meRes.status === 401 || itemsRes.status === 401 || appsRes.status === 401) {
+      if (
+        meRes.status === 401 ||
+        itemsRes.status === 401 ||
+        appsRes.status === 401 ||
+        adsRes.status === 401
+      ) {
         logoutToLogin()
         return
       }
-      if (meRes.data.code === 401 || itemsRes.data.code === 401 || appsRes.data.code === 401) {
+      if (
+        meRes.data.code === 401 ||
+        itemsRes.data.code === 401 ||
+        appsRes.data.code === 401 ||
+        adsRes.data.code === 401
+      ) {
         logoutToLogin()
         return
       }
@@ -171,6 +218,9 @@
       if (itemsRes.data.code === 200) {
         plugins.value = itemsRes.data.data?.plugins || []
         templates.value = itemsRes.data.data?.homeTemplates || []
+      }
+      if (adsRes.data.code === 200) {
+        pendingAds.value = adsRes.data.data?.total || adsRes.data.data?.list?.length || 0
       }
     } catch (error: unknown) {
       const status = (error as { response?: { status?: number } })?.response?.status
@@ -213,9 +263,16 @@
     color: var(--el-text-color-secondary);
   }
 
+  .welcome-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+  }
+
   .stats-row {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 16px;
     margin-bottom: 20px;
   }
@@ -256,6 +313,18 @@
 
   .card-title {
     font-weight: 600;
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  @media (width <= 1100px) {
+    .stats-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   @media (width <= 800px) {

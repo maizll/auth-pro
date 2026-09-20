@@ -44,8 +44,23 @@ export interface SourceDeveloperCatalogItem {
   version: string
   status: string
   appId?: number
+  category?: string
+  description?: string
+  icon?: string
+  sha256?: string
+  downloadUrl?: string
+  templateUrl?: string
+  templateKey?: string
+  changelog?: string
+  latestVersion?: string
+  minVersion?: string
+  forceUpdate?: boolean
+  schemaVersion?: number
   reviewNote?: string
+  reviewedBy?: string
+  author?: { name?: string; url?: string; email?: string }
   updatedAt?: string
+  createdAt?: string
 }
 
 export interface SourceDeveloperCatalogApp {
@@ -148,4 +163,241 @@ export function rememberDeveloperApplyUsername(username: string) {
 
 export function loadRememberedDeveloperApplyUsername() {
   return (localStorage.getItem(AGENT_DEVELOPER_APPLY_KEY) || '').trim().toLowerCase()
+}
+
+export interface SourceDeveloperCategory {
+  key: string
+  label: string
+  kind: 'plugin' | 'template'
+  builtin?: boolean
+}
+
+export interface SourceDeveloperVersion {
+  kind: string
+  itemId: string
+  version: string
+  changelog: string
+  sha256: string
+  status: string
+  downloadUrl?: string
+  templateUrl?: string
+  reviewNote?: string
+  reviewedBy?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface SourceDeveloperPluginDraft {
+  id: string
+  appId: number
+  category?: string
+  name: string
+  description?: string
+  icon?: string
+  version: string
+  sha256?: string
+  downloadUrl?: string
+  changelog?: string
+  minVersion?: string
+  forceUpdate?: boolean
+  author?: { name?: string; url?: string; email?: string }
+}
+
+export interface SourceDeveloperTemplateDraft {
+  id?: string
+  appId: number
+  category?: string
+  templateKey: string
+  name: string
+  description?: string
+  version: string
+  schemaVersion?: number
+  sha256?: string
+  templateUrl?: string
+  changelog?: string
+  minVersion?: string
+  forceUpdate?: boolean
+  author?: { name?: string; url?: string; email?: string }
+}
+
+export interface SourceDeveloperVersionDraft {
+  version: string
+  changelog?: string
+  sha256?: string
+  downloadUrl?: string
+  templateUrl?: string
+}
+
+export interface SourceDeveloperAdApplication {
+  id: number
+  developerId: number
+  developerUsername?: string
+  appId?: number
+  title: string
+  imageUrl?: string
+  linkUrl?: string
+  positions: string[]
+  note?: string
+  status: string
+  reviewNote?: string
+  reviewedBy?: string
+  reviewedAt?: string
+  advertisementId?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface SourceDeveloperAdApplicationDraft {
+  appId?: number
+  title: string
+  imageUrl?: string
+  linkUrl?: string
+  positions: string[]
+  note?: string
+}
+
+function developerConfig() {
+  return { headers: developerAuthHeaders() }
+}
+
+export function fetchSourceDeveloperCategories() {
+  return axios.get<{
+    code: number
+    msg: string
+    data: { list: SourceDeveloperCategory[]; total: number }
+  }>(`${BASE}/categories`, developerConfig())
+}
+
+export function upsertSourceDeveloperPlugin(payload: SourceDeveloperPluginDraft) {
+  return axios.post<{ code: number; msg: string; data: SourceDeveloperCatalogItem }>(
+    `${BASE}/plugins`,
+    payload,
+    developerConfig()
+  )
+}
+
+export function submitSourceDeveloperPlugin(id: string, note?: string) {
+  return axios.post<{ code: number; msg: string; data: SourceDeveloperCatalogItem }>(
+    `${BASE}/plugins/${encodeURIComponent(id)}/submit`,
+    note ? { note } : {},
+    developerConfig()
+  )
+}
+
+export function fetchSourceDeveloperPluginVersions(id: string) {
+  return axios.get<{
+    code: number
+    msg: string
+    data: { list: SourceDeveloperVersion[]; total: number }
+  }>(`${BASE}/plugins/${encodeURIComponent(id)}/versions`, developerConfig())
+}
+
+export function upsertSourceDeveloperPluginVersion(id: string, payload: SourceDeveloperVersionDraft) {
+  return axios.post<{ code: number; msg: string; data: SourceDeveloperVersion }>(
+    `${BASE}/plugins/${encodeURIComponent(id)}/versions`,
+    payload,
+    developerConfig()
+  )
+}
+
+export function submitSourceDeveloperPluginVersion(id: string, version: string, note?: string) {
+  return axios.post<{ code: number; msg: string; data: SourceDeveloperVersion }>(
+    `${BASE}/plugins/${encodeURIComponent(id)}/versions/${encodeURIComponent(version)}/submit`,
+    note ? { note } : {},
+    developerConfig()
+  )
+}
+
+export function upsertSourceDeveloperTemplate(payload: SourceDeveloperTemplateDraft) {
+  return axios.post<{ code: number; msg: string; data: SourceDeveloperCatalogItem }>(
+    `${BASE}/templates`,
+    payload,
+    developerConfig()
+  )
+}
+
+export function submitSourceDeveloperTemplate(id: string, note?: string) {
+  return axios.post<{ code: number; msg: string; data: SourceDeveloperCatalogItem }>(
+    `${BASE}/templates/${encodeURIComponent(id)}/submit`,
+    note ? { note } : {},
+    developerConfig()
+  )
+}
+
+export function fetchSourceDeveloperTemplateVersions(id: string) {
+  return axios.get<{
+    code: number
+    msg: string
+    data: { list: SourceDeveloperVersion[]; total: number }
+  }>(`${BASE}/templates/${encodeURIComponent(id)}/versions`, developerConfig())
+}
+
+export function upsertSourceDeveloperTemplateVersion(
+  id: string,
+  payload: SourceDeveloperVersionDraft
+) {
+  return axios.post<{ code: number; msg: string; data: SourceDeveloperVersion }>(
+    `${BASE}/templates/${encodeURIComponent(id)}/versions`,
+    payload,
+    developerConfig()
+  )
+}
+
+export function submitSourceDeveloperTemplateVersion(id: string, version: string, note?: string) {
+  return axios.post<{ code: number; msg: string; data: SourceDeveloperVersion }>(
+    `${BASE}/templates/${encodeURIComponent(id)}/versions/${encodeURIComponent(version)}/submit`,
+    note ? { note } : {},
+    developerConfig()
+  )
+}
+
+export function fetchSourceDeveloperAdApplications(status?: string) {
+  return axios.get<{
+    code: number
+    msg: string
+    data: { list: SourceDeveloperAdApplication[]; total: number }
+  }>(`${BASE}/ad-applications`, {
+    ...developerConfig(),
+    params: status ? { status } : undefined
+  })
+}
+
+export function createSourceDeveloperAdApplication(payload: SourceDeveloperAdApplicationDraft) {
+  return axios.post<{ code: number; msg: string; data: SourceDeveloperAdApplication }>(
+    `${BASE}/ad-applications`,
+    payload,
+    developerConfig()
+  )
+}
+
+async function triggerBlobDownload(blob: Blob, filename: string, fallbackType: string) {
+  if (blob.type.includes('application/json')) {
+    const body = JSON.parse(await blob.text()) as { msg?: string }
+    throw new Error(body.msg || '下载失败')
+  }
+  const file = blob.type ? blob : new Blob([blob], { type: fallbackType })
+  const url = URL.createObjectURL(file)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+export async function downloadSourceDeveloperStarter() {
+  const res = await axios.get<Blob>(`${BASE}/starter.zip`, {
+    ...developerConfig(),
+    responseType: 'blob'
+  })
+  await triggerBlobDownload(res.data, 'auth-pro-developer-starter.zip', 'application/zip')
+}
+
+export async function downloadSourceDeveloperSkill() {
+  const res = await axios.get<Blob>(`${BASE}/skill.md`, {
+    ...developerConfig(),
+    responseType: 'blob'
+  })
+  await triggerBlobDownload(res.data, 'SKILL.md', 'text/markdown;charset=utf-8')
 }

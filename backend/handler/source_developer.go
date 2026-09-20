@@ -614,13 +614,14 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 
 func writeSourceDeveloperStoreError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, errSourceNotFound):
+	case errors.Is(err, errSourceNotFound), errors.Is(err, errAdApplicationNotFound):
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": err.Error()})
 	case errors.Is(err, errSourceConflict), errors.Is(err, errApplicationPending), errors.Is(err, errApplicationReviewed),
 		errors.Is(err, errApplicationNotCancellable), errors.Is(err, errDeveloperAlreadyCancelled),
 		errors.Is(err, errSourcePublishIncomplete), errors.Is(err, errSourceInvalidStatus),
 		errors.Is(err, errSourceVersionImmutable), errors.Is(err, errSourceVersionNotLatest),
-		errors.Is(err, errSourceAppRequired), errors.Is(err, errSourceAppNotFound):
+		errors.Is(err, errSourceAppRequired), errors.Is(err, errSourceAppNotFound),
+		errors.Is(err, errAdApplicationReviewed):
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 	case errors.Is(err, errSourceForbidden), errors.Is(err, errDeveloperDisabled):
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": err.Error()})

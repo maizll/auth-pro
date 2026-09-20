@@ -29,6 +29,7 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 	{
 		developer.GET("/me", SourceDeveloperMe)
 		developer.GET("/apps", SourceDeveloperCatalogApps)
+		developer.GET("/categories", SourceDeveloperCatalogCategories)
 		developer.GET("/items", SourceDeveloperItems)
 		developer.POST("/plugins", SourceDeveloperUpsertPlugin)
 		developer.PUT("/plugins/:id", SourceDeveloperUpsertPlugin)
@@ -42,6 +43,10 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		developer.GET("/templates/:id/versions", SourceDeveloperTemplateVersions)
 		developer.POST("/templates/:id/versions", SourceDeveloperUpsertTemplateVersion)
 		developer.POST("/templates/:id/versions/:version/submit", SourceDeveloperSubmitTemplateVersion)
+		developer.GET("/ad-applications", SourceDeveloperAdApplications)
+		developer.POST("/ad-applications", SourceDeveloperCreateAdApplication)
+		developer.GET("/starter.zip", SourceDeveloperStarterZIP)
+		developer.GET("/skill.md", SourceDeveloperSkillMarkdown)
 	}
 
 	admin := api.Group("/v1/source/admin")
@@ -103,6 +108,9 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		admin.POST("/advertisements/image", AdminSourceAdvertisementImageUpload)
 		admin.PUT("/advertisements/placeholder", AdminSourceAdvertisementPlaceholderSave)
 		admin.DELETE("/advertisements/:id", AdminSourceAdvertisementDelete)
+		admin.GET("/ad-applications", AdminSourceAdApplications)
+		admin.POST("/ad-applications/:id/approve", AdminSourceAdApplicationApprove)
+		admin.POST("/ad-applications/:id/reject", AdminSourceAdApplicationReject)
 	}
 
 	api.GET("/v1/public/advertisement-files/:name", PublicAdvertisementFile)
@@ -252,7 +260,8 @@ func resetLocalAdvertisementCache() {
 }
 
 func localSourceAdvertisements(position string) []advertisementRecord {
-	records, err := currentSourceStationStore().ListAdvertisements(position)
+	// 多广告位以 JSON/逗号编码在 position 列，不能按单值等值过滤；交给 normalizeAdvertisements 按槽位匹配。
+	records, err := currentSourceStationStore().ListAdvertisements("")
 	if err != nil || records == nil {
 		return []advertisementRecord{}
 	}

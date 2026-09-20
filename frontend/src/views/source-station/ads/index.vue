@@ -61,6 +61,65 @@
       </el-form>
     </el-card>
 
+    <el-card shadow="never" class="art-card mb-4">
+      <template #header>
+        <div class="table-header">
+          <div>
+            <span class="card-title">开发者广告申请（共 {{ applications.length }} 条）</span>
+            <p class="card-hint">
+              通过后会用申请字段创建一条广告投放。拒绝不会写入投放表。公开客户端接口不变。
+            </p>
+          </div>
+          <el-select v-model="appStatus" clearable placeholder="全部状态" style="width: 140px" @change="loadApplications">
+            <el-option label="待审核" value="pending" />
+            <el-option label="已通过" value="approved" />
+            <el-option label="已拒绝" value="rejected" />
+          </el-select>
+        </div>
+      </template>
+      <el-table :data="applications" stripe v-loading="appLoading">
+        <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column prop="developerUsername" label="开发者" width="120" />
+        <el-table-column prop="title" label="标题" min-width="140" show-overflow-tooltip />
+        <el-table-column label="广告位" min-width="160">
+          <template #default="{ row }">{{ positionLabels(row) }}</template>
+        </el-table-column>
+        <el-table-column prop="imageUrl" label="图片" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="linkUrl" label="跳转" min-width="140" show-overflow-tooltip />
+        <el-table-column label="状态" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="appStatusMeta(row.status).type" size="small">
+              {{ appStatusMeta(row.status).label }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="reviewNote" label="审核说明" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="createdAt" label="申请时间" width="170" />
+        <el-table-column label="操作" width="140" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              link
+              type="success"
+              size="small"
+              :disabled="row.status !== 'pending'"
+              @click="handleApproveApp(row)"
+            >
+              通过
+            </el-button>
+            <el-button
+              link
+              type="warning"
+              size="small"
+              :disabled="row.status !== 'pending'"
+              @click="handleRejectApp(row)"
+            >
+              拒绝
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <el-card shadow="never" class="art-card">
       <template #header>
         <div class="table-header">
@@ -188,17 +247,25 @@
   import { DEFAULT_AD_PLACEHOLDER } from '@/api/advertisement'
   import {
     AD_POSITIONS,
+    SOURCE_APPLICATION_STATUS,
     advertisementPositionList,
+    approveSourceAdApplication,
     deleteSourceAdvertisement,
+    fetchSourceAdApplications,
     fetchSourceAdvertisements,
+    rejectSourceAdApplication,
     saveSourceAdPlaceholder,
     saveSourceAdvertisement,
     uploadSourceAdvertisementImage,
+    type SourceAdApplication,
     type SourceAdPlaceholder,
     type SourceAdvertisement
   } from '@/api/source-station'
 
   const loading = ref(false)
+  const appLoading = ref(false)
+  const applications = ref<SourceAdApplication[]>([])
+  const appStatus = ref('pending')
   const saving = ref(false)
   const savingPlaceholder = ref(false)
   /** 招租占位默认收起，避免广告投放页被表单占满 */
@@ -247,9 +314,43 @@
     return AD_POSITIONS.find((item) => item.value === value)?.label || value
   }
 
-  function positionLabels(row: SourceAdvertisement) {
+  function positionLabels(row: { position?: string; positions?: string[] }) {
     const slots = advertisementPositionList(row)
     return slots.length ? slots.map(positionLabel).join('、') : '—'
+  }
+
+  function appStatusMeta(value: string) {
+    return SOURCE_APPLICATION_STATUS[value] || { label: value || '-', type: 'info' as const }
+  }
+
+  async function loadApplications() {
+    appLoading.value = true
+    try {
+      const data = await fetchSourceAdApplications(appStatus.value || undefined)
+      applications.value = data.list || []
+    } finally {
+      appLoading.value = false
+    }
+  }
+
+  async function handleApproveApp(row: SourceAdApplication) {
+    await ElMessageBox.confirm(`通过「${row.title}」并创建广告投放？`, '通过广告申请', {
+      type: 'success',
+      confirmButtonText: '确认通过'
+    })
+    await approveSourceAdApplication(row.id)
+    ElMessage.success('已通过并创建广告投放')
+    await Promise.all([loadApplications(), loadAds()])
+  }
+
+  async function handleRejectApp(row: SourceAdApplication) {
+    const { value } = await ElMessageBox.prompt('请填写拒绝原因', '拒绝广告申请', {
+      inputPlaceholder: '审核说明',
+      confirmButtonText: '确定'
+    })
+    await rejectSourceAdApplication(row.id, value || '未通过')
+    ElMessage.success('已拒绝广告申请')
+    await loadApplications()
   }
 
   async function loadAds() {
@@ -343,7 +444,10 @@
     await loadAds()
   }
 
-  onMounted(loadAds)
+  onMounted(() => {
+    loadAds()
+    loadApplications()
+  })
 </script>
 
 <style scoped lang="scss">
@@ -377,6 +481,10 @@
     font-size: 13px;
     color: var(--art-gray-600);
     line-height: 1.5;
+  }
+
+  .mb-4 {
+    margin-bottom: 16px;
   }
 
   .placeholder-card {

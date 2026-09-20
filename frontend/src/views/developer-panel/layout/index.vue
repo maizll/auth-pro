@@ -7,9 +7,9 @@
       </div>
 
       <el-menu :default-active="currentRoute" :collapse="collapsed" router class="sidebar-menu">
-        <el-menu-item index="/developer-panel/dashboard">
-          <el-icon><iconify-icon icon="ri:dashboard-line" /></el-icon>
-          <template #title>概览</template>
+        <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
+          <el-icon><iconify-icon :icon="item.icon" /></el-icon>
+          <template #title>{{ item.title }}</template>
         </el-menu-item>
       </el-menu>
     </aside>
@@ -66,10 +66,17 @@
   const collapsed = ref(false)
 
   const currentRoute = computed(() => route.path)
-  const titleMap: Record<string, string> = {
-    '/developer-panel/dashboard': '概览'
-  }
-  const currentTitle = computed(() => titleMap[route.path] || '概览')
+  const menuItems = [
+    { path: '/developer-panel/dashboard', title: '概览', icon: 'ri:dashboard-line' },
+    { path: '/developer-panel/plugins', title: '我的插件', icon: 'ri:puzzle-2-line' },
+    { path: '/developer-panel/templates', title: '我的模板', icon: 'ri:layout-3-line' },
+    { path: '/developer-panel/ads', title: '申请广告', icon: 'ri:advertisement-line' },
+    { path: '/developer-panel/guide', title: '接入说明', icon: 'ri:book-open-line' }
+  ]
+  const titleMap: Record<string, string> = Object.fromEntries(
+    menuItems.map((item) => [item.path, item.title])
+  )
+  const currentTitle = computed(() => titleMap[route.path] || '开发者工作台')
   const developerName = computed(() => {
     try {
       const info = JSON.parse(localStorage.getItem(DEVELOPER_INFO_KEY) || '{}')

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,6 +58,8 @@ var (
 	errSourceVersionNotLatest    = errors.New("只能把 latest 指到已发布且未弃用的版本")
 	errSourceAppRequired         = errors.New("必须绑定应用")
 	errSourceAppNotFound         = errors.New("应用不存在")
+	errAdApplicationNotFound     = errors.New("广告申请不存在")
+	errAdApplicationReviewed     = errors.New("广告申请已处理")
 
 	sha256HexPattern     = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
 	sourceVersionPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$`)
@@ -172,6 +175,24 @@ type sourceDeveloper struct {
 	CreatedAt     time.Time
 }
 
+type sourceAdApplication struct {
+	ID              int64
+	DeveloperID     int64
+	AppID           int64
+	Title           string
+	ImageURL        string
+	LinkURL         string
+	Positions       []string
+	Note            string
+	Status          string
+	ReviewNote      string
+	ReviewedBy      string
+	ReviewedAt      *time.Time
+	AdvertisementID string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
 type sourceAuditEntry struct {
 	ID         int64     `json:"id"`
 	ActorType  string    `json:"actorType"`
@@ -234,6 +255,10 @@ type sourceStationStore interface {
 	ListAdvertisements(position string) ([]advertisementRecord, error)
 	UpsertAdvertisement(record advertisementRecord) error
 	DeleteAdvertisement(id string) error
+	CreateAdApplication(item sourceAdApplication) (sourceAdApplication, error)
+	ListAdApplications(developerID int64, status string) ([]sourceAdApplication, error)
+	GetAdApplication(id int64) (sourceAdApplication, error)
+	SetAdApplicationStatus(id int64, status, reviewer, note, advertisementID string) (sourceAdApplication, error)
 	GetAdvertisementPlaceholder() (advertisementPlaceholder, error)
 	SaveAdvertisementPlaceholder(placeholder advertisementPlaceholder) error
 	ListCatalogCategoryExtras() ([]sourceCatalogCategory, error)
@@ -332,6 +357,7 @@ type memorySourceStore struct {
 	applications     map[int64]sourceApplication
 	developers       map[int64]sourceDeveloper
 	ads              map[string]advertisementRecord
+	adApplications   map[int64]sourceAdApplication
 	adPlaceholder    advertisementPlaceholder
 	audits           []sourceAuditEntry
 	snapshot         sourceIndexSnapshot
@@ -340,6 +366,7 @@ type memorySourceStore struct {
 	catalogApps      map[int64]sourceCatalogApp
 	nextAppID        int64
 	nextDevID        int64
+	nextAdAppID      int64
 	nextAuditID      int64
 }
 
@@ -352,12 +379,14 @@ func newMemorySourceStore() *memorySourceStore {
 		applications:     map[int64]sourceApplication{},
 		developers:       map[int64]sourceDeveloper{},
 		ads:              map[string]advertisementRecord{},
+		adApplications:   map[int64]sourceAdApplication{},
 		catalogApps: map[int64]sourceCatalogApp{
 			1: {ID: 1, AppKey: "app-a", Name: "应用A", Enabled: true},
 			2: {ID: 2, AppKey: "app-b", Name: "应用B", Enabled: true},
 		},
 		nextAppID:   1,
 		nextDevID:   1,
+		nextAdAppID: 1,
 		nextAuditID: 1,
 	}
 	store.revision.Store(1)
@@ -913,6 +942,86 @@ func (store *memorySourceStore) DeleteAdvertisement(id string) error {
 	return nil
 }
 
+func (store *memorySourceStore) CreateAdApplication(item sourceAdApplication) (sourceAdApplication, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	now := time.Now().UTC()
+	item.ID = store.nextAdAppID
+	store.nextAdAppID++
+	item.Status = sourceApplicationPending
+	item.ReviewNote = ""
+	item.ReviewedBy = ""
+	item.ReviewedAt = nil
+	item.AdvertisementID = ""
+	item.CreatedAt = now
+	item.UpdatedAt = now
+	if item.Positions == nil {
+		item.Positions = []string{}
+	}
+	store.adApplications[item.ID] = item
+	store.auditLocked("submit", "ad-application", itoaSourceID(item.ID), "", item.Title)
+	return item, nil
+}
+
+func (store *memorySourceStore) ListAdApplications(developerID int64, status string) ([]sourceAdApplication, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	result := make([]sourceAdApplication, 0)
+	for _, item := range store.adApplications {
+		if developerID > 0 && item.DeveloperID != developerID {
+			continue
+		}
+		if status != "" && item.Status != status {
+			continue
+		}
+		copyItem := item
+		if copyItem.Positions == nil {
+			copyItem.Positions = []string{}
+		}
+		result = append(result, copyItem)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID > result[j].ID })
+	return result, nil
+}
+
+func (store *memorySourceStore) GetAdApplication(id int64) (sourceAdApplication, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	item, ok := store.adApplications[id]
+	if !ok {
+		return sourceAdApplication{}, errAdApplicationNotFound
+	}
+	if item.Positions == nil {
+		item.Positions = []string{}
+	}
+	return item, nil
+}
+
+func (store *memorySourceStore) SetAdApplicationStatus(id int64, status, reviewer, note, advertisementID string) (sourceAdApplication, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	item, ok := store.adApplications[id]
+	if !ok {
+		return sourceAdApplication{}, errAdApplicationNotFound
+	}
+	if item.Status != sourceApplicationPending {
+		return sourceAdApplication{}, errAdApplicationReviewed
+	}
+	if status != sourceApplicationApproved && status != sourceApplicationRejected {
+		return sourceAdApplication{}, errSourceInvalidStatus
+	}
+	now := time.Now().UTC()
+	item.Status = status
+	item.ReviewedBy = reviewer
+	item.ReviewNote = truncateText(note, 500)
+	item.ReviewedAt = &now
+	item.AdvertisementID = strings.TrimSpace(advertisementID)
+	item.UpdatedAt = now
+	store.adApplications[id] = item
+	store.auditLocked(status, "ad-application", itoaSourceID(id), reviewer, note)
+	return item, nil
+}
+
 func (store *memorySourceStore) GetAdvertisementPlaceholder() (advertisementPlaceholder, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1108,6 +1217,25 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			KEY idx_source_advertisement_position (position)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='本站广告投放'`,
+		`CREATE TABLE IF NOT EXISTS source_ad_applications (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+			developer_id BIGINT UNSIGNED NOT NULL,
+			app_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			title VARCHAR(120) NOT NULL DEFAULT '',
+			image_url VARCHAR(500) NOT NULL DEFAULT '',
+			link_url VARCHAR(500) NOT NULL DEFAULT '',
+			positions VARCHAR(200) NOT NULL DEFAULT '',
+			note VARCHAR(500) NOT NULL DEFAULT '',
+			status VARCHAR(20) NOT NULL DEFAULT 'pending',
+			review_note VARCHAR(500) NOT NULL DEFAULT '',
+			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
+			reviewed_at DATETIME DEFAULT NULL,
+			advertisement_id VARCHAR(60) NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			KEY idx_source_ad_application_developer (developer_id, status),
+			KEY idx_source_ad_application_status (status)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='开发者广告投放申请'`,
 		`CREATE TABLE IF NOT EXISTS source_audit_logs (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
 			actor_type VARCHAR(20) NOT NULL DEFAULT 'admin',
@@ -1971,6 +2099,147 @@ func (mysqlSourceStore) DeleteAdvertisement(id string) error {
 		return errSourceNotFound
 	}
 	return nil
+}
+
+func encodeSourceAdApplicationPositions(slots []string) string {
+	return encodeAdvertisementPosition(slots)
+}
+
+func decodeSourceAdApplicationPositions(raw string) []string {
+	slots := parseAdvertisementPositionField(raw)
+	if slots == nil {
+		return []string{}
+	}
+	return slots
+}
+
+func scanSourceAdApplication(scanner interface{ Scan(dest ...any) error }) (sourceAdApplication, error) {
+	var item sourceAdApplication
+	var reviewed sql.NullTime
+	var positions string
+	if err := scanner.Scan(
+		&item.ID, &item.DeveloperID, &item.AppID, &item.Title, &item.ImageURL, &item.LinkURL, &positions,
+		&item.Note, &item.Status, &item.ReviewNote, &item.ReviewedBy, &reviewed, &item.AdvertisementID,
+		&item.CreatedAt, &item.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return sourceAdApplication{}, errAdApplicationNotFound
+		}
+		return sourceAdApplication{}, err
+	}
+	item.Positions = decodeSourceAdApplicationPositions(positions)
+	if reviewed.Valid {
+		value := reviewed.Time
+		item.ReviewedAt = &value
+	}
+	return item, nil
+}
+
+func (mysqlSourceStore) CreateAdApplication(item sourceAdApplication) (sourceAdApplication, error) {
+	db, err := config.DB()
+	if err != nil {
+		return sourceAdApplication{}, err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return sourceAdApplication{}, err
+	}
+	result, err := db.Exec(`INSERT INTO source_ad_applications
+		(developer_id, app_id, title, image_url, link_url, positions, note, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.DeveloperID, item.AppID, item.Title, item.ImageURL, item.LinkURL,
+		encodeSourceAdApplicationPositions(item.Positions), item.Note, sourceApplicationPending)
+	if err != nil {
+		return sourceAdApplication{}, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return sourceAdApplication{}, err
+	}
+	mysqlAppendAudit(db, "submit", "ad-application", itoaSourceID(id), "", item.Title)
+	return mysqlSourceStore{}.GetAdApplication(id)
+}
+
+func (mysqlSourceStore) ListAdApplications(developerID int64, status string) ([]sourceAdApplication, error) {
+	db, err := config.DB()
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return nil, err
+	}
+	query := `SELECT id, developer_id, app_id, title, image_url, link_url, positions, note, status,
+		review_note, reviewed_by, reviewed_at, advertisement_id, created_at, updated_at
+		FROM source_ad_applications`
+	args := []any{}
+	filters := []string{}
+	if developerID > 0 {
+		filters = append(filters, "developer_id=?")
+		args = append(args, developerID)
+	}
+	if status != "" {
+		filters = append(filters, "status=?")
+		args = append(args, status)
+	}
+	if len(filters) > 0 {
+		query += " WHERE " + strings.Join(filters, " AND ")
+	}
+	query += " ORDER BY id DESC"
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]sourceAdApplication, 0)
+	for rows.Next() {
+		item, err := scanSourceAdApplication(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (mysqlSourceStore) GetAdApplication(id int64) (sourceAdApplication, error) {
+	db, err := config.DB()
+	if err != nil {
+		return sourceAdApplication{}, err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return sourceAdApplication{}, err
+	}
+	row := db.QueryRow(`SELECT id, developer_id, app_id, title, image_url, link_url, positions, note, status,
+		review_note, reviewed_by, reviewed_at, advertisement_id, created_at, updated_at
+		FROM source_ad_applications WHERE id=?`, id)
+	return scanSourceAdApplication(row)
+}
+
+func (mysqlSourceStore) SetAdApplicationStatus(id int64, status, reviewer, note, advertisementID string) (sourceAdApplication, error) {
+	db, err := config.DB()
+	if err != nil {
+		return sourceAdApplication{}, err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return sourceAdApplication{}, err
+	}
+	item, err := mysqlSourceStore{}.GetAdApplication(id)
+	if err != nil {
+		return sourceAdApplication{}, err
+	}
+	if item.Status != sourceApplicationPending {
+		return sourceAdApplication{}, errAdApplicationReviewed
+	}
+	if status != sourceApplicationApproved && status != sourceApplicationRejected {
+		return sourceAdApplication{}, errSourceInvalidStatus
+	}
+	if _, err := db.Exec(`UPDATE source_ad_applications
+		SET status=?, review_note=?, reviewed_by=?, reviewed_at=NOW(), advertisement_id=?, updated_at=NOW()
+		WHERE id=? AND status=?`,
+		status, truncateText(note, 500), reviewer, strings.TrimSpace(advertisementID), id, sourceApplicationPending); err != nil {
+		return sourceAdApplication{}, err
+	}
+	mysqlAppendAudit(db, status, "ad-application", itoaSourceID(id), reviewer, note)
+	return mysqlSourceStore{}.GetAdApplication(id)
 }
 
 func (mysqlSourceStore) AppendAudit(entry sourceAuditEntry) error {

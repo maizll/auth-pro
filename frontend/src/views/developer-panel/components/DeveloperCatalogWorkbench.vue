@@ -1,0 +1,653 @@
+<template>
+  <div v-loading="loading" class="developer-catalog">
+    <el-card shadow="never">
+      <template #header>
+        <div class="table-header">
+          <div>
+            <span class="card-title">{{ title }}（共 {{ items.length }} 条）</span>
+            <p class="card-hint">
+              源站只保存元数据与外部地址，不存储 ZIP / 源码。提交前请绑定应用，并填写 HTTPS 地址与 64 位
+              sha256。
+            </p>
+          </div>
+          <el-button type="primary" @click="openEdit()">{{ createLabel }}</el-button>
+        </div>
+      </template>
+
+      <el-empty v-if="!items.length" :description="emptyText" />
+      <el-table v-else :data="items" stripe>
+        <el-table-column prop="id" label="标识" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
+        <el-table-column label="应用" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ appLabel(row.appId) }}</template>
+        </el-table-column>
+        <el-table-column label="分类" width="120">
+          <template #default="{ row }">{{ categoryLabel(row.category) }}</template>
+        </el-table-column>
+        <el-table-column label="版本" width="110">
+          <template #default="{ row }">{{ row.latestVersion || row.version || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag :type="statusMeta(row.status).type" size="small">
+              {{ statusMeta(row.status).label }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="审核说明" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.reviewNote || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="updatedAt" label="更新时间" width="180" />
+        <el-table-column label="操作" width="220" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="openEdit(row)">
+              {{ canEditItem(row) ? '编辑' : '查看' }}
+            </el-button>
+            <el-button
+              v-if="canSubmitItem(row)"
+              link
+              type="success"
+              size="small"
+              @click="handleSubmit(row)"
+            >
+              提交审核
+            </el-button>
+            <el-button link type="primary" size="small" @click="openVersions(row)">版本</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-drawer v-model="formVisible" :title="formTitle" size="560px" destroy-on-close>
+      <el-form ref="formRef" :model="form" :rules="formRules" label-width="110px">
+        <el-form-item label="应用" prop="appId">
+          <el-select
+            v-model="form.appId"
+            placeholder="请选择目标应用"
+            style="width: 100%"
+            :disabled="isEdit"
+          >
+            <el-option
+              v-for="app in apps"
+              :key="app.id"
+              :label="appLabel(app.id)"
+              :value="app.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="分类" prop="category">
+          <el-select v-model="form.category" style="width: 100%" :disabled="!canEditMeta">
+            <el-option
+              v-for="item in categoryOptions"
+              :key="item.key"
+              :label="item.label"
+              :value="item.key"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="kind === 'template' ? '模板标识' : '插件标识'" prop="id">
+          <el-input v-model="form.id" :disabled="isEdit" placeholder="小写字母、数字或连字符" />
+        </el-form-item>
+        <el-form-item label="名称" prop="name">
+          <el-input v-model="form.name" :disabled="!canEditMeta" />
+        </el-form-item>
+        <el-form-item label="版本" prop="version">
+          <el-input v-model="form.version" :disabled="!canEditPackage" placeholder="1.0.0" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="form.description" type="textarea" :rows="2" :disabled="!canEditMeta" />
+        </el-form-item>
+        <el-form-item v-if="kind === 'plugin'" label="图标">
+          <el-input v-model="form.icon" :disabled="!canEditMeta" placeholder="ri:puzzle-line" />
+        </el-form-item>
+        <el-form-item :label="locationLabel" prop="location">
+          <el-input
+            v-model="form.location"
+            :disabled="!canEditPackage"
+            :placeholder="locationPlaceholder"
+          />
+        </el-form-item>
+        <el-form-item label="sha256" prop="sha256">
+          <el-input v-model="form.sha256" :disabled="!canEditPackage" placeholder="64 位十六进制" />
+        </el-form-item>
+        <el-form-item label="作者">
+          <el-input v-model="form.authorName" :disabled="!canEditMeta" placeholder="作者名称" />
+        </el-form-item>
+        <el-form-item label="changelog">
+          <el-input
+            v-model="form.changelog"
+            type="textarea"
+            :rows="2"
+            :disabled="!canEditPackage"
+          />
+        </el-form-item>
+        <el-alert
+          v-if="currentItem?.latestVersion"
+          type="info"
+          :closable="false"
+          show-icon
+          class="mb-3"
+          title="已有 latest 版本后，包地址请通过「版本」新增，而不是改当前草稿字段。"
+        />
+        <el-alert
+          v-if="currentItem?.reviewNote"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="`审核说明：${currentItem.reviewNote}`"
+        />
+      </el-form>
+      <template #footer>
+        <el-button @click="formVisible = false">取消</el-button>
+        <el-button :loading="saving" :disabled="!canEditMeta" @click="handleSave(false)">
+          保存草稿
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="saving"
+          :disabled="!canSubmitCurrent"
+          @click="handleSave(true)"
+        >
+          保存并提交审核
+        </el-button>
+      </template>
+    </el-drawer>
+
+    <el-drawer v-model="versionVisible" :title="`${currentItem?.name || ''} 版本`" size="720px">
+      <div class="table-actions mb-3">
+        <el-button type="primary" @click="versionFormVisible = true">新增版本</el-button>
+      </div>
+      <el-table v-loading="versionLoading" :data="versions" stripe>
+        <el-table-column prop="version" label="版本" width="110" />
+        <el-table-column label="状态" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag :type="versionStatusMeta(row.status).type" size="small">
+              {{ versionStatusMeta(row.status).label }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="latest" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.version === currentItem?.latestVersion" type="success" size="small">
+              latest
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="地址" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ kind === 'template' ? row.templateUrl : row.downloadUrl }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="changelog" label="说明" min-width="140" show-overflow-tooltip />
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.status === 'draft'"
+              link
+              type="success"
+              size="small"
+              @click="handleSubmitVersion(row)"
+            >
+              提交审核
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <el-dialog
+        v-model="versionFormVisible"
+        title="新增版本"
+        width="480px"
+        append-to-body
+        destroy-on-close
+      >
+        <el-form :model="versionForm" label-width="110px">
+          <el-form-item label="版本" required>
+            <el-input v-model="versionForm.version" placeholder="1.0.1" />
+          </el-form-item>
+          <el-form-item :label="locationLabel" required>
+            <el-input v-model="versionForm.location" :placeholder="locationPlaceholder" />
+          </el-form-item>
+          <el-form-item label="sha256" required>
+            <el-input v-model="versionForm.sha256" />
+          </el-form-item>
+          <el-form-item label="changelog">
+            <el-input v-model="versionForm.changelog" type="textarea" :rows="2" />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="versionFormVisible = false">取消</el-button>
+          <el-button type="primary" :loading="versionSaving" @click="handleAddVersion">
+            保存草稿
+          </el-button>
+        </template>
+      </el-dialog>
+    </el-drawer>
+  </div>
+</template>
+
+<script setup lang="ts">
+  import { computed, onMounted, reactive, ref } from 'vue'
+  import { useRoute, useRouter } from 'vue-router'
+  import type { FormInstance, FormRules } from 'element-plus'
+  import { ElMessage } from 'element-plus'
+  import { SOURCE_ITEM_STATUS, SOURCE_VERSION_STATUS } from '@/api/source-station'
+  import {
+    DEVELOPER_INFO_KEY,
+    DEVELOPER_TOKEN_KEY,
+    DEVELOPER_USERNAME_PATTERN,
+    fetchSourceDeveloperCatalogApps,
+    fetchSourceDeveloperCategories,
+    fetchSourceDeveloperItems,
+    fetchSourceDeveloperPluginVersions,
+    fetchSourceDeveloperTemplateVersions,
+    submitSourceDeveloperPlugin,
+    submitSourceDeveloperPluginVersion,
+    submitSourceDeveloperTemplate,
+    submitSourceDeveloperTemplateVersion,
+    upsertSourceDeveloperPlugin,
+    upsertSourceDeveloperPluginVersion,
+    upsertSourceDeveloperTemplate,
+    upsertSourceDeveloperTemplateVersion,
+    type SourceDeveloperCatalogApp,
+    type SourceDeveloperCatalogItem,
+    type SourceDeveloperCategory,
+    type SourceDeveloperVersion
+  } from '@/api/source-developer'
+
+  const props = defineProps<{
+    kind: 'plugin' | 'template'
+  }>()
+
+  const route = useRoute()
+  const router = useRouter()
+  const loading = ref(false)
+  const saving = ref(false)
+  const items = ref<SourceDeveloperCatalogItem[]>([])
+  const apps = ref<SourceDeveloperCatalogApp[]>([])
+  const categories = ref<SourceDeveloperCategory[]>([])
+  const formVisible = ref(false)
+  const isEdit = ref(false)
+  const formRef = ref<FormInstance>()
+  const currentItem = ref<SourceDeveloperCatalogItem | null>(null)
+  const versionVisible = ref(false)
+  const versionLoading = ref(false)
+  const versionSaving = ref(false)
+  const versionFormVisible = ref(false)
+  const versions = ref<SourceDeveloperVersion[]>([])
+  const form = reactive({
+    appId: 0,
+    category: '',
+    id: '',
+    name: '',
+    version: '1.0.0',
+    description: '',
+    icon: 'ri:puzzle-line',
+    location: '',
+    sha256: '',
+    authorName: '',
+    changelog: ''
+  })
+  const versionForm = reactive({ version: '', location: '', sha256: '', changelog: '' })
+
+  const title = computed(() => (props.kind === 'template' ? '我的模板' : '我的插件'))
+  const createLabel = computed(() => (props.kind === 'template' ? '登记模板' : '登记插件'))
+  const emptyText = computed(() =>
+    props.kind === 'template' ? '暂无模板草稿，点击右上角登记。' : '暂无插件草稿，点击右上角登记。'
+  )
+  const locationLabel = computed(() => (props.kind === 'template' ? 'templateUrl' : 'downloadUrl'))
+  const locationPlaceholder = computed(() =>
+    props.kind === 'template' ? 'https://... 或 templates/demo-home.json' : 'https://...'
+  )
+  const categoryOptions = computed(() =>
+    categories.value.filter((item) => item.kind === props.kind)
+  )
+  const formTitle = computed(() => {
+    if (!isEdit.value) return createLabel.value
+    return canEditMeta.value ? `编辑 ${form.name || form.id}` : `查看 ${form.name || form.id}`
+  })
+  const canEditMeta = computed(() => {
+    const status = currentItem.value?.status || 'draft'
+    return !isEdit.value || status === 'draft' || status === 'rejected'
+  })
+  const canEditPackage = computed(
+    () => canEditMeta.value && !currentItem.value?.latestVersion
+  )
+  const canSubmitCurrent = computed(() => {
+    const status = currentItem.value?.status || 'draft'
+    return status === 'draft' || status === 'rejected'
+  })
+
+  const idRule = {
+    required: true,
+    validator: (_: unknown, value: string, callback: (error?: Error) => void) => {
+      if (!DEVELOPER_USERNAME_PATTERN.test(String(value || '').trim())) {
+        callback(new Error('标识须为 2-59 位小写字母、数字或连字符'))
+        return
+      }
+      callback()
+    },
+    trigger: 'blur'
+  }
+  const formRules: FormRules = {
+    appId: [{ required: true, type: 'number', min: 1, message: '请选择应用', trigger: 'change' }],
+    category: [{ required: true, message: '请选择分类', trigger: 'change' }],
+    id: [idRule],
+    name: [{ required: true, message: '请填写名称', trigger: 'blur' }],
+    version: [{ required: true, message: '请填写版本', trigger: 'blur' }]
+  }
+
+  function statusMeta(value: string) {
+    return SOURCE_ITEM_STATUS[value] || { label: value || '-', type: 'info' as const }
+  }
+
+  function versionStatusMeta(value: string) {
+    return SOURCE_VERSION_STATUS[value] || { label: value || '-', type: 'info' as const }
+  }
+
+  function appLabel(appId?: number) {
+    if (!appId) return '-'
+    const app = apps.value.find((item) => item.id === appId)
+    if (!app) return `应用 #${appId}`
+    return `${app.name}（${app.appKey}）`
+  }
+
+  function categoryLabel(key?: string) {
+    if (!key) return '-'
+    return categories.value.find((item) => item.key === key)?.label || key
+  }
+
+  function canEditItem(row: SourceDeveloperCatalogItem) {
+    return row.status === 'draft' || row.status === 'rejected'
+  }
+
+  function canSubmitItem(row: SourceDeveloperCatalogItem) {
+    return row.status === 'draft' || row.status === 'rejected'
+  }
+
+  function logoutToLogin() {
+    localStorage.removeItem(DEVELOPER_TOKEN_KEY)
+    localStorage.removeItem(DEVELOPER_INFO_KEY)
+    router.replace('/developer-panel/login')
+  }
+
+  function unwrapCode<T extends { code?: number; msg?: string; data?: unknown }>(res: {
+    status?: number
+    data?: T
+  }) {
+    if (res.status === 401 || res.data?.code === 401) {
+      logoutToLogin()
+      return null
+    }
+    return res.data || null
+  }
+
+  async function loadAll() {
+    loading.value = true
+    try {
+      const [itemsRes, appsRes, catRes] = await Promise.all([
+        fetchSourceDeveloperItems(),
+        fetchSourceDeveloperCatalogApps(),
+        fetchSourceDeveloperCategories()
+      ])
+      const itemsBody = unwrapCode(itemsRes)
+      const appsBody = unwrapCode(appsRes)
+      const catBody = unwrapCode(catRes)
+      if (!itemsBody || !appsBody || !catBody) return
+      if (appsBody.code === 200) apps.value = appsBody.data?.list || []
+      if (catBody.code === 200) categories.value = catBody.data?.list || []
+      if (itemsBody.code === 200) {
+        items.value =
+          props.kind === 'template'
+            ? itemsBody.data?.homeTemplates || []
+            : itemsBody.data?.plugins || []
+      } else {
+        ElMessage.error(itemsBody.msg || '加载失败')
+      }
+    } catch (error: unknown) {
+      if ((error as { response?: { status?: number } })?.response?.status === 401) {
+        logoutToLogin()
+        return
+      }
+      ElMessage.error('加载开发者目录失败')
+    } finally {
+      loading.value = false
+    }
+  }
+
+  function resetForm() {
+    form.appId = apps.value[0]?.id || 0
+    form.category =
+      categoryOptions.value[0]?.key || (props.kind === 'template' ? 'home-template' : 'other')
+    form.id = ''
+    form.name = ''
+    form.version = '1.0.0'
+    form.description = ''
+    form.icon = 'ri:puzzle-line'
+    form.location = ''
+    form.sha256 = ''
+    form.authorName = ''
+    form.changelog = ''
+  }
+
+  function openEdit(row?: SourceDeveloperCatalogItem) {
+    isEdit.value = Boolean(row)
+    currentItem.value = row || null
+    if (row) {
+      form.appId = row.appId || 0
+      form.category =
+        row.category ||
+        categoryOptions.value[0]?.key ||
+        (props.kind === 'template' ? 'home-template' : 'other')
+      form.id = row.id
+      form.name = row.name
+      form.version = row.version || '1.0.0'
+      form.description = row.description || ''
+      form.icon = row.icon || 'ri:puzzle-line'
+      form.location = (props.kind === 'template' ? row.templateUrl : row.downloadUrl) || ''
+      form.sha256 = row.sha256 || ''
+      form.authorName = row.author?.name || ''
+      form.changelog = row.changelog || ''
+    } else {
+      resetForm()
+    }
+    formVisible.value = true
+  }
+
+  async function handleSave(submitAfter: boolean) {
+    await formRef.value?.validate()
+    saving.value = true
+    try {
+      const saveRes =
+        props.kind === 'template'
+          ? await upsertSourceDeveloperTemplate({
+              id: form.id.trim(),
+              templateKey: form.id.trim(),
+              appId: form.appId,
+              category: form.category,
+              name: form.name.trim(),
+              description: form.description.trim(),
+              version: form.version.trim(),
+              schemaVersion: 1,
+              sha256: form.sha256.trim(),
+              templateUrl: form.location.trim(),
+              changelog: form.changelog.trim(),
+              author: form.authorName.trim() ? { name: form.authorName.trim() } : undefined
+            })
+          : await upsertSourceDeveloperPlugin({
+              id: form.id.trim(),
+              appId: form.appId,
+              category: form.category,
+              name: form.name.trim(),
+              description: form.description.trim(),
+              icon: form.icon.trim(),
+              version: form.version.trim(),
+              sha256: form.sha256.trim(),
+              downloadUrl: form.location.trim(),
+              changelog: form.changelog.trim(),
+              author: form.authorName.trim() ? { name: form.authorName.trim() } : undefined
+            })
+      const saveBody = unwrapCode(saveRes)
+      if (!saveBody) return
+      if (saveBody.code !== 200) {
+        ElMessage.error(saveBody.msg || '保存失败')
+        return
+      }
+      const saved = saveBody.data
+      if (submitAfter) {
+        const submitRes =
+          props.kind === 'template'
+            ? await submitSourceDeveloperTemplate(saved.id)
+            : await submitSourceDeveloperPlugin(saved.id)
+        const submitBody = unwrapCode(submitRes)
+        if (!submitBody) return
+        if (submitBody.code !== 200) {
+          ElMessage.error(submitBody.msg || '提交失败')
+          return
+        }
+        ElMessage.success('已提交审核')
+      } else {
+        ElMessage.success(saveBody.msg || '草稿已保存')
+      }
+      formVisible.value = false
+      await loadAll()
+    } finally {
+      saving.value = false
+    }
+  }
+
+  async function handleSubmit(row: SourceDeveloperCatalogItem) {
+    const location = props.kind === 'template' ? row.templateUrl : row.downloadUrl
+    if (!row.sha256 || !location) {
+      ElMessage.warning('提交审核前请先填写下载/模板地址和 sha256')
+      openEdit(row)
+      return
+    }
+    const res =
+      props.kind === 'template'
+        ? await submitSourceDeveloperTemplate(row.id)
+        : await submitSourceDeveloperPlugin(row.id)
+    const body = unwrapCode(res)
+    if (!body) return
+    if (body.code !== 200) {
+      ElMessage.error(body.msg || '提交失败')
+      return
+    }
+    ElMessage.success('已提交审核')
+    await loadAll()
+  }
+
+  async function openVersions(row: SourceDeveloperCatalogItem) {
+    currentItem.value = row
+    versionVisible.value = true
+    versionLoading.value = true
+    try {
+      const res =
+        props.kind === 'template'
+          ? await fetchSourceDeveloperTemplateVersions(row.id)
+          : await fetchSourceDeveloperPluginVersions(row.id)
+      const body = unwrapCode(res)
+      if (!body) return
+      versions.value = body.data?.list || []
+    } finally {
+      versionLoading.value = false
+    }
+  }
+
+  async function handleAddVersion() {
+    if (!currentItem.value) return
+    if (!versionForm.version.trim() || !versionForm.location.trim() || !versionForm.sha256.trim()) {
+      ElMessage.warning('请填写版本、地址和 sha256')
+      return
+    }
+    versionSaving.value = true
+    try {
+      const payload =
+        props.kind === 'template'
+          ? {
+              version: versionForm.version.trim(),
+              templateUrl: versionForm.location.trim(),
+              sha256: versionForm.sha256.trim(),
+              changelog: versionForm.changelog.trim()
+            }
+          : {
+              version: versionForm.version.trim(),
+              downloadUrl: versionForm.location.trim(),
+              sha256: versionForm.sha256.trim(),
+              changelog: versionForm.changelog.trim()
+            }
+      const res =
+        props.kind === 'template'
+          ? await upsertSourceDeveloperTemplateVersion(currentItem.value.id, payload)
+          : await upsertSourceDeveloperPluginVersion(currentItem.value.id, payload)
+      const body = unwrapCode(res)
+      if (!body) return
+      if (body.code !== 200) {
+        ElMessage.error(body.msg || '保存版本失败')
+        return
+      }
+      ElMessage.success(body.msg || '版本草稿已保存')
+      versionFormVisible.value = false
+      versionForm.version = ''
+      versionForm.location = ''
+      versionForm.sha256 = ''
+      versionForm.changelog = ''
+      await openVersions(currentItem.value)
+    } finally {
+      versionSaving.value = false
+    }
+  }
+
+  async function handleSubmitVersion(row: SourceDeveloperVersion) {
+    if (!currentItem.value) return
+    const res =
+      props.kind === 'template'
+        ? await submitSourceDeveloperTemplateVersion(currentItem.value.id, row.version)
+        : await submitSourceDeveloperPluginVersion(currentItem.value.id, row.version)
+    const body = unwrapCode(res)
+    if (!body) return
+    if (body.code !== 200) {
+      ElMessage.error(body.msg || '提交版本失败')
+      return
+    }
+    ElMessage.success('版本已提交审核')
+    await openVersions(currentItem.value)
+  }
+
+  onMounted(async () => {
+    await loadAll()
+    if (route.query.create === '1') {
+      openEdit()
+    }
+  })
+</script>
+
+<style scoped lang="scss">
+  .table-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .card-title {
+    font-weight: 600;
+  }
+
+  .card-hint {
+    margin: 6px 0 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--el-text-color-secondary);
+  }
+
+  .table-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .mb-3 {
+    margin-bottom: 12px;
+  }
+</style>

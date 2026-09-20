@@ -310,7 +310,7 @@ export const AD_POSITIONS = [
   { value: 'popup', label: '弹窗' }
 ] as const
 
-export function advertisementPositionList(item: Pick<SourceAdvertisement, 'position' | 'positions'>) {
+export function advertisementPositionList(item: { position?: string; positions?: string[] }) {
   if (item.positions?.length) {
     return [...new Set(item.positions.filter(Boolean))]
   }
@@ -610,4 +610,38 @@ export function saveSourceAdPlaceholder(payload: SourceAdPlaceholder) {
 
 export function deleteSourceAdvertisement(id: string) {
   return request.del({ url: `${BASE}/advertisements/${encodeURIComponent(id)}` })
+}
+
+export interface SourceAdApplication {
+  id: number
+  developerId: number
+  developerUsername?: string
+  appId?: number
+  title: string
+  imageUrl?: string
+  linkUrl?: string
+  positions: string[]
+  note?: string
+  status: string
+  reviewNote?: string
+  reviewedBy?: string
+  reviewedAt?: string
+  advertisementId?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export function fetchSourceAdApplications(status?: string) {
+  return request.get<SourceListResponse<SourceAdApplication>>({
+    url: `${BASE}/ad-applications`,
+    params: status ? { status } : undefined
+  })
+}
+
+export function approveSourceAdApplication(id: number, note?: string) {
+  return request.post({ url: `${BASE}/ad-applications/${id}/approve`, data: noteBody(note) })
+}
+
+export function rejectSourceAdApplication(id: number, note?: string) {
+  return request.post({ url: `${BASE}/ad-applications/${id}/reject`, data: noteBody(note) })
 }
