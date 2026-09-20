@@ -1,0 +1,5 @@
+auth-pro 1.4.1
+
+发布面冻结到 GitHub maizll/auth-pro：在线更新默认读该仓 Releases 的 latest.json / 标签附件，不再指向历史 Gitee 或旧仓。
+生产只从盘上单一前端根提供页面；缺 index.html 时启动失败或返回 503，不再静默回退内嵌前端。
+管理后台侧栏只认「系统 → 菜单管理」/ 后端菜单 API，不再由前端路由模块决定导航。
