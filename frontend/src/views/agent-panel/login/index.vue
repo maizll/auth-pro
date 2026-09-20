@@ -290,7 +290,8 @@
           ElMessage.success('登录成功')
           const redirect =
             typeof route.query.redirect === 'string' &&
-            route.query.redirect.startsWith('/agent-panel')
+            (route.query.redirect.startsWith('/agent-panel') ||
+              route.query.redirect.startsWith('/developer-panel'))
               ? route.query.redirect
               : '/agent-panel/dashboard'
           router.push(redirect)

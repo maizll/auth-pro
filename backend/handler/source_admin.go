@@ -19,7 +19,7 @@ func AdminSourceDevelopers(c *gin.Context) {
 	list := make([]gin.H, 0, len(items))
 	for _, item := range items {
 		list = append(list, gin.H{
-			"id": item.ID, "username": item.Username, "email": item.Email, "displayName": item.DisplayName,
+			"id": item.ID, "agentId": item.AgentID, "username": item.Username, "email": item.Email, "displayName": item.DisplayName,
 			"enabled": item.Enabled, "createdAt": item.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		})
 	}

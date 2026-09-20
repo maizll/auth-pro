@@ -20,7 +20,7 @@ type sourceAdApplicationRequest struct {
 
 func SourceDeveloperCatalogCategories(c *gin.Context) {
 	if _, err := currentSourceDeveloper(c); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	list := resolveSourceCatalogCategories()
@@ -30,7 +30,7 @@ func SourceDeveloperCatalogCategories(c *gin.Context) {
 func SourceDeveloperAdApplications(c *gin.Context) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	writeSourceAdApplicationList(c, developer.ID, strings.TrimSpace(c.Query("status")))
@@ -39,7 +39,7 @@ func SourceDeveloperAdApplications(c *gin.Context) {
 func SourceDeveloperCreateAdApplication(c *gin.Context) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	item, err := bindSourceAdApplicationDraft(c, developer.ID)

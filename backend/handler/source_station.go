@@ -20,9 +20,15 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 	engine.GET("/auth-pro/:appKey/index.json", SourceStationIndex)
 	engine.GET("/software-source/package-schema.json", SourcePackageSchema)
 
-	api.POST("/v1/source/developer/apply", SourceDeveloperApply)
-	api.POST("/v1/source/developer/apply/status", SourceDeveloperApplyStatus)
 	api.POST("/v1/source/developer/login", SourceDeveloperLogin)
+
+	agentApply := api.Group("/v1/source/developer")
+	agentApply.Use(sourceDeveloperApplyGate(), middleware.JWTAuth(), middleware.RequireAgent())
+	{
+		agentApply.POST("/apply", SourceDeveloperApply)
+		agentApply.GET("/apply/status", SourceDeveloperApplyStatus)
+		agentApply.POST("/apply/status", SourceDeveloperApplyStatus)
+	}
 
 	developer := api.Group("/v1/source/developer")
 	developer.Use(middleware.JWTAuth(), middleware.RequireDeveloper())

@@ -777,8 +777,9 @@ CREATE TABLE `role_menus` (
 DROP TABLE IF EXISTS `source_developer_applications`;
 CREATE TABLE `source_developer_applications` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `username` VARCHAR(50) NOT NULL,
-  `password_hash` VARCHAR(255) NOT NULL,
+  `agent_id` BIGINT UNSIGNED DEFAULT NULL,
+  `username` VARCHAR(100) NOT NULL,
+  `password_hash` VARCHAR(255) NOT NULL DEFAULT '',
   `email` VARCHAR(100) NOT NULL DEFAULT '',
   `display_name` VARCHAR(80) NOT NULL DEFAULT '',
   `reason` VARCHAR(500) NOT NULL DEFAULT '',
@@ -789,6 +790,7 @@ CREATE TABLE `source_developer_applications` (
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_source_developer_application_username` (`username`),
+  UNIQUE KEY `uk_source_developer_application_agent` (`agent_id`),
   KEY `idx_source_developer_application_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源开发者入驻申请';
 
@@ -796,14 +798,16 @@ DROP TABLE IF EXISTS `source_developers`;
 CREATE TABLE `source_developers` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `application_id` BIGINT UNSIGNED DEFAULT NULL,
-  `username` VARCHAR(50) NOT NULL,
-  `password_hash` VARCHAR(255) NOT NULL,
+  `agent_id` BIGINT UNSIGNED DEFAULT NULL,
+  `username` VARCHAR(100) NOT NULL,
+  `password_hash` VARCHAR(255) NOT NULL DEFAULT '',
   `email` VARCHAR(100) NOT NULL DEFAULT '',
   `display_name` VARCHAR(80) NOT NULL DEFAULT '',
   `enabled` TINYINT(1) NOT NULL DEFAULT 1,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_source_developer_username` (`username`)
+  UNIQUE KEY `uk_source_developer_username` (`username`),
+  UNIQUE KEY `uk_source_developer_agent` (`agent_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源开发者';
 
 DROP TABLE IF EXISTS `source_catalog_plugins`;

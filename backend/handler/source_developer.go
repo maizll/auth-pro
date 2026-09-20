@@ -7,20 +7,13 @@ import (
 	"strings"
 	"time"
 
+	"auto_pro/config"
 	"auto_pro/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
-
-type sourceDeveloperApplyRequest struct {
-	Username    string `json:"username"`
-	Password    string `json:"password"`
-	Email       string `json:"email"`
-	DisplayName string `json:"displayName"`
-	Reason      string `json:"reason"`
-}
 
 type sourcePluginDraftRequest struct {
 	ID          string       `json:"id"`
@@ -65,79 +58,130 @@ type sourceReleaseDraftRequest struct {
 	TemplateURL string `json:"templateUrl"`
 }
 
-func SourceDeveloperApply(c *gin.Context) {
-	var req sourceDeveloperApplyRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
-		return
+func sourceDeveloperApplyGate() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if strings.TrimSpace(c.GetHeader("Authorization")) == "" {
+			c.JSON(http.StatusOK, gin.H{
+				"code": 410,
+				"msg":  "请使用代理商账号登录后申请入驻，已不再支持独立用户名密码",
+			})
+			c.Abort()
+			return
+		}
+		c.Next()
 	}
-	username := strings.ToLower(strings.TrimSpace(req.Username))
-	if !pluginIDPattern.MatchString(username) {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "用户名需为 2-59 位小写字母、数字或连字符"})
-		return
+}
+
+func currentAgentIdentity(c *gin.Context) (id int64, username, email, displayName string, err error) {
+	if c.GetString("role") != "agent" {
+		return 0, "", "", "", errors.New("请使用代理商账号申请")
 	}
-	if len(req.Password) < 6 {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "密码至少 6 位"})
-		return
+	id = int64(c.GetUint("user_id"))
+	if id <= 0 {
+		return 0, "", "", "", errors.New("代理商账号无效")
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "密码加密失败"})
-		return
+	username = strings.ToLower(strings.TrimSpace(c.GetString("username")))
+	email = username
+	displayName = username
+	if db, dbErr := config.DB(); dbErr == nil {
+		var agentEmail, name string
+		if qErr := db.QueryRow(`SELECT email, name FROM agents WHERE id=? AND enabled=1`, id).Scan(&agentEmail, &name); qErr == nil {
+			if strings.TrimSpace(agentEmail) != "" {
+				email = strings.ToLower(strings.TrimSpace(agentEmail))
+				username = email
+			}
+			if strings.TrimSpace(name) != "" {
+				displayName = strings.TrimSpace(name)
+			}
+		}
 	}
-	displayName := truncateText(strings.TrimSpace(req.DisplayName), 80)
-	if displayName == "" {
+	if username == "" {
+		username = "agent-" + itoaSourceID(id)
+		email = username
 		displayName = username
 	}
+	return id, truncateText(username, 100), truncateText(email, 100), truncateText(displayName, 80), nil
+}
+
+func SourceDeveloperApply(c *gin.Context) {
+	agentID, username, email, displayName, err := currentAgentIdentity(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": err.Error()})
+		return
+	}
 	app, err := currentSourceStationStore().CreateApplication(sourceApplication{
-		Username:     username,
-		PasswordHash: string(hash),
-		Email:        truncateText(strings.TrimSpace(req.Email), 100),
-		DisplayName:  displayName,
-		Reason:       truncateText(strings.TrimSpace(req.Reason), 500),
+		AgentID:     agentID,
+		Username:    username,
+		Email:       email,
+		DisplayName: displayName,
 	})
 	if err != nil {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "入驻申请已提交，等待管理员审核", "data": gin.H{
-		"id": app.ID, "username": app.Username, "status": app.Status,
+		"id": app.ID, "agentId": app.AgentID, "username": app.Username, "displayName": app.DisplayName, "status": app.Status,
 	}})
 }
 
 func SourceDeveloperApplyStatus(c *gin.Context) {
-	var req struct {
-		Username string `json:"username"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Username) == "" {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请提供用户名"})
-		return
-	}
-	username := strings.ToLower(strings.TrimSpace(req.Username))
-	if developer, err := currentSourceStationStore().GetDeveloperByUsername(username); err == nil {
-		status := sourceApplicationApproved
-		if !developer.Enabled {
-			status = sourceApplicationFrozen
-		}
-		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
-			"username": developer.Username, "status": status, "enabled": developer.Enabled,
-		}})
-		return
-	}
-	apps, err := currentSourceStationStore().ListApplications("")
+	agentID, _, _, _, err := currentAgentIdentity(c)
 	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": err.Error()})
+		return
+	}
+	app, appErr := currentSourceStationStore().GetApplicationByAgentID(agentID)
+	developer, devErr := currentSourceStationStore().GetDeveloperByAgentID(agentID)
+	if appErr != nil && !errors.Is(appErr, errSourceNotFound) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "查询申请失败"})
 		return
 	}
-	for _, app := range apps {
-		if strings.EqualFold(app.Username, username) {
-			c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
-				"id": app.ID, "username": app.Username, "status": app.Status, "reviewNote": app.ReviewNote,
-			}})
-			return
+	if devErr != nil && !errors.Is(devErr, errSourceNotFound) {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "查询申请失败"})
+		return
+	}
+	if errors.Is(appErr, errSourceNotFound) && errors.Is(devErr, errSourceNotFound) {
+		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "未找到入驻申请"})
+		return
+	}
+	status := ""
+	username := ""
+	displayName := ""
+	email := ""
+	reviewNote := ""
+	enabled := false
+	id := int64(0)
+	if appErr == nil {
+		id = app.ID
+		status = app.Status
+		username = app.Username
+		displayName = app.DisplayName
+		email = app.Email
+		reviewNote = app.ReviewNote
+	}
+	if devErr == nil {
+		enabled = developer.Enabled
+		if username == "" {
+			username = developer.Username
+		}
+		if displayName == "" {
+			displayName = developer.DisplayName
+		}
+		if email == "" {
+			email = developer.Email
+		}
+		if status == "" || status == sourceApplicationApproved {
+			if developer.Enabled {
+				status = sourceApplicationApproved
+			} else {
+				status = sourceApplicationFrozen
+			}
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "未找到入驻申请"})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
+		"id": id, "agentId": agentID, "username": username, "displayName": displayName, "email": email,
+		"status": status, "enabled": enabled, "reviewNote": reviewNote,
+	}})
 }
 
 func SourceDeveloperLogin(c *gin.Context) {
@@ -156,6 +200,10 @@ func SourceDeveloperLogin(c *gin.Context) {
 	}
 	if !developer.Enabled {
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": errDeveloperDisabled.Error()})
+		return
+	}
+	if strings.TrimSpace(developer.PasswordHash) == "" {
+		c.JSON(http.StatusOK, gin.H{"code": 410, "msg": "请使用代理商账号登录后进入开发者端"})
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(developer.PasswordHash), []byte(req.Password)); err != nil {
@@ -186,7 +234,7 @@ func SourceDeveloperLogin(c *gin.Context) {
 func SourceDeveloperMe(c *gin.Context) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
@@ -198,7 +246,7 @@ func SourceDeveloperMe(c *gin.Context) {
 func SourceDeveloperItems(c *gin.Context) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	plugins, _ := currentSourceStationStore().ListPlugins("")
@@ -221,7 +269,7 @@ func SourceDeveloperItems(c *gin.Context) {
 func SourceDeveloperUpsertPlugin(c *gin.Context) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	plugin, err := bindSourcePluginDraft(c, developer)
@@ -240,7 +288,7 @@ func SourceDeveloperUpsertPlugin(c *gin.Context) {
 func SourceDeveloperSubmitPlugin(c *gin.Context) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	item, err := currentSourceStationStore().GetPlugin(strings.TrimSpace(c.Param("id")))
@@ -263,7 +311,7 @@ func SourceDeveloperSubmitPlugin(c *gin.Context) {
 func SourceDeveloperPluginVersions(c *gin.Context) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	item, err := currentSourceStationStore().GetPlugin(strings.TrimSpace(c.Param("id")))
@@ -289,7 +337,7 @@ func SourceDeveloperSubmitPluginVersion(c *gin.Context) {
 func SourceDeveloperUpsertTemplate(c *gin.Context) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	item, err := bindSourceTemplateDraft(c, developer)
@@ -308,7 +356,7 @@ func SourceDeveloperUpsertTemplate(c *gin.Context) {
 func SourceDeveloperSubmitTemplate(c *gin.Context) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	item, err := currentSourceStationStore().GetTemplate(strings.TrimSpace(c.Param("id")))
@@ -331,7 +379,7 @@ func SourceDeveloperSubmitTemplate(c *gin.Context) {
 func SourceDeveloperTemplateVersions(c *gin.Context) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	item, err := currentSourceStationStore().GetTemplate(strings.TrimSpace(c.Param("id")))
@@ -387,8 +435,8 @@ func AdminSourceDeveloperApprove(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已通过入驻并创建开发者账号", "data": gin.H{
-		"developerId": developer.ID, "username": developer.Username, "roleCode": sourceDeveloperRoleCode,
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已通过入驻并绑定代理商开发者资格", "data": gin.H{
+		"developerId": developer.ID, "agentId": developer.AgentID, "username": developer.Username, "roleCode": sourceDeveloperRoleCode,
 	}})
 }
 
@@ -419,14 +467,35 @@ func AdminSourceDeveloperCancel(c *gin.Context) {
 }
 
 func currentSourceDeveloper(c *gin.Context) (sourceDeveloper, error) {
-	developer, err := currentSourceStationStore().GetDeveloperByID(int64(c.GetUint("user_id")))
+	userID := int64(c.GetUint("user_id"))
+	var developer sourceDeveloper
+	var err error
+	switch c.GetString("role") {
+	case "developer":
+		developer, err = currentSourceStationStore().GetDeveloperByID(userID)
+	case "agent":
+		developer, err = currentSourceStationStore().GetDeveloperByAgentID(userID)
+	default:
+		return sourceDeveloper{}, errSourceForbidden
+	}
 	if err != nil {
-		return sourceDeveloper{}, errors.New("开发者账号不存在")
+		if errors.Is(err, errSourceNotFound) {
+			return sourceDeveloper{}, errDeveloperNotBound
+		}
+		return sourceDeveloper{}, err
 	}
 	if !developer.Enabled {
 		return sourceDeveloper{}, errDeveloperDisabled
 	}
 	return developer, nil
+}
+
+func writeCurrentSourceDeveloperError(c *gin.Context, err error) {
+	code := 401
+	if errors.Is(err, errDeveloperDisabled) || errors.Is(err, errDeveloperNotBound) || errors.Is(err, errSourceForbidden) {
+		code = 403
+	}
+	c.JSON(http.StatusOK, gin.H{"code": code, "msg": err.Error()})
 }
 
 func sourceApplicationView(item sourceApplication) gin.H {
@@ -435,7 +504,7 @@ func sourceApplicationView(item sourceApplication) gin.H {
 		reviewedAt = item.ReviewedAt.Format(time.RFC3339)
 	}
 	return gin.H{
-		"id": item.ID, "username": item.Username, "email": item.Email, "displayName": item.DisplayName,
+		"id": item.ID, "agentId": item.AgentID, "username": item.Username, "email": item.Email, "displayName": item.DisplayName,
 		"reason": item.Reason, "status": item.Status, "reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
 		"reviewedAt": reviewedAt, "createdAt": item.CreatedAt.Format(time.RFC3339),
 	}
@@ -618,12 +687,12 @@ func writeSourceDeveloperStoreError(c *gin.Context, err error) {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": err.Error()})
 	case errors.Is(err, errSourceConflict), errors.Is(err, errApplicationPending), errors.Is(err, errApplicationReviewed),
 		errors.Is(err, errApplicationNotCancellable), errors.Is(err, errDeveloperAlreadyCancelled),
-		errors.Is(err, errSourcePublishIncomplete), errors.Is(err, errSourceInvalidStatus),
-		errors.Is(err, errSourceVersionImmutable), errors.Is(err, errSourceVersionNotLatest),
-		errors.Is(err, errSourceAppRequired), errors.Is(err, errSourceAppNotFound),
-		errors.Is(err, errAdApplicationReviewed):
+		errors.Is(err, errDeveloperAlreadyBound), errors.Is(err, errSourcePublishIncomplete),
+		errors.Is(err, errSourceInvalidStatus), errors.Is(err, errSourceVersionImmutable),
+		errors.Is(err, errSourceVersionNotLatest), errors.Is(err, errSourceAppRequired),
+		errors.Is(err, errSourceAppNotFound), errors.Is(err, errAdApplicationReviewed):
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
-	case errors.Is(err, errSourceForbidden), errors.Is(err, errDeveloperDisabled):
+	case errors.Is(err, errSourceForbidden), errors.Is(err, errDeveloperDisabled), errors.Is(err, errDeveloperNotBound):
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": err.Error()})
 	default:
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "源站存储失败"})
@@ -663,7 +732,7 @@ func writeSourceVersionList(c *gin.Context, kind, itemID string) {
 func sourceDeveloperWriteVersion(c *gin.Context, kind string) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	rel, err := bindSourceReleaseDraft(c, kind)
@@ -683,7 +752,7 @@ func sourceDeveloperWriteVersion(c *gin.Context, kind string) {
 func sourceDeveloperSubmitVersion(c *gin.Context, kind string) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": err.Error()})
+		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
 	itemID := strings.TrimSpace(c.Param("id"))

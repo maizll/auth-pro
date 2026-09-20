@@ -60,6 +60,8 @@ var (
 	errSourceAppNotFound         = errors.New("应用不存在")
 	errAdApplicationNotFound     = errors.New("广告申请不存在")
 	errAdApplicationReviewed     = errors.New("广告申请已处理")
+	errDeveloperAlreadyBound     = errors.New("该代理商已开通开发者资格")
+	errDeveloperNotBound         = errors.New("尚未开通开发者资格")
 
 	sha256HexPattern     = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
 	sourceVersionPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$`)
@@ -152,6 +154,7 @@ type sourceRelease struct {
 
 type sourceApplication struct {
 	ID           int64
+	AgentID      int64
 	Username     string
 	PasswordHash string
 	Email        string
@@ -167,6 +170,7 @@ type sourceApplication struct {
 type sourceDeveloper struct {
 	ID            int64
 	ApplicationID int64
+	AgentID       int64
 	Username      string
 	PasswordHash  string
 	Email         string
@@ -249,6 +253,8 @@ type sourceStationStore interface {
 	FreezeApplication(id int64, reviewer, note string) error
 	GetDeveloperByUsername(username string) (sourceDeveloper, error)
 	GetDeveloperByID(id int64) (sourceDeveloper, error)
+	GetDeveloperByAgentID(agentID int64) (sourceDeveloper, error)
+	GetApplicationByAgentID(agentID int64) (sourceApplication, error)
 	FreezeDeveloper(id int64, actor, note string) error
 	ListDevelopers() ([]sourceDeveloper, error)
 
@@ -729,6 +735,32 @@ func (store *memorySourceStore) CreateApplication(app sourceApplication) (source
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	username := strings.ToLower(strings.TrimSpace(app.Username))
+	if app.AgentID > 0 {
+		if existing, ok := store.applicationByAgentLocked(app.AgentID); ok {
+			if existing.Status == sourceApplicationPending {
+				return sourceApplication{}, errApplicationPending
+			}
+			if existing.Status == sourceApplicationApproved {
+				if dev, found := store.developerByAgentLocked(app.AgentID); found && dev.Enabled {
+					return sourceApplication{}, errDeveloperAlreadyBound
+				}
+			}
+			existing.Username = username
+			existing.Email = app.Email
+			existing.DisplayName = app.DisplayName
+			existing.Reason = ""
+			existing.PasswordHash = ""
+			existing.Status = sourceApplicationPending
+			existing.ReviewNote = ""
+			existing.ReviewedBy = ""
+			existing.ReviewedAt = nil
+			store.applications[existing.ID] = existing
+			return existing, nil
+		}
+		if dev, found := store.developerByAgentLocked(app.AgentID); found && dev.Enabled {
+			return sourceApplication{}, errDeveloperAlreadyBound
+		}
+	}
 	for _, existing := range store.applications {
 		if strings.ToLower(existing.Username) == username {
 			if existing.Status == sourceApplicationPending {
@@ -738,16 +770,36 @@ func (store *memorySourceStore) CreateApplication(app sourceApplication) (source
 		}
 	}
 	for _, existing := range store.developers {
-		if strings.ToLower(existing.Username) == username {
+		if strings.ToLower(existing.Username) == username && existing.Enabled {
 			return sourceApplication{}, errSourceConflict
 		}
 	}
 	app.ID = store.nextAppID
 	store.nextAppID++
+	app.Username = username
+	app.PasswordHash = strings.TrimSpace(app.PasswordHash)
 	app.Status = sourceApplicationPending
 	app.CreatedAt = time.Now().UTC()
 	store.applications[app.ID] = app
 	return app, nil
+}
+
+func (store *memorySourceStore) applicationByAgentLocked(agentID int64) (sourceApplication, bool) {
+	for _, item := range store.applications {
+		if item.AgentID == agentID {
+			return item, true
+		}
+	}
+	return sourceApplication{}, false
+}
+
+func (store *memorySourceStore) developerByAgentLocked(agentID int64) (sourceDeveloper, bool) {
+	for _, item := range store.developers {
+		if item.AgentID == agentID {
+			return item, true
+		}
+	}
+	return sourceDeveloper{}, false
 }
 
 func (store *memorySourceStore) ListApplications(status string) ([]sourceApplication, error) {
@@ -785,14 +837,33 @@ func (store *memorySourceStore) ApproveApplication(id int64, reviewer string) (s
 		return sourceDeveloper{}, errApplicationReviewed
 	}
 	now := time.Now().UTC()
-	dev := sourceDeveloper{
-		ID: store.nextDevID, ApplicationID: 0, Username: app.Username, PasswordHash: app.PasswordHash,
-		Email: app.Email, DisplayName: app.DisplayName, Enabled: true, CreatedAt: now,
+	app.Status = sourceApplicationApproved
+	app.ReviewedBy = reviewer
+	app.ReviewedAt = &now
+	store.applications[id] = app
+
+	var dev sourceDeveloper
+	if app.AgentID > 0 {
+		if existing, found := store.developerByAgentLocked(app.AgentID); found {
+			dev = existing
+		}
 	}
-	store.nextDevID++
+	if dev.ID == 0 {
+		dev = sourceDeveloper{
+			ID: store.nextDevID, ApplicationID: app.ID, AgentID: app.AgentID, Username: app.Username,
+			PasswordHash: app.PasswordHash, Email: app.Email, DisplayName: app.DisplayName, Enabled: true, CreatedAt: now,
+		}
+		store.nextDevID++
+	} else {
+		dev.ApplicationID = app.ID
+		dev.Username = app.Username
+		dev.Email = app.Email
+		dev.DisplayName = app.DisplayName
+		dev.PasswordHash = app.PasswordHash
+		dev.Enabled = true
+	}
 	store.developers[dev.ID] = dev
-	delete(store.applications, id) // reviewed apps are not retained
-	store.auditLocked("approve", "application", itoaSourceID(id), reviewer, "approved and application deleted")
+	store.auditLocked("approve", "application", itoaSourceID(id), reviewer, "approved and bound to agent")
 	return dev, nil
 }
 
@@ -806,7 +877,12 @@ func (store *memorySourceStore) RejectApplication(id int64, reviewer, note strin
 	if app.Status != sourceApplicationPending {
 		return errApplicationReviewed
 	}
-	delete(store.applications, id) // rejected apps are not retained; username freed for re-apply
+	now := time.Now().UTC()
+	app.Status = sourceApplicationRejected
+	app.ReviewNote = truncateText(note, 500)
+	app.ReviewedBy = reviewer
+	app.ReviewedAt = &now
+	store.applications[id] = app
 	store.auditLocked("reject", "application", itoaSourceID(id), reviewer, note)
 	return nil
 }
@@ -825,26 +901,26 @@ func (store *memorySourceStore) FreezeApplication(id int64, reviewer, note strin
 		return errApplicationNotCancellable
 	}
 	note = sourceCancelNote(note)
-	for idKey, dev := range store.developers {
-		if dev.ApplicationID == app.ID || strings.EqualFold(dev.Username, app.Username) {
-			for pid, plugin := range store.plugins {
-				if plugin.DeveloperID == idKey {
-					plugin.DeveloperID = 0
-					store.plugins[pid] = plugin
-				}
-			}
-			for tid, tmpl := range store.templates {
-				if tmpl.DeveloperID == idKey {
-					tmpl.DeveloperID = 0
-					store.templates[tid] = tmpl
-				}
-			}
-			delete(store.developers, idKey)
-		}
-	}
-	delete(store.applications, id)
+	now := time.Now().UTC()
+	app.Status = sourceApplicationFrozen
+	app.ReviewNote = note
+	app.ReviewedBy = reviewer
+	app.ReviewedAt = &now
+	store.applications[id] = app
+	store.disableDevelopersLocked(app)
 	store.auditLocked("cancel", "application", itoaSourceID(id), reviewer, note)
 	return nil
+}
+
+func (store *memorySourceStore) disableDevelopersLocked(app sourceApplication) {
+	for idKey, dev := range store.developers {
+		if (app.AgentID > 0 && dev.AgentID == app.AgentID) ||
+			dev.ApplicationID == app.ID ||
+			strings.EqualFold(dev.Username, app.Username) {
+			dev.Enabled = false
+			store.developers[idKey] = dev
+		}
+	}
 }
 
 func (store *memorySourceStore) GetDeveloperByUsername(username string) (sourceDeveloper, error) {
@@ -869,6 +945,32 @@ func (store *memorySourceStore) GetDeveloperByID(id int64) (sourceDeveloper, err
 	return item, nil
 }
 
+func (store *memorySourceStore) GetDeveloperByAgentID(agentID int64) (sourceDeveloper, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if agentID <= 0 {
+		return sourceDeveloper{}, errSourceNotFound
+	}
+	item, ok := store.developerByAgentLocked(agentID)
+	if !ok {
+		return sourceDeveloper{}, errSourceNotFound
+	}
+	return item, nil
+}
+
+func (store *memorySourceStore) GetApplicationByAgentID(agentID int64) (sourceApplication, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if agentID <= 0 {
+		return sourceApplication{}, errSourceNotFound
+	}
+	item, ok := store.applicationByAgentLocked(agentID)
+	if !ok {
+		return sourceApplication{}, errSourceNotFound
+	}
+	return item, nil
+}
+
 func (store *memorySourceStore) FreezeDeveloper(id int64, actor, note string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -876,27 +978,22 @@ func (store *memorySourceStore) FreezeDeveloper(id int64, actor, note string) er
 	if !ok {
 		return errSourceNotFound
 	}
+	if !item.Enabled {
+		return errDeveloperAlreadyCancelled
+	}
 	note = sourceCancelNote(note)
-	username := item.Username
-	// Detach catalog ownership so cancel is not blocked by published items.
-	for pid, plugin := range store.plugins {
-		if plugin.DeveloperID == id {
-			plugin.DeveloperID = 0
-			store.plugins[pid] = plugin
-		}
-	}
-	for tid, tmpl := range store.templates {
-		if tmpl.DeveloperID == id {
-			tmpl.DeveloperID = 0
-			store.templates[tid] = tmpl
-		}
-	}
+	item.Enabled = false
+	store.developers[id] = item
+	now := time.Now().UTC()
 	for appID, app := range store.applications {
-		if app.ID == item.ApplicationID || strings.EqualFold(app.Username, username) {
-			delete(store.applications, appID)
+		if app.ID == item.ApplicationID || (item.AgentID > 0 && app.AgentID == item.AgentID) || strings.EqualFold(app.Username, item.Username) {
+			app.Status = sourceApplicationFrozen
+			app.ReviewNote = note
+			app.ReviewedBy = actor
+			app.ReviewedAt = &now
+			store.applications[appID] = app
 		}
 	}
-	delete(store.developers, id) // hard delete so username can re-apply
 	store.auditLocked("cancel", "developer", itoaSourceID(id), actor, note)
 	return nil
 }
@@ -1100,6 +1197,13 @@ func (store *memorySourceStore) SaveReleaseSettings(settings sourceReleaseSettin
 	return nil
 }
 
+func nullableSourceAgentID(agentID int64) any {
+	if agentID <= 0 {
+		return nil
+	}
+	return agentID
+}
+
 func itoaSourceID(value int64) string {
 	if value == 0 {
 		return "0"
@@ -1129,8 +1233,9 @@ func ensureSourceStationStorage(db *sql.DB) error {
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS source_developer_applications (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-			username VARCHAR(50) NOT NULL,
-			password_hash VARCHAR(255) NOT NULL,
+			agent_id BIGINT UNSIGNED DEFAULT NULL,
+			username VARCHAR(100) NOT NULL,
+			password_hash VARCHAR(255) NOT NULL DEFAULT '',
 			email VARCHAR(100) NOT NULL DEFAULT '',
 			display_name VARCHAR(80) NOT NULL DEFAULT '',
 			reason VARCHAR(500) NOT NULL DEFAULT '',
@@ -1140,18 +1245,21 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			reviewed_at DATETIME DEFAULT NULL,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE KEY uk_source_developer_application_username (username),
+			UNIQUE KEY uk_source_developer_application_agent (agent_id),
 			KEY idx_source_developer_application_status (status)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源开发者入驻申请'`,
 		`CREATE TABLE IF NOT EXISTS source_developers (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
 			application_id BIGINT UNSIGNED DEFAULT NULL,
-			username VARCHAR(50) NOT NULL,
-			password_hash VARCHAR(255) NOT NULL,
+			agent_id BIGINT UNSIGNED DEFAULT NULL,
+			username VARCHAR(100) NOT NULL,
+			password_hash VARCHAR(255) NOT NULL DEFAULT '',
 			email VARCHAR(100) NOT NULL DEFAULT '',
 			display_name VARCHAR(80) NOT NULL DEFAULT '',
 			enabled TINYINT(1) NOT NULL DEFAULT 1,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE KEY uk_source_developer_username (username)
+			UNIQUE KEY uk_source_developer_username (username),
+			UNIQUE KEY uk_source_developer_agent (agent_id)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源开发者'`,
 		`CREATE TABLE IF NOT EXISTS source_catalog_plugins (
 			id VARCHAR(60) NOT NULL PRIMARY KEY,
@@ -1317,6 +1425,12 @@ func ensureSourceStationStorage(db *sql.DB) error {
 		"ALTER TABLE source_catalog_templates ADD COLUMN app_id BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER developer_id",
 		"ALTER TABLE source_catalog_plugins ADD KEY idx_source_catalog_plugin_app (app_id, status)",
 		"ALTER TABLE source_catalog_templates ADD KEY idx_source_catalog_template_app (app_id, status)",
+		"ALTER TABLE source_developer_applications ADD COLUMN agent_id BIGINT UNSIGNED DEFAULT NULL AFTER id",
+		"ALTER TABLE source_developers ADD COLUMN agent_id BIGINT UNSIGNED DEFAULT NULL AFTER application_id",
+		"ALTER TABLE source_developer_applications MODIFY username VARCHAR(100) NOT NULL",
+		"ALTER TABLE source_developers MODIFY username VARCHAR(100) NOT NULL",
+		"ALTER TABLE source_developer_applications ADD UNIQUE KEY uk_source_developer_application_agent (agent_id)",
+		"ALTER TABLE source_developers ADD UNIQUE KEY uk_source_developer_agent (agent_id)",
 	}
 	for _, statement := range alters {
 		_, _ = db.Exec(statement)
@@ -1336,6 +1450,16 @@ func ensureSourceStationStorage(db *sql.DB) error {
 	_, _ = db.Exec(`UPDATE source_catalog_templates SET latest_version=version WHERE status='published' AND latest_version=''`)
 	_, _ = db.Exec(`UPDATE source_catalog_plugins p JOIN (SELECT id FROM apps ORDER BY id ASC LIMIT 1) a SET p.app_id=a.id WHERE p.app_id=0`)
 	_, _ = db.Exec(`UPDATE source_catalog_templates t JOIN (SELECT id FROM apps ORDER BY id ASC LIMIT 1) a SET t.app_id=a.id WHERE t.app_id=0`)
+	_, _ = db.Exec(`UPDATE source_developers d
+		INNER JOIN agents a ON a.email = d.email AND d.email <> ''
+		LEFT JOIN source_developers taken ON taken.agent_id = a.id AND taken.id <> d.id
+		SET d.agent_id = a.id
+		WHERE d.agent_id IS NULL AND taken.id IS NULL`)
+	_, _ = db.Exec(`UPDATE source_developer_applications app
+		INNER JOIN agents a ON a.email = app.email AND app.email <> ''
+		LEFT JOIN source_developer_applications taken ON taken.agent_id = a.id AND taken.id <> app.id
+		SET app.agent_id = a.id
+		WHERE app.agent_id IS NULL AND taken.id IS NULL`)
 	_, _ = db.Exec(`INSERT IGNORE INTO roles (role_name, role_code, description, discount, enabled)
 		VALUES (?, ?, '软件源开发者，可提交插件与首页模板元数据', 10.0, 1)`,
 		sourceDeveloperRoleName, sourceDeveloperRoleCode)
@@ -1750,6 +1874,34 @@ func (mysqlSourceStore) CreateApplication(app sourceApplication) (sourceApplicat
 	if err := ensureSourceStationStorage(db); err != nil {
 		return sourceApplication{}, err
 	}
+	if app.AgentID > 0 {
+		if existing, err := (mysqlSourceStore{}).GetApplicationByAgentID(app.AgentID); err == nil {
+			if existing.Status == sourceApplicationPending {
+				return sourceApplication{}, errApplicationPending
+			}
+			if existing.Status == sourceApplicationApproved {
+				if dev, devErr := (mysqlSourceStore{}).GetDeveloperByAgentID(app.AgentID); devErr == nil && dev.Enabled {
+					return sourceApplication{}, errDeveloperAlreadyBound
+				}
+			}
+			if _, err := db.Exec(`UPDATE source_developer_applications
+				SET username=?, password_hash='', email=?, display_name=?, reason='', status='pending', review_note='', reviewed_by='', reviewed_at=NULL
+				WHERE id=?`, app.Username, app.Email, app.DisplayName, existing.ID); err != nil {
+				if strings.Contains(err.Error(), "Duplicate") {
+					return sourceApplication{}, errSourceConflict
+				}
+				return sourceApplication{}, err
+			}
+			return (mysqlSourceStore{}).GetApplication(existing.ID)
+		} else if err != nil && !errors.Is(err, errSourceNotFound) {
+			return sourceApplication{}, err
+		}
+		if dev, err := (mysqlSourceStore{}).GetDeveloperByAgentID(app.AgentID); err == nil && dev.Enabled {
+			return sourceApplication{}, errDeveloperAlreadyBound
+		} else if err != nil && !errors.Is(err, errSourceNotFound) {
+			return sourceApplication{}, err
+		}
+	}
 	var existingStatus string
 	err = db.QueryRow(`SELECT status FROM source_developer_applications WHERE username=?`, app.Username).Scan(&existingStatus)
 	if err == nil {
@@ -1762,14 +1914,14 @@ func (mysqlSourceStore) CreateApplication(app sourceApplication) (sourceApplicat
 		return sourceApplication{}, err
 	}
 	var developerID int64
-	if err := db.QueryRow(`SELECT id FROM source_developers WHERE username=?`, app.Username).Scan(&developerID); err == nil {
+	if err := db.QueryRow(`SELECT id FROM source_developers WHERE username=? AND enabled=1`, app.Username).Scan(&developerID); err == nil {
 		return sourceApplication{}, errSourceConflict
 	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return sourceApplication{}, err
 	}
 	result, err := db.Exec(`INSERT INTO source_developer_applications
-		(username, password_hash, email, display_name, reason, status) VALUES (?, ?, ?, ?, ?, 'pending')`,
-		app.Username, app.PasswordHash, app.Email, app.DisplayName, app.Reason)
+		(agent_id, username, password_hash, email, display_name, reason, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+		nullableSourceAgentID(app.AgentID), app.Username, app.PasswordHash, app.Email, app.DisplayName, app.Reason)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate") {
 			return sourceApplication{}, errSourceConflict
@@ -1788,7 +1940,7 @@ func (mysqlSourceStore) ListApplications(status string) ([]sourceApplication, er
 	if err := ensureSourceStationStorage(db); err != nil {
 		return nil, err
 	}
-	query := `SELECT id, username, email, display_name, reason, status, review_note, reviewed_by, reviewed_at, created_at
+	query := `SELECT id, COALESCE(agent_id, 0), username, email, display_name, reason, status, review_note, reviewed_by, reviewed_at, created_at
 		FROM source_developer_applications`
 	args := []any{}
 	if status != "" {
@@ -1817,10 +1969,10 @@ func scanSourceApplication(scanner interface{ Scan(dest ...any) error }, withPas
 	var reviewedAt sql.NullTime
 	var err error
 	if withPassword {
-		err = scanner.Scan(&item.ID, &item.Username, &item.PasswordHash, &item.Email, &item.DisplayName, &item.Reason,
+		err = scanner.Scan(&item.ID, &item.AgentID, &item.Username, &item.PasswordHash, &item.Email, &item.DisplayName, &item.Reason,
 			&item.Status, &item.ReviewNote, &item.ReviewedBy, &reviewedAt, &item.CreatedAt)
 	} else {
-		err = scanner.Scan(&item.ID, &item.Username, &item.Email, &item.DisplayName, &item.Reason,
+		err = scanner.Scan(&item.ID, &item.AgentID, &item.Username, &item.Email, &item.DisplayName, &item.Reason,
 			&item.Status, &item.ReviewNote, &item.ReviewedBy, &reviewedAt, &item.CreatedAt)
 	}
 	if err != nil {
@@ -1842,8 +1994,27 @@ func (mysqlSourceStore) GetApplication(id int64) (sourceApplication, error) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return sourceApplication{}, err
 	}
-	item, err := scanSourceApplication(db.QueryRow(`SELECT id, username, password_hash, email, display_name, reason, status, review_note, reviewed_by, reviewed_at, created_at
+	item, err := scanSourceApplication(db.QueryRow(`SELECT id, COALESCE(agent_id, 0), username, password_hash, email, display_name, reason, status, review_note, reviewed_by, reviewed_at, created_at
 		FROM source_developer_applications WHERE id=?`, id), true)
+	if errors.Is(err, sql.ErrNoRows) {
+		return sourceApplication{}, errSourceNotFound
+	}
+	return item, err
+}
+
+func (mysqlSourceStore) GetApplicationByAgentID(agentID int64) (sourceApplication, error) {
+	if agentID <= 0 {
+		return sourceApplication{}, errSourceNotFound
+	}
+	db, err := config.DB()
+	if err != nil {
+		return sourceApplication{}, err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return sourceApplication{}, err
+	}
+	item, err := scanSourceApplication(db.QueryRow(`SELECT id, COALESCE(agent_id, 0), username, password_hash, email, display_name, reason, status, review_note, reviewed_by, reviewed_at, created_at
+		FROM source_developer_applications WHERE agent_id=? ORDER BY id DESC LIMIT 1`, agentID), true)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceApplication{}, errSourceNotFound
 	}
@@ -1863,7 +2034,7 @@ func (mysqlSourceStore) ApproveApplication(id int64, reviewer string) (sourceDev
 		return sourceDeveloper{}, err
 	}
 	defer tx.Rollback()
-	app, err := scanSourceApplication(tx.QueryRow(`SELECT id, username, password_hash, email, display_name, reason, status, review_note, reviewed_by, reviewed_at, created_at
+	app, err := scanSourceApplication(tx.QueryRow(`SELECT id, COALESCE(agent_id, 0), username, password_hash, email, display_name, reason, status, review_note, reviewed_by, reviewed_at, created_at
 		FROM source_developer_applications WHERE id=? FOR UPDATE`, id), true)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceDeveloper{}, errSourceNotFound
@@ -1874,26 +2045,41 @@ func (mysqlSourceStore) ApproveApplication(id int64, reviewer string) (sourceDev
 	if app.Status != sourceApplicationPending {
 		return sourceDeveloper{}, errApplicationReviewed
 	}
-	result, err := tx.Exec(`INSERT INTO source_developers (application_id, username, password_hash, email, display_name, enabled)
-		VALUES (0, ?, ?, ?, ?, 1)`, app.Username, app.PasswordHash, app.Email, app.DisplayName)
-	if err != nil {
-		if strings.Contains(err.Error(), "Duplicate") {
-			return sourceDeveloper{}, errSourceConflict
-		}
-		return sourceDeveloper{}, err
+	var developerID int64
+	if app.AgentID > 0 {
+		_ = tx.QueryRow(`SELECT id FROM source_developers WHERE agent_id=? FOR UPDATE`, app.AgentID).Scan(&developerID)
 	}
-	developerID, _ := result.LastInsertId()
+	if developerID > 0 {
+		if _, err := tx.Exec(`UPDATE source_developers SET application_id=?, username=?, password_hash=?, email=?, display_name=?, enabled=1 WHERE id=?`,
+			app.ID, app.Username, app.PasswordHash, app.Email, app.DisplayName, developerID); err != nil {
+			if strings.Contains(err.Error(), "Duplicate") {
+				return sourceDeveloper{}, errSourceConflict
+			}
+			return sourceDeveloper{}, err
+		}
+	} else {
+		result, err := tx.Exec(`INSERT INTO source_developers (application_id, agent_id, username, password_hash, email, display_name, enabled)
+			VALUES (?, ?, ?, ?, ?, ?, 1)`, app.ID, nullableSourceAgentID(app.AgentID), app.Username, app.PasswordHash, app.Email, app.DisplayName)
+		if err != nil {
+			if strings.Contains(err.Error(), "Duplicate") {
+				return sourceDeveloper{}, errSourceConflict
+			}
+			return sourceDeveloper{}, err
+		}
+		developerID, _ = result.LastInsertId()
+	}
 	if _, err := tx.Exec(`INSERT IGNORE INTO roles (role_name, role_code, description, discount, enabled)
 		VALUES (?, ?, '软件源开发者，可提交插件与首页模板元数据', 10.0, 1)`, sourceDeveloperRoleName, sourceDeveloperRoleCode); err != nil {
 		return sourceDeveloper{}, err
 	}
-	if _, err := tx.Exec(`DELETE FROM source_developer_applications WHERE id=?`, id); err != nil {
+	if _, err := tx.Exec(`UPDATE source_developer_applications SET status=?, reviewed_by=?, reviewed_at=NOW() WHERE id=?`,
+		sourceApplicationApproved, reviewer, id); err != nil {
 		return sourceDeveloper{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return sourceDeveloper{}, err
 	}
-	mysqlAppendAudit(db, "approve", "application", itoaSourceID(id), reviewer, "approved and application deleted")
+	mysqlAppendAudit(db, "approve", "application", itoaSourceID(id), reviewer, "approved and bound to agent")
 	return (mysqlSourceStore{}).GetDeveloperByID(developerID)
 }
 
@@ -1909,7 +2095,8 @@ func (mysqlSourceStore) RejectApplication(id int64, reviewer, note string) error
 	if err != nil {
 		return err
 	}
-	if _, err := db.Exec(`DELETE FROM source_developer_applications WHERE id=?`, id); err != nil {
+	if _, err := db.Exec(`UPDATE source_developer_applications SET status=?, review_note=?, reviewed_by=?, reviewed_at=NOW() WHERE id=?`,
+		sourceApplicationRejected, truncateText(note, 500), reviewer, id); err != nil {
 		return err
 	}
 	mysqlAppendAudit(db, "reject", "application", itoaSourceID(id), reviewer, note)
@@ -1932,16 +2119,14 @@ func (mysqlSourceStore) FreezeApplication(id int64, reviewer, note string) error
 	if err != nil {
 		return err
 	}
-	var developerID int64
-	_ = db.QueryRow(`SELECT id FROM source_developers WHERE application_id=? OR username=? LIMIT 1`, id, app.Username).Scan(&developerID)
-	if developerID > 0 {
-		_, _ = db.Exec(`UPDATE source_catalog_plugins SET developer_id=0 WHERE developer_id=?`, developerID)
-		_, _ = db.Exec(`UPDATE source_catalog_templates SET developer_id=0 WHERE developer_id=?`, developerID)
-		_, _ = db.Exec(`DELETE FROM source_developers WHERE id=?`, developerID)
-	}
-	if _, err := db.Exec(`DELETE FROM source_developer_applications WHERE id=?`, id); err != nil {
+	if _, err := db.Exec(`UPDATE source_developer_applications SET status=?, review_note=?, reviewed_by=?, reviewed_at=NOW() WHERE id=?`,
+		sourceApplicationFrozen, note, reviewer, id); err != nil {
 		return err
 	}
+	if app.AgentID > 0 {
+		_, _ = db.Exec(`UPDATE source_developers SET enabled=0 WHERE agent_id=?`, app.AgentID)
+	}
+	_, _ = db.Exec(`UPDATE source_developers SET enabled=0 WHERE application_id=? OR username=?`, app.ID, app.Username)
 	mysqlAppendAudit(db, "cancel", "application", itoaSourceID(id), reviewer, note)
 	return nil
 }
@@ -1949,7 +2134,7 @@ func (mysqlSourceStore) FreezeApplication(id int64, reviewer, note string) error
 func scanSourceDeveloper(scanner interface{ Scan(dest ...any) error }) (sourceDeveloper, error) {
 	var item sourceDeveloper
 	var enabled int
-	if err := scanner.Scan(&item.ID, &item.ApplicationID, &item.Username, &item.PasswordHash, &item.Email, &item.DisplayName, &enabled, &item.CreatedAt); err != nil {
+	if err := scanner.Scan(&item.ID, &item.ApplicationID, &item.AgentID, &item.Username, &item.PasswordHash, &item.Email, &item.DisplayName, &enabled, &item.CreatedAt); err != nil {
 		return sourceDeveloper{}, err
 	}
 	item.Enabled = enabled == 1
@@ -1965,7 +2150,7 @@ func (mysqlSourceStore) GetDeveloperByUsername(username string) (sourceDeveloper
 	if err := ensureSourceStationStorage(db); err != nil {
 		return sourceDeveloper{}, err
 	}
-	item, err := scanSourceDeveloper(db.QueryRow(`SELECT id, COALESCE(application_id, 0), username, password_hash, email, display_name, enabled, created_at
+	item, err := scanSourceDeveloper(db.QueryRow(`SELECT id, COALESCE(application_id, 0), COALESCE(agent_id, 0), username, password_hash, email, display_name, enabled, created_at
 		FROM source_developers WHERE username=?`, username))
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceDeveloper{}, errSourceNotFound
@@ -1981,8 +2166,27 @@ func (mysqlSourceStore) GetDeveloperByID(id int64) (sourceDeveloper, error) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return sourceDeveloper{}, err
 	}
-	item, err := scanSourceDeveloper(db.QueryRow(`SELECT id, COALESCE(application_id, 0), username, password_hash, email, display_name, enabled, created_at
+	item, err := scanSourceDeveloper(db.QueryRow(`SELECT id, COALESCE(application_id, 0), COALESCE(agent_id, 0), username, password_hash, email, display_name, enabled, created_at
 		FROM source_developers WHERE id=?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return sourceDeveloper{}, errSourceNotFound
+	}
+	return item, err
+}
+
+func (mysqlSourceStore) GetDeveloperByAgentID(agentID int64) (sourceDeveloper, error) {
+	if agentID <= 0 {
+		return sourceDeveloper{}, errSourceNotFound
+	}
+	db, err := config.DB()
+	if err != nil {
+		return sourceDeveloper{}, err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return sourceDeveloper{}, err
+	}
+	item, err := scanSourceDeveloper(db.QueryRow(`SELECT id, COALESCE(application_id, 0), COALESCE(agent_id, 0), username, password_hash, email, display_name, enabled, created_at
+		FROM source_developers WHERE agent_id=?`, agentID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceDeveloper{}, errSourceNotFound
 	}
@@ -1994,19 +2198,23 @@ func (mysqlSourceStore) FreezeDeveloper(id int64, actor, note string) error {
 	if err != nil {
 		return err
 	}
+	if !item.Enabled {
+		return errDeveloperAlreadyCancelled
+	}
 	note = sourceCancelNote(note)
 	db, err := config.DB()
 	if err != nil {
 		return err
 	}
-	_, _ = db.Exec(`UPDATE source_catalog_plugins SET developer_id=0 WHERE developer_id=?`, id)
-	_, _ = db.Exec(`UPDATE source_catalog_templates SET developer_id=0 WHERE developer_id=?`, id)
-	if _, err := db.Exec(`DELETE FROM source_developer_applications WHERE id=? OR username=?`, item.ApplicationID, item.Username); err != nil {
+	if _, err := db.Exec(`UPDATE source_developers SET enabled=0 WHERE id=?`, id); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`DELETE FROM source_developers WHERE id=?`, id); err != nil {
-		return err
+	if item.AgentID > 0 {
+		_, _ = db.Exec(`UPDATE source_developer_applications SET status=?, review_note=?, reviewed_by=?, reviewed_at=NOW() WHERE agent_id=?`,
+			sourceApplicationFrozen, note, actor, item.AgentID)
 	}
+	_, _ = db.Exec(`UPDATE source_developer_applications SET status=?, review_note=?, reviewed_by=?, reviewed_at=NOW() WHERE id=? OR username=?`,
+		sourceApplicationFrozen, note, actor, item.ApplicationID, item.Username)
 	mysqlAppendAudit(db, "cancel", "developer", itoaSourceID(id), actor, note)
 	return nil
 }
@@ -2019,7 +2227,7 @@ func (mysqlSourceStore) ListDevelopers() ([]sourceDeveloper, error) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(`SELECT id, COALESCE(application_id, 0), username, '' AS password_hash, email, display_name, enabled, created_at FROM source_developers ORDER BY id ASC`)
+	rows, err := db.Query(`SELECT id, COALESCE(application_id, 0), COALESCE(agent_id, 0), username, '' AS password_hash, email, display_name, enabled, created_at FROM source_developers ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
 	}

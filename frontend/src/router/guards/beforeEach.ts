@@ -169,7 +169,12 @@ function getPanelAuthConfig(path: string): { tokenKey: string; loginPath: string
     return { tokenKey: 'agent_panel_token', loginPath: '/agent-panel/login' }
   }
   if (path === '/developer-panel' || path.startsWith('/developer-panel/')) {
-    return { tokenKey: 'developer_panel_token', loginPath: '/developer-panel/login' }
+    const hasAgent = Boolean(localStorage.getItem('agent_panel_token'))
+    const hasDeveloper = Boolean(localStorage.getItem('developer_panel_token'))
+    return {
+      tokenKey: hasAgent || hasDeveloper ? (hasAgent ? 'agent_panel_token' : 'developer_panel_token') : 'developer_panel_token',
+      loginPath: '/developer-panel/login'
+    }
   }
   if (path === '/user' || path.startsWith('/user/')) {
     return { tokenKey: 'user_panel_token', loginPath: '/user/login' }

@@ -61,6 +61,16 @@
         </div>
         <div class="header-right">
           <PanelThemeToggle scope="agent" />
+          <el-button
+            v-if="developerApproved"
+            type="primary"
+            text
+            class="developer-entry"
+            @click="enterDeveloper"
+          >
+            <el-icon><iconify-icon icon="ri:code-s-slash-line" /></el-icon>
+            进入开发者端
+          </el-button>
           <span class="agent-name">{{ agentName }}</span>
           <el-dropdown trigger="click">
             <el-avatar :size="32" class="avatar-btn">
@@ -104,6 +114,10 @@
   import axios from 'axios'
   import { useSystemConfigStore } from '@/store/modules/system-config'
   import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
+  import {
+    enterDeveloperSessionFromAgent,
+    fetchSourceDeveloperApplyStatus
+  } from '@/api/source-developer'
 
   const route = useRoute()
   const router = useRouter()
@@ -111,6 +125,7 @@
   const { siteName, resolvedLogo } = storeToRefs(systemConfigStore)
   const collapsed = ref(false)
   const ticketUnread = ref(0)
+  const developerApproved = ref(false)
   let ticketUnreadTimer: ReturnType<typeof setInterval> | null = null
 
   async function fetchTicketUnread() {
@@ -126,8 +141,23 @@
     }
   }
 
+  async function fetchDeveloperStatus() {
+    try {
+      const { data } = await fetchSourceDeveloperApplyStatus()
+      developerApproved.value = data.code === 200 && data.data?.status === 'approved'
+    } catch {
+      developerApproved.value = false
+    }
+  }
+
+  function enterDeveloper() {
+    enterDeveloperSessionFromAgent()
+    router.push('/developer-panel/dashboard')
+  }
+
   onMounted(() => {
     fetchTicketUnread()
+    fetchDeveloperStatus()
     ticketUnreadTimer = setInterval(fetchTicketUnread, 30000)
     window.addEventListener('panel-ticket-unread-refresh', fetchTicketUnread)
   })
@@ -277,6 +307,10 @@
       .agent-name {
         font-size: 14px;
         color: var(--el-text-color-primary);
+      }
+
+      .developer-entry {
+        margin-right: 4px;
       }
 
       .avatar-btn {

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
+
+var sourceTestAgentSeq atomic.Uint64
 
 func sourceStationRouter(t *testing.T) (*gin.Engine, *memorySourceStore) {
 	t.Helper()
@@ -77,11 +80,35 @@ func sourceTestSHA256() string {
 	return strings.Repeat("ab", 32)
 }
 
-func sourceApproveDeveloper(t *testing.T, router http.Handler, username, password string) (adminToken, devToken string, appID int64) {
+func sourceAgentToken(t *testing.T, agentID uint, email string) string {
 	t.Helper()
+	claims := middleware.Claims{
+		UserID: agentID, Username: email, Role: "agent",
+		RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))},
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(middleware.JWTSecret())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+func sourceNextAgent(t *testing.T, username string) (agentID uint, email, token string) {
+	t.Helper()
+	agentID = uint(4000 + sourceTestAgentSeq.Add(1))
+	email = username
+	if !strings.Contains(username, "@") {
+		email = username + "@agents.test"
+	}
+	return agentID, email, sourceAgentToken(t, agentID, email)
+}
+
+func sourceApproveDeveloper(t *testing.T, router http.Handler, username, password string) (adminToken, agentToken string, appID int64) {
+	t.Helper()
+	_ = password
 	adminToken = sourceAdminToken(t)
-	apply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", "",
-		`{"username":"`+username+`","password":"`+password+`","displayName":"`+username+`","reason":"publish demo"}`)
+	_, _, agentToken = sourceNextAgent(t, username)
+	apply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", agentToken, `{}`)
 	if sourceBodyCode(t, apply) != 200 {
 		t.Fatalf("apply=%s", apply.Body.String())
 	}
@@ -98,20 +125,7 @@ func sourceApproveDeveloper(t *testing.T, router http.Handler, username, passwor
 	if sourceBodyCode(t, approve) != 200 || !strings.Contains(approve.Body.String(), sourceDeveloperRoleCode) {
 		t.Fatalf("approve=%s", approve.Body.String())
 	}
-	login := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/login", "",
-		`{"username":"`+username+`","password":"`+password+`"}`)
-	if sourceBodyCode(t, login) != 200 {
-		t.Fatalf("login=%s", login.Body.String())
-	}
-	var loginBody struct {
-		Data struct {
-			Token string `json:"token"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(login.Body.Bytes(), &loginBody); err != nil {
-		t.Fatal(err)
-	}
-	return adminToken, loginBody.Data.Token, appID
+	return adminToken, agentToken, appID
 }
 
 func TestSourceStationIndexJSONShape(t *testing.T) {
@@ -210,7 +224,7 @@ func TestSourceStationApproveFlowFeedsPublishedIndex(t *testing.T) {
 		t.Fatalf("homeTemplate location=%+v", item)
 	}
 
-	status := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply/status", "", `{"username":"dev-alice"}`)
+	status := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/apply/status", dev, "")
 	if sourceBodyCode(t, status) != 200 || !strings.Contains(status.Body.String(), `"approved"`) {
 		t.Fatalf("apply status=%s", status.Body.String())
 	}
@@ -295,8 +309,8 @@ func TestSourceStationPublishRequiresSHA256AndURL(t *testing.T) {
 func TestSourceDeveloperRejectBlocksLogin(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
-	apply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", "",
-		`{"username":"dev-bob","password":"secret1","reason":"nope"}`)
+	_, _, agentToken := sourceNextAgent(t, "dev-bob")
+	apply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", agentToken, `{}`)
 	var applyBody struct {
 		Data struct {
 			ID int64 `json:"id"`
@@ -308,10 +322,9 @@ func TestSourceDeveloperRejectBlocksLogin(t *testing.T) {
 	if sourceBodyCode(t, reject) != 200 {
 		t.Fatalf("reject=%s", reject.Body.String())
 	}
-	login := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/login", "",
-		`{"username":"dev-bob","password":"secret1"}`)
-	if sourceBodyCode(t, login) != 401 {
-		t.Fatalf("rejected developer login=%s", login.Body.String())
+	me := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/me", agentToken, "")
+	if sourceBodyCode(t, me) != 403 {
+		t.Fatalf("rejected agent developer access=%s", me.Body.String())
 	}
 }
 
@@ -568,10 +581,10 @@ func TestSourceStationPluginVersionUpdateUnshelfAndRollback(t *testing.T) {
 
 func TestSourceDeveloperCancelBlocksLogin(t *testing.T) {
 	router, _ := sourceStationRouter(t)
-	admin, _, appID := sourceApproveDeveloper(t, router, "dev-carol", "secret1")
+	admin, agentToken, appID := sourceApproveDeveloper(t, router, "dev-carol", "secret1")
 
-	pendingApply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", "",
-		`{"username":"dev-pending","password":"secret1","reason":"wait"}`)
+	_, _, pendingToken := sourceNextAgent(t, "dev-pending")
+	pendingApply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", pendingToken, `{}`)
 	var pendingBody struct {
 		Data struct {
 			ID int64 `json:"id"`
@@ -580,23 +593,22 @@ func TestSourceDeveloperCancelBlocksLogin(t *testing.T) {
 	if err := json.Unmarshal(pendingApply.Body.Bytes(), &pendingBody); err != nil {
 		t.Fatal(err)
 	}
-	cancelPending := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(pendingBody.Data.ID)+"/cancel",
+	cancelPending := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(pendingBody.Data.ID)+"/freeze",
 		admin, `{}`)
 	if sourceBodyCode(t, cancelPending) != 400 || !strings.Contains(cancelPending.Body.String(), "只能取消已通过") {
 		t.Fatalf("cancel pending=%s", cancelPending.Body.String())
 	}
 
-	cancel := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(appID)+"/cancel",
+	cancel := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/applications/"+itoa64(appID)+"/freeze",
 		admin, `{"note":"违规发布"}`)
 	if sourceBodyCode(t, cancel) != 200 || !strings.Contains(cancel.Body.String(), "已取消该开发者资格") {
 		t.Fatalf("cancel=%s", cancel.Body.String())
 	}
-	login := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/login", "",
-		`{"username":"dev-carol","password":"secret1"}`)
-	if sourceBodyCode(t, login) != 403 {
-		t.Fatalf("cancelled developer login=%s", login.Body.String())
+	me := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/me", agentToken, "")
+	if sourceBodyCode(t, me) != 403 {
+		t.Fatalf("cancelled agent developer access=%s", me.Body.String())
 	}
-	status := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply/status", "", `{"username":"dev-carol"}`)
+	status := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/apply/status", agentToken, "")
 	if sourceBodyCode(t, status) != 200 || !strings.Contains(status.Body.String(), `"frozen"`) {
 		t.Fatalf("cancelled apply status=%s", status.Body.String())
 	}
