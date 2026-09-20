@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"auto_pro/config"
 	"auto_pro/softwaresource"
 
 	"github.com/gin-gonic/gin"
@@ -87,21 +89,49 @@ func ensureHomeTemplateStorage(db *sql.DB) error {
 func AdminHomeTemplateList(c *gin.Context) {
 	warning := ""
 	if c.Query("refresh") == "1" {
-		client, err := softwaresource.Default()
-		if err == nil {
-			_, err = client.Refresh(c.Request.Context())
-		}
-		if err != nil {
-			warning = "刷新模板分发目录失败，本地上传模板仍可使用：" + err.Error()
-		}
+		warning = homeTemplateCatalogRefreshWarning(c.Request.Context())
 	}
-	items, err := listAppStoreTemplates(c.Request.Context())
+	items, err := listHomeTemplates(c.Request.Context())
 	if err != nil {
 		writeAppStoreError(c, err)
 		return
 	}
 	writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": legacyHomeTemplateItems(items), "warning": warning}})
 }
+
+// homeTemplateCatalogRefreshWarning 刷新与插件共用的软件源目录。
+// 未配置远程软件源（自托管 / 空 URL）时静默跳过：本站上传与源站模板足够使用。
+func homeTemplateCatalogRefreshWarning(ctx context.Context) string {
+	client, err := softwaresource.Default()
+	if err != nil {
+		if isUnconfiguredRemoteSoftwareSource(err) {
+			return ""
+		}
+		return remoteSoftwareSourceRefreshWarning(err)
+	}
+	if _, err = client.Refresh(ctx); err != nil {
+		return remoteSoftwareSourceRefreshWarning(err)
+	}
+	return ""
+}
+
+func isUnconfiguredRemoteSoftwareSource(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, softwaresource.ErrUnconfigured) {
+		return true
+	}
+	return strings.TrimSpace(config.GetSoftwareSourceURL()) == ""
+}
+
+func remoteSoftwareSourceRefreshWarning(err error) string {
+	return "刷新远程软件源模板目录失败，本站上传与源站模板仍可使用：" + err.Error()
+}
+
+// listHomeTemplates is replaced in tests so refresh warning behavior can be
+// asserted without a MySQL-backed catalog.
+var listHomeTemplates = listAppStoreTemplates
 
 func AdminHomeTemplateEnable(c *gin.Context) {
 	if err := enableAppStoreTemplate(c.Request.Context(), c.Param("id")); err != nil {

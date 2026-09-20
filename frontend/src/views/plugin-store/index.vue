@@ -398,7 +398,8 @@
 
       if (templateResult.status === 'fulfilled') {
         homeTemplates.value = templateResult.value.list || []
-        templateLoadError.value = templateResult.value.warning || ''
+        const warning = String(templateResult.value.warning || '').trim()
+        templateLoadError.value = warning
         failedTemplatePreviews.value = new Set()
       } else {
         homeTemplates.value = []

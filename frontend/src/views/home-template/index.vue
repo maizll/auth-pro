@@ -46,6 +46,14 @@
           :closable="false"
           class="panel-error"
         />
+        <ElAlert
+          v-if="refreshWarning"
+          :title="refreshWarning"
+          type="warning"
+          show-icon
+          :closable="false"
+          class="panel-error"
+        />
 
         <ElEmpty
           v-if="!loading && !loadError && !templates.length"
@@ -157,6 +165,7 @@
 
   const loading = ref(false)
   const loadError = ref('')
+  const refreshWarning = ref('')
   const sourceError = ref('')
   const togglingId = ref('')
   const templates = ref<HomeTemplateInfo[]>([])
@@ -189,16 +198,21 @@
       softwareSource.value = await fetchSoftwareSourcePlugins()
     } catch (error: any) {
       softwareSource.value = null
-      sourceError.value = error?.message || '模板分发中心读取失败'
+      const message = String(error?.message || '').trim()
+      sourceError.value = message.includes('未配置远程软件源')
+        ? ''
+        : message || '模板分发中心读取失败'
     }
   }
 
   const loadTemplates = async (refresh = false) => {
     loadError.value = ''
+    refreshWarning.value = ''
     try {
       const data = await fetchHomeTemplateList(refresh)
       templates.value = data.list || []
       failedPreviews.value = new Set()
+      refreshWarning.value = String(data.warning || '').trim()
     } catch (error: any) {
       templates.value = []
       loadError.value = error?.message || '首页模板列表加载失败，请稍后重试'
