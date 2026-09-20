@@ -255,13 +255,13 @@ func SourceDeveloperItems(c *gin.Context) {
 	templates, _ := currentSourceStationStore().ListTemplates("")
 	ownedPlugins := make([]gin.H, 0)
 	for _, plugin := range plugins {
-		if plugin.DeveloperID == developer.ID {
+		if plugin.DeveloperID == developer.ID && plugin.Status != sourceItemDeprecated {
 			ownedPlugins = append(ownedPlugins, sourcePluginView(plugin))
 		}
 	}
 	ownedTemplates := make([]gin.H, 0)
 	for _, template := range templates {
-		if template.DeveloperID == developer.ID {
+		if template.DeveloperID == developer.ID && template.Status != sourceItemDeprecated {
 			ownedTemplates = append(ownedTemplates, sourceTemplateView(template))
 		}
 	}

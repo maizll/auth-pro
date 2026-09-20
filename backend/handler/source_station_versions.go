@@ -186,6 +186,11 @@ func (store *memorySourceStore) SetVersionStatus(kind, itemID, version, status, 
 	if err := store.denormalizeLatestLocked(kind, itemID); err != nil {
 		return sourceRelease{}, err
 	}
+	if status == sourceVersionDeprecated {
+		if err := store.withdrawPublishedItemIfNoLiveVersionLocked(kind, itemID, actor, note); err != nil {
+			return sourceRelease{}, err
+		}
+	}
 	return store.versionMap(kind)[itemID][version], nil
 }
 
@@ -352,8 +357,55 @@ func (store *memorySourceStore) applyItemStatusToVersionsLocked(kind, itemID, st
 		if err := store.setLatestLocked(kind, itemID, rel.Version, actor, note); err != nil {
 			return err
 		}
+	case sourceItemDeprecated:
+		store.deprecatePublishedVersionsLocked(kind, itemID, actor, note)
 	}
 	return store.denormalizeLatestLocked(kind, itemID)
+}
+
+func (store *memorySourceStore) deprecatePublishedVersionsLocked(kind, itemID, actor, note string) {
+	bucket := store.versionMap(kind)[itemID]
+	now := time.Now().UTC()
+	for version, rel := range bucket {
+		if rel.Status != sourceVersionPublished {
+			continue
+		}
+		rel.Status = sourceVersionDeprecated
+		rel.ReviewNote = truncateText(note, 500)
+		rel.ReviewedBy = actor
+		rel.UpdatedAt = now
+		bucket[version] = rel
+	}
+}
+
+func (store *memorySourceStore) withdrawPublishedItemIfNoLiveVersionLocked(kind, itemID, actor, note string) error {
+	if _, ok := store.pickVersionLocked(kind, itemID, "", sourceVersionPublished); ok {
+		return nil
+	}
+	if kind == sourceKindTemplate {
+		item, ok := store.templates[itemID]
+		if !ok || item.Status != sourceItemPublished {
+			return nil
+		}
+		item.Status = sourceItemDeprecated
+		item.ReviewNote = truncateText(note, 500)
+		item.ReviewedBy = actor
+		item.UpdatedAt = time.Now().UTC()
+		store.templates[itemID] = item
+		store.auditLocked("deprecate", "template", itemID, actor, note)
+		return nil
+	}
+	item, ok := store.plugins[itemID]
+	if !ok || item.Status != sourceItemPublished {
+		return nil
+	}
+	item.Status = sourceItemDeprecated
+	item.ReviewNote = truncateText(note, 500)
+	item.ReviewedBy = actor
+	item.UpdatedAt = time.Now().UTC()
+	store.plugins[itemID] = item
+	store.auditLocked("deprecate", "plugin", itemID, actor, note)
+	return nil
 }
 
 func (store *memorySourceStore) denormalizeLatestLocked(kind, itemID string) error {
@@ -395,7 +447,7 @@ func (store *memorySourceStore) denormalizeLatestLocked(kind, itemID string) err
 
 func (store *memorySourceStore) pickDisplayVersionLocked(kind, itemID, latest, fallback string) (sourceRelease, bool) {
 	if latest != "" {
-		if item, ok := store.versionMap(kind)[itemID][latest]; ok {
+		if item, ok := store.versionMap(kind)[itemID][latest]; ok && item.Status != sourceVersionDeprecated {
 			return item, true
 		}
 	}
@@ -540,6 +592,11 @@ func (mysqlSourceStore) SetVersionStatus(kind, itemID, version, status, actor, n
 	}
 	mysqlAppendAudit(db, action, kind+"-version", itemID+"@"+version, actor, note)
 	_ = (mysqlSourceStore{}).denormalizeLatest(kind, itemID)
+	if status == sourceVersionDeprecated {
+		if err := (mysqlSourceStore{}).withdrawPublishedItemIfNoLiveVersion(kind, itemID, actor, note); err != nil {
+			return sourceRelease{}, err
+		}
+	}
 	return (mysqlSourceStore{}).GetVersion(kind, itemID, version)
 }
 
@@ -682,8 +739,72 @@ func (mysqlSourceStore) applyItemStatusToVersions(kind, itemID, status, actor, n
 		} else if err := (mysqlSourceStore{}).pointLatest(kind, itemID, rel.Version); err != nil {
 			return err
 		}
+	case sourceItemDeprecated:
+		if err := (mysqlSourceStore{}).deprecatePublishedVersions(kind, itemID, actor, note); err != nil {
+			return err
+		}
 	}
 	return (mysqlSourceStore{}).denormalizeLatest(kind, itemID)
+}
+
+func (mysqlSourceStore) deprecatePublishedVersions(kind, itemID, actor, note string) error {
+	versions, err := (mysqlSourceStore{}).ListVersions(kind, itemID)
+	if err != nil {
+		return err
+	}
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	table, idCol := mysqlVersionTable(kind)
+	for _, rel := range versions {
+		if rel.Status != sourceVersionPublished {
+			continue
+		}
+		if _, err := db.Exec(`UPDATE `+table+` SET status=?, review_note=?, reviewed_by=? WHERE `+idCol+`=? AND version=?`,
+			sourceVersionDeprecated, truncateText(note, 500), actor, itemID, rel.Version); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (mysqlSourceStore) withdrawPublishedItemIfNoLiveVersion(kind, itemID, actor, note string) error {
+	versions, err := (mysqlSourceStore{}).ListVersions(kind, itemID)
+	if err != nil {
+		return err
+	}
+	for _, rel := range versions {
+		if rel.Status == sourceVersionPublished {
+			return nil
+		}
+	}
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	if kind == sourceKindTemplate {
+		item, err := (mysqlSourceStore{}).GetTemplate(itemID)
+		if err != nil || item.Status != sourceItemPublished {
+			return err
+		}
+		if _, err := db.Exec(`UPDATE source_catalog_templates SET status=?, review_note=?, reviewed_by=? WHERE id=?`,
+			sourceItemDeprecated, truncateText(note, 500), actor, itemID); err != nil {
+			return err
+		}
+		mysqlAppendAudit(db, "deprecate", "template", itemID, actor, note)
+		return nil
+	}
+	item, err := (mysqlSourceStore{}).GetPlugin(itemID)
+	if err != nil || item.Status != sourceItemPublished {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE source_catalog_plugins SET status=?, review_note=?, reviewed_by=? WHERE id=?`,
+		sourceItemDeprecated, truncateText(note, 500), actor, itemID); err != nil {
+		return err
+	}
+	mysqlAppendAudit(db, "deprecate", "plugin", itemID, actor, note)
+	return nil
 }
 
 func (mysqlSourceStore) denormalizeLatest(kind, itemID string) error {
@@ -719,7 +840,7 @@ func (mysqlSourceStore) denormalizeLatest(kind, itemID string) error {
 
 func (mysqlSourceStore) displayVersion(kind, itemID, latest, fallback string) (sourceRelease, error) {
 	if latest != "" {
-		if item, err := (mysqlSourceStore{}).GetVersion(kind, itemID, latest); err == nil {
+		if item, err := (mysqlSourceStore{}).GetVersion(kind, itemID, latest); err == nil && item.Status != sourceVersionDeprecated {
 			return item, nil
 		}
 	}
@@ -728,7 +849,12 @@ func (mysqlSourceStore) displayVersion(kind, itemID, latest, fallback string) (s
 		return sourceRelease{}, err
 	}
 	for _, item := range versions {
-		if item.Version == fallback {
+		if item.Status == sourceVersionPublished {
+			return item, nil
+		}
+	}
+	for _, item := range versions {
+		if item.Version == fallback && item.Status != sourceVersionDeprecated {
 			return item, nil
 		}
 	}

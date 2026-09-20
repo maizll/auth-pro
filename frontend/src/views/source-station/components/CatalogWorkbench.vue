@@ -53,8 +53,8 @@
             <span class="card-title">软件目录（共 {{ tableData.length }} 条）</span>
             <p class="card-hint">
               插件按应用分区：先选应用，再按分类（支付 / 实名 / 其他 / 首页模板）筛选。源站只保存元数据与外部
-              HTTPS 地址，从不存储源码。上架后自动进入该应用软件源目录；下架只从
-              <code>{{ publicIndexPath }}</code> 隐藏，不会远程卸载已安装实例。
+              HTTPS 地址，从不存储源码。              上架后自动进入该应用软件源目录；下架或弃用会从
+              <code>{{ publicIndexPath }}</code> 清除，不会远程卸载已安装实例。已弃用条目只在状态筛选「已弃用」中保留作历史。
             </p>
           </div>
           <div class="table-actions">

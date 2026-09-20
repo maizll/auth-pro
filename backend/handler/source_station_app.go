@@ -104,25 +104,29 @@ func writeUnscopedSourceIndex(c *gin.Context) {
 	})
 }
 
+func sourceItemListedPublicly(status string) bool {
+	return strings.TrimSpace(status) == sourceItemPublished
+}
+
 func sourceCatalogJSONForApp(app sourceCatalogApp) ([]byte, ginHCatalog, error) {
-	plugins, err := currentSourceStationStore().ListPlugins(sourceItemPublished)
+	plugins, err := currentSourceStationStore().ListPlugins("")
 	if err != nil {
 		plugins = nil
 	}
-	templates, err := currentSourceStationStore().ListTemplates(sourceItemPublished)
+	templates, err := currentSourceStationStore().ListTemplates("")
 	if err != nil {
 		templates = nil
 	}
 	pluginItems := make([]map[string]any, 0)
 	homeTemplates := make([]map[string]any, 0)
 	for _, plugin := range plugins {
-		if plugin.AppID != app.ID {
+		if plugin.AppID != app.ID || !sourceItemListedPublicly(plugin.Status) {
 			continue
 		}
 		pluginItems = append(pluginItems, sourcePublicPluginEntry(plugin))
 	}
 	for _, template := range templates {
-		if template.AppID != app.ID {
+		if template.AppID != app.ID || !sourceItemListedPublicly(template.Status) {
 			continue
 		}
 		homeTemplates = append(homeTemplates, sourcePublicTemplateEntry(template))

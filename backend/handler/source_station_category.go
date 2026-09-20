@@ -203,6 +203,9 @@ func listSourceCatalogItems(status, category string, appID int64) ([]gin.H, erro
 		if !matchSourceCatalogAppID(plugin.AppID, appID) {
 			continue
 		}
+		if status == "" && plugin.Status == sourceItemDeprecated {
+			continue
+		}
 		view := sourceCatalogItemFromPlugin(plugin)
 		if category == "" || view["category"] == category {
 			items = append(items, view)
@@ -210,6 +213,9 @@ func listSourceCatalogItems(status, category string, appID int64) ([]gin.H, erro
 	}
 	for _, template := range templates {
 		if !matchSourceCatalogAppID(template.AppID, appID) {
+			continue
+		}
+		if status == "" && template.Status == sourceItemDeprecated {
 			continue
 		}
 		view := sourceCatalogItemFromTemplate(template)

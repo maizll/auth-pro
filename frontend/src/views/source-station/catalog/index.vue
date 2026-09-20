@@ -6,7 +6,7 @@
           <div>
             <span class="card-title">公开软件源目录</span>
             <p class="card-hint">
-              软件源按应用隔离。上架、下架、改元数据/版本或自定义分类后会自动写入公开目录，无需再点重生。消费者在「软件源管理」为对应应用添加
+              软件源按应用隔离。上架、下架、弃用、改元数据/版本或自定义分类后会自动写入公开目录；弃用后会从软件源目录清除。消费者在「软件源管理」为对应应用添加
               <code>{{ publicIndexUrl }}</code>
               （兼容 <code>?app_key=</code>）。未带 app_key 的
               <code>/software-source/index.json</code> 返回空目录，不会串应用。公开清单仍按分类拆出
