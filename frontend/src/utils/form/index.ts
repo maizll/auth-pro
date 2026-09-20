@@ -10,3 +10,6 @@ export * from './validator'
 
 // 响应式布局
 export * from './responsive'
+
+// 开发者目录标识
+export * from './catalog-slug'

@@ -6,8 +6,8 @@
           <div>
             <span class="card-title">{{ title }}（共 {{ items.length }} 条）</span>
             <p class="card-hint">
-              源站只保存元数据与外部地址，不存储 ZIP / 源码。提交前请绑定应用，并填写 HTTPS 地址与 64 位
-              sha256。
+              源站只登记名称和下载地址，不代存
+              ZIP。先选应用，填名称和地址即可；校验码没有的话可以先存草稿。
             </p>
           </div>
           <el-button type="primary" @click="openEdit()">{{ createLabel }}</el-button>
@@ -59,11 +59,11 @@
     </el-card>
 
     <el-drawer v-model="formVisible" :title="formTitle" size="560px" destroy-on-close>
-      <el-form ref="formRef" :model="form" :rules="formRules" label-width="110px">
+      <el-form ref="formRef" :model="form" :rules="formRules" label-width="118px">
         <el-form-item label="应用" prop="appId">
           <el-select
             v-model="form.appId"
-            placeholder="请选择目标应用"
+            placeholder="请选择会出现在哪个应用里"
             style="width: 100%"
             :disabled="isEdit"
           >
@@ -74,9 +74,15 @@
               :value="app.id"
             />
           </el-select>
+          <p class="field-help">必选。这个条目只会出现在所选应用的目录中。</p>
         </el-form-item>
         <el-form-item label="分类" prop="category">
-          <el-select v-model="form.category" style="width: 100%" :disabled="!canEditMeta">
+          <el-select
+            v-model="form.category"
+            placeholder="请选择分类"
+            style="width: 100%"
+            :disabled="!canEditMeta"
+          >
             <el-option
               v-for="item in categoryOptions"
               :key="item.key"
@@ -84,21 +90,28 @@
               :value="item.key"
             />
           </el-select>
-        </el-form-item>
-        <el-form-item :label="kind === 'template' ? '模板标识' : '插件标识'" prop="id">
-          <el-input v-model="form.id" :disabled="isEdit" placeholder="小写字母、数字或连字符" />
+          <p class="field-help">必选。方便用户按类查找。</p>
         </el-form-item>
         <el-form-item label="名称" prop="name">
-          <el-input v-model="form.name" :disabled="!canEditMeta" />
+          <el-input
+            v-model="form.name"
+            :disabled="!canEditMeta"
+            maxlength="100"
+            placeholder="用户看到的名字，例如：微信支付"
+          />
+        </el-form-item>
+        <el-form-item class="is-secondary" label="标识" prop="id">
+          <el-input
+            v-model="form.id"
+            :disabled="isEdit"
+            placeholder="会根据名称自动生成"
+            @input="onIdInput"
+          />
+          <p class="field-help">一般不用改。提交后不能再改。</p>
         </el-form-item>
         <el-form-item label="版本" prop="version">
           <el-input v-model="form.version" :disabled="!canEditPackage" placeholder="1.0.0" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="form.description" type="textarea" :rows="2" :disabled="!canEditMeta" />
-        </el-form-item>
-        <el-form-item v-if="kind === 'plugin'" label="图标">
-          <el-input v-model="form.icon" :disabled="!canEditMeta" placeholder="ri:puzzle-line" />
+          <p class="field-help">首次发布用 1.0.0 即可，以后改这里或在「版本」里新增。</p>
         </el-form-item>
         <el-form-item :label="locationLabel" prop="location">
           <el-input
@@ -106,28 +119,67 @@
             :disabled="!canEditPackage"
             :placeholder="locationPlaceholder"
           />
+          <p class="field-help">{{ locationHelp }}</p>
         </el-form-item>
-        <el-form-item label="sha256" prop="sha256">
-          <el-input v-model="form.sha256" :disabled="!canEditPackage" placeholder="64 位十六进制" />
+        <el-form-item label="校验码 (SHA256)" prop="sha256">
+          <div class="checksum-row">
+            <el-input
+              v-model="form.sha256"
+              :disabled="!canEditPackage"
+              placeholder="64 位十六进制，可稍后补"
+            />
+            <el-button
+              :disabled="!canEditPackage || !canAutoHash(form.location)"
+              :loading="hashing === 'form'"
+              @click="handleAutoHash('form')"
+            >
+              自动计算
+            </el-button>
+          </div>
+          <p class="field-help">64位，可用 sha256sum 计算；粘贴下载后也可稍后补</p>
         </el-form-item>
-        <el-form-item label="作者">
-          <el-input v-model="form.authorName" :disabled="!canEditMeta" placeholder="作者名称" />
-        </el-form-item>
-        <el-form-item label="changelog">
+        <el-form-item label="简介" prop="description">
           <el-input
-            v-model="form.changelog"
+            v-model="form.description"
             type="textarea"
             :rows="2"
-            :disabled="!canEditPackage"
+            maxlength="500"
+            show-word-limit
+            :disabled="!canEditMeta"
+            placeholder="一句话说明做什么，可不填"
           />
         </el-form-item>
+
+        <el-collapse v-model="advancedOpen" class="advanced-collapse">
+          <el-collapse-item name="advanced" title="高级选项">
+            <el-form-item label="作者">
+              <el-input v-model="form.authorName" disabled />
+              <p class="field-help">默认使用当前登录开发者名称，一般不用改。</p>
+            </el-form-item>
+            <el-form-item v-if="kind === 'plugin'" label="图标">
+              <el-input v-model="form.icon" :disabled="!canEditMeta" placeholder="ri:puzzle-line" />
+              <p class="field-help">Iconify 图标名，缺省为拼图图标。</p>
+            </el-form-item>
+            <el-form-item label="更新说明">
+              <el-input
+                v-model="form.changelog"
+                type="textarea"
+                :rows="2"
+                maxlength="2000"
+                :disabled="!canEditPackage"
+                placeholder="这次改了什么，可不填"
+              />
+            </el-form-item>
+          </el-collapse-item>
+        </el-collapse>
+
         <el-alert
           v-if="currentItem?.latestVersion"
           type="info"
           :closable="false"
           show-icon
           class="mb-3"
-          title="已有 latest 版本后，包地址请通过「版本」新增，而不是改当前草稿字段。"
+          title="已有正式版本后，包地址请通过「版本」新增，不要改当前草稿字段。"
         />
         <el-alert
           v-if="currentItem?.reviewNote"
@@ -148,14 +200,14 @@
           :disabled="!canSubmitCurrent"
           @click="handleSave(true)"
         >
-          保存并提交审核
+          提交审核
         </el-button>
       </template>
     </el-drawer>
 
     <el-drawer v-model="versionVisible" :title="`${currentItem?.name || ''} 版本`" size="720px">
       <div class="table-actions mb-3">
-        <el-button type="primary" @click="versionFormVisible = true">新增版本</el-button>
+        <el-button type="primary" @click="openVersionForm">新增版本</el-button>
       </div>
       <el-table v-loading="versionLoading" :data="versions" stripe>
         <el-table-column prop="version" label="版本" width="110" />
@@ -166,10 +218,10 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="latest" width="80" align="center">
+        <el-table-column label="当前版本" width="100" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.version === currentItem?.latestVersion" type="success" size="small">
-              latest
+              当前
             </el-tag>
           </template>
         </el-table-column>
@@ -201,18 +253,34 @@
         append-to-body
         destroy-on-close
       >
-        <el-form :model="versionForm" label-width="110px">
+        <el-form :model="versionForm" label-width="118px">
           <el-form-item label="版本" required>
             <el-input v-model="versionForm.version" placeholder="1.0.1" />
           </el-form-item>
           <el-form-item :label="locationLabel" required>
             <el-input v-model="versionForm.location" :placeholder="locationPlaceholder" />
+            <p class="field-help">{{ locationHelp }}</p>
           </el-form-item>
-          <el-form-item label="sha256" required>
-            <el-input v-model="versionForm.sha256" />
+          <el-form-item label="校验码 (SHA256)" required>
+            <div class="checksum-row">
+              <el-input v-model="versionForm.sha256" placeholder="64 位十六进制" />
+              <el-button
+                :disabled="!canAutoHash(versionForm.location)"
+                :loading="hashing === 'version'"
+                @click="handleAutoHash('version')"
+              >
+                自动计算
+              </el-button>
+            </div>
+            <p class="field-help">64位，可用 sha256sum 计算后粘贴</p>
           </el-form-item>
-          <el-form-item label="changelog">
-            <el-input v-model="versionForm.changelog" type="textarea" :rows="2" />
+          <el-form-item label="更新说明">
+            <el-input
+              v-model="versionForm.changelog"
+              type="textarea"
+              :rows="2"
+              placeholder="可不填"
+            />
           </el-form-item>
         </el-form>
         <template #footer>
@@ -227,7 +295,7 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, reactive, ref } from 'vue'
+  import { computed, onMounted, reactive, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import type { FormInstance, FormRules } from 'element-plus'
   import { ElMessage } from 'element-plus'
@@ -235,10 +303,10 @@
   import {
     DEVELOPER_INFO_KEY,
     DEVELOPER_TOKEN_KEY,
-    DEVELOPER_USERNAME_PATTERN,
     fetchSourceDeveloperCatalogApps,
     fetchSourceDeveloperCategories,
     fetchSourceDeveloperItems,
+    fetchSourceDeveloperMe,
     fetchSourceDeveloperPluginVersions,
     fetchSourceDeveloperTemplateVersions,
     submitSourceDeveloperPlugin,
@@ -254,6 +322,13 @@
     type SourceDeveloperCategory,
     type SourceDeveloperVersion
   } from '@/api/source-developer'
+  import {
+    CATALOG_ID_PATTERN,
+    SHA256_HEX_PATTERN,
+    isHttpsLocation,
+    isTemplateLocation,
+    suggestCatalogSlug
+  } from '@/utils/form/catalog-slug'
 
   const props = defineProps<{
     kind: 'plugin' | 'template'
@@ -263,11 +338,15 @@
   const router = useRouter()
   const loading = ref(false)
   const saving = ref(false)
+  const hashing = ref<'form' | 'version' | ''>('')
   const items = ref<SourceDeveloperCatalogItem[]>([])
   const apps = ref<SourceDeveloperCatalogApp[]>([])
   const categories = ref<SourceDeveloperCategory[]>([])
   const formVisible = ref(false)
   const isEdit = ref(false)
+  const idManuallyEdited = ref(false)
+  const requirePackageFields = ref(false)
+  const advancedOpen = ref<string[]>([])
   const formRef = ref<FormInstance>()
   const currentItem = ref<SourceDeveloperCatalogItem | null>(null)
   const versionVisible = ref(false)
@@ -293,48 +372,146 @@
   const title = computed(() => (props.kind === 'template' ? '我的模板' : '我的插件'))
   const createLabel = computed(() => (props.kind === 'template' ? '登记模板' : '登记插件'))
   const emptyText = computed(() =>
-    props.kind === 'template' ? '暂无模板草稿，点击右上角登记。' : '暂无插件草稿，点击右上角登记。'
+    props.kind === 'template'
+      ? '还没有模板。点右上角「登记模板」添加第一条。'
+      : '还没有插件。点右上角「登记插件」添加第一条。'
   )
-  const locationLabel = computed(() => (props.kind === 'template' ? 'templateUrl' : 'downloadUrl'))
-  const locationPlaceholder = computed(() =>
-    props.kind === 'template' ? 'https://... 或 templates/demo-home.json' : 'https://...'
+  const locationLabel = computed(() => (props.kind === 'template' ? '模板地址' : '下载地址'))
+  const locationPlaceholder = 'https://你的文件地址.zip'
+  const locationHelp = computed(() =>
+    props.kind === 'template'
+      ? '填 HTTPS 外链；也可以填相对路径，例如 templates/demo-home.json。源站不代存文件。'
+      : '填 HTTPS 外链。源站不代存 ZIP，请把文件放到你自己的空间。'
   )
   const categoryOptions = computed(() =>
     categories.value.filter((item) => item.kind === props.kind)
   )
   const formTitle = computed(() => {
     if (!isEdit.value) return createLabel.value
-    return canEditMeta.value ? `编辑 ${form.name || form.id}` : `查看 ${form.name || form.id}`
+    const noun = props.kind === 'template' ? '模板' : '插件'
+    return canEditMeta.value ? `编辑${noun}` : `查看${noun}`
   })
   const canEditMeta = computed(() => {
     const status = currentItem.value?.status || 'draft'
     return !isEdit.value || status === 'draft' || status === 'rejected'
   })
-  const canEditPackage = computed(
-    () => canEditMeta.value && !currentItem.value?.latestVersion
-  )
+  const canEditPackage = computed(() => canEditMeta.value && !currentItem.value?.latestVersion)
   const canSubmitCurrent = computed(() => {
     const status = currentItem.value?.status || 'draft'
     return status === 'draft' || status === 'rejected'
   })
 
-  const idRule = {
-    required: true,
-    validator: (_: unknown, value: string, callback: (error?: Error) => void) => {
-      if (!DEVELOPER_USERNAME_PATTERN.test(String(value || '').trim())) {
-        callback(new Error('标识须为 2-59 位小写字母、数字或连字符'))
-        return
-      }
-      callback()
-    },
-    trigger: 'blur'
-  }
   const formRules: FormRules = {
     appId: [{ required: true, type: 'number', min: 1, message: '请选择应用', trigger: 'change' }],
     category: [{ required: true, message: '请选择分类', trigger: 'change' }],
-    id: [idRule],
+    id: [
+      {
+        required: true,
+        validator: (_: unknown, value: string, callback: (error?: Error) => void) => {
+          if (!CATALOG_ID_PATTERN.test(String(value || '').trim())) {
+            callback(new Error('标识只能用小写字母、数字和连字符，至少 2 位'))
+            return
+          }
+          callback()
+        },
+        trigger: 'blur'
+      }
+    ],
     name: [{ required: true, message: '请填写名称', trigger: 'blur' }],
-    version: [{ required: true, message: '请填写版本', trigger: 'blur' }]
+    version: [{ required: true, message: '请填写版本', trigger: 'blur' }],
+    location: [
+      {
+        validator: (_: unknown, value: string, callback: (error?: Error) => void) => {
+          const raw = String(value || '').trim()
+          if (!raw) {
+            if (requirePackageFields.value) {
+              callback(new Error(`提交审核前请填写${locationLabel.value}`))
+              return
+            }
+            callback()
+            return
+          }
+          const ok = props.kind === 'template' ? isTemplateLocation(raw) : isHttpsLocation(raw)
+          if (!ok) {
+            callback(
+              new Error(
+                props.kind === 'template'
+                  ? '模板地址须为 https 开头，或相对路径如 templates/demo-home.json'
+                  : '下载地址须为 https 开头的外链'
+              )
+            )
+            return
+          }
+          callback()
+        },
+        trigger: 'blur'
+      }
+    ],
+    sha256: [
+      {
+        validator: (_: unknown, value: string, callback: (error?: Error) => void) => {
+          const raw = String(value || '').trim()
+          if (!raw) {
+            if (requirePackageFields.value) {
+              callback(new Error('提交审核前请填写校验码'))
+              return
+            }
+            callback()
+            return
+          }
+          if (!SHA256_HEX_PATTERN.test(raw)) {
+            callback(new Error('校验码须为 64 位十六进制'))
+            return
+          }
+          callback()
+        },
+        trigger: 'blur'
+      }
+    ]
+  }
+
+  watch(
+    () => form.name,
+    () => {
+      if (!formVisible.value || isEdit.value || idManuallyEdited.value) return
+      if (!form.name.trim()) {
+        form.id = ''
+        return
+      }
+      form.id = suggestCatalogSlug(form.name, props.kind, form.id)
+    }
+  )
+
+  function defaultIcon() {
+    return props.kind === 'template' ? 'ri:layout-3-line' : 'ri:puzzle-line'
+  }
+
+  function currentDeveloperName() {
+    try {
+      const info = JSON.parse(localStorage.getItem(DEVELOPER_INFO_KEY) || '{}') as {
+        displayName?: string
+        username?: string
+      }
+      return String(info.displayName || info.username || '').trim()
+    } catch {
+      return ''
+    }
+  }
+
+  function onIdInput() {
+    if (isEdit.value) return
+    if (!form.id.trim()) {
+      idManuallyEdited.value = false
+      if (form.name.trim()) {
+        form.id = suggestCatalogSlug(form.name, props.kind, '')
+      }
+      return
+    }
+    idManuallyEdited.value = true
+  }
+
+  function canAutoHash(location: string) {
+    return isHttpsLocation(location)
   }
 
   function statusMeta(value: string) {
@@ -382,6 +559,25 @@
     return res.data || null
   }
 
+  async function refreshDeveloperProfile() {
+    try {
+      const res = await fetchSourceDeveloperMe()
+      const body = unwrapCode(res)
+      if (!body || body.code !== 200 || !body.data) return
+      const profile = body.data
+      localStorage.setItem(
+        DEVELOPER_INFO_KEY,
+        JSON.stringify({
+          username: profile.username,
+          displayName: profile.displayName
+        })
+      )
+      form.authorName = profile.displayName || profile.username || currentDeveloperName()
+    } catch {
+      form.authorName = currentDeveloperName()
+    }
+  }
+
   async function loadAll() {
     loading.value = true
     try {
@@ -416,6 +612,9 @@
   }
 
   function resetForm() {
+    requirePackageFields.value = false
+    idManuallyEdited.value = false
+    advancedOpen.value = []
     form.appId = apps.value[0]?.id || 0
     form.category =
       categoryOptions.value[0]?.key || (props.kind === 'template' ? 'home-template' : 'other')
@@ -423,17 +622,20 @@
     form.name = ''
     form.version = '1.0.0'
     form.description = ''
-    form.icon = 'ri:puzzle-line'
+    form.icon = defaultIcon()
     form.location = ''
     form.sha256 = ''
-    form.authorName = ''
+    form.authorName = currentDeveloperName()
     form.changelog = ''
   }
 
   function openEdit(row?: SourceDeveloperCatalogItem) {
     isEdit.value = Boolean(row)
     currentItem.value = row || null
+    requirePackageFields.value = false
+    advancedOpen.value = []
     if (row) {
+      idManuallyEdited.value = true
       form.appId = row.appId || 0
       form.category =
         row.category ||
@@ -443,21 +645,74 @@
       form.name = row.name
       form.version = row.version || '1.0.0'
       form.description = row.description || ''
-      form.icon = row.icon || 'ri:puzzle-line'
+      form.icon = row.icon || defaultIcon()
       form.location = (props.kind === 'template' ? row.templateUrl : row.downloadUrl) || ''
       form.sha256 = row.sha256 || ''
-      form.authorName = row.author?.name || ''
+      form.authorName = row.author?.name || currentDeveloperName()
       form.changelog = row.changelog || ''
     } else {
       resetForm()
+      void refreshDeveloperProfile()
     }
     formVisible.value = true
   }
 
+  function openVersionForm() {
+    versionForm.version = ''
+    versionForm.location = ''
+    versionForm.sha256 = ''
+    versionForm.changelog = ''
+    versionFormVisible.value = true
+  }
+
+  async function handleAutoHash(target: 'form' | 'version') {
+    const location = target === 'form' ? form.location.trim() : versionForm.location.trim()
+    if (!isHttpsLocation(location)) {
+      ElMessage.warning(`请先填写有效的${locationLabel.value}（https 外链）`)
+      return
+    }
+    hashing.value = target
+    try {
+      const res = await fetch(location, { mode: 'cors' })
+      if (!res.ok) {
+        throw new Error(`读取失败（${res.status}）`)
+      }
+      const payload = await res.arrayBuffer()
+      const digest = await crypto.subtle.digest('SHA-256', payload)
+      const hex = [...new Uint8Array(digest)]
+        .map((byte) => byte.toString(16).padStart(2, '0'))
+        .join('')
+      if (target === 'form') form.sha256 = hex
+      else versionForm.sha256 = hex
+      ElMessage.success('校验码已填入')
+    } catch {
+      ElMessage.warning(
+        '浏览器无法直接读取该地址（多为跨域限制）。请在本地用 sha256sum 计算后粘贴，也可先保存草稿稍后补。'
+      )
+    } finally {
+      hashing.value = ''
+    }
+  }
+
   async function handleSave(submitAfter: boolean) {
-    await formRef.value?.validate()
+    requirePackageFields.value = submitAfter
+    try {
+      await formRef.value?.validate()
+    } catch (invalid) {
+      if (submitAfter) {
+        const keys = invalid && typeof invalid === 'object' ? Object.keys(invalid) : []
+        if (keys.includes('location') || keys.includes('sha256')) {
+          ElMessage.warning(`提交审核前请先填写${locationLabel.value}和校验码`)
+        }
+      }
+      return
+    }
+    if (!form.id.trim()) {
+      form.id = suggestCatalogSlug(form.name, props.kind, '')
+    }
     saving.value = true
     try {
+      const authorName = form.authorName.trim() || currentDeveloperName()
       const saveRes =
         props.kind === 'template'
           ? await upsertSourceDeveloperTemplate({
@@ -467,12 +722,12 @@
               category: form.category,
               name: form.name.trim(),
               description: form.description.trim(),
-              version: form.version.trim(),
+              version: form.version.trim() || '1.0.0',
               schemaVersion: 1,
               sha256: form.sha256.trim(),
               templateUrl: form.location.trim(),
               changelog: form.changelog.trim(),
-              author: form.authorName.trim() ? { name: form.authorName.trim() } : undefined
+              author: authorName ? { name: authorName } : undefined
             })
           : await upsertSourceDeveloperPlugin({
               id: form.id.trim(),
@@ -480,12 +735,12 @@
               category: form.category,
               name: form.name.trim(),
               description: form.description.trim(),
-              icon: form.icon.trim(),
-              version: form.version.trim(),
+              icon: form.icon.trim() || defaultIcon(),
+              version: form.version.trim() || '1.0.0',
               sha256: form.sha256.trim(),
               downloadUrl: form.location.trim(),
               changelog: form.changelog.trim(),
-              author: form.authorName.trim() ? { name: form.authorName.trim() } : undefined
+              author: authorName ? { name: authorName } : undefined
             })
       const saveBody = unwrapCode(saveRes)
       if (!saveBody) return
@@ -513,13 +768,14 @@
       await loadAll()
     } finally {
       saving.value = false
+      requirePackageFields.value = false
     }
   }
 
   async function handleSubmit(row: SourceDeveloperCatalogItem) {
     const location = props.kind === 'template' ? row.templateUrl : row.downloadUrl
     if (!row.sha256 || !location) {
-      ElMessage.warning('提交审核前请先填写下载/模板地址和 sha256')
+      ElMessage.warning(`提交审核前请先填写${locationLabel.value}和校验码`)
       openEdit(row)
       return
     }
@@ -556,8 +812,28 @@
 
   async function handleAddVersion() {
     if (!currentItem.value) return
-    if (!versionForm.version.trim() || !versionForm.location.trim() || !versionForm.sha256.trim()) {
-      ElMessage.warning('请填写版本、地址和 sha256')
+    if (!versionForm.version.trim()) {
+      ElMessage.warning('请填写版本')
+      return
+    }
+    if (!versionForm.location.trim()) {
+      ElMessage.warning(`请填写${locationLabel.value}`)
+      return
+    }
+    const locationOk =
+      props.kind === 'template'
+        ? isTemplateLocation(versionForm.location)
+        : isHttpsLocation(versionForm.location)
+    if (!locationOk) {
+      ElMessage.warning(
+        props.kind === 'template'
+          ? '模板地址须为 https 开头，或相对路径如 templates/demo-home.json'
+          : '下载地址须为 https 开头的外链'
+      )
+      return
+    }
+    if (!SHA256_HEX_PATTERN.test(versionForm.sha256.trim())) {
+      ElMessage.warning('请填写 64 位校验码')
       return
     }
     versionSaving.value = true
@@ -625,10 +901,10 @@
 <style scoped lang="scss">
   .table-header {
     display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
   }
 
   .card-title {
@@ -640,6 +916,51 @@
     font-size: 13px;
     line-height: 1.5;
     color: var(--el-text-color-secondary);
+  }
+
+  .field-help {
+    margin: 6px 0 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--el-text-color-secondary);
+  }
+
+  .checksum-row {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+
+    .el-input {
+      flex: 1;
+    }
+  }
+
+  .advanced-collapse {
+    margin: 4px 0 16px;
+    border: none;
+
+    :deep(.el-collapse-item__header) {
+      height: 40px;
+      font-size: 13px;
+      color: var(--el-text-color-regular);
+      background: transparent;
+      border: none;
+    }
+
+    :deep(.el-collapse-item__wrap) {
+      background: transparent;
+      border: none;
+    }
+
+    :deep(.el-collapse-item__content) {
+      padding-bottom: 4px;
+    }
+  }
+
+  .is-secondary {
+    :deep(.el-form-item__label) {
+      color: var(--el-text-color-secondary);
+    }
   }
 
   .table-actions {
