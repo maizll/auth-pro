@@ -976,7 +976,11 @@ func settleRechargeOrder(db *sql.DB, orderNo string, paidCents int64, gatewayTra
 		return err
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	notifyBalanceChanged(subjectType, int64(subjectID), fmt.Sprintf("充值到账 %s，当前余额 %s", formatCents(paidCents), balanceAfter))
+	return nil
 }
 
 func increaseSubjectBalance(tx *sql.Tx, subjectType string, subjectID uint64, amountCents int64) (string, error) {

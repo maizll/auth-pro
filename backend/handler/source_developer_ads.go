@@ -52,6 +52,7 @@ func SourceDeveloperCreateAdApplication(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
+	notifyAdApplicationSubmitted(saved)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "广告申请已提交，等待管理员审核", "data": sourceAdApplicationView(saved, developer.Username)})
 }
 
@@ -114,6 +115,7 @@ func AdminSourceAdApplicationApprove(c *gin.Context) {
 	}
 	resetLocalAdvertisementCache()
 	hydrateAdvertisementRecord(&record)
+	notifyAdApplicationReviewed(saved, true)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已通过申请并创建广告投放", "data": gin.H{
 		"application":     sourceAdApplicationView(saved, sourceAdApplicationDeveloperName(saved.DeveloperID)),
 		"advertisement":   record,
@@ -132,6 +134,7 @@ func AdminSourceAdApplicationReject(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
+	notifyAdApplicationReviewed(saved, false)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已拒绝广告申请", "data": sourceAdApplicationView(saved, sourceAdApplicationDeveloperName(saved.DeveloperID))})
 }
 

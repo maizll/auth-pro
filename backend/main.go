@@ -150,6 +150,7 @@ func main() {
 
 		// 本实例作为软件源源站：元数据目录、入驻审核、上架/下架、广告 CRUD。
 		handler.RegisterSourceStationRoutes(r, api)
+		handler.RegisterNotificationRoutes(api)
 
 		// 用户端（需鉴权）
 		userSecured := api.Group("/user-panel")
@@ -479,6 +480,7 @@ func main() {
 			log.Printf("ensure license site limit schema failed: %v", err)
 		}
 		handler.EnsureSourceStationSchema()
+		handler.EnsureNotificationSchema()
 		handler.BackfillLicensePurchaseTransactions(db)
 	}()
 

@@ -188,5 +188,6 @@ func AgentPanelChangePassword(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "修改失败"})
 		return
 	}
+	notifyPasswordChanged(notificationRoleAgent, int64(agentID))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "密码修改成功，请重新登录"})
 }

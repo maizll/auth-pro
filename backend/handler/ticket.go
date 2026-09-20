@@ -332,6 +332,7 @@ func PanelTicketCreate(c *gin.Context) {
 	}
 	ticketNo := generateTicketNo(db, ticketID, now)
 	queueTicketMail(ticketID, false)
+	notifyTicketCreated(ticketID, ticketNo, title, creatorType, creatorName)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "工单已提交", "data": gin.H{"id": ticketID, "ticketNo": ticketNo}})
 }
 
@@ -495,6 +496,7 @@ func PanelTicketReply(c *gin.Context) {
 		ticketStatusPending, now, creatorType, ticket.ID)
 	markTicketRead(db, ticket.ID, creatorType, creatorID)
 	queueTicketMail(ticket.ID, false)
+	notifyTicketUserReply(ticket.ID, ticket.TicketNo, ticket.Title)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "回复成功", "data": gin.H{"messageId": messageID}})
 }
 
@@ -740,6 +742,7 @@ func AdminTicketReply(c *gin.Context) {
 		ticketStatusReplied, now, ticket.ID)
 	markTicketRead(db, ticket.ID, "admin", 0)
 	queueTicketMail(ticket.ID, true)
+	notifyTicketStaffReply(ticket.CreatorType, ticket.CreatorID, ticket.ID, ticket.TicketNo, ticket.Title)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "回复成功", "data": gin.H{"messageId": messageID}})
 }
 

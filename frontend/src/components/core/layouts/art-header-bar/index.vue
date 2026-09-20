@@ -70,6 +70,9 @@
           @click="toggleFullScreen"
         />
 
+        <!-- 通知中心 -->
+        <ArtNotificationBell v-if="shouldShowNotification" />
+
         <!-- 国际化按钮 -->
         <ElDropdown
           @command="changeLanguage"
@@ -143,6 +146,7 @@
   import { useCommon } from '@/hooks/core/useCommon'
   import { useHeaderBar } from '@/hooks/core/useHeaderBar'
   import ArtUserMenu from './widget/ArtUserMenu.vue'
+  import ArtNotificationBell from '@/components/core/layouts/art-notification/bell.vue'
 
   defineOptions({ name: 'ArtHeaderBar' })
 
@@ -165,6 +169,7 @@
     shouldShowLanguage,
     shouldShowSettings,
     shouldShowThemeToggle,
+    shouldShowNotification,
     fastEnterMinWidth: headerBarFastEnterMinWidth
   } = useHeaderBar()
 

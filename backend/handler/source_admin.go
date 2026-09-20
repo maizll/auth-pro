@@ -346,6 +346,7 @@ func adminSetPluginStatus(c *gin.Context, status, okMsg string) {
 		return
 	}
 	persistIndexSnapshot(c.GetString("username"))
+	notifyCatalogReviewed(saved.DeveloperID, sourceKindPlugin, saved.ID, saved.Name, status)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": okMsg, "data": sourcePluginView(saved)})
 }
 
@@ -357,6 +358,7 @@ func adminSetTemplateStatus(c *gin.Context, status, okMsg string) {
 		return
 	}
 	persistIndexSnapshot(c.GetString("username"))
+	notifyCatalogReviewed(saved.DeveloperID, sourceKindTemplate, saved.ID, saved.Name, status)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": okMsg, "data": sourceTemplateView(saved)})
 }
 
@@ -430,6 +432,7 @@ func adminSetReleaseStatus(c *gin.Context, kind, status, okMsg string) {
 		return
 	}
 	persistIndexSnapshot(c.GetString("username"))
+	notifyCatalogVersionReviewed(catalogOwnerDeveloperID(kind, saved.ItemID), kind, saved.ItemID, saved.Version, status)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": okMsg, "data": sourceReleaseView(saved)})
 }
 

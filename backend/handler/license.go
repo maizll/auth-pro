@@ -1008,6 +1008,7 @@ func LicenseToggle(c *gin.Context) {
 		return
 	}
 
+	// TODO(v1.4.x): after SELECT owner_type/owner_id/license_no, call notifyLicenseStatusChanged.
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "操作成功"})
 }
 

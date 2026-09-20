@@ -224,6 +224,9 @@ func writeRealnameRecord(db *sql.DB, ownerType string, ownerID int64, provider, 
 	_, _ = db.Exec(`INSERT INTO realname_records (owner_type, owner_id, provider, real_name, id_card, status, fail_reason, serial_no, score)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ownerType, ownerID, provider, realName, idCard, status, failReason, serialNo, score)
+	if status == realnameFaceStatusPassed || status == realnameFaceStatusFailed {
+		notifyRealnameResult(ownerType, ownerID, status == realnameFaceStatusPassed, failReason)
+	}
 }
 
 func validKuaitongAuthType(value string) bool {

@@ -782,7 +782,7 @@ func redeemLicenseCard(db *sql.DB, cardCode, ownerType string, ownerID int64) (l
 	if err := tx.Commit(); err != nil {
 		return licenseCardRedemption{}, "", err
 	}
-
+	notifyLicenseActivated(ownerType, ownerID, 0, licenseNo, appName)
 	return newLicenseCardRedemption(licenseID, licenseNo, appName, planName, licenseType, licenseKey, expiredAt, false), "", nil
 }
 
