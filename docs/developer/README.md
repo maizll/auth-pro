@@ -24,3 +24,5 @@ GET /software-source/{app_key}/index.json
 机器可读 schema：`GET /software-source/package-schema.json`。
 
 入门示例：[`starter/plugin-example/`](./starter/plugin-example/)、[`starter/template-example/`](./starter/template-example/)。按示例打的包必须能通过上传硬校验。
+
+本文档只覆盖第三方开发者需要使用的清单、公开目录、上传校验与提交流程；源站内部实现与仅管理员使用的接口不在此展开。

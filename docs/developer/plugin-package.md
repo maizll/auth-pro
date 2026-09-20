@@ -105,7 +105,7 @@ demo-widget.zip
 | kind / mismatch | plugin.json 写了 `kind: "template"` | 改为 `plugin` 或删除 kind |
 | category / kind | 把插件放到 `home-template` | 改用 payment / realname / other 或插件 extras |
 | id / format | 标识含大写或过短 | 使用 2–59 位小写字母、数字、连字符 |
-| 商店看不到自定义分类 | 消费者仍按旧硬编码页签 | 升级后商店读取 index.categories；确认 extras 已上架到公开目录 |
+| 商店看不到自定义分类 | 公开 index 未带 extras，或软件源未刷新 | 确认 `categories` 含该分类后刷新软件源 |
 
 完整错误表见 [校验失败说明](./validation.md)。
 
