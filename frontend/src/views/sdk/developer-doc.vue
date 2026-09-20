@@ -5,7 +5,9 @@
         <div class="doc-header">
           <div>
             <h2>开发文档</h2>
-            <p>项目授权对接方式、接口参数和推荐接入流程。</p>
+            <p>
+              推荐在「SDK 接入」页按应用下载 ZIP 接入包（require 一行即可）。下文为协议说明，便于自行实现其它语言。
+            </p>
           </div>
           <ElTag type="primary" size="large">License API</ElTag>
         </div>

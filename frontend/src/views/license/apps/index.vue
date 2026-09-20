@@ -73,6 +73,7 @@
         <!-- 操作 -->
         <template #operation="{ row }">
           <ElButton link type="primary" @click="handleVersions(row)">版本</ElButton>
+          <ElButton link type="primary" @click="handleSDKPack(row)">SDK 包</ElButton>
           <ElButton link type="primary" @click="handleEdit(row)">编辑</ElButton>
           <ElButton link type="primary" @click="handleResetSecret(row)">重置密钥</ElButton>
           <ElButton link type="danger" @click="handleDelete(row)">删除</ElButton>
@@ -300,6 +301,10 @@
 
   const handleVersions = (row: AppRow) => {
     router.push(`/license/apps/${row.id}/versions`)
+  }
+
+  const handleSDKPack = (row: AppRow) => {
+    router.push({ name: 'SdkIndex', query: { appId: String(row.id) } })
   }
 
   const handleDelete = async (row: AppRow) => {

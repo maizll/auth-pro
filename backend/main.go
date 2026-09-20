@@ -277,6 +277,7 @@ func main() {
 			secured.GET("/license/apps", handler.AppList)
 			secured.GET("/license/owners", handler.LicenseOwnerOptions)
 			secured.GET("/app/list", handler.AppManageList)
+			secured.POST("/sdk/pack", handler.AdminSDKPackDownload)
 			secured.POST("/app/create", handler.AppCreate)
 			secured.PUT("/app/:id", handler.AppUpdate)
 			secured.PUT("/app/:id/license-required", handler.AppLicenseRequiredUpdate)
