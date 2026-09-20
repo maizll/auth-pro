@@ -83,7 +83,7 @@ func AdminSourcePackageParse(c *gin.Context) {
 		writeSourcePackageReject(c, err)
 		return
 	}
-	manifest, err := parseSourcePackageBytes(filename, payload, c.PostForm("kind"))
+	manifest, err := parseSourcePackageBytes(filename, payload, c.PostForm("kind"), c.PostForm("category"))
 	payload = nil
 	if err != nil {
 		writeSourcePackageReject(c, err)
@@ -99,7 +99,7 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		writeSourcePackageReject(c, err)
 		return
 	}
-	manifest, err := parseSourcePackageBytes(filename, payload, c.PostForm("kind"))
+	manifest, err := parseSourcePackageBytes(filename, payload, c.PostForm("kind"), c.PostForm("category"))
 	if err != nil {
 		payload = nil
 		writeSourcePackageReject(c, err)

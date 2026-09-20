@@ -342,9 +342,13 @@ func adminPluginFromRequest(req sourcePluginDraftRequest) (sourcePlugin, error) 
 	if icon == "" {
 		icon = "ri:puzzle-line"
 	}
+	category, err := normalizeAssignedCatalogCategory(sourceKindPlugin, req.Category)
+	if err != nil {
+		return sourcePlugin{}, err
+	}
 	return sourcePlugin{
 		ID:          pluginID,
-		Category:    normalizePluginCategory(strings.TrimSpace(req.Category)),
+		Category:    category,
 		Name:        name,
 		Description: truncateText(req.Description, 500),
 		Icon:        icon,
@@ -396,8 +400,13 @@ func adminTemplateFromRequest(req sourceTemplateDraftRequest) (sourceTemplate, e
 	if schemaVersion != homeTemplateSchemaVersion {
 		return sourceTemplate{}, errors.New("schemaVersion 必须为 1")
 	}
+	category, err := normalizeAssignedCatalogCategory(sourceKindTemplate, req.Category)
+	if err != nil {
+		return sourceTemplate{}, err
+	}
 	return sourceTemplate{
 		ID:            templateKey,
+		Category:      category,
 		TemplateKey:   templateKey,
 		Name:          name,
 		Description:   truncateText(req.Description, 500),

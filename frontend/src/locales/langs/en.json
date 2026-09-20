@@ -271,9 +271,10 @@
     "sourceStation": {
       "title": "Source Station",
       "applications": "Developer Review",
-      "plugins": "Plugins",
-      "templates": "Home Templates",
-      "catalog": "Catalog / Index",
+      "packages": "Software Catalog",
+      "plugins": "Software Catalog",
+      "templates": "Software Catalog",
+      "catalog": "Public Index",
       "ads": "Advertisements",
       "settings": "Release Settings"
     },

@@ -102,11 +102,12 @@ func sourcePackageSchemaDocument() gin.H {
 	return gin.H{
 		"gate": "fail-closed：不合规 ZIP 一律拒绝，不写库、不推 Release、不保留临时文件",
 		"upload": gin.H{
-			"parse":   "POST /api/v1/source/admin/packages/parse",
-			"publish": "POST /api/v1/source/admin/packages/publish",
-			"schema":  "GET /api/v1/source/admin/packages/schema 与 GET /software-source/package-schema.json",
-			"file":    "multipart 字段 file，必须是 ZIP，≤ 20 MiB",
-			"kind":    "可选 plugin | template；缺省时按包内清单识别，两种清单都没有则拒绝",
+			"parse":    "POST /api/v1/source/admin/packages/parse",
+			"publish":  "POST /api/v1/source/admin/packages/publish",
+			"schema":   "GET /api/v1/source/admin/packages/schema 与 GET /software-source/package-schema.json",
+			"file":     "multipart 字段 file，必须是 ZIP，≤ 20 MiB",
+			"kind":     "可选 plugin | template；缺省时按包内清单或 category 识别，两种清单都没有则拒绝",
+			"category": "可选。与 kind 对应：支付/实名/其他等为插件分类，home-template 为首页模板。管理端按分类区分，不再要求先选「插件或模板」。",
 		},
 		"zip": gin.H{
 			"required":             true,
@@ -127,7 +128,7 @@ func sourcePackageSchemaDocument() gin.H {
 				"version":     "必填，^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$",
 				"description": "必填，≤500 字",
 				"author":      "必填，字符串或 {name,url,email}；name 必填",
-				"category":    "可选 payment | realname | other，缺省 other",
+				"category":    "可选。内置 payment | realname | other，也可使用管理端配置的插件分类；缺省 other。首页模板请用 home-template",
 				"icon":        "可选，≤80 字",
 			},
 			"example": map[string]any{
@@ -148,6 +149,7 @@ func sourcePackageSchemaDocument() gin.H {
 				"author":        "必填，字符串或 {name,url,email}；name 必填",
 				"hero.title":    "必填（声明式模板 schema v1）",
 				"scripts":       "禁止",
+				"category":      "可选，须为模板类分类，缺省 home-template",
 			},
 			"example": map[string]any{
 				"id": "clean-home", "name": "清新首页", "version": "1.0.0",
@@ -184,7 +186,7 @@ func readSourcePackageUpload(c *gin.Context) (string, []byte, error) {
 	return name, payload, nil
 }
 
-func parseSourcePackageBytes(filename string, payload []byte, kindHint string) (sourcePackageManifest, error) {
+func parseSourcePackageBytes(filename string, payload []byte, kindHint string, categoryHint string) (sourcePackageManifest, error) {
 	if len(payload) == 0 {
 		return sourcePackageManifest{}, rejectSourcePackage("file", "required", "上传包为空")
 	}
@@ -202,30 +204,55 @@ func parseSourcePackageBytes(filename string, payload []byte, kindHint string) (
 		SHA256:   hex.EncodeToString(sum[:]),
 	}
 	kindHint = strings.ToLower(strings.TrimSpace(kindHint))
+	categoryHint = strings.ToLower(strings.TrimSpace(categoryHint))
+	if kindHint == "" && categoryHint != "" {
+		if kind := sourceCatalogCategoryKind(categoryHint); kind != "" {
+			kindHint = kind
+		} else {
+			return sourcePackageManifest{}, rejectSourcePackage("category", "unknown", "未知分类，请先在目录分类中配置")
+		}
+	}
+	if kindHint != "" && categoryHint != "" {
+		if kind := sourceCatalogCategoryKind(categoryHint); kind != "" && kind != kindHint {
+			return sourcePackageManifest{}, rejectSourcePackage("category", "kind", "分类与包类型不匹配")
+		}
+	}
 	pluginRaw, pluginPath, pluginErr := readZipManifest(archive, "plugin.json")
 	templateRaw, templatePath, templateErr := readZipManifest(archive, "template.json")
+	var parsed sourcePackageManifest
 	switch kindHint {
 	case sourceKindPlugin:
 		if pluginErr != nil {
-			return sourcePackageManifest{}, rejectSourcePackage("plugin.json", "require_manifest", "插件包必须在根目录或一层子目录包含 plugin.json")
+			return sourcePackageManifest{}, rejectSourcePackage("plugin.json", "require_manifest", "该分类的安装包必须在根目录或一层子目录包含 plugin.json")
 		}
-		return fillPluginManifest(manifest, pluginRaw, pluginPath)
+		parsed, err = fillPluginManifest(manifest, pluginRaw, pluginPath)
 	case sourceKindTemplate:
 		if templateErr != nil {
-			return sourcePackageManifest{}, rejectSourcePackage("template.json", "require_manifest", "首页模板包必须在根目录或一层子目录包含 template.json")
+			return sourcePackageManifest{}, rejectSourcePackage("template.json", "require_manifest", "首页模板分类的安装包必须在根目录或一层子目录包含 template.json")
 		}
-		return fillTemplateManifest(manifest, templateRaw, templatePath)
+		parsed, err = fillTemplateManifest(manifest, templateRaw, templatePath)
 	case "":
 		if pluginErr == nil {
-			return fillPluginManifest(manifest, pluginRaw, pluginPath)
+			parsed, err = fillPluginManifest(manifest, pluginRaw, pluginPath)
+		} else if templateErr == nil {
+			parsed, err = fillTemplateManifest(manifest, templateRaw, templatePath)
+		} else {
+			return sourcePackageManifest{}, rejectSourcePackage("plugin.json", "require_manifest", "压缩包必须包含 plugin.json 或 template.json")
 		}
-		if templateErr == nil {
-			return fillTemplateManifest(manifest, templateRaw, templatePath)
-		}
-		return sourcePackageManifest{}, rejectSourcePackage("plugin.json", "require_manifest", "压缩包必须包含 plugin.json（插件）或 template.json（首页模板）")
 	default:
 		return sourcePackageManifest{}, rejectSourcePackage("kind", "invalid", "kind 仅支持 plugin 或 template")
 	}
+	if err != nil {
+		return sourcePackageManifest{}, err
+	}
+	if categoryHint != "" {
+		assigned, assignErr := normalizeAssignedCatalogCategory(parsed.Kind, categoryHint)
+		if assignErr != nil {
+			return sourcePackageManifest{}, rejectSourcePackage("category", "kind", assignErr.Error())
+		}
+		parsed.Category = assigned
+	}
+	return parsed, nil
 }
 
 func fillPluginManifest(base sourcePackageManifest, raw []byte, manifestPath string) (sourcePackageManifest, error) {
@@ -267,11 +294,11 @@ func fillPluginManifest(base sourcePackageManifest, raw []byte, manifestPath str
 	base.Description = truncateText(description, 500)
 	base.Author = author
 	if category := strings.TrimSpace(doc.Category); category != "" {
-		normalized := normalizePluginCategory(category)
-		if category != "other" && category != "payment" && category != "realname" && normalized == "other" {
-			return sourcePackageManifest{}, rejectSourcePackage("category", "format", "plugin.json 字段 category 仅支持 payment、realname 或 other")
+		assigned, assignErr := normalizeAssignedCatalogCategory(sourceKindPlugin, category)
+		if assignErr != nil {
+			return sourcePackageManifest{}, rejectSourcePackage("category", "format", "plugin.json 字段 category 不合法："+assignErr.Error())
 		}
-		base.Category = normalized
+		base.Category = assigned
 	} else {
 		base.Category = "other"
 	}
@@ -337,6 +364,7 @@ func fillTemplateManifest(base sourcePackageManifest, raw []byte, manifestPath s
 	base.Description = truncateText(description, 500)
 	base.Author = author
 	base.SchemaVersion = doc.SchemaVersion
+	base.Category = sourceCategoryHomeTemplate
 	base.ManifestPath = manifestPath
 	return base, nil
 }

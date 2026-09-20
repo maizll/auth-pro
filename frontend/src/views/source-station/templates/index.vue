@@ -1,5 +1,5 @@
 <template>
-  <CatalogWorkbench kind="template" />
+  <CatalogWorkbench initial-category="home-template" />
 </template>
 
 <script setup lang="ts">

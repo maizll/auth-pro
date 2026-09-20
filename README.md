@@ -244,7 +244,7 @@ releases.json
 
 `releases.json` 会保留历史版本，并自动把上一版本标签到当前标签之间的 Git 提交标题写入本次版本的 `notes`，作为在线更新页面展示的更新内容。需要人工整理发布说明时，可在构建环境中通过 `AUTO_PRO_RELEASE_NOTES` 提供 JSON 字符串数组或按行分隔文本覆盖自动内容。
 
-服务器可通过 `AUTO_PRO_UPDATE_URL` 改用自建 HTTPS 镜像清单。Gitee 默认源会限制 API、清单、更新包和下载重定向只能使用指定仓库及 Gitee 官方附件存储。本仓库 GitHub 源只信任 `github.com/maizll/auth-pro/releases/...` 与 `api.github.com/repos/maizll/auth-pro/releases...`，可把更新地址设为 `https://github.com/maizll/auth-pro/releases/latest/download/latest.json` 或 `https://api.github.com/repos/maizll/auth-pro/releases/latest`；历史记录既可读取 Release 附件里的 `releases.json`，也可直接映射 GitHub Releases API 列表。
+服务器可通过 `AUTO_PRO_UPDATE_URL` 改用自建 HTTPS 镜像清单。Gitee 默认源会限制 API、清单、更新包和下载重定向只能使用指定仓库及 Gitee 官方附件存储。
 
 当前更新包只校验文件大小和 SHA256；该机制可发现下载损坏，但如果仓库或 Release 发布权限被攻破，攻击者仍可同时替换更新包和 SHA256，不能替代离线数字签名。
 
@@ -277,7 +277,7 @@ releases.json
 - `/api/advertisements`：前端广告位代理；默认读本站投放。
 - `/api/v1/public/advertisements`：本站广告接口（`home-banner` / `sidebar` / `popup`）。
 - `/software-source/index.json`：本实例作为软件源源站时的公开清单（兼容 `/auth-pro/index.json`，见下方「作为软件源源站」）。
-- `/source`：兼容跳转，进入管理后台「源站」菜单（`/source-station/plugins`）。源站管理不再提供独立页面。
+- `/source`：兼容跳转，进入管理后台「源站」菜单（`/source-station/packages`）。源站管理不再提供独立页面。
 - `/api/*`：后台管理接口，除公开接口外默认需要 JWT 鉴权。
 
 ## 部署说明
@@ -358,18 +358,17 @@ https://<host>/software-source/index.json
 1. 启动本仓库后端（源站无需 `AUTO_PRO_SOFTWARE_SOURCE_*`）。
 2. **管理员登录管理后台**（与其它后台功能同一套账号/会话/布局），侧栏「源站」：
    - 入驻审核：开发者申请通过/拒绝/冻结
-   - 插件管理：上传 ZIP 硬校验、多版本、上架/下架
-   - 首页模板管理：同上
-   - 软件源目录：公开 `index.json` 预览与快照重生、审计日志
+   - 软件目录：统一列表，按分类（支付 / 实名 / 其他 / 首页模板，可增配）筛选；上传 ZIP 硬校验、多版本、上架/下架
+   - 公开目录：公开 `index.json` 预览与快照重生、审计日志
    - 广告投放：本站 `home-banner` / `sidebar` / `popup`
    - Release 设置：GitHub/Gitee 仓库与 Token
-   旧地址 `/source` 会 302 到 `/source-station/plugins`。不要再使用独立控制面页面。
+   旧地址 `/source` 会 302 到 `/source-station/packages`。不要再使用独立控制面页面。
 3. 开发者保存插件/模板**元数据草稿**（外部 URL + sha256），提交审核；管理员在后台通过或驳回后上架。
-4. **管理员上传包（失败即拒绝）**：后台「插件管理 / 首页模板」上传，或 `POST /api/v1/source/admin/packages/parse|publish`。只接受 ZIP。包内必须有 `plugin.json`（插件）或 `template.json`（首页模板，schemaVersion=1 且含 `hero.title`），必填 id/name/version/description/author；路径穿越、符号链接等不安全布局直接 400。失败时返回 `error.field` + `error.rule`，不写库、不推 Release、删除临时文件。校验通过后才自动填表、可选推送 Release，并进入草稿/审核（可选上架）。清单规范：`GET /software-source/package-schema.json`（兼容 `GET /api/v1/source/admin/packages/schema`）。
+4. **管理员上传包（失败即拒绝）**：后台「源站 → 软件目录」上传，或 `POST /api/v1/source/admin/packages/parse|publish`。只接受 ZIP。包内必须有 `plugin.json`（插件类分类）或 `template.json`（首页模板分类，schemaVersion=1 且含 `hero.title`），必填 id/name/version/description/author；路径穿越、符号链接等不安全布局直接 400。失败时返回 `error.field` + `error.rule`，不写库、不推 Release、删除临时文件。校验通过后才自动填表、可选推送 Release，并进入草稿/审核（可选上架）。清单规范：`GET /software-source/package-schema.json`（兼容 `GET /api/v1/source/admin/packages/schema`）。
 5. **发布地址**：在管理后台「源站 → Release 设置」填写 provider（`github`|`gitee`）、owner/repo、令牌（仅服务端保存，GET 只返回掩码）、默认 tag 策略（如 `{id}-{version}`）和 Gitee 分支。保存元数据时优先创建/更新 Release 并上传 zip 附件，把 `downloadUrl`/`templateUrl` 设为附件的 https 地址；未配置时可粘贴已有 https 地址。目录只持久化元数据 + URL + sha256。
 6. **更新**：为同一插件创建新版本行（version / changelog / 外部 URL / sha256）→ 提交审核 → 管理员通过后该版本 `published` 并成为 `latest`。旧版本元数据保留，可弃用，不可删源码（源站本来就不存源码）。
 7. 管理员可将 `latest` 回滚到先前已发布版本；下架只从公开目录隐藏整个插件。公开 `index.json` 只展示当前 `latest`（含 version、downloadUrl、sha256、可选 changelog，以及预留的 `minVersion` / `forceUpdate`）。
-8. 查询历史版本：管理后台「插件管理 → 版本」，或 `GET /api/v1/source/admin/plugins/:id/versions`（兼容 `GET /api/admin/source/plugins/:id/versions`）。
+8. 查询历史版本：管理后台「软件目录 → 版本」，或 `GET /api/v1/source/admin/plugins/:id/versions`（兼容 `GET /api/admin/source/plugins/:id/versions`）。
 9. 消费者实例在「软件源管理」添加 `https://<host>/software-source/index.json`。
 
 ```bash

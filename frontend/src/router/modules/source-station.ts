@@ -4,7 +4,7 @@ export const sourceStationRoutes: AppRouteRecord = {
   path: '/source-station',
   name: 'SourceStation',
   component: '/index/index',
-  redirect: '/source-station/plugins',
+  redirect: '/source-station/packages',
   meta: {
     title: 'menus.sourceStation.title',
     icon: 'ri:database-2-line',
@@ -22,22 +22,34 @@ export const sourceStationRoutes: AppRouteRecord = {
       }
     },
     {
+      path: 'packages',
+      name: 'SourceStationPackages',
+      component: '/source-station/packages',
+      meta: {
+        title: 'menus.sourceStation.packages',
+        icon: 'ri:apps-2-line',
+        keepAlive: true
+      }
+    },
+    {
       path: 'plugins',
       name: 'SourceStationPlugins',
-      component: '/source-station/plugins',
+      redirect: '/source-station/packages',
       meta: {
         title: 'menus.sourceStation.plugins',
         icon: 'ri:puzzle-line',
+        isHide: true,
         keepAlive: true
       }
     },
     {
       path: 'templates',
       name: 'SourceStationTemplates',
-      component: '/source-station/templates',
+      redirect: '/source-station/packages?category=home-template',
       meta: {
         title: 'menus.sourceStation.templates',
         icon: 'ri:layout-4-line',
+        isHide: true,
         keepAlive: true
       }
     },
