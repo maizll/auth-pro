@@ -485,7 +485,7 @@ sequenceDiagram
 | 菜单 | 路径 | 职责 |
 | --- | --- | --- |
 | 软件目录 | `/source-station/packages` | 主货架。行内编辑元数据；分类 extras；上传 ZIP / 登记外部地址；通过 / 拒绝 / 上架 / 下架 / 弃用；版本 latest |
-| 入驻审核 | `/source-station/applications` | 开发者申请通过 / 拒绝 / 冻结 |
+| 入驻审核 | `/source-station/applications` | 待审核通过 / 拒绝（不留单）；开发者列表取消资格（删除记录） |
 | 公开目录 | `/source-station/catalog` | 按应用预览 live index；补偿「从数据库重生快照」；审计日志 |
 | 广告投放 | `/source-station/ads` | 广告位、招租占位、申请审批 |
 | Release 设置 | `/source-station/settings` | GitHub/Gitee Token、tag 策略 |
