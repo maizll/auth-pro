@@ -251,17 +251,18 @@ func SourceDeveloperItems(c *gin.Context) {
 		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
+	status := strings.TrimSpace(c.Query("status"))
 	plugins, _ := currentSourceStationStore().ListPlugins("")
 	templates, _ := currentSourceStationStore().ListTemplates("")
 	ownedPlugins := make([]gin.H, 0)
 	for _, plugin := range plugins {
-		if plugin.DeveloperID == developer.ID {
+		if plugin.DeveloperID == developer.ID && includeSourceCatalogItem(plugin.Status, status) {
 			ownedPlugins = append(ownedPlugins, sourcePluginView(plugin))
 		}
 	}
 	ownedTemplates := make([]gin.H, 0)
 	for _, template := range templates {
-		if template.DeveloperID == developer.ID {
+		if template.DeveloperID == developer.ID && includeSourceCatalogItem(template.Status, status) {
 			ownedTemplates = append(ownedTemplates, sourceTemplateView(template))
 		}
 	}

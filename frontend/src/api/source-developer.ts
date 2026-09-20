@@ -158,9 +158,10 @@ export function fetchSourceDeveloperMe() {
   })
 }
 
-export function fetchSourceDeveloperItems() {
+export function fetchSourceDeveloperItems(status?: string) {
   return axios.get<{ code: number; msg: string; data: SourceDeveloperItems }>(`${BASE}/items`, {
-    headers: developerAuthHeaders()
+    headers: developerAuthHeaders(),
+    params: status ? { status } : undefined
   })
 }
 

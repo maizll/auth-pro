@@ -177,6 +177,97 @@ func TestPublishedIndexUpdatesOnMetadataVersionAndCategories(t *testing.T) {
 	assertLocalSoftwareSourceIDs(t, "http://127.0.0.1/software-source/app-a/index.json", nil, nil)
 }
 
+func TestDeprecateHidesDeveloperDefaultItems(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin, dev, _ := sourceApproveDeveloper(t, router, "dev-deprecate", "secret1")
+	sha := sourceTestSHA256()
+
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins", dev,
+		`{"appId":1,"id":"dev-gone-plugin","name":"开发者弃用插件","category":"other","downloadUrl":"https://cdn.example.com/dev-gone-plugin.zip","sha256":"`+sha+`"}`); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("save plugin=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins/dev-gone-plugin/submit", dev, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("submit plugin=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/dev-gone-plugin/approve", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("approve plugin=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/dev-gone-plugin/shelf", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("shelf plugin=%s", rec.Body.String())
+	}
+
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/templates", dev,
+		`{"appId":1,"id":"dev-gone-home","name":"开发者弃用首页","templateUrl":"https://cdn.example.com/dev-gone-home.zip","sha256":"`+sha+`","schemaVersion":1}`); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("save template=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/templates/dev-gone-home/submit", dev, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("submit template=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/templates/dev-gone-home/approve", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("approve template=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/templates/dev-gone-home/shelf", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("shelf template=%s", rec.Body.String())
+	}
+
+	assertDeveloperDefaultItemIDs(t, router, dev, []string{"dev-gone-plugin"}, []string{"dev-gone-home"})
+
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/dev-gone-plugin/deprecate", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("deprecate plugin=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/templates/dev-gone-home/deprecate", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("deprecate template=%s", rec.Body.String())
+	}
+
+	assertDeveloperDefaultItemIDs(t, router, dev, nil, nil)
+
+	audit := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/items?status=deprecated", dev, "")
+	if sourceBodyCode(t, audit) != 200 {
+		t.Fatalf("developer deprecated items=%s", audit.Body.String())
+	}
+	assertDeveloperItemIDs(t, audit.Body.Bytes(), []string{"dev-gone-plugin"}, []string{"dev-gone-home"})
+}
+
+func assertDeveloperDefaultItemIDs(t *testing.T, router http.Handler, token string, plugins, templates []string) {
+	t.Helper()
+	rec := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/items", token, "")
+	if sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("developer items=%s", rec.Body.String())
+	}
+	assertDeveloperItemIDs(t, rec.Body.Bytes(), plugins, templates)
+}
+
+func assertDeveloperItemIDs(t *testing.T, payload []byte, plugins, templates []string) {
+	t.Helper()
+	var body struct {
+		Data struct {
+			Plugins []struct {
+				ID string `json:"id"`
+			} `json:"plugins"`
+			HomeTemplates []struct {
+				ID string `json:"id"`
+			} `json:"homeTemplates"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(payload, &body); err != nil {
+		t.Fatalf("developer items json: %s", payload)
+	}
+	gotPlugins := make([]string, 0, len(body.Data.Plugins))
+	for _, item := range body.Data.Plugins {
+		gotPlugins = append(gotPlugins, item.ID)
+	}
+	gotTemplates := make([]string, 0, len(body.Data.HomeTemplates))
+	for _, item := range body.Data.HomeTemplates {
+		gotTemplates = append(gotTemplates, item.ID)
+	}
+	if !sameStringSet(gotPlugins, plugins) {
+		t.Fatalf("developer plugins=%v want %v body=%s", gotPlugins, plugins, payload)
+	}
+	if !sameStringSet(gotTemplates, templates) {
+		t.Fatalf("developer templates=%v want %v body=%s", gotTemplates, templates, payload)
+	}
+}
+
 func assertAdminDefaultCatalogIDs(t *testing.T, router http.Handler, admin string, want []string) {
 	t.Helper()
 	rec := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/catalog-items", admin, "")
@@ -217,8 +308,12 @@ func assertLocalSoftwareSourceIDs(t *testing.T, rawURL string, plugins, template
 func assertIndexIDs(t *testing.T, payload []byte, plugins, templates []string) {
 	t.Helper()
 	var catalog struct {
-		Plugins       []struct{ ID string `json:"id"` } `json:"plugins"`
-		HomeTemplates []struct{ ID string `json:"id"` } `json:"homeTemplates"`
+		Plugins []struct {
+			ID string `json:"id"`
+		} `json:"plugins"`
+		HomeTemplates []struct {
+			ID string `json:"id"`
+		} `json:"homeTemplates"`
 	}
 	if err := json.Unmarshal(payload, &catalog); err != nil {
 		t.Fatalf("index json: %v body=%s", err, payload)
