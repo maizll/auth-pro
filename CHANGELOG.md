@@ -1,5 +1,21 @@
 # 更新日志
 
+## [源站] 2026-09-20 — 软件源按应用隔离
+
+### 行为
+
+- 目录项（插件 / 首页模板）必须绑定 `apps.id`（`app_id NOT NULL`）。管理端「源站」先按应用分区，分类（支付 / 实名 / 其他 / 首页模板）是应用内二级筛选。
+- 公开清单按应用隔离：
+  - 推荐：`GET /software-source/{app_key}/index.json`
+  - 兼容：`GET /software-source/index.json?app_key=`、`/auth-pro/{app_key}/index.json`、`/auth-pro/index.json?app_key=`
+  - 未带 `app_key` 的 `/software-source/index.json` 返回空数组，不泄漏其它应用目录。
+- 消费者「软件源管理」仍按配置 URL 原样拉取，每个授权应用配置各自的 `{app_key}` 清单即可。
+- 开发者提交与管理员审核同样按 `app_id` 隔离；上传 ZIP / 登记外部地址必须选择应用。
+
+### 迁移
+
+现有 `source_catalog_plugins` / `source_catalog_templates` 启动时 `ALTER` 增加 `app_id`（`BIGINT UNSIGNED NOT NULL DEFAULT 0`），并把 `app_id=0` 的旧行一次性回填为 `apps` 表中 **id 最小的应用**。新写入必须显式绑定存在的应用，禁止再产生未绑定行。若库中没有应用，旧行保持 `0`，下次编辑/上架会要求选择应用。
+
 ## [源站] 2026-09-19 — 自托管软件源与仓库对接
 
 ### 新增
@@ -44,13 +60,13 @@
 1. ZIP 根目录或一层子目录必须有 `plugin.json`（模板为 `template.json`），缺字段直接拒收。
 2. **源站 → 插件管理** 上传 ZIP。
 3. 系统：硬校验 → 自动填表 →（已配仓库则）创建/更新 Release 并上传附件 → 只把 `downloadUrl` + `sha256` 写入目录。
-4. 审核 → 上架后公开目录：`http://<源站>/software-source/index.json`  
+4. 审核 → 上架后公开目录：`http://<源站>/software-source/{app_key}/index.json`  
    未配仓库时仍可解析入库，但需自行粘贴外部 https 下载地址。
 
 #### 5. 消费端使用
 
-在「软件源管理」添加：`http://<源站主机:端口>/software-source/index.json`  
-本机示例：`http://127.0.0.1:19127/software-source/index.json`
+在「软件源管理」为对应应用添加：`http://<源站主机:端口>/software-source/{app_key}/index.json`  
+本机示例：`http://127.0.0.1:19127/software-source/demo-app/index.json`
 
 #### 6. 常见问题
 

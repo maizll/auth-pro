@@ -36,9 +36,17 @@ export interface SourceDeveloper {
   createdAt: string
 }
 
+export interface SourceCatalogApp {
+  id: number
+  appKey: string
+  name: string
+  enabled: boolean
+}
+
 export interface SourcePlugin {
   id: string
   developerId: number
+  appId: number
   category: string
   name: string
   description: string
@@ -68,6 +76,7 @@ export interface SourceCatalogCategory {
 export interface SourceTemplate {
   id: string
   developerId: number
+  appId: number
   category?: string
   templateKey: string
   name: string
@@ -91,6 +100,7 @@ export interface SourceTemplate {
 export interface SourceCatalogItem {
   kind: 'plugin' | 'template'
   id: string
+  appId: number
   category: string
   categoryLabel?: string
   name: string
@@ -144,6 +154,8 @@ export interface SourceIndexSnapshot {
 export interface SourceIndexData {
   live: Record<string, unknown>
   name: string
+  appKey?: string
+  appId?: number
   pluginCount: number
   templateCount: number
   snapshot?: SourceIndexSnapshot
@@ -213,6 +225,7 @@ export interface SourceAdPlaceholder {
 
 export interface SourcePluginDraft {
   id: string
+  appId: number
   category?: string
   name: string
   description?: string
@@ -229,6 +242,7 @@ export interface SourcePluginDraft {
 
 export interface SourceTemplateDraft {
   id?: string
+  appId: number
   category?: string
   templateKey: string
   name: string
@@ -354,6 +368,10 @@ export function cancelSourceDeveloper(id: number, note?: string) {
 }
 
 
+export function fetchSourceCatalogApps() {
+  return request.get<SourceListResponse<SourceCatalogApp>>({ url: `${BASE}/apps` })
+}
+
 export function fetchSourceCatalogCategories() {
   return request.get<{ list: SourceCatalogCategory[]; extras: SourceCatalogCategory[] }>({
     url: `${BASE}/categories`
@@ -367,20 +385,24 @@ export function saveSourceCatalogCategories(extras: Array<Pick<SourceCatalogCate
   })
 }
 
-export function fetchSourceCatalogItems(status?: string, category?: string) {
+export function fetchSourceCatalogItems(status?: string, category?: string, appId?: number) {
   return request.get<SourceListResponse<SourceCatalogItem>>({
     url: `${BASE}/catalog-items`,
     params: {
       ...(status ? { status } : {}),
-      ...(category ? { category } : {})
+      ...(category ? { category } : {}),
+      ...(appId && appId > 0 ? { app_id: appId } : {})
     }
   })
 }
 
-export function fetchSourcePlugins(status?: string) {
+export function fetchSourcePlugins(status?: string, appId?: number) {
   return request.get<SourceListResponse<SourcePlugin>>({
     url: `${BASE}/plugins`,
-    params: status ? { status } : undefined
+    params: {
+      ...(status ? { status } : {}),
+      ...(appId && appId > 0 ? { app_id: appId } : {})
+    }
   })
 }
 
@@ -424,10 +446,13 @@ export function setSourcePluginVersionStatus(
   })
 }
 
-export function fetchSourceTemplates(status?: string) {
+export function fetchSourceTemplates(status?: string, appId?: number) {
   return request.get<SourceListResponse<SourceTemplate>>({
     url: `${BASE}/templates`,
-    params: status ? { status } : undefined
+    params: {
+      ...(status ? { status } : {}),
+      ...(appId && appId > 0 ? { app_id: appId } : {})
+    }
   })
 }
 
@@ -471,12 +496,19 @@ export function setSourceTemplateVersionStatus(
   })
 }
 
-export function fetchSourceIndex() {
-  return request.get<SourceIndexData>({ url: `${BASE}/index` })
+export function fetchSourceIndex(appId?: number) {
+  return request.get<SourceIndexData>({
+    url: `${BASE}/index`,
+    params: appId && appId > 0 ? { app_id: appId } : undefined
+  })
 }
 
-export function regenerateSourceIndex() {
-  return request.post<SourceIndexData>({ url: `${BASE}/index/regenerate`, data: {} })
+export function regenerateSourceIndex(appId?: number) {
+  return request.post<SourceIndexData>({
+    url: `${BASE}/index/regenerate`,
+    params: appId && appId > 0 ? { app_id: appId } : undefined,
+    data: {}
+  })
 }
 
 export function fetchSourceAudit(limit = 100) {

@@ -15,7 +15,9 @@ import (
 
 func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 	engine.GET("/software-source/index.json", SourceStationIndex)
+	engine.GET("/software-source/:appKey/index.json", SourceStationIndex)
 	engine.GET("/auth-pro/index.json", SourceStationIndex)
+	engine.GET("/auth-pro/:appKey/index.json", SourceStationIndex)
 	engine.GET("/software-source/package-schema.json", SourcePackageSchema)
 
 	api.POST("/v1/source/developer/apply", SourceDeveloperApply)
@@ -26,6 +28,7 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 	developer.Use(middleware.JWTAuth(), middleware.RequireDeveloper())
 	{
 		developer.GET("/me", SourceDeveloperMe)
+		developer.GET("/apps", SourceDeveloperCatalogApps)
 		developer.GET("/items", SourceDeveloperItems)
 		developer.POST("/plugins", SourceDeveloperUpsertPlugin)
 		developer.PUT("/plugins/:id", SourceDeveloperUpsertPlugin)
@@ -51,6 +54,7 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		admin.GET("/developers", AdminSourceDevelopers)
 		admin.POST("/developers/:id/freeze", AdminSourceCancelDeveloper)
 
+		admin.GET("/apps", AdminSourceCatalogApps)
 		admin.GET("/categories", AdminSourceCatalogCategories)
 		admin.PUT("/categories", AdminSourceCatalogCategoriesSave)
 		admin.GET("/catalog-items", AdminSourceCatalogItems)
@@ -112,22 +116,24 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 }
 
 func SourceStationIndex(c *gin.Context) {
-	payload, catalog, err := sourceCatalogJSON()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"name": sourceStationSourceName, "plugins": []any{}, "homeTemplates": []any{}})
+	if resolvePublicCatalogApp(c) {
 		return
 	}
-	c.Header("Cache-Control", "no-store")
-	c.Data(http.StatusOK, "application/json; charset=utf-8", payload)
-	_ = catalog
+	writeUnscopedSourceIndex(c)
 }
 
 func persistIndexSnapshot(actor string) {
-	payload, _, err := sourceCatalogJSON()
+	apps, err := currentSourceStationStore().ListCatalogApps()
 	if err != nil {
 		return
 	}
-	_ = currentSourceStationStore().SaveIndexSnapshot(string(payload), actor)
+	for _, app := range apps {
+		payload, _, err := sourceCatalogJSONForApp(app)
+		if err != nil {
+			continue
+		}
+		_ = currentSourceStationStore().SaveIndexSnapshot(string(payload), actor)
+	}
 }
 
 func AdminSourceAdvertisements(c *gin.Context) {

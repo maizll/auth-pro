@@ -799,6 +799,7 @@ DROP TABLE IF EXISTS `source_catalog_plugins`;
 CREATE TABLE `source_catalog_plugins` (
   `id` VARCHAR(60) NOT NULL,
   `developer_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `app_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `category` VARCHAR(30) NOT NULL DEFAULT 'other',
   `name` VARCHAR(100) NOT NULL,
   `description` VARCHAR(500) NOT NULL DEFAULT '',
@@ -820,13 +821,15 @@ CREATE TABLE `source_catalog_plugins` (
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_source_catalog_plugin_status` (`status`),
-  KEY `idx_source_catalog_plugin_developer` (`developer_id`)
+  KEY `idx_source_catalog_plugin_developer` (`developer_id`),
+  KEY `idx_source_catalog_plugin_app` (`app_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源插件元数据（不含源码）';
 
 DROP TABLE IF EXISTS `source_catalog_templates`;
 CREATE TABLE `source_catalog_templates` (
   `id` VARCHAR(60) NOT NULL,
   `developer_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `app_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `category` VARCHAR(30) NOT NULL DEFAULT 'home-template',
   `template_key` VARCHAR(60) NOT NULL,
   `name` VARCHAR(100) NOT NULL,
@@ -849,7 +852,8 @@ CREATE TABLE `source_catalog_templates` (
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_source_catalog_template_key` (`template_key`),
-  KEY `idx_source_catalog_template_status` (`status`)
+  KEY `idx_source_catalog_template_status` (`status`),
+  KEY `idx_source_catalog_template_app` (`app_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源首页模板元数据（不含源码）';
 
 DROP TABLE IF EXISTS `source_catalog_plugin_versions`;

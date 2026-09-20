@@ -2,6 +2,21 @@
   <div class="source-station-page">
     <el-card shadow="never" class="art-card mb-4 filter-panel">
       <el-form :model="searchForm" inline>
+        <el-form-item label="应用">
+          <el-select
+            v-model="searchForm.appId"
+            placeholder="请选择应用"
+            style="width: 240px"
+            @change="onAppChange"
+          >
+            <el-option
+              v-for="app in apps"
+              :key="app.id"
+              :label="appLabel(app)"
+              :value="app.id"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="searchForm.status" placeholder="全部" clearable style="width: 140px">
             <el-option label="草稿" value="draft" />
@@ -37,14 +52,16 @@
           <div>
             <span class="card-title">软件目录（共 {{ tableData.length }} 条）</span>
             <p class="card-hint">
-              插件与首页模板都是可安装目录项，只按分类区分。源站只保存元数据与外部 HTTPS
-              地址，从不存储源码。下架只从公开
-              <code>/software-source/index.json</code> 隐藏，不会远程卸载已安装实例。
+              插件按应用分区：先选应用，再按分类（支付 / 实名 / 其他 / 首页模板）筛选。源站只保存元数据与外部
+              HTTPS 地址，从不存储源码。下架只从该应用的公开目录
+              <code>{{ publicIndexPath }}</code> 隐藏，不会远程卸载已安装实例。
             </p>
           </div>
           <div class="table-actions">
-            <el-button @click="openRegister">登记外部地址</el-button>
-            <el-button type="primary" @click="openUpload">上传 ZIP（硬校验）</el-button>
+            <el-button :disabled="!searchForm.appId" @click="openRegister">登记外部地址</el-button>
+            <el-button type="primary" :disabled="!searchForm.appId" @click="openUpload"
+              >上传 ZIP（硬校验）</el-button
+            >
           </div>
         </div>
       </template>
@@ -133,6 +150,16 @@
         class="mb-3"
       />
       <el-form label-width="120px">
+        <el-form-item label="应用" required>
+          <el-select v-model="uploadForm.appId" placeholder="请选择应用" style="width: 100%">
+            <el-option
+              v-for="app in apps"
+              :key="app.id"
+              :label="appLabel(app)"
+              :value="app.id"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="ZIP 文件" required>
           <el-upload
             drag
@@ -204,6 +231,16 @@
 
     <el-dialog v-model="registerVisible" title="登记外部地址" width="560px" destroy-on-close>
       <el-form ref="registerRef" :model="registerForm" :rules="registerRules" label-width="110px">
+        <el-form-item label="应用" prop="appId">
+          <el-select v-model="registerForm.appId" placeholder="请选择应用" style="width: 100%">
+            <el-option
+              v-for="app in apps"
+              :key="app.id"
+              :label="appLabel(app)"
+              :value="app.id"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="分类" prop="category">
           <el-select v-model="registerForm.category" style="width: 100%">
             <el-option
@@ -252,8 +289,8 @@
 
     <el-dialog v-model="categoryVisible" title="目录分类" width="560px" destroy-on-close>
       <p class="card-hint mb-3">
-        内置分类覆盖原来的插件分区和首页模板。额外分类可自行添加，公开 index.json 仍按分类拆成
-        plugins / homeTemplates 以兼容旧消费者。
+        内置分类覆盖原来的插件分区和首页模板，并作为应用内的二级筛选。额外分类可自行添加，公开
+        index.json 仍按分类拆成 plugins / homeTemplates 以兼容旧消费者。
       </p>
       <el-table :data="categories" size="small" class="mb-3">
         <el-table-column prop="label" label="名称" min-width="120" />
@@ -394,6 +431,7 @@
     SOURCE_VERSION_STATUS,
     fetchSourceCatalogCategories,
     fetchSourceCatalogItems,
+    fetchSourceCatalogApps,
     parseSourcePackage,
     publishSourcePackage,
     registerSourcePlugin,
@@ -409,6 +447,7 @@
     setSourceTemplateVersionStatus,
     type SourceCatalogCategory,
     type SourceCatalogItem,
+    type SourceCatalogApp,
     type SourcePackageManifest,
     type SourceVersion
   } from '@/api/source-station'
@@ -421,10 +460,13 @@
   )
 
   const route = useRoute()
+  const CATEGORY_APP_STORAGE_KEY = 'source-station-catalog-app-id'
   const categories = ref<SourceCatalogCategory[]>([])
+  const apps = ref<SourceCatalogApp[]>([])
   const loading = ref(false)
   const tableData = ref<SourceCatalogItem[]>([])
   const searchForm = reactive({
+    appId: 0,
     status: '',
     category: String(route.query.category || props.initialCategory || '')
   })
@@ -435,6 +477,7 @@
   const uploadFile = ref<File | null>(null)
   const parsedManifest = ref<SourcePackageManifest | null>(null)
   const uploadForm = reactive({
+    appId: 0,
     category: '',
     changelog: '',
     location: '',
@@ -445,6 +488,7 @@
   const registering = ref(false)
   const registerRef = ref<FormInstance>()
   const registerForm = reactive({
+    appId: 0,
     id: '',
     name: '',
     version: '1.0.0',
@@ -457,6 +501,7 @@
     shelf: false
   })
   const registerRules: FormRules = {
+    appId: [{ required: true, type: 'number', min: 1, message: '请选择应用', trigger: 'change' }],
     category: [{ required: true, message: '请选择分类', trigger: 'change' }],
     id: [{ required: true, message: '请填写标识', trigger: 'blur' }],
     name: [{ required: true, message: '请填写名称', trigger: 'blur' }],
@@ -486,6 +531,18 @@
     if (!kind) return categories.value
     return categories.value.filter((item) => item.kind === kind)
   })
+  const selectedApp = computed(
+    () => apps.value.find((item) => item.id === searchForm.appId) || null
+  )
+  const publicIndexPath = computed(() =>
+    selectedApp.value?.appKey
+      ? `/software-source/${selectedApp.value.appKey}/index.json`
+      : '/software-source/{app_key}/index.json'
+  )
+
+  function appLabel(app: SourceCatalogApp) {
+    return app.enabled ? `${app.name}（${app.appKey}）` : `${app.name}（${app.appKey}）· 已停用`
+  }
 
   function categoryKind(key: string): 'plugin' | 'template' {
     return categories.value.find((item) => item.key === key)?.kind || 'plugin'
@@ -563,10 +620,40 @@
     categories.value = data.list || []
   }
 
+  async function loadApps() {
+    const data = await fetchSourceCatalogApps()
+    apps.value = data.list || []
+    const stored = Number(localStorage.getItem(CATEGORY_APP_STORAGE_KEY) || 0)
+    const exists = apps.value.some((item) => item.id === stored)
+    if (exists) {
+      searchForm.appId = stored
+      return
+    }
+    searchForm.appId = apps.value[0]?.id || 0
+    if (searchForm.appId) {
+      localStorage.setItem(CATEGORY_APP_STORAGE_KEY, String(searchForm.appId))
+    }
+  }
+
+  function onAppChange() {
+    if (searchForm.appId) {
+      localStorage.setItem(CATEGORY_APP_STORAGE_KEY, String(searchForm.appId))
+    }
+    loadItems()
+  }
+
   async function loadItems() {
+    if (!searchForm.appId) {
+      tableData.value = []
+      return
+    }
     loading.value = true
     try {
-      const data = await fetchSourceCatalogItems(searchForm.status, searchForm.category)
+      const data = await fetchSourceCatalogItems(
+        searchForm.status,
+        searchForm.category,
+        searchForm.appId
+      )
       tableData.value = data.list || []
     } finally {
       loading.value = false
@@ -580,8 +667,13 @@
   }
 
   function openUpload() {
+    if (!searchForm.appId) {
+      ElMessage.warning('请先选择应用')
+      return
+    }
     uploadFile.value = null
     parsedManifest.value = null
+    uploadForm.appId = searchForm.appId
     uploadForm.category = searchForm.category
     uploadForm.changelog = ''
     uploadForm.location = ''
@@ -604,6 +696,7 @@
       form.append(kind === 'template' ? 'templateUrl' : 'downloadUrl', uploadForm.location)
     }
     if (uploadForm.push) form.append('push', 'true')
+    if (uploadForm.appId) form.append('appId', String(uploadForm.appId))
     return form
   }
 
@@ -626,6 +719,10 @@
 
   async function handlePublish() {
     if (!uploadFile.value) return
+    if (!uploadForm.appId) {
+      ElMessage.warning('请选择应用')
+      return
+    }
     if (!uploadForm.push && !String(uploadForm.location || '').trim()) {
       ElMessage.warning('未推送 Release 时请填写外部地址')
       return
@@ -646,6 +743,11 @@
   }
 
   function openRegister() {
+    if (!searchForm.appId) {
+      ElMessage.warning('请先选择应用')
+      return
+    }
+    registerForm.appId = searchForm.appId
     registerForm.id = ''
     registerForm.name = ''
     registerForm.version = '1.0.0'
@@ -666,6 +768,7 @@
       if (registerIsTemplate.value) {
         await registerSourceTemplate({
           id: registerForm.id,
+          appId: registerForm.appId,
           templateKey: registerForm.id,
           name: registerForm.name,
           version: registerForm.version,
@@ -681,6 +784,7 @@
       } else {
         await registerSourcePlugin({
           id: registerForm.id,
+          appId: registerForm.appId,
           name: registerForm.name,
           version: registerForm.version,
           description: registerForm.description,
@@ -736,7 +840,7 @@
   ) {
     if (action === 'unshelf') {
       await ElMessageBox.confirm(
-        '下架只会从公开 index.json 隐藏，不会远程卸载已安装实例。确认继续？',
+        '下架只会从该应用的公开 index.json 隐藏，不会远程卸载已安装实例。确认继续？',
         '下架确认',
         { type: 'warning' }
       )
@@ -829,6 +933,7 @@
 
   onMounted(async () => {
     await loadCategories()
+    await loadApps()
     await loadItems()
   })
 </script>

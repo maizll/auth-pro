@@ -43,8 +43,16 @@ export interface SourceDeveloperCatalogItem {
   name: string
   version: string
   status: string
+  appId?: number
   reviewNote?: string
   updatedAt?: string
+}
+
+export interface SourceDeveloperCatalogApp {
+  id: number
+  appKey: string
+  name: string
+  enabled: boolean
 }
 
 export interface SourceDeveloperItems {
@@ -117,6 +125,16 @@ export function fetchSourceDeveloperMe() {
 
 export function fetchSourceDeveloperItems() {
   return axios.get<{ code: number; msg: string; data: SourceDeveloperItems }>(`${BASE}/items`, {
+    headers: developerAuthHeaders()
+  })
+}
+
+export function fetchSourceDeveloperCatalogApps() {
+  return axios.get<{
+    code: number
+    msg: string
+    data: { list: SourceDeveloperCatalogApp[]; total: number }
+  }>(`${BASE}/apps`, {
     headers: developerAuthHeaders()
   })
 }

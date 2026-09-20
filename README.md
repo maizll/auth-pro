@@ -108,7 +108,7 @@ pnpm dev
 
 管理后台的“应用商店”提供“首页模板”分区。管理员可以在“软件源管理”中添加以下两类 HTTP(S) 地址：
 
-- JSON 清单 URL，例如 `https://example.com/software-source/index.json` 或 `https://example.com/auth-pro/index.json`。
+- JSON 清单 URL，须按应用隔离，例如 `https://example.com/software-source/{app_key}/index.json` 或 `https://example.com/software-source/index.json?app_key={app_key}`（兼容 `/auth-pro/{app_key}/index.json`）。未带 `app_key` 的 `/software-source/index.json` 返回空目录，不会混入其它应用的插件。
 - Git 仓库 URL，例如 `https://git.example.com/team/auth-pro-templates.git`。服务端需要在 `PATH` 中安装 `git`，仓库根目录必须包含 `index.json`。
 
 软件源允许使用内网地址。请仅添加可信仓库：服务端会拉取清单和模板文件，但声明式模板不会执行仓库中的 JavaScript。清单缓存 5 分钟；可在软件源管理中手动刷新，源暂时不可用时会保留已有缓存并显示错误状态。
@@ -276,7 +276,7 @@ releases.json
 - `/api/home-template/active`：当前首页模板公开读取接口。
 - `/api/advertisements`：前端广告位代理；默认读本站投放。
 - `/api/v1/public/advertisements`：本站广告接口（`home-banner` / `sidebar` / `popup`）。
-- `/software-source/index.json`：本实例作为软件源源站时的公开清单（兼容 `/auth-pro/index.json`，见下方「作为软件源源站」）。
+- `/software-source/{app_key}/index.json`：本实例作为软件源源站时的**按应用隔离**公开清单（兼容 `/software-source/index.json?app_key=` 与 `/auth-pro/{app_key}/index.json`）。未指定 `app_key` 时返回空目录，避免跨应用泄漏。
 - `/source`：兼容跳转，进入管理后台「源站」菜单（`/source-station/packages`）。源站管理不再提供独立页面。
 - `/api/*`：后台管理接口，除公开接口外默认需要 JWT 鉴权。
 
@@ -319,19 +319,21 @@ export AUTO_PRO_ADVERTISEMENT_URL="https://ads.example.com/api/v1/public/adverti
 
 **源站只保存目录元数据，从不保存插件或模板源码。** 目录字段为 id、name、version、description、author、status、sha256、外部 `downloadUrl` / `templateUrl`、审核信息与时间戳。发布包必须放在外部 HTTPS（或后续 OSS 对象键），不要把 git 源码树写入后端 data 目录。
 
-其它授权实例在「软件源管理」里添加：
+其它授权实例在「软件源管理」里为**每个应用**添加对应清单（消费者按配置的 URL 原样拉取，无需改客户端代码）：
 
 ```text
-https://<host>/software-source/index.json
+https://<host>/software-source/{app_key}/index.json
 ```
 
-兼容路径：`/auth-pro/index.json`（同样的 JSON）。清单缓存由消费者侧完成（约 5 分钟，可手动刷新）；源站在上架/下架时从数据库重新生成公开目录。
+等价写法：`https://<host>/software-source/index.json?app_key={app_key}`。兼容路径：`/auth-pro/{app_key}/index.json` 与 `/auth-pro/index.json?app_key=`。未带 `app_key` 的 `/software-source/index.json` 与 `/auth-pro/index.json` 返回空 `plugins` / `homeTemplates`，不会串应用。清单缓存由消费者侧完成（约 5 分钟，可手动刷新）；源站在上架/下架时从数据库重新生成公开目录。
 
 清单形状：
 
 ```json
 {
   "name": "本站软件源",
+  "appKey": "demo-app",
+  "appId": 1,
   "plugins": [],
   "homeTemplates": [
     {
@@ -351,14 +353,14 @@ https://<host>/software-source/index.json
 
 **下架 ≠ 远程卸载。** 下架只是把条目从公开 `index.json` 隐藏（status=`hidden`）。已经安装到其它授权实例本地的插件/模板不会被源站删除或停用。
 
-锁定流水线（方向不再改）：管理员上传 ZIP → 硬规范校验（不合规拒绝，不写库/不推 Release/不留临时文件）→ 从 `plugin.json` / `template.json` 自动填表 → 用设置页令牌推送 Gitee/GitHub Release → **只把元数据 + downloadUrl/templateUrl + SHA256 入库** → 审核 / 多版本更新 / 上架下架 → 公开 `GET /software-source/index.json`（`plugins` + `homeTemplates`）。应用服务器不保存插件源码。
+锁定流水线（方向不再改）：管理员上传 ZIP → 硬规范校验（不合规拒绝，不写库/不推 Release/不留临时文件）→ 从 `plugin.json` / `template.json` 自动填表 → 用设置页令牌推送 Gitee/GitHub Release → **只把元数据 + downloadUrl/templateUrl + SHA256 + app_id 入库** → 审核 / 多版本更新 / 上架下架 → 公开 `GET /software-source/{app_key}/index.json`（该应用的 `plugins` + `homeTemplates`）。应用服务器不保存插件源码。
 
 工作流：
 
 1. 启动本仓库后端（源站无需 `AUTO_PRO_SOFTWARE_SOURCE_*`）。
 2. **管理员登录管理后台**（与其它后台功能同一套账号/会话/布局），侧栏「源站」：
    - 入驻审核：开发者申请通过/拒绝/冻结
-   - 软件目录：统一列表，按分类（支付 / 实名 / 其他 / 首页模板，可增配）筛选；上传 ZIP 硬校验、多版本、上架/下架
+   - 软件目录：先按应用分区，再按分类（支付 / 实名 / 其他 / 首页模板，可增配）筛选；上传 ZIP 硬校验、多版本、上架/下架
    - 公开目录：公开 `index.json` 预览与快照重生、审计日志
    - 广告投放：本站 `home-banner` / `sidebar` / `popup`
    - Release 设置：GitHub/Gitee 仓库与 Token
@@ -369,12 +371,13 @@ https://<host>/software-source/index.json
 6. **更新**：为同一插件创建新版本行（version / changelog / 外部 URL / sha256）→ 提交审核 → 管理员通过后该版本 `published` 并成为 `latest`。旧版本元数据保留，可弃用，不可删源码（源站本来就不存源码）。
 7. 管理员可将 `latest` 回滚到先前已发布版本；下架只从公开目录隐藏整个插件。公开 `index.json` 只展示当前 `latest`（含 version、downloadUrl、sha256、可选 changelog，以及预留的 `minVersion` / `forceUpdate`）。
 8. 查询历史版本：管理后台「软件目录 → 版本」，或 `GET /api/v1/source/admin/plugins/:id/versions`（兼容 `GET /api/admin/source/plugins/:id/versions`）。
-9. 消费者实例在「软件源管理」添加 `https://<host>/software-source/index.json`。
+9. 消费者实例在「软件源管理」添加 `https://<host>/software-source/{app_key}/index.json`（每个授权应用一条源，互不串目录）。
 
 ```bash
 # 源站本机（无需软件源环境变量）
-curl -s http://127.0.0.1:19127/software-source/index.json
-curl -s http://127.0.0.1:19127/auth-pro/index.json
+curl -s http://127.0.0.1:19127/software-source/demo-app/index.json
+curl -s 'http://127.0.0.1:19127/software-source/index.json?app_key=demo-app'
+curl -s http://127.0.0.1:19127/auth-pro/demo-app/index.json
 
 # 上传闸门：不合规包 400，不入库
 curl -s http://127.0.0.1:19127/software-source/package-schema.json
