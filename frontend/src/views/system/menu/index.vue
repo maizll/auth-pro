@@ -42,6 +42,7 @@
         v-model:visible="dialogVisible"
         :type="dialogType"
         :editData="editData"
+        :menus="tableData"
         :lockType="lockMenuType"
         @submit="handleSubmit"
       />
@@ -53,7 +54,7 @@
   import ArtButtonTable from '@/components/core/forms/art-button-table/index.vue'
   import { useTableColumns } from '@/hooks/core/useTableColumns'
   import MenuDialog from './modules/menu-dialog.vue'
-  import { fetchMenuManageList, fetchDeleteMenu } from '@/api/system-manage'
+  import { fetchMenuManageList, fetchCreateMenu, fetchUpdateMenu, fetchDeleteMenu } from '@/api/system-manage'
   import { formatMenuTitle } from '@/utils/router'
   import { ElTag, ElMessageBox } from 'element-plus'
 
@@ -214,8 +215,35 @@
     dialogVisible.value = true
   }
 
-  const handleSubmit = (): void => {
-    getMenuList()
+  const toMenuPayload = (data: Record<string, any>) => ({
+    parentId: Number(data.parentId ?? 0) || 0,
+    name: data.label,
+    path: data.path,
+    component: data.component,
+    redirect: data.redirect || '',
+    title: data.name,
+    icon: data.icon,
+    sort: data.sort,
+    isHide: data.isHide,
+    isHideTab: data.isHideTab,
+    isFullPage: data.isFullPage,
+    keepAlive: data.keepAlive,
+    fixedTab: data.fixedTab,
+    enabled: data.isEnable
+  })
+
+  const handleSubmit = async (data: Record<string, any>): Promise<void> => {
+    try {
+      if (data.id) {
+        await fetchUpdateMenu(data.id, toMenuPayload(data))
+      } else {
+        await fetchCreateMenu(toMenuPayload(data))
+      }
+      dialogVisible.value = false
+      await getMenuList()
+    } catch {
+      /* request already toasts */
+    }
   }
 
   const handleDeleteMenu = async (row: MenuItem): Promise<void> => {

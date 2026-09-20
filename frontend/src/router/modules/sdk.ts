@@ -1,6 +1,4 @@
 import { AppRouteRecord } from '@/types/router'
-import { pluginStoreRoutes } from './plugin-store'
-import { onlineUpdateRoutes } from './online-update'
 
 export const sdkRoutes: AppRouteRecord = {
   path: '/sdk',
@@ -44,8 +42,6 @@ export const sdkRoutes: AppRouteRecord = {
         keepAlive: true,
         roles: ['R_SUPER', 'R_ADMIN']
       }
-    },
-    pluginStoreRoutes,
-    onlineUpdateRoutes
+    }
   ]
 }

@@ -44,6 +44,7 @@
   import type { AppRouteRecord } from '@/types/router'
   import type { FormItem } from '@/components/core/forms/art-form/index.vue'
   import ArtForm from '@/components/core/forms/art-form/index.vue'
+  import { buildParentMenuOptions, isInvalidMenuParent } from '@/utils/form/menu-parent'
   import { useWindowSize } from '@vueuse/core'
 
   const { width } = useWindowSize()
@@ -60,6 +61,7 @@
 
   interface MenuFormData {
     id: number
+    parentId: number
     name: string
     path: string
     label: string
@@ -90,6 +92,7 @@
     editData?: AppRouteRecord | any
     type?: 'menu' | 'button'
     lockType?: boolean
+    menus?: Array<{ id: number; title?: string; name?: string; children?: any[] }>
   }
 
   interface Emits {
@@ -100,7 +103,8 @@
   const props = withDefaults(defineProps<Props>(), {
     visible: false,
     type: 'menu',
-    lockType: false
+    lockType: false,
+    menus: () => []
   })
   const emit = defineEmits<Emits>()
 
@@ -110,6 +114,7 @@
   const form = reactive<MenuFormData & { menuType: 'menu' | 'button' }>({
     menuType: 'menu',
     id: 0,
+    parentId: 0,
     name: '',
     path: '',
     label: '',
@@ -153,6 +158,24 @@
     if (form.menuType === 'menu') {
       return [
         ...baseItems,
+        {
+          label: '上级菜单',
+          key: 'parentId',
+          type: 'treeselect',
+          span: 24,
+          props: {
+            data: buildParentMenuOptions(props.menus || [], form.id || 0, (node) =>
+              formatMenuTitle(String(node.title || node.name || ''))
+            ),
+            props: { label: 'label', value: 'id', children: 'children' },
+            checkStrictly: true,
+            defaultExpandAll: true,
+            clearable: true,
+            placeholder: '无 / 顶级菜单',
+            renderAfterExpand: false,
+            style: { width: '100%' }
+          }
+        },
         { label: '菜单名称', key: 'name', type: 'input', props: { placeholder: '菜单名称' } },
         {
           label: createLabelTooltip(
@@ -252,6 +275,8 @@
   const resetForm = (): void => {
     formRef.value?.reset()
     form.menuType = 'menu'
+    form.id = 0
+    form.parentId = 0
   }
 
   const loadFormData = (): void => {
@@ -260,25 +285,26 @@
     if (form.menuType === 'menu') {
       const row = props.editData
       form.id = row.id || 0
-      form.name = formatMenuTitle(row.meta?.title || '')
+      form.parentId = Number(row.parentId ?? row.parent_id ?? 0) || 0
+      form.name = formatMenuTitle(row.title || row.meta?.title || '')
       form.path = row.path || ''
       form.label = row.name || ''
       form.component = row.component || ''
-      form.icon = row.meta?.icon || ''
-      form.sort = row.meta?.sort || 1
+      form.icon = row.icon || row.meta?.icon || ''
+      form.sort = row.sort || row.meta?.sort || 1
       form.isMenu = row.meta?.isMenu ?? true
-      form.keepAlive = row.meta?.keepAlive ?? false
-      form.isHide = row.meta?.isHide ?? false
-      form.isHideTab = row.meta?.isHideTab ?? false
-      form.isEnable = row.meta?.isEnable ?? true
+      form.keepAlive = row.keepAlive ?? row.meta?.keepAlive ?? false
+      form.isHide = row.isHide ?? row.meta?.isHide ?? false
+      form.isHideTab = row.isHideTab ?? row.meta?.isHideTab ?? false
+      form.isEnable = row.enabled ?? row.meta?.isEnable ?? true
       form.link = row.meta?.link || ''
       form.isIframe = row.meta?.isIframe ?? false
       form.showBadge = row.meta?.showBadge ?? false
       form.showTextBadge = row.meta?.showTextBadge || ''
-      form.fixedTab = row.meta?.fixedTab ?? false
+      form.fixedTab = row.fixedTab ?? row.meta?.fixedTab ?? false
       form.activePath = row.meta?.activePath || ''
       form.roles = row.meta?.roles || []
-      form.isFullPage = row.meta?.isFullPage ?? false
+      form.isFullPage = row.isFullPage ?? row.meta?.isFullPage ?? false
     } else {
       const row = props.editData
       form.authName = row.title || ''
@@ -292,9 +318,12 @@
     if (!formRef.value) return
     try {
       await formRef.value.validate()
+      if (form.parentId == null) form.parentId = 0
+      if (form.menuType === 'menu' && isInvalidMenuParent(form.id, form.parentId, props.menus || [])) {
+        ElMessage.error('不能选择自身或下级菜单作为上级')
+        return
+      }
       emit('submit', { ...form })
-      ElMessage.success(`${isEdit.value ? '编辑' : '新增'}成功`)
-      handleCancel()
     } catch {
       ElMessage.error('表单校验失败，请检查输入')
     }
@@ -324,6 +353,13 @@
     () => props.type,
     (newType) => {
       if (props.visible) form.menuType = newType
+    }
+  )
+
+  watch(
+    () => form.parentId,
+    (value) => {
+      if (value == null || value === ('' as unknown as number)) form.parentId = 0
     }
   )
 </script>

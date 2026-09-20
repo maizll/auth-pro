@@ -80,10 +80,10 @@ func productMenuSpecs() []productMenuSpec {
 		{ID: 801, ParentName: "Sdk", Name: "SdkIndex", Path: "index", Component: "/sdk/index", Title: "menus.integration.sdk", Icon: "ri:code-s-slash-line", Sort: 1, KeepAlive: true, Roles: ops},
 		{ID: 802, ParentName: "Sdk", Name: "DeveloperDoc", Path: "developer-doc", Component: "/sdk/developer-doc", Title: "menus.integration.docs", Icon: "ri:file-code-line", Sort: 2, KeepAlive: true, Roles: ops},
 		{ID: 803, ParentName: "Sdk", Name: "DefaultHomeTemplateDoc", Path: "default-home-template", Component: "/sdk/default-home-template-doc", Title: "menus.integration.templateDoc", Icon: "ri:layout-4-line", Sort: 3, KeepAlive: true, Roles: ops},
-		{ID: 210, ParentName: "Sdk", Name: "PluginStore", Path: "/plugin-store", Component: "/plugin-store/index", Title: "menus.integration.store", Icon: "ri:store-2-line", Sort: 4, KeepAlive: true, Roles: super},
-		{ID: 211, ParentName: "Sdk", Name: "OnlineUpdate", Path: "/online-update", Component: "/online-update/index", Title: "menus.integration.update", Icon: "ri:download-cloud-2-line", Sort: 5, KeepAlive: true, Roles: super},
+		{ID: 210, Name: "PluginStore", Path: "/plugin-store", Component: "/plugin-store/index", Title: "menus.integration.store", Icon: "ri:store-2-line", Sort: 8, KeepAlive: true, Roles: super},
+		{ID: 211, Name: "OnlineUpdate", Path: "/online-update", Component: "/online-update/index", Title: "menus.integration.update", Icon: "ri:download-cloud-2-line", Sort: 9, KeepAlive: true, Roles: super},
 
-		{ID: 2, Name: "System", Path: "/system", Component: "/index/index", Title: "menus.system.title", Icon: "ri:settings-3-line", Sort: 8, Roles: ops},
+		{ID: 2, Name: "System", Path: "/system", Component: "/index/index", Title: "menus.system.title", Icon: "ri:settings-3-line", Sort: 10, Roles: ops},
 		{ID: 202, ParentName: "System", Name: "Role", Path: "role", Component: "/system/role", Title: "menus.system.role", Icon: "ri:shield-user-line", Sort: 1, KeepAlive: true, Roles: super},
 		{ID: 204, ParentName: "System", Name: "Menus", Path: "menu", Component: "/system/menu", Title: "menus.system.menu", Icon: "ri:menu-2-line", Sort: 2, KeepAlive: true, Roles: super},
 		{ID: 205, ParentName: "System", Name: "SystemConfig", Path: "config", Component: "/system/config", Title: "menus.system.config", Icon: "ri:settings-3-line", Sort: 3, KeepAlive: true, Roles: super},
@@ -132,13 +132,19 @@ func needsWorkflowMenuMigration(db *sql.DB) bool {
 	return needsWorkflowMenuMigrationState(source > 0, customer > 0, 0)
 }
 
+func syncMenuParentOnUpgrade(name string) bool {
+	return name == "PluginStore" || name == "OnlineUpdate"
+}
+
 func mergeMenuRow(existing menuRow, spec productMenuSpec, parentID int64, migrate bool) menuRow {
 	out := existing
 	if out.ID == 0 {
 		out.ID = spec.ID
 	}
 	out.Name = spec.Name
-	out.ParentID = parentID
+	if migrate || existing.ID == 0 || syncMenuParentOnUpgrade(spec.Name) {
+		out.ParentID = parentID
+	}
 	out.Path = spec.Path
 	out.Component = spec.Component
 	if migrate || out.Redirect == "" {
@@ -157,6 +163,8 @@ func mergeMenuRow(existing menuRow, spec productMenuSpec, parentID int64, migrat
 		out.IsFullPage = spec.IsFullPage
 		out.KeepAlive = spec.KeepAlive
 		out.FixedTab = spec.FixedTab
+	} else if syncMenuParentOnUpgrade(spec.Name) {
+		out.Sort = spec.Sort
 	}
 	out.Roles = spec.Roles
 	return out
@@ -250,14 +258,22 @@ func upsertProductMenu(db *sql.DB, spec productMenuSpec, parentID int64, migrate
 		return
 	}
 
+	parentSQL := "parent_id"
+	sortSQL := "sort"
+	if syncMenuParentOnUpgrade(spec.Name) {
+		parentSQL = "VALUES(parent_id)"
+		sortSQL = "VALUES(sort)"
+	}
 	_, _ = db.Exec(`
 		INSERT INTO menus (id, parent_id, name, path, component, redirect, title, icon, sort, is_hide, is_hide_tab, is_full_page, keep_alive, fixed_tab, enabled)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
 		ON DUPLICATE KEY UPDATE
+			parent_id = `+parentSQL+`,
 			path = VALUES(path),
 			component = VALUES(component),
 			redirect = IF(redirect IS NULL OR redirect = '', VALUES(redirect), redirect),
-			is_hide = IF(VALUES(is_hide) = 1, 1, is_hide)
+			is_hide = IF(VALUES(is_hide) = 1, 1, is_hide),
+			sort = `+sortSQL+`
 	`, spec.ID, parentID, spec.Name, spec.Path, spec.Component, spec.Redirect, spec.Title, spec.Icon, spec.Sort,
 		boolToInt(spec.IsHide), boolToInt(spec.IsHideTab), boolToInt(spec.IsFullPage), boolToInt(spec.KeepAlive), boolToInt(spec.FixedTab))
 }
