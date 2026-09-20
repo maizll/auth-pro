@@ -244,6 +244,129 @@ func TestSourceDeveloperCancelDeletesLeftoverApplication(t *testing.T) {
 	if _, err := store.GetDeveloperByID(developerID); !errors.Is(err, errSourceNotFound) {
 		t.Fatalf("developer still exists after cancel: err=%v", err)
 	}
+	devs := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/developers", admin, "")
+	if sourceContainsID(sourceListIDs(t, devs), developerID) {
+		t.Fatalf("cancelled developer still listed: %s", devs.Body.String())
+	}
+	apps := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/applications", admin, "")
+	if sourceContainsID(sourceListIDs(t, apps), 9001) {
+		t.Fatalf("cancelled leftover application still listed: %s", apps.Body.String())
+	}
+	status := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/apply/status", token, "")
+	if sourceBodyCode(t, status) != 404 {
+		t.Fatalf("cancelled apply status still visible: %s", status.Body.String())
+	}
+}
+
+func TestSourceDeveloperListOmitsDisabledGhosts(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	store.mu.Lock()
+	store.developers[8801] = sourceDeveloper{
+		ID: 8801, Username: "zxcv25", Email: "37710566@qq.com",
+		DisplayName: "ghost", Enabled: false, CreatedAt: time.Now().UTC(),
+	}
+	store.developers[8802] = sourceDeveloper{
+		ID: 8802, Username: "active-dev", Email: "active@test.com",
+		DisplayName: "active", Enabled: true, CreatedAt: time.Now().UTC(),
+	}
+	store.mu.Unlock()
+
+	listed, err := store.ListDevelopers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].ID != 8802 || !listed[0].Enabled {
+		t.Fatalf("ListDevelopers should return only enabled developers: %+v", listed)
+	}
+
+	devs := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/developers", admin, "")
+	ids := sourceListIDs(t, devs)
+	if sourceContainsID(ids, 8801) {
+		t.Fatalf("disabled developer ghost listed: %s", devs.Body.String())
+	}
+	if !sourceContainsID(ids, 8802) {
+		t.Fatalf("enabled developer missing: %s", devs.Body.String())
+	}
+}
+
+func TestMysqlPurgeTargetsRealDeveloperTables(t *testing.T) {
+	if strings.Contains(mysqlPurgeInactiveApplicationsSQL, "source_applications") {
+		t.Fatal("purge must not target nonexistent source_applications")
+	}
+	if !strings.Contains(mysqlPurgeInactiveApplicationsSQL, "source_developer_applications") {
+		t.Fatalf("purge must delete from source_developer_applications: %s", mysqlPurgeInactiveApplicationsSQL)
+	}
+	for _, status := range []string{"frozen", "cancelled", "approved", "rejected"} {
+		if !strings.Contains(mysqlPurgeInactiveApplicationsSQL, "'"+status+"'") {
+			t.Fatalf("purge must include status %q: %s", status, mysqlPurgeInactiveApplicationsSQL)
+		}
+	}
+	if !strings.Contains(mysqlPurgeDisabledDevelopersSQL, "source_developers") ||
+		!strings.Contains(mysqlPurgeDisabledDevelopersSQL, "enabled=0") {
+		t.Fatalf("purge must delete enabled=0 rows from source_developers: %s", mysqlPurgeDisabledDevelopersSQL)
+	}
+}
+
+func TestSourceDeveloperCleanupRemovesFrozenLeftovers(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	agentID, email, token := sourceNextAgent(t, "zxcv25")
+	createdAt := time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)
+	store.mu.Lock()
+	store.applications[9901] = sourceApplication{
+		ID: 9901, AgentID: int64(agentID), Username: email, Email: "37710566@qq.com",
+		Status: sourceApplicationFrozen, ReviewNote: "管理员取消开发者资格", CreatedAt: createdAt,
+	}
+	store.applications[9903] = sourceApplication{
+		ID: 9903, AgentID: int64(agentID) + 1, Username: "keep-pending@agents.test",
+		Status: sourceApplicationPending, CreatedAt: createdAt,
+	}
+	store.developers[9902] = sourceDeveloper{
+		ID: 9902, AgentID: int64(agentID), Username: email, Email: "37710566@qq.com",
+		Enabled: false, CreatedAt: createdAt,
+	}
+	store.developers[9904] = sourceDeveloper{
+		ID: 9904, Username: "keep-enabled", Email: "keep@test.com",
+		Enabled: true, CreatedAt: createdAt,
+	}
+	store.mu.Unlock()
+
+	if err := store.purgeInactiveDeveloperQualifications(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.GetApplication(9901); !errors.Is(err, errSourceNotFound) {
+		t.Fatalf("frozen leftover application still present: err=%v", err)
+	}
+	if _, err := store.GetDeveloperByID(9902); !errors.Is(err, errSourceNotFound) {
+		t.Fatalf("disabled leftover developer still present: err=%v", err)
+	}
+	if _, err := store.GetApplication(9903); err != nil {
+		t.Fatalf("pending application must survive cleanup: err=%v", err)
+	}
+	if _, err := store.GetDeveloperByID(9904); err != nil {
+		t.Fatalf("enabled developer must survive cleanup: err=%v", err)
+	}
+
+	apps := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/applications", admin, "")
+	if sourceContainsID(sourceListIDs(t, apps), 9901) {
+		t.Fatalf("frozen leftover still listed: %s", apps.Body.String())
+	}
+	if !sourceContainsID(sourceListIDs(t, apps), 9903) {
+		t.Fatalf("pending application missing after cleanup: %s", apps.Body.String())
+	}
+	devs := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/developers", admin, "")
+	if sourceContainsID(sourceListIDs(t, devs), 9902) {
+		t.Fatalf("disabled leftover still listed: %s", devs.Body.String())
+	}
+	if !sourceContainsID(sourceListIDs(t, devs), 9904) {
+		t.Fatalf("enabled developer missing after cleanup: %s", devs.Body.String())
+	}
+	status := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/apply/status", token, "")
+	if sourceBodyCode(t, status) != 404 {
+		t.Fatalf("frozen leftover still visible on apply status: %s", status.Body.String())
+	}
 }
 
 func parseAgentIDFromToken(t *testing.T, token string) uint {

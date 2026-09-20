@@ -143,6 +143,12 @@ func SourceDeveloperApplyStatus(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "查询申请失败"})
 		return
 	}
+	if appErr == nil && !isRetainedDeveloperApplication(app) {
+		appErr = errSourceNotFound
+	}
+	if devErr == nil && !isActiveDeveloperQualification(developer) {
+		devErr = errSourceNotFound
+	}
 	if errors.Is(appErr, errSourceNotFound) && errors.Is(devErr, errSourceNotFound) {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "未找到入驻申请"})
 		return
@@ -174,11 +180,7 @@ func SourceDeveloperApplyStatus(c *gin.Context) {
 			email = developer.Email
 		}
 		if status == "" || status == sourceApplicationApproved {
-			if developer.Enabled {
-				status = sourceApplicationApproved
-			} else {
-				status = sourceApplicationFrozen
-			}
+			status = sourceApplicationApproved
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
