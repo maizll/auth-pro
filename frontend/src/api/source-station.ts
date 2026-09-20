@@ -118,6 +118,8 @@ export interface SourceCatalogItem {
   schemaVersion?: number
   templateKey?: string
   author: SourceAuthor
+  icon?: string
+  changelog?: string
   updatedAt: string
   createdAt: string
 }
@@ -414,6 +416,13 @@ export function registerSourcePlugin(payload: SourcePluginDraft) {
   return request.put<SourcePlugin>({ url: `${BASE}/plugins`, data: payload })
 }
 
+export function updateSourcePlugin(id: string, payload: SourcePluginDraft & { note?: string }) {
+  return request.put<SourcePlugin>({
+    url: `${BASE}/plugins/${encodeURIComponent(id)}`,
+    data: payload
+  })
+}
+
 export function setSourcePluginStatus(
   id: string,
   action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate',
@@ -462,6 +471,13 @@ export function fetchSourceTemplates(status?: string, appId?: number) {
 
 export function registerSourceTemplate(payload: SourceTemplateDraft) {
   return request.put<SourceTemplate>({ url: `${BASE}/templates`, data: payload })
+}
+
+export function updateSourceTemplate(id: string, payload: SourceTemplateDraft & { note?: string }) {
+  return request.put<SourceTemplate>({
+    url: `${BASE}/templates/${encodeURIComponent(id)}`,
+    data: payload
+  })
 }
 
 export function setSourceTemplateStatus(

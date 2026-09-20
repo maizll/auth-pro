@@ -75,7 +75,7 @@
     { path: '/developer-panel/plugins', title: '我的插件', icon: 'ri:puzzle-2-line' },
     { path: '/developer-panel/templates', title: '我的模板', icon: 'ri:layout-3-line' },
     { path: '/developer-panel/ads', title: '申请广告', icon: 'ri:advertisement-line' },
-    { path: '/developer-panel/guide', title: '接入说明', icon: 'ri:book-open-line' }
+    { path: '/developer-panel/guide', title: '开发文档', icon: 'ri:book-open-line' }
   ]
   const titleMap: Record<string, string> = Object.fromEntries(
     menuItems.map((item) => [item.path, item.title])

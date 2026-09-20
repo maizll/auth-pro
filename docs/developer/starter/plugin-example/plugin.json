@@ -1,4 +1,5 @@
 {
+  "kind": "plugin",
   "id": "demo-widget",
   "name": "演示插件",
   "version": "1.0.0",

@@ -30,19 +30,28 @@ type pluginSourceRecord struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+type remotePluginEntry struct {
+	ID          string         `json:"id"`
+	Category    string         `json:"category"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Icon        string         `json:"icon"`
+	Version     string         `json:"version"`
+	Author      templateAuthor `json:"author"`
+	DownloadURL string         `json:"downloadUrl"`
+}
+
 type remotePluginIndex struct {
-	Name          string            `json:"name"`
-	HomeTemplates []json.RawMessage `json:"homeTemplates"`
-	Plugins       []struct {
-		ID          string         `json:"id"`
-		Category    string         `json:"category"`
-		Name        string         `json:"name"`
-		Description string         `json:"description"`
-		Icon        string         `json:"icon"`
-		Version     string         `json:"version"`
-		Author      templateAuthor `json:"author"`
-		DownloadURL string         `json:"downloadUrl"`
-	} `json:"plugins"`
+	Name          string                  `json:"name"`
+	HomeTemplates []json.RawMessage       `json:"homeTemplates"`
+	Categories    []sourceCatalogCategory `json:"categories"`
+	Plugins       []remotePluginEntry     `json:"plugins"`
+}
+
+type categoryGroup struct {
+	Category string       `json:"category"`
+	Title    string       `json:"title"`
+	Plugins  []pluginInfo `json:"plugins"`
 }
 
 type cachedPluginSource struct {
@@ -221,6 +230,7 @@ func AdminPluginList(c *gin.Context) {
 	}
 	remote := make([]pluginInfo, 0)
 	sourceOK := make(map[int64]bool)
+	indexes := make([]*remotePluginIndex, 0)
 	if sourceFilter != "local" {
 		for _, source := range sources {
 			if sourceFilter != "" && sourceFilter != fmt.Sprintf("%d", source.ID) {
@@ -232,6 +242,7 @@ func AdminPluginList(c *gin.Context) {
 				continue
 			}
 			sourceOK[source.ID] = loadErr == nil
+			indexes = append(indexes, index)
 			sourceName := source.Name
 			if sourceName == "" {
 				sourceName = index.Name
@@ -245,33 +256,14 @@ func AdminPluginList(c *gin.Context) {
 					icon = "ri:puzzle-line"
 				}
 				remote = append(remote, pluginInfo{
-					ID: item.ID, Category: normalizePluginCategory(item.Category), Name: item.Name,
+					ID: item.ID, Category: displayPluginCategory(item.Category), Name: item.Name,
 					Description: item.Description, Icon: icon, Version: item.Version,
 					Author: item.Author, Local: false, Remote: true, Source: sourceName, DownloadURL: item.DownloadURL,
 				})
 			}
 		}
 	}
-	match := func(plugin pluginInfo) bool {
-		return keyword == "" || strings.Contains(strings.ToLower(plugin.Name), keyword) ||
-			strings.Contains(strings.ToLower(plugin.Description), keyword) || strings.Contains(strings.ToLower(plugin.ID), keyword)
-	}
-	type categoryGroup struct {
-		Category string       `json:"category"`
-		Title    string       `json:"title"`
-		Plugins  []pluginInfo `json:"plugins"`
-	}
-	categories := []struct{ key, title string }{{"payment", "支付插件"}, {"realname", "实名认证服务商"}, {"other", "其他插件"}}
-	groups := make([]categoryGroup, 0, len(categories))
-	for _, category := range categories {
-		group := categoryGroup{Category: category.key, Title: category.title, Plugins: []pluginInfo{}}
-		for _, plugin := range append(append([]pluginInfo{}, local...), remote...) {
-			if normalizePluginCategory(plugin.Category) == category.key && match(plugin) {
-				group.Plugins = append(group.Plugins, plugin)
-			}
-		}
-		groups = append(groups, group)
-	}
+	groups := buildPluginStoreGroups(local, remote, indexes, keyword)
 	sourceStates := make([]gin.H, 0, len(sources))
 	for _, source := range sources {
 		state := "unknown"

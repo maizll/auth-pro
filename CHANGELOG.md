@@ -1,5 +1,12 @@
 # 更新日志
 
+## [源站] 2026-09-20 — 目录编辑、自定义分类商店筛选、模板 kind
+
+- 管理员可在软件目录对草稿/待审/已通过/已上架/已下架条目**编辑**元数据（名称、描述、分类、地址、sha256、作者、changelog、图标）；id/appId 创建后锁定。已上架编辑保持 published，写入 `metadata_edit` 审计。
+- 公开 `index.json` 的 `categories` 含内置 + extras。应用商店页签改为读取软件源分类，不再写死支付/实名/其他。自定义插件分类（产品复现：标识 `template`、名称「模板」、plugin.json）出现为独立筛选，条目留在 `plugins`。
+- **Breaking：** `template.json` 必须 `"kind": "template"`，缺省 category 自动绑定 `home-template`。plugin.json 写 kind=template、或模板使用支付/实名/其他，均拒绝。
+- 开发者面板「开发文档」按企业级章节重写，与 `docs/developer/`、starter、Skill、硬校验同步。
+
 ## [源站] 2026-09-20 — 开发者登记表单精简为中文傻瓜式
 
 - 开发者「登记插件 / 登记模板」默认只显示：应用、分类、名称、版本、下载/模板地址、校验码、简介。

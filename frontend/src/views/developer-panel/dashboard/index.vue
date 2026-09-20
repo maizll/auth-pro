@@ -14,7 +14,7 @@
             <el-button @click="router.push('/developer-panel/templates?create=1')">登记模板</el-button>
             <el-button @click="router.push('/developer-panel/ads')">申请广告</el-button>
             <el-button text type="primary" @click="router.push('/developer-panel/guide')">
-              接入说明
+              开发文档
             </el-button>
           </div>
         </div>

@@ -72,6 +72,7 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 
 		admin.GET("/plugins", AdminSourcePlugins)
 		admin.PUT("/plugins", AdminSourceRegisterPlugin)
+		admin.PUT("/plugins/:id", AdminSourceUpdatePlugin)
 		admin.POST("/plugins/:id/approve", AdminSourcePluginApprove)
 		admin.POST("/plugins/:id/reject", AdminSourcePluginReject)
 		admin.POST("/plugins/:id/shelf", AdminSourcePluginShelf)
@@ -86,6 +87,7 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 
 		admin.GET("/templates", AdminSourceTemplates)
 		admin.PUT("/templates", AdminSourceRegisterTemplate)
+		admin.PUT("/templates/:id", AdminSourceUpdateTemplate)
 		admin.POST("/templates/:id/approve", AdminSourceTemplateApprove)
 		admin.POST("/templates/:id/reject", AdminSourceTemplateReject)
 		admin.POST("/templates/:id/shelf", AdminSourceTemplateShelf)

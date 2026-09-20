@@ -201,4 +201,10 @@ func TestSourceDeveloperStarterPackAndSkill(t *testing.T) {
 	if _, ok := found["docs/plugin-package.md"]; !ok {
 		t.Fatal("starter zip missing plugin docs")
 	}
+	if !bytes.Contains(templateJSON, []byte(`"kind"`)) || !bytes.Contains(templateJSON, []byte("template")) {
+		t.Fatalf("starter template.json must declare kind=template: %s", templateJSON)
+	}
+	if doc, ok := found["docs/template-package.md"]; !ok || !bytes.Contains(doc, []byte("kind")) {
+		t.Fatal("starter template docs must document kind")
+	}
 }

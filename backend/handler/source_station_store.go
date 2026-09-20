@@ -229,11 +229,13 @@ type sourceStationStore interface {
 	ListPlugins(status string) ([]sourcePlugin, error)
 	GetPlugin(id string) (sourcePlugin, error)
 	UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourcePlugin, error)
+	UpdatePluginMetadata(id string, patch sourcePlugin, actor, note string) (sourcePlugin, error)
 	SetPluginStatus(id, status, actor, note string) (sourcePlugin, error)
 
 	ListTemplates(status string) ([]sourceTemplate, error)
 	GetTemplate(id string) (sourceTemplate, error)
 	UpsertTemplate(item sourceTemplate, asAdmin bool) (sourceTemplate, error)
+	UpdateTemplateMetadata(id string, patch sourceTemplate, actor, note string) (sourceTemplate, error)
 	SetTemplateStatus(id, status, actor, note string) (sourceTemplate, error)
 
 	ListVersions(kind, itemID string) ([]sourceRelease, error)
@@ -308,6 +310,74 @@ func sourceContentSHA256(payload []byte) string {
 
 func sourceItemReady(sha256Value, location string) bool {
 	return sha256HexPattern.MatchString(strings.TrimSpace(sha256Value)) && strings.TrimSpace(location) != ""
+}
+
+func catalogMetadataEditNote(note string) string {
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return "管理员编辑目录元数据（保持原状态）"
+	}
+	return truncateText(note, 500)
+}
+
+func applyPluginMetadataPatch(existing, patch sourcePlugin) sourcePlugin {
+	item := existing
+	if name := strings.TrimSpace(patch.Name); name != "" {
+		item.Name = name
+	}
+	item.Description = patch.Description
+	if category := strings.TrimSpace(patch.Category); category != "" {
+		item.Category = category
+	}
+	if icon := strings.TrimSpace(patch.Icon); icon != "" {
+		item.Icon = icon
+	}
+	if version := strings.TrimSpace(patch.Version); version != "" {
+		item.Version = version
+	}
+	if url := strings.TrimSpace(patch.DownloadURL); url != "" {
+		item.DownloadURL = url
+	}
+	if sha := strings.TrimSpace(patch.SHA256); sha != "" {
+		item.SHA256 = sha
+	}
+	item.Changelog = patch.Changelog
+	item.MinVersion = patch.MinVersion
+	item.ForceUpdate = patch.ForceUpdate
+	if strings.TrimSpace(patch.Author.Name) != "" || strings.TrimSpace(patch.Author.URL) != "" || strings.TrimSpace(patch.Author.Email) != "" {
+		item.Author = patch.Author
+	}
+	return item
+}
+
+func applyTemplateMetadataPatch(existing, patch sourceTemplate) sourceTemplate {
+	item := existing
+	if name := strings.TrimSpace(patch.Name); name != "" {
+		item.Name = name
+	}
+	item.Description = patch.Description
+	if category := strings.TrimSpace(patch.Category); category != "" {
+		item.Category = category
+	}
+	if version := strings.TrimSpace(patch.Version); version != "" {
+		item.Version = version
+	}
+	if url := strings.TrimSpace(patch.TemplateURL); url != "" {
+		item.TemplateURL = url
+	}
+	if sha := strings.TrimSpace(patch.SHA256); sha != "" {
+		item.SHA256 = sha
+	}
+	item.Changelog = patch.Changelog
+	item.MinVersion = patch.MinVersion
+	item.ForceUpdate = patch.ForceUpdate
+	if patch.SchemaVersion != 0 {
+		item.SchemaVersion = patch.SchemaVersion
+	}
+	if strings.TrimSpace(patch.Author.Name) != "" || strings.TrimSpace(patch.Author.URL) != "" || strings.TrimSpace(patch.Author.Email) != "" {
+		item.Author = patch.Author
+	}
+	return item
 }
 
 func sourceCatalogAuditAction(status string) string {
@@ -572,6 +642,23 @@ func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) 
 	return store.plugins[plugin.ID], nil
 }
 
+func (store *memorySourceStore) UpdatePluginMetadata(id string, patch sourcePlugin, actor, note string) (sourcePlugin, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	existing, ok := store.plugins[id]
+	if !ok {
+		return sourcePlugin{}, errSourceNotFound
+	}
+	item := applyPluginMetadataPatch(existing, patch)
+	if item.Status == sourceItemPublished && !sourceItemReady(item.SHA256, item.DownloadURL) {
+		return sourcePlugin{}, errSourcePublishIncomplete
+	}
+	item.UpdatedAt = time.Now().UTC()
+	store.plugins[id] = item
+	store.auditLocked("metadata_edit", "plugin", id, actor, catalogMetadataEditNote(note))
+	return item, nil
+}
+
 func (store *memorySourceStore) SetPluginStatus(id, status, actor, note string) (sourcePlugin, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -703,6 +790,23 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 		}
 	}
 	return store.templates[item.ID], nil
+}
+
+func (store *memorySourceStore) UpdateTemplateMetadata(id string, patch sourceTemplate, actor, note string) (sourceTemplate, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	existing, ok := store.templates[id]
+	if !ok {
+		return sourceTemplate{}, errSourceNotFound
+	}
+	item := applyTemplateMetadataPatch(existing, patch)
+	if item.Status == sourceItemPublished && !sourceItemReady(item.SHA256, item.TemplateURL) {
+		return sourceTemplate{}, errSourcePublishIncomplete
+	}
+	item.UpdatedAt = time.Now().UTC()
+	store.templates[id] = item
+	store.auditLocked("metadata_edit", "template", id, actor, catalogMetadataEditNote(note))
+	return item, nil
 }
 
 func (store *memorySourceStore) SetTemplateStatus(id, status, actor, note string) (sourceTemplate, error) {
@@ -1635,6 +1739,35 @@ func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourceP
 	return (mysqlSourceStore{}).GetPlugin(plugin.ID)
 }
 
+func (mysqlSourceStore) UpdatePluginMetadata(id string, patch sourcePlugin, actor, note string) (sourcePlugin, error) {
+	existing, err := (mysqlSourceStore{}).GetPlugin(id)
+	if err != nil {
+		return sourcePlugin{}, err
+	}
+	item := applyPluginMetadataPatch(existing, patch)
+	if item.Status == sourceItemPublished && !sourceItemReady(item.SHA256, item.DownloadURL) {
+		return sourcePlugin{}, errSourcePublishIncomplete
+	}
+	db, err := config.DB()
+	if err != nil {
+		return sourcePlugin{}, err
+	}
+	forceUpdate := 0
+	if item.ForceUpdate {
+		forceUpdate = 1
+	}
+	if _, err := db.Exec(`UPDATE source_catalog_plugins SET category=?, name=?, description=?, icon=?, version=?,
+		sha256=?, download_url=?, changelog=?, min_version=?, force_update=?,
+		author_name=?, author_url=?, author_email=? WHERE id=?`,
+		item.Category, item.Name, item.Description, item.Icon, item.Version,
+		item.SHA256, item.DownloadURL, item.Changelog, item.MinVersion, forceUpdate,
+		item.Author.Name, item.Author.URL, item.Author.Email, id); err != nil {
+		return sourcePlugin{}, err
+	}
+	mysqlAppendAudit(db, "metadata_edit", "plugin", id, actor, catalogMetadataEditNote(note))
+	return (mysqlSourceStore{}).GetPlugin(id)
+}
+
 func (mysqlSourceStore) SetPluginStatus(id, status, actor, note string) (sourcePlugin, error) {
 	item, err := (mysqlSourceStore{}).GetPlugin(id)
 	if err != nil {
@@ -1834,6 +1967,35 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 		}
 	}
 	return (mysqlSourceStore{}).GetTemplate(item.ID)
+}
+
+func (mysqlSourceStore) UpdateTemplateMetadata(id string, patch sourceTemplate, actor, note string) (sourceTemplate, error) {
+	existing, err := (mysqlSourceStore{}).GetTemplate(id)
+	if err != nil {
+		return sourceTemplate{}, err
+	}
+	item := applyTemplateMetadataPatch(existing, patch)
+	if item.Status == sourceItemPublished && !sourceItemReady(item.SHA256, item.TemplateURL) {
+		return sourceTemplate{}, errSourcePublishIncomplete
+	}
+	db, err := config.DB()
+	if err != nil {
+		return sourceTemplate{}, err
+	}
+	forceUpdate := 0
+	if item.ForceUpdate {
+		forceUpdate = 1
+	}
+	if _, err := db.Exec(`UPDATE source_catalog_templates SET category=?, name=?, description=?, version=?,
+		schema_version=?, sha256=?, template_url=?, changelog=?, min_version=?, force_update=?,
+		author_name=?, author_url=?, author_email=? WHERE id=?`,
+		item.Category, item.Name, item.Description, item.Version,
+		item.SchemaVersion, item.SHA256, item.TemplateURL, item.Changelog, item.MinVersion, forceUpdate,
+		item.Author.Name, item.Author.URL, item.Author.Email, id); err != nil {
+		return sourceTemplate{}, err
+	}
+	mysqlAppendAudit(db, "metadata_edit", "template", id, actor, catalogMetadataEditNote(note))
+	return (mysqlSourceStore{}).GetTemplate(id)
 }
 
 func (mysqlSourceStore) SetTemplateStatus(id, status, actor, note string) (sourceTemplate, error) {

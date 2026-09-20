@@ -95,6 +95,36 @@ func AdminSourceRegisterPlugin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已登记外部插件地址（未上传源码）", "data": sourcePluginView(saved)})
 }
 
+func AdminSourceUpdatePlugin(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	existing, err := currentSourceStationStore().GetPlugin(id)
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	var req sourcePluginDraftRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+	req.ID = existing.ID
+	req.AppID = existing.AppID
+	plugin, err := adminPluginFromRequest(req)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	saved, err := currentSourceStationStore().UpdatePluginMetadata(existing.ID, plugin, c.GetString("username"), req.Note)
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	if saved.Status == sourceItemPublished {
+		persistIndexSnapshot(c.GetString("username"))
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已更新目录元数据（未改变审核状态）", "data": sourcePluginView(saved)})
+}
+
 func AdminSourcePluginApprove(c *gin.Context) {
 	adminSetPluginStatus(c, sourceItemApproved, "已通过插件审核")
 }
@@ -169,6 +199,37 @@ func AdminSourceRegisterTemplate(c *gin.Context) {
 		persistIndexSnapshot(c.GetString("username"))
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已登记外部模板地址（未上传源码）", "data": sourceTemplateView(saved)})
+}
+
+func AdminSourceUpdateTemplate(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	existing, err := currentSourceStationStore().GetTemplate(id)
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	var req sourceTemplateDraftRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+	req.ID = existing.ID
+	req.TemplateKey = existing.TemplateKey
+	req.AppID = existing.AppID
+	item, err := adminTemplateFromRequest(req)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	saved, err := currentSourceStationStore().UpdateTemplateMetadata(existing.ID, item, c.GetString("username"), req.Note)
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	if saved.Status == sourceItemPublished {
+		persistIndexSnapshot(c.GetString("username"))
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已更新目录元数据（未改变审核状态）", "data": sourceTemplateView(saved)})
 }
 
 func AdminSourceTemplateApprove(c *gin.Context) {

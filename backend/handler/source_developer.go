@@ -30,6 +30,7 @@ type sourcePluginDraftRequest struct {
 	ForceUpdate bool         `json:"forceUpdate"`
 	Author      sourceAuthor `json:"author"`
 	Shelf       bool         `json:"shelf"`
+	Note        string       `json:"note"`
 }
 
 type sourceTemplateDraftRequest struct {
@@ -48,6 +49,7 @@ type sourceTemplateDraftRequest struct {
 	ForceUpdate   bool         `json:"forceUpdate"`
 	Author        sourceAuthor `json:"author"`
 	Shelf         bool         `json:"shelf"`
+	Note          string       `json:"note"`
 }
 
 type sourceReleaseDraftRequest struct {
