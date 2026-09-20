@@ -145,6 +145,30 @@ export const staticRoutes: AppRouteRecordRaw[] = [
         name: 'DeveloperPanelDashboard',
         component: () => import('@views/developer-panel/dashboard/index.vue'),
         meta: { title: '概览' }
+      },
+      {
+        path: 'plugins',
+        name: 'DeveloperPanelPlugins',
+        component: () => import('@views/developer-panel/plugins/index.vue'),
+        meta: { title: '我的插件' }
+      },
+      {
+        path: 'templates',
+        name: 'DeveloperPanelTemplates',
+        component: () => import('@views/developer-panel/templates/index.vue'),
+        meta: { title: '我的模板' }
+      },
+      {
+        path: 'ads',
+        name: 'DeveloperPanelAds',
+        component: () => import('@views/developer-panel/ads/index.vue'),
+        meta: { title: '申请广告' }
+      },
+      {
+        path: 'guide',
+        name: 'DeveloperPanelGuide',
+        component: () => import('@views/developer-panel/guide/index.vue'),
+        meta: { title: '接入说明' }
       }
     ]
   },

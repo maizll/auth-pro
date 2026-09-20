@@ -1,0 +1,15 @@
+{
+  "id": "demo-home",
+  "templateKey": "demo-home",
+  "name": "演示首页",
+  "version": "1.0.0",
+  "description": "AuthPro 源站开发者入门示例首页模板。",
+  "schemaVersion": 1,
+  "author": {
+    "name": "示例作者"
+  },
+  "category": "home-template",
+  "hero": {
+    "title": "专业授权服务"
+  }
+}

@@ -911,6 +911,28 @@ CREATE TABLE `source_advertisements` (
   KEY `idx_source_advertisement_position` (`position`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='本站广告投放';
 
+DROP TABLE IF EXISTS `source_ad_applications`;
+CREATE TABLE `source_ad_applications` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `developer_id` BIGINT UNSIGNED NOT NULL,
+  `app_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `title` VARCHAR(120) NOT NULL DEFAULT '',
+  `image_url` VARCHAR(500) NOT NULL DEFAULT '',
+  `link_url` VARCHAR(500) NOT NULL DEFAULT '',
+  `positions` VARCHAR(200) NOT NULL DEFAULT '',
+  `note` VARCHAR(500) NOT NULL DEFAULT '',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'pending',
+  `review_note` VARCHAR(500) NOT NULL DEFAULT '',
+  `reviewed_by` VARCHAR(50) NOT NULL DEFAULT '',
+  `reviewed_at` DATETIME DEFAULT NULL,
+  `advertisement_id` VARCHAR(60) NOT NULL DEFAULT '',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_source_ad_application_developer` (`developer_id`, `status`),
+  KEY `idx_source_ad_application_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='开发者广告投放申请';
+
 DROP TABLE IF EXISTS `source_audit_logs`;
 CREATE TABLE `source_audit_logs` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
