@@ -11,8 +11,9 @@ import { sourceStationRoutes } from './source-station'
 import { customerServiceRoutes } from './customer-service'
 
 /**
- * 导出所有模块化路由
- * 顺序按运营工作流：高频办理 → 源站 → 风控客服 → 接入与系统
+ * 导出模块化路由（组件注册）。
+ * 产品侧栏的顺序/标题/显隐以后端菜单为准（VITE_ACCESS_MODE=backend）。
+ * 本数组顺序仅在 frontend 演示模式下影响侧栏。
  */
 export const routeModules: AppRouteRecord[] = [
   dashboardRoutes,

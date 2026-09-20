@@ -1,5 +1,12 @@
 # 更新日志
 
+## [后台] 2026-09-20 — 侧栏以菜单管理为唯一来源
+
+- 默认 `VITE_ACCESS_MODE=backend`（`.env` / `.env.production` / 开发环境）。侧栏树来自 `GET /api/system/menus`，「系统 → 菜单管理」改标题或排序后刷新即可生效。
+- 菜单种子与启动 upsert 对齐当前工作流：授权 → 代理 → 源站 → 风控 → 客户服务 → 接入开发 → 系统。补齐源站、套餐、工单、应用商店、在线更新等产品页；按 `menus.name` 幂等写入，不重复插行。
+- Result / Exception 等模板演示路由默认隐藏，仍可在菜单管理中看到。
+- 改产品导航请走后台菜单，不要再改 `frontend/src/router/modules` 的顺序/标题。该目录只负责注册页面组件。本地对照模板演示可在 `.env.development` 临时设 `frontend`。
+
 ## [Unreleased] 1.4.1 prep — 发布面冻结与单一前端根
 
 - 在线更新默认源改为 GitHub `maizll/auth-pro` Releases（`latest.json` / 标签附件）。仓库默认、构建脚本与 `.github/workflows/release.yml` 不再指向 `Zcy-sa/auth-pro`（Gitee）或 `cy70923167/auth_pro`。不删除历史 Release，不 force-push 标签。

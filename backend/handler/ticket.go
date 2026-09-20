@@ -882,14 +882,6 @@ func queueTicketMail(ticketID int64, notifyCreator bool) {
 	}()
 }
 
-// ensureTicketMenu 清理旧版注册到菜单表的工单菜单。
-// 「工单管理」已改为前端内置一级菜单（固定显示在在线更新下方），不再走菜单表驱动，
-// 避免重复显示；此处幂等删除历史行，保持菜单表干净。
-func ensureTicketMenu(db *sql.DB) {
-	var menuID int64
-	if err := db.QueryRow("SELECT id FROM menus WHERE name = 'TicketManage' LIMIT 1").Scan(&menuID); err != nil || menuID == 0 {
-		return
-	}
-	_, _ = db.Exec("DELETE FROM role_menus WHERE menu_id = ?", menuID)
-	_, _ = db.Exec("DELETE FROM menus WHERE id = ?", menuID)
-}
+// ensureTicketMenu 工单已纳入产品菜单种子（客户服务 → TicketManage）。
+// 保留空实现以免旧调用再把菜单删掉，导致后端模式下侧栏丢失工单。
+func ensureTicketMenu(db *sql.DB) {}

@@ -104,6 +104,8 @@ pnpm dev
 3. 创建管理员账号。
 4. 进入后台管理系统。
 
+**侧栏导航以「系统 → 菜单管理」为准。** 生产与默认构建使用 `VITE_ACCESS_MODE=backend`，侧栏树来自 `GET /api/system/menus`。改标题、排序、显隐请在后台改菜单，不要再改 `frontend/src/router/modules` 来调整产品信息架构。`router/modules` 仍只负责注册页面组件。本地对照 Art Design Pro 模板演示时，可在 `frontend/.env.development` 临时设 `VITE_ACCESS_MODE=frontend`。
+
 ## 首页模板与软件源
 
 管理后台的“应用商店”提供“首页模板”分区。管理员可以在“软件源管理”中添加以下两类 HTTP(S) 地址：
@@ -264,6 +266,7 @@ releases.json
 | `AUTO_PRO_SOFTWARE_SOURCE_STALE_TTL` | 最后成功目录快照最大降级时间 | `24h` |
 | `AUTO_PRO_ADVERTISEMENT_URL` | 广告投放接口；相对路径走本进程，http(s) 才代理外网 | `/api/v1/public/advertisements` |
 | `VITE_API_PROXY_URL`  | 前端开发代理目标地址                             | `http://localhost:19127`                                                      |
+| `VITE_ACCESS_MODE`    | 管理后台权限/侧栏来源。`backend`：菜单 API +「菜单管理」；`frontend`：仅本地模板演示 | `backend` |
 
 ## API 入口
 

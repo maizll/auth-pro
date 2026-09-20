@@ -65,7 +65,7 @@ export class MenuProcessor {
 
   /**
    * 追加系统内置菜单
-   * 工单归入「客户服务」，不依赖菜单表配置
+   * 工单默认来自后端「客户服务」菜单；仅当菜单表尚未同步时兜底插入，避免重复。
    */
   private appendBuiltinMenus(menus: AppRouteRecord[]): void {
     if (this.hasMenu(menus, 'TicketManage')) return
