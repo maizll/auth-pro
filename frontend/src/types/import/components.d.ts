@@ -49,8 +49,6 @@ declare module 'vue' {
     ArtNotification: typeof import('./../../components/core/layouts/art-notification/index.vue')['default']
     ArtPageContent: typeof import('./../../components/core/layouts/art-page-content/index.vue')['default']
     ArtProgressCard: typeof import('./../../components/core/cards/art-progress-card/index.vue')['default']
-    ArtPromotionBoard: typeof import('./../../components/core/banners/art-promotion-board/index.vue')['default']
-    ArtPromotionMarquee: typeof import('./../../components/core/banners/art-promotion-marquee/index.vue')['default']
     ArtRadarChart: typeof import('./../../components/core/charts/art-radar-chart/index.vue')['default']
     ArtResultPage: typeof import('./../../components/core/views/result/ArtResultPage.vue')['default']
     ArtRingChart: typeof import('./../../components/core/charts/art-ring-chart/index.vue')['default']

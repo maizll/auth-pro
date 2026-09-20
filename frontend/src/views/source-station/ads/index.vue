@@ -6,7 +6,7 @@
           <div>
             <span class="card-title">广告位招租占位</span>
             <p class="card-hint">
-              跑马灯 / 九宫格空位会用这段文案补齐。跳转留空则不可点击，不会跳到外部链接。
+              客户端广告位无投放时会用这段文案补齐。跳转留空则不可点击，不会跳到外部链接。
             </p>
           </div>
           <el-button type="primary" :loading="savingPlaceholder" @click="handleSavePlaceholder">
@@ -44,7 +44,7 @@
           <div>
             <span class="card-title">广告投放（共 {{ tableData.length }} 条）</span>
             <p class="card-hint"
-              >可上传本站图片或粘贴外部 https:// 地址。广告位可多选：工作台跑马灯（home-banner）/ 侧栏（sidebar）/ 弹窗（popup），同一条会同时出现在所选位置。</p
+              >可上传本站图片或粘贴外部 https:// 地址。广告位可多选：首页横幅（home-banner）/ 侧栏（sidebar）/ 弹窗（popup）。这些广告面向客户端，不会出现在管理后台。</p
             >
           </div>
           <el-button type="primary" @click="openEdit()">新增广告</el-button>

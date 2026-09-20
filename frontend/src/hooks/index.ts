@@ -31,12 +31,9 @@ export { useChart, useChartComponent, useChartOps } from './core/useChart'
 // 布局高度
 export { useLayoutHeight, useAutoLayoutHeight } from './core/useLayoutHeight'
 
-// 广告投放项行为
+// 广告投放项行为（客户端广告位链接解析）
 export { usePromotion } from './core/usePromotion'
 export type { PromotionLink } from './core/usePromotion'
 
-// 广告位投放内容拉取
+// 广告位投放内容拉取（客户端面板使用）
 export { useAdvertisement } from './core/useAdvertisement'
-
-// 广告接口记录转推广组件投放项
-export { usePromotionAds, usePromotionAdPages } from './core/usePromotionAds'

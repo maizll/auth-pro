@@ -1,11 +1,5 @@
 <template>
   <div class="plugin-store">
-    <ArtPromotionMarquee
-      :items="promotionItems"
-      subtitle="来自软件源的插件与增值服务"
-      height="200px"
-    />
-
     <ElCard shadow="never" class="art-table-card">
       <div class="store-header">
         <div>
@@ -304,7 +298,6 @@
     PluginInfo,
     PluginSource
   } from '@/api/system-manage'
-  import { usePromotionAds } from '@/hooks'
 
   defineOptions({ name: 'PluginStore' })
 
@@ -318,8 +311,6 @@
   const categories = ref<PluginCategoryGroup[]>([])
   const sources = ref<PluginSource[]>([])
   const homeTemplates = ref<HomeTemplateInfo[]>([])
-  // 精选推荐接入后端广告代理接口（home-banner 位），含招租占位与失败降级
-  const { items: promotionItems } = usePromotionAds('home-banner')
 
   const activeTab = ref('all')
   const searchText = ref('')

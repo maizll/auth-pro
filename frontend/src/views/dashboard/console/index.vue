@@ -1,8 +1,5 @@
 <template>
   <div class="admin-dashboard">
-    <!-- 工作台跑马灯：home-banner -->
-    <ArtPromotionMarquee :items="topAdItems" subtitle="来自软件源的插件与增值服务" height="200px" />
-
     <ElRow :gutter="16" class="card-row">
       <ElCol v-for="item in overview.cards" :key="item.title" :xs="12" :sm="8" :lg="4">
         <div class="art-card stat-card">
@@ -30,7 +27,7 @@
     </ElRow>
 
     <ElRow :gutter="16" class="trend-status-row">
-      <ElCol :xs="24" :lg="16" class="trend-status-col">
+      <ElCol :xs="24" class="trend-status-col">
         <div class="art-card panel-card trend-panel">
           <div class="panel-header trend-header">
             <div>
@@ -71,10 +68,6 @@
             </div>
           </div>
         </div>
-      </ElCol>
-
-      <ElCol :xs="24" :lg="8" class="trend-status-col">
-        <ArtPromotionBoard :pages="promotionPages" subtitle="来自软件源的扩展与增值服务" />
       </ElCol>
     </ElRow>
 
@@ -241,13 +234,8 @@
     fetchAdminDashboardTrend,
     fetchAdminDashboardUserMetrics
   } from '@/api/dashboard'
-  import { usePromotionAds, usePromotionAdPages } from '@/hooks'
 
   defineOptions({ name: 'Console' })
-
-  // 工作台跑马灯 = home-banner；侧栏九宫格 = sidebar；弹窗由管理壳 ArtAdPopup 读 popup
-  const { items: topAdItems } = usePromotionAds('home-banner')
-  const { pages: promotionPages } = usePromotionAdPages('sidebar', 9)
 
   const overview = reactive<AdminDashboardOverview>({
     cards: [],
@@ -259,8 +247,7 @@
     paymentMethods: [],
     agentMetrics: [],
     userMetrics: [],
-    appMetrics: [],
-    promotions: []
+    appMetrics: []
   })
 
   const trendDates = computed(() => overview.trend.map((item) => item.date))
