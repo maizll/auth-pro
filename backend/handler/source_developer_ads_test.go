@@ -128,6 +128,16 @@ func TestSourceDeveloperAdApplicationValidationAndIsolation(t *testing.T) {
 	if sourceBodyCode(t, badURL) != 400 {
 		t.Fatalf("bad link=%s", badURL.Body.String())
 	}
+	badImage := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/ad-applications", alice,
+		`{"title":"非法图片","positions":["sidebar"],"imageUrl":"http://insecure.example/ad.png"}`)
+	if sourceBodyCode(t, badImage) != 400 || !strings.Contains(badImage.Body.String(), "支持本地上传或 https 外链") {
+		t.Fatalf("http image must stay rejected with Chinese hint: %s", badImage.Body.String())
+	}
+	junkImage := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/ad-applications", alice,
+		`{"title":"垃圾图片","positions":["sidebar"],"imageUrl":"/tmp/ad.png"}`)
+	if sourceBodyCode(t, junkImage) != 400 || !strings.Contains(junkImage.Body.String(), "支持本地上传或 https 外链") {
+		t.Fatalf("junk image path must be rejected: %s", junkImage.Body.String())
+	}
 
 	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/ad-applications", alice,
 		`{"title":"Alice 广告","positions":["sidebar"]}`); sourceBodyCode(t, rec) != 200 {
@@ -141,6 +151,67 @@ func TestSourceDeveloperAdApplicationValidationAndIsolation(t *testing.T) {
 	aliceList := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/ad-applications", alice, "")
 	if sourceBodyCode(t, aliceList) != 200 || !strings.Contains(aliceList.Body.String(), "Alice 广告") || strings.Contains(aliceList.Body.String(), "Bob 广告") {
 		t.Fatalf("alice must only see own applications: %s", aliceList.Body.String())
+	}
+}
+
+func advertisementTestPNG() []byte {
+	return []byte{
+		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+		0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+		0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89,
+		0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54,
+		0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01,
+		0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00,
+		0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+	}
+}
+
+func TestSourceDeveloperAdvertisementImageUploadRequiresAuth(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	router, _ := sourceStationRouter(t)
+	_, dev, _ := sourceApproveDeveloper(t, router, "dev-ad-img", "secret1")
+	png := advertisementTestPNG()
+
+	anonymous := sourceMultipart(t, router, "/api/v1/source/developer/advertisements/image", "", "ad.png", png, nil)
+	if anonymous.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous upload http=%d body=%s", anonymous.Code, anonymous.Body.String())
+	}
+
+	uploaded := sourceMultipart(t, router, "/api/v1/source/developer/advertisements/image", dev, "ad.png", png, nil)
+	if sourceBodyCode(t, uploaded) != 200 || !strings.Contains(uploaded.Body.String(), advertisementPublicFilePath) {
+		t.Fatalf("developer upload=%s", uploaded.Body.String())
+	}
+}
+
+func TestSourceDeveloperAdApplicationAcceptsUploadedImageURL(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	router, _ := sourceStationRouter(t)
+	_, dev, _ := sourceApproveDeveloper(t, router, "dev-ad-upload", "secret1")
+
+	uploaded := sourceMultipart(t, router, "/api/v1/source/developer/advertisements/image", dev, "ad.png", advertisementTestPNG(), nil)
+	if sourceBodyCode(t, uploaded) != 200 {
+		t.Fatalf("upload=%s", uploaded.Body.String())
+	}
+	var body struct {
+		Data struct {
+			URL string `json:"url"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(uploaded.Body.Bytes(), &body); err != nil || !strings.HasPrefix(body.Data.URL, advertisementPublicFilePath) {
+		t.Fatalf("upload url missing: %s", uploaded.Body.String())
+	}
+
+	create := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/ad-applications", dev,
+		`{"title":"本地上传广告","positions":["home-banner"],"imageUrl":"`+body.Data.URL+`"}`)
+	if sourceBodyCode(t, create) != 200 || !strings.Contains(create.Body.String(), body.Data.URL) {
+		t.Fatalf("apply uploaded url=%s", create.Body.String())
+	}
+
+	httpsOK := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/ad-applications", dev,
+		`{"title":"外链广告","positions":["sidebar"],"imageUrl":"https://cdn.example.com/ok.png"}`)
+	if sourceBodyCode(t, httpsOK) != 200 {
+		t.Fatalf("https image must still work: %s", httpsOK.Body.String())
 	}
 }
 

@@ -47,7 +47,7 @@ func validateAdvertisementImageURL(raw string) error {
 	}
 	name, ok := advertisementImageNameFromURL(value)
 	if !ok {
-		return errors.New("广告图片地址不合法")
+		return errors.New("广告图片地址不合法，支持本地上传或 https 外链")
 	}
 	if _, err := os.Stat(filepath.Join(advertisementImageDir(), name)); err != nil {
 		return errors.New("广告图片不存在")
@@ -68,6 +68,18 @@ func advertisementImageNameFromURL(raw string) (string, bool) {
 }
 
 func AdminSourceAdvertisementImageUpload(c *gin.Context) {
+	writeAdvertisementImageUpload(c)
+}
+
+func SourceDeveloperAdvertisementImageUpload(c *gin.Context) {
+	if _, err := currentSourceDeveloper(c); err != nil {
+		writeCurrentSourceDeveloperError(c, err)
+		return
+	}
+	writeAdvertisementImageUpload(c)
+}
+
+func writeAdvertisementImageUpload(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请选择要上传的图片"})
