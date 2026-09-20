@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${1:-1.0.0}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VERSION_FILE="$ROOT_DIR/VERSION"
+DEFAULT_VERSION="1.4.0"
+if [[ -f "$VERSION_FILE" ]]; then
+  DEFAULT_VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
+fi
+VERSION="${1:-$DEFAULT_VERSION}"
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Version must match X.Y.Z: $VERSION" >&2
   exit 1
 fi
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 BACKEND_DIR="$ROOT_DIR/backend"
 DIST_NAME="auth_pro-full-v$VERSION"
@@ -16,9 +21,9 @@ PACKAGES_DIR="$RELEASE_ROOT/packages"
 PACKAGE_PATH="$PACKAGES_DIR/$DIST_NAME.tar.gz"
 LATEST_PATH="$PACKAGES_DIR/latest.json"
 RELEASES_PATH="$PACKAGES_DIR/releases.json"
-RELEASE_REPOSITORY="${AUTO_PRO_RELEASE_REPOSITORY:-Zcy-sa/auth-pro}"
-UPDATE_PACKAGE_BASE_URL="${AUTO_PRO_UPDATE_PACKAGE_BASE_URL:-https://gitee.com/$RELEASE_REPOSITORY/releases/download/v$VERSION}"
-UPDATE_RELEASES_URL="${AUTO_PRO_UPDATE_RELEASES_URL:-https://gitee.com/$RELEASE_REPOSITORY/releases/download/v$VERSION/releases.json}"
+RELEASE_REPOSITORY="${AUTO_PRO_RELEASE_REPOSITORY:-maizll/auth-pro}"
+UPDATE_PACKAGE_BASE_URL="${AUTO_PRO_UPDATE_PACKAGE_BASE_URL:-https://github.com/$RELEASE_REPOSITORY/releases/download/v$VERSION}"
+UPDATE_RELEASES_URL="${AUTO_PRO_UPDATE_RELEASES_URL:-https://github.com/$RELEASE_REPOSITORY/releases/download/v$VERSION/releases.json}"
 BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 LDFLAGS="-s -w -X auto_pro/config.AppVersion=$VERSION -X auto_pro/config.BuildTime=$BUILD_TIME"
 export GOCACHE="${GOCACHE:-$ROOT_DIR/.cache/go-build}"

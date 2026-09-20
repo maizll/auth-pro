@@ -140,8 +140,16 @@ func TestLoadDBConfigFromEnv(t *testing.T) {
 
 func TestDefaultUpdateManifestURL(t *testing.T) {
 	t.Setenv("AUTO_PRO_UPDATE_URL", "")
-	if got := GetUpdateManifestURL(); got != "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest" {
+	if got := GetUpdateManifestURL(); got != DefaultUpdateManifestURL {
 		t.Fatalf("GetUpdateManifestURL() = %q", got)
+	}
+	if !strings.Contains(DefaultUpdateManifestURL, "github.com") || !strings.Contains(DefaultUpdateManifestURL, "/maizll/auth-pro/") {
+		t.Fatalf("default update URL must point at GitHub maizll/auth-pro, got %q", DefaultUpdateManifestURL)
+	}
+	for _, banned := range []string{"Zcy-sa", "cy70923167", "gitee.com"} {
+		if strings.Contains(DefaultUpdateManifestURL, banned) {
+			t.Fatalf("default update URL still mentions %q: %s", banned, DefaultUpdateManifestURL)
+		}
 	}
 }
 
@@ -163,7 +171,7 @@ func TestResolveFrontendDirForWebsiteRoot(t *testing.T) {
 
 func TestGetUpdateManifestURL(t *testing.T) {
 	t.Setenv("AUTO_PRO_UPDATE_URL", "")
-	if got := GetUpdateManifestURL(); got != "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest" {
+	if got := GetUpdateManifestURL(); got != DefaultUpdateManifestURL {
 		t.Fatalf("GetUpdateManifestURL() = %q", got)
 	}
 
@@ -173,10 +181,86 @@ func TestGetUpdateManifestURL(t *testing.T) {
 	}
 }
 
+func TestAppVersionMatchesVERSIONFile(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "VERSION"))
+	if err != nil {
+		t.Fatalf("read VERSION: %v", err)
+	}
+	want := strings.TrimSpace(string(data))
+	if want == "" || want == "1.0.0" {
+		t.Fatalf("VERSION file must track the current product line, got %q", want)
+	}
+	if AppVersion != want {
+		t.Fatalf("AppVersion=%q, VERSION file=%q", AppVersion, want)
+	}
+	if !strings.HasPrefix(AppVersion, "1.4.") {
+		t.Fatalf("repo default AppVersion should be on the 1.4.x line, got %q", AppVersion)
+	}
+}
+
 func TestGetFrontendDirOverride(t *testing.T) {
 	frontendDir := t.TempDir()
 	t.Setenv("AUTO_PRO_FRONTEND_DIR", frontendDir)
 	if got := GetFrontendDir(); got != frontendDir {
 		t.Fatalf("GetFrontendDir() = %q, want %q", got, frontendDir)
+	}
+}
+
+func TestResolveFrontendRootRequiresConfiguredDisk(t *testing.T) {
+	t.Setenv("AUTO_PRO_ALLOW_EMBEDDED_FRONTEND", "1")
+	t.Setenv("AUTO_PRO_FRONTEND_DIR", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	if _, err := ResolveFrontendRoot(); err == nil {
+		t.Fatal("configured disk frontend must fail even when embed is opted in")
+	}
+}
+
+func TestResolveFrontendRootFailsLoudWithoutDiskOrEmbedOptIn(t *testing.T) {
+	t.Setenv("AUTO_PRO_ALLOW_EMBEDDED_FRONTEND", "")
+	t.Setenv("AUTO_PRO_FRONTEND_DIR", "")
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	if _, err := ResolveFrontendRoot(); err == nil {
+		t.Fatal("production path must not silently fall back to embed")
+	}
+}
+
+func TestResolveFrontendRootUsesDiskAndFingerprint(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html>ok</html>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "assets", "index-abc123.js"), []byte("js"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTO_PRO_FRONTEND_DIR", dir)
+	t.Setenv("AUTO_PRO_ALLOW_EMBEDDED_FRONTEND", "")
+	root, err := ResolveFrontendRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Mode != FrontendModeDisk || root.Dir != dir || root.ApplyDir != dir {
+		t.Fatalf("root = %+v", root)
+	}
+	if !strings.Contains(root.Fingerprint, "index.html:") || !strings.Contains(root.Fingerprint, "index-abc123.js") {
+		t.Fatalf("fingerprint = %q", root.Fingerprint)
+	}
+}
+
+func TestResolveFrontendRootEmbedOnlyWhenOptedIn(t *testing.T) {
+	t.Setenv("AUTO_PRO_FRONTEND_DIR", "")
+	t.Setenv("AUTO_PRO_ALLOW_EMBEDDED_FRONTEND", "1")
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	root, err := ResolveFrontendRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Mode != FrontendModeEmbed {
+		t.Fatalf("mode=%s dir=%s", root.Mode, root.Dir)
+	}
+	if root.ApplyDir == "" {
+		t.Fatal("embed mode still needs a disk apply target for updates")
 	}
 }

@@ -31,7 +31,7 @@ func validOnlineUpdateManifestForTest() *onlineUpdateManifest {
 			OS:       runtime.GOOS,
 			Arch:     runtime.GOARCH,
 			FileName: "auth_pro-full-v1.0.1.tar.gz",
-			URL:      "https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz",
+			URL:      "https://github.com/maizll/auth-pro/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz",
 			SHA256:   strings.Repeat("a", 64),
 			Size:     1024,
 		},
@@ -99,6 +99,15 @@ func TestValidateOnlineUpdateManifest(t *testing.T) {
 		}
 	})
 
+	t.Run("trusted Gitee package when update URL is Gitee", func(t *testing.T) {
+		t.Setenv("AUTO_PRO_UPDATE_URL", "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest")
+		manifest := validOnlineUpdateManifestForTest()
+		manifest.Package.URL = "https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz"
+		if err := validateOnlineUpdateManifest(manifest); err != nil {
+			t.Fatalf("explicit Gitee source should still trust that repo: %v", err)
+		}
+	})
+
 	t.Run("trusted GitHub package from this repository", func(t *testing.T) {
 		t.Setenv("AUTO_PRO_UPDATE_URL", "https://api.github.com/repos/maizll/auth-pro/releases/latest")
 		manifest := validOnlineUpdateManifestForTest()
@@ -124,7 +133,7 @@ func TestValidateOnlineUpdateManifest(t *testing.T) {
 		} else {
 			manifest.Package.Arch = "amd64"
 		}
-		if err := validateOnlineUpdateManifest(manifest); err == nil {
+		if err := onlineUpdateRuntimeCompatibility(runtime.GOOS, runtime.GOARCH, manifest); err == nil {
 			t.Fatal("incompatible architecture was accepted")
 		}
 	})

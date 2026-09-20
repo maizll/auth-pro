@@ -5,7 +5,7 @@
 ## 标准目录
 
 ```text
-auth_pro-full-v1.0.0.tar.gz
+auth_pro-full-v1.4.0.tar.gz
 ├── index.html
 ├── version.json
 ├── favicon.ico
@@ -44,18 +44,31 @@ auth_pro-full-v1.0.0.tar.gz
 
 这样浏览器请求 `/assets/index-xxxx.js` 时会命中真实文件，不会 fallback 到 `index.html`。
 
+**二进制只会从这个盘上目录提供前端。** 解压必须让 `index.html` 落在进程将解析到的根上（宝塔网站根，或 `AUTO_PRO_FRONTEND_DIR` / `data/frontend/current`）。缺文件时进程 **启动失败** 或对页面返回 **503 + 版本号**，不会静默改走 `go:embed static` 里的旧页。开发机引导才可设 `AUTO_PRO_ALLOW_EMBEDDED_FRONTEND=1`。启动日志会打印 `frontend root: mode=disk|embed` 以及 `index.html` 指纹 / 资源名。
+
+## 版本号单一信源
+
+仓库根目录 `VERSION`（当前 `1.4.0`）是产品线默认版本：
+
+- 后端 `auto_pro/config.AppVersion` 仓库默认与 `VERSION` 一致；`./scripts/build-release.sh` / `.ps1` 无参数时读该文件，并用 `-ldflags` 注入 `AppVersion` / `BuildTime`。
+- 前端 `VITE_VERSION` 与 `vite.config.ts` 的 `version.json` 同样对齐 `VERSION`；发布脚本会把参数版本写入 `VITE_VERSION`。
+- GitHub Actions 打 `vX.Y.Z` 标签时用 tag 注入，覆盖仓库默认。
+- 本地 `go build` 若忘记 `-ldflags`，二进制仍应报 `1.4.x`，不得静默显示 `1.0.0`。
+
 ## 构建命令
 
 macOS / Linux：
 
 ```bash
-./scripts/build-release.sh 1.0.0
+./scripts/build-release.sh          # 使用根目录 VERSION
+./scripts/build-release.sh 1.4.0
 ```
 
 Windows PowerShell：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1 -Version 1.0.0
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1 -Version 1.4.0
 ```
 
 输出文件固定为：
@@ -66,49 +79,35 @@ release/packages/latest.json
 release/packages/releases.json
 ```
 
-构建脚本只生成 `Linux amd64` 后端，版本参数必须匹配 `X.Y.Z`。`latest.json` 中记录平台、文件名、Gitee Release 下载地址、文件大小和 SHA256；`releases.json` 合并保留已有历史版本，并将上一版本标签到当前版本之间的 Git 提交标题自动记录到对应版本的 `notes`。首次发布会记录当前 Git 历史；无 Git 历史时才使用兜底说明。可通过 `AUTO_PRO_RELEASE_NOTES` 显式覆盖本次更新内容（JSON 字符串数组或按行分隔文本）。
+构建脚本只生成 `Linux amd64` 后端，版本参数必须匹配 `X.Y.Z`。`latest.json` 中记录平台、文件名、**GitHub** `maizll/auth-pro` Release 下载地址、文件大小和 SHA256；`releases.json` 合并保留已有历史版本，并将上一版本标签到当前版本之间的 Git 提交标题自动记录到对应版本的 `notes`。首次发布会记录当前 Git 历史；无 Git 历史时才使用兜底说明。可通过 `AUTO_PRO_RELEASE_NOTES` 显式覆盖本次更新内容（JSON 字符串数组或按行分隔文本）。
 
-## Gitee Release 发布
+## GitHub Release 发布（规范发布面）
 
-先创建具有仓库写入权限的 Gitee 私人令牌，再推送 `vX.Y.Z` tag 并执行发布脚本。
-
-macOS / Linux：
+推送 `vX.Y.Z` 标签后由 `.github/workflows/release.yml` 构建并上传。不要删除历史 Releases，也不要 force-push 标签。
 
 ```bash
-git tag v1.2.3
-git push origin v1.2.3
-read -rs GITEE_ACCESS_TOKEN && export GITEE_ACCESS_TOKEN
-./scripts/publish-gitee-release.sh 1.2.3
-unset GITEE_ACCESS_TOKEN
+git tag v1.4.0
+git push origin v1.4.0
 ```
 
-Windows PowerShell：
-
-```powershell
-git tag v1.2.3
-git push origin v1.2.3
-$env:GITEE_ACCESS_TOKEN = '<Gitee 私人令牌>'
-pwsh -NoProfile -File .\scripts\publish-gitee-release.ps1 -Version 1.2.3
-Remove-Item Env:GITEE_ACCESS_TOKEN
-```
-
-两个脚本行为等价，均支持 `--repository` / `-Repository`、`--remote` / `-Remote` 和 `--skip-tests` / `-SkipTests`。
-
-发布脚本会校验工作区、远程仓库和 tag，下载上一版本的 `releases.json`，执行构建与后端测试，然后创建 Gitee Release。每个 Release 必须包含：
+每个 Release 必须包含：
 
 ```text
-auth_pro-full-v1.2.3.tar.gz
+auth_pro-full-v1.4.0.tar.gz
 latest.json
 releases.json
 ```
 
-Gitee 不支持 GitHub 风格的 `/releases/latest/download/...` 地址，因此在线更新默认先读取最新 Release API，再定位 `latest.json` 附件：
+在线更新默认读取 GitHub 最新 Release，再定位 `latest.json` 附件：
 
 ```text
-https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest
+https://api.github.com/repos/maizll/auth-pro/releases/latest
+https://github.com/maizll/auth-pro/releases/latest/download/latest.json
 ```
 
-服务端可通过 `AUTO_PRO_UPDATE_URL` 指向自建 HTTPS 镜像清单。Gitee 默认源只信任指定仓库的 API、Release 路径及 Gitee 官方附件重定向目标。
+服务端可通过 `AUTO_PRO_UPDATE_URL` 指向自建 HTTPS 镜像清单。GitHub 默认源只信任 `maizll/auth-pro` 的 Release API / 附件路径及 GitHub 官方附件重定向目标。
+
+可选的 `scripts/publish-gitee-release.sh` / `.ps1` 只用于自建 Gitee **镜像**，必须显式传入 `--repository` / `-Repository`，避免误发到历史 fork。
 
 ## 完整性边界
 
