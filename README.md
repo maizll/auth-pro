@@ -230,14 +230,14 @@ https://github.com/maizll/auth-pro/releases/latest/download/latest.json
 当前发布和一键整包更新仅支持 `Linux amd64`。在本仓库推送严格语义版本 tag 后，由 `.github/workflows/release.yml` 出包（也可本地 `./scripts/build-release.sh`，默认读根目录 `VERSION`）：
 
 ```bash
-git tag v1.4.0
-git push origin v1.4.0
+git tag v1.4.1
+git push origin v1.4.1
 ```
 
 每个 Release 上传以下三个附件（**不要删除历史 Releases，不要 force-push 标签**）：
 
 ```text
-auth_pro-full-v1.4.0.tar.gz
+auth_pro-full-v1.4.1.tar.gz
 latest.json
 releases.json
 ```
@@ -248,7 +248,7 @@ releases.json
 
 当前更新包只校验文件大小和 SHA256；该机制可发现下载损坏，但如果仓库或 Release 发布权限被攻破，攻击者仍可同时替换更新包和 SHA256，不能替代离线数字签名。
 
-仓库根目录 `VERSION` 是产品线版本信源（当前 `1.4.0`）。发布时用 tag / `-ldflags` 注入 `auto_pro/config.AppVersion` 与前端 `VITE_VERSION`；未注入时仓库默认也是 `1.4.x`，不会静默显示 `1.0.0`。
+仓库根目录 `VERSION` 是产品线版本信源（当前 `1.4.1`）。发布时用 tag / `-ldflags` 注入 `auto_pro/config.AppVersion` 与前端 `VITE_VERSION`；未注入时仓库默认也是 `1.4.x`，不会静默显示 `1.0.0`。
 
 ## 重要配置
 
