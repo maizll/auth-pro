@@ -104,10 +104,9 @@
     return `${app.name}（${app.appKey}）`
   })
   const publicIndexUrl = computed(() => {
-    const key = selectedApp.value?.appKey
-    return key
-      ? `${window.location.origin}/software-source/${key}/index.json`
-      : `${window.location.origin}/software-source/{app_key}/index.json`
+    const app = selectedApp.value
+    const path = app?.indexUrl || (app?.appKey ? `/software-source/${app.appKey}/index.json` : '/software-source/{app_key}/index.json')
+    return `${window.location.origin}${path}`
   })
   const prettyLive = computed(() => JSON.stringify(indexData.value?.live || {}, null, 2))
   const snapshotTime = computed(() => {

@@ -535,9 +535,10 @@
     () => apps.value.find((item) => item.id === searchForm.appId) || null
   )
   const publicIndexPath = computed(() =>
-    selectedApp.value?.appKey
+    selectedApp.value?.indexUrl ||
+    (selectedApp.value?.appKey
       ? `/software-source/${selectedApp.value.appKey}/index.json`
-      : '/software-source/{app_key}/index.json'
+      : '/software-source/{app_key}/index.json')
   )
 
   function appLabel(app: SourceCatalogApp) {

@@ -325,7 +325,15 @@ export AUTO_PRO_ADVERTISEMENT_URL="https://ads.example.com/api/v1/public/adverti
 https://<host>/software-source/{app_key}/index.json
 ```
 
-等价写法：`https://<host>/software-source/index.json?app_key={app_key}`。兼容路径：`/auth-pro/{app_key}/index.json` 与 `/auth-pro/index.json?app_key=`。未带 `app_key` 的 `/software-source/index.json` 与 `/auth-pro/index.json` 返回空 `plugins` / `homeTemplates`，不会串应用。清单缓存由消费者侧完成（约 5 分钟，可手动刷新）；源站在上架/下架时从数据库重新生成公开目录。
+等价写法：`https://<host>/software-source/index.json?app_key={app_key}` 或 `?appKey=`。兼容路径：`/auth-pro/{app_key}/index.json`。未带应用标识的 `/software-source/index.json` 返回空目录，**不要**固化进 SDK。
+
+PHP SDK 生成配置时推荐：
+
+```php
+$pluginSourceIndexUrl = rtrim($origin, '/') . '/software-source/' . rawurlencode($appKey) . '/index.json';
+```
+
+完整契约见 [docs/software-source-client-url.md](./docs/software-source-client-url.md)。清单缓存由消费者侧完成（约 5 分钟，可手动刷新）；源站在上架/下架时从数据库重新生成公开目录。
 
 清单形状：
 

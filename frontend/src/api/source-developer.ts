@@ -53,6 +53,7 @@ export interface SourceDeveloperCatalogApp {
   appKey: string
   name: string
   enabled: boolean
+  indexUrl?: string
 }
 
 export interface SourceDeveloperItems {

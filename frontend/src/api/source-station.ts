@@ -41,6 +41,7 @@ export interface SourceCatalogApp {
   appKey: string
   name: string
   enabled: boolean
+  indexUrl?: string
 }
 
 export interface SourcePlugin {
@@ -156,6 +157,7 @@ export interface SourceIndexData {
   name: string
   appKey?: string
   appId?: number
+  indexUrl?: string
   pluginCount: number
   templateCount: number
   snapshot?: SourceIndexSnapshot

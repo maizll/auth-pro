@@ -234,6 +234,47 @@ func TestSourceDeveloperSubmitIsAppScoped(t *testing.T) {
 	}
 }
 
+func TestSourceStationPublicIndexURLForSDK(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	sha := sourceTestSHA256()
+	if rec := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
+		`{"appId":1,"id":"sdk-pay","name":"SDK支付","downloadUrl":"https://cdn.example.com/sdk.zip","sha256":"`+sha+`","shelf":true}`); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("register=%s", rec.Body.String())
+	}
+
+	wantPath := "/software-source/app-a/index.json"
+	for _, path := range []string{
+		wantPath,
+		"/software-source/index.json?app_key=app-a",
+		"/software-source/index.json?appKey=app-a",
+	} {
+		index := sourceJSON(t, router, http.MethodGet, path, "", "")
+		if index.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", path, index.Code, index.Body.String())
+		}
+		var manifest struct {
+			AppKey   string `json:"appKey"`
+			AppID    int64  `json:"appId"`
+			IndexURL string `json:"indexUrl"`
+		}
+		if err := json.Unmarshal(index.Body.Bytes(), &manifest); err != nil {
+			t.Fatal(err)
+		}
+		if manifest.AppKey != "app-a" || manifest.AppID != 1 || manifest.IndexURL != wantPath {
+			t.Fatalf("%s identity=%+v body=%s", path, manifest, index.Body.String())
+		}
+		if !strings.Contains(index.Body.String(), `"sdk-pay"`) {
+			t.Fatalf("%s missing plugin: %s", path, index.Body.String())
+		}
+	}
+
+	apps := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/apps", admin, "")
+	if sourceBodyCode(t, apps) != 200 || !strings.Contains(apps.Body.String(), `"indexUrl":"/software-source/app-a/index.json"`) {
+		t.Fatalf("admin apps missing indexUrl: %s", apps.Body.String())
+	}
+}
+
 func TestSourceAdminAppsList(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	admin := sourceAdminToken(t)

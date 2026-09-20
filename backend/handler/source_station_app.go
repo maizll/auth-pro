@@ -3,12 +3,32 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
+
+func sourceStationPublicIndexPath(appKey string) string {
+	appKey = strings.TrimSpace(appKey)
+	if appKey == "" {
+		return "/software-source/{app_key}/index.json"
+	}
+	return "/software-source/" + url.PathEscape(appKey) + "/index.json"
+}
+
+func resolvePublicCatalogAppKey(c *gin.Context) string {
+	appKey := strings.TrimSpace(c.Param("appKey"))
+	if appKey == "" {
+		appKey = strings.TrimSpace(c.Query("app_key"))
+	}
+	if appKey == "" {
+		appKey = strings.TrimSpace(c.Query("appKey"))
+	}
+	return appKey
+}
 
 func sortSourceCatalogApps(items []sourceCatalogApp) {
 	sort.SliceStable(items, func(i, j int) bool {
@@ -48,10 +68,7 @@ func requestSourceCatalogAppID(c *gin.Context) (int64, error) {
 }
 
 func resolvePublicCatalogApp(c *gin.Context) bool {
-	appKey := strings.TrimSpace(c.Param("appKey"))
-	if appKey == "" {
-		appKey = strings.TrimSpace(c.Query("app_key"))
-	}
+	appKey := resolvePublicCatalogAppKey(c)
 	if appKey == "" {
 		return false
 	}
@@ -69,7 +86,8 @@ func resolvePublicCatalogApp(c *gin.Context) bool {
 		c.Header("Cache-Control", "no-store")
 		c.JSON(http.StatusOK, gin.H{
 			"name": sourceStationSourceName, "appKey": app.AppKey, "appId": app.ID,
-			"plugins": []any{}, "homeTemplates": []any{},
+			"indexUrl": sourceStationPublicIndexPath(app.AppKey),
+			"plugins":  []any{}, "homeTemplates": []any{},
 		})
 		return true
 	}
@@ -111,7 +129,8 @@ func sourceCatalogJSONForApp(app sourceCatalogApp) ([]byte, ginHCatalog, error) 
 	}
 	catalog := ginHCatalog{
 		Name: sourceStationSourceName, AppKey: app.AppKey, AppID: app.ID,
-		Plugins: pluginItems, HomeTemplates: homeTemplates,
+		IndexURL: sourceStationPublicIndexPath(app.AppKey),
+		Plugins:  pluginItems, HomeTemplates: homeTemplates,
 		Categories: resolveSourceCatalogCategories(),
 	}
 	payload, err := json.Marshal(catalog)
@@ -160,16 +179,24 @@ func sourcePublicTemplateEntry(template sourceTemplate) map[string]any {
 	return entry
 }
 
+func sourceCatalogAppView(app sourceCatalogApp) gin.H {
+	return gin.H{
+		"id": app.ID, "appKey": app.AppKey, "name": app.Name, "enabled": app.Enabled,
+		"indexUrl": sourceStationPublicIndexPath(app.AppKey),
+	}
+}
+
 func AdminSourceCatalogApps(c *gin.Context) {
 	items, err := currentSourceStationStore().ListCatalogApps()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取应用列表失败"})
 		return
 	}
-	if items == nil {
-		items = []sourceCatalogApp{}
+	list := make([]gin.H, 0, len(items))
+	for _, item := range items {
+		list = append(list, sourceCatalogAppView(item))
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": items, "total": len(items)}})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": list, "total": len(list)}})
 }
 
 func SourceDeveloperCatalogApps(c *gin.Context) {

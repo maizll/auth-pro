@@ -2249,6 +2249,7 @@ type ginHCatalog struct {
 	Name          string                  `json:"name"`
 	AppKey        string                  `json:"appKey,omitempty"`
 	AppID         int64                   `json:"appId,omitempty"`
+	IndexURL      string                  `json:"indexUrl,omitempty"`
 	Plugins       []map[string]any        `json:"plugins"`
 	HomeTemplates []map[string]any        `json:"homeTemplates"`
 	Categories    []sourceCatalogCategory `json:"categories,omitempty"`

@@ -4,5 +4,6 @@
 
 后台入口：**源站 → Release / 仓库 Token**。
 
-公开目录：`/software-source/{app_key}/index.json`（兼容 `?app_key=`；未指定应用返回空目录）  
+公开目录：`/software-source/{app_key}/index.json`（SDK 固化此路径；兼容 `?app_key=` / `?appKey=`；未指定应用返回空目录）  
+契约：[software-source-client-url.md](./software-source-client-url.md)  
 包规范：`/software-source/package-schema.json`

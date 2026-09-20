@@ -208,6 +208,7 @@ func AdminSourceIndexSnapshot(c *gin.Context) {
 		"name":          catalog.Name,
 		"appKey":        catalog.AppKey,
 		"appId":         catalog.AppID,
+		"indexUrl":      catalog.IndexURL,
 		"pluginCount":   len(catalog.Plugins),
 		"templateCount": len(catalog.HomeTemplates),
 		"snapshot":      snap,
@@ -231,6 +232,7 @@ func AdminSourceIndexRegenerate(c *gin.Context) {
 		"name":          catalog.Name,
 		"appKey":        catalog.AppKey,
 		"appId":         catalog.AppID,
+		"indexUrl":      catalog.IndexURL,
 		"pluginCount":   len(catalog.Plugins),
 		"templateCount": len(catalog.HomeTemplates),
 	}})
@@ -243,6 +245,9 @@ func resolveAdminIndexApp(c *gin.Context) (sourceCatalogApp, error) {
 		return currentSourceStationStore().GetCatalogAppByID(id)
 	}
 	appKey := strings.TrimSpace(c.Query("app_key"))
+	if appKey == "" {
+		appKey = strings.TrimSpace(c.Query("appKey"))
+	}
 	if appKey != "" {
 		return currentSourceStationStore().GetCatalogAppByKey(appKey)
 	}

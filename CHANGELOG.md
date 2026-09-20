@@ -6,10 +6,11 @@
 
 - 目录项（插件 / 首页模板）必须绑定 `apps.id`（`app_id NOT NULL`）。管理端「源站」先按应用分区，分类（支付 / 实名 / 其他 / 首页模板）是应用内二级筛选。
 - 公开清单按应用隔离：
-  - 推荐：`GET /software-source/{app_key}/index.json`
-  - 兼容：`GET /software-source/index.json?app_key=`、`/auth-pro/{app_key}/index.json`、`/auth-pro/index.json?app_key=`
-  - 未带 `app_key` 的 `/software-source/index.json` 返回空数组，不泄漏其它应用目录。
-- 消费者「软件源管理」仍按配置 URL 原样拉取，每个授权应用配置各自的 `{app_key}` 清单即可。
+  - 推荐（SDK 固化）：`GET /software-source/{app_key}/index.json`
+  - 兼容：`?app_key=` / `?appKey=`、`/auth-pro/{app_key}/index.json`
+  - 未带应用标识的 `/software-source/index.json` 返回空数组，不泄漏其它应用目录。
+  - 清单与 `GET /api/v1/source/admin/apps` 均返回 `indexUrl`，便于 SDK ZIP 直接写入。
+- 客户端 URL 契约：[docs/software-source-client-url.md](./docs/software-source-client-url.md)
 - 开发者提交与管理员审核同样按 `app_id` 隔离；上传 ZIP / 登记外部地址必须选择应用。
 
 ### 迁移
