@@ -174,6 +174,10 @@
         baseUrl: packForm.baseUrl.trim() || undefined,
         includeJs: packForm.includeJs
       })
+      if (!(file instanceof Blob)) {
+        ElMessage.error('生成失败，请重试')
+        return
+      }
       const app = apps.value.find((item) => item.id === packForm.appId)
       objectUrl = URL.createObjectURL(file)
       const anchor = document.createElement('a')

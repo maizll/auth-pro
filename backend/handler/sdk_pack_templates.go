@@ -55,12 +55,17 @@ func jsBool(value bool) string {
 	return "false"
 }
 
+func phpComment(value string) string {
+	return strings.ReplaceAll(value, "*/", "* /")
+}
+
 var sdkPackTemplateFuncs = template.FuncMap{
-	"php":     phpSingleQuote,
-	"js":      jsQuote,
-	"phpBool": phpBool,
-	"jsBool":  jsBool,
-	"join":    func(items []string, sep string) string { return strings.Join(items, sep) },
+	"php":        phpSingleQuote,
+	"js":         jsQuote,
+	"phpBool":    phpBool,
+	"jsBool":     jsBool,
+	"phpComment": phpComment,
+	"join":       func(items []string, sep string) string { return strings.Join(items, sep) },
 }
 
 func renderSDKPackTemplate(name, raw string, data sdkPackTemplateData) (string, error) {
@@ -120,9 +125,11 @@ AuthPro::boot();
 
 ## Node / JS（可选）
 [[if .IncludeJS]]
+HMAC 签名依赖 Node ` + "`" + `crypto` + "`" + `，请用 ` + "`" + `require` + "`" + ` 接入，不要直接当浏览器脚本跑授权校验。
+
 ` + "```" + `js
 const AuthPro = require('./auth-pro-sdk.js');
-AuthPro.boot();
+await AuthPro.boot();
 ` + "```" + `
 [[else]]
 本包未包含 JS 文件。重新生成时勾选「同时生成 Node/JS」。
@@ -134,7 +141,7 @@ AuthPro.boot();
 const sdkPackPHPTemplate = `<?php
 /**
  * AuthPro 客户端 SDK
- * 已绑定应用：[[.AppName]]（appId=[[.AppID]] / appKey=[[.AppKey]]）
+ * 已绑定应用：[[phpComment .AppName]]（appId=[[.AppID]] / appKey=[[.AppKey]]）
  * 授权站：[[.BaseURL]]
  *
  * require 本文件后调用 AuthPro::boot();
@@ -148,7 +155,9 @@ class AuthPro
     const BASE_URL = [[php .BaseURL]];
     const APP_ID = [[.AppID]];
     const APP_KEY = [[php .AppKey]];
+[[if .NeedSign]]
     const APP_SECRET = [[php .AppSecret]];
+[[end]]
     const MODULE_LICENSE = [[phpBool .License]];
     const MODULE_PIRACY = [[phpBool .Piracy]];
     const MODULE_UPDATE = [[phpBool .Update]];
@@ -327,13 +336,13 @@ class AuthPro
             $domain = self::normalizeDomain(self::$options['domain']);
         }
         if (isset(self::$options['serverIp'])) {
-            $serverIp = trim((string)self::$options['serverIp']);
+            $serverIp = self::normalizeServerIP(self::$options['serverIp']);
         }
         if ($domain === '' && !empty($_SERVER['HTTP_HOST'])) {
             $domain = self::normalizeDomain($_SERVER['HTTP_HOST']);
         }
         if ($serverIp === '' && !empty($_SERVER['SERVER_ADDR'])) {
-            $serverIp = trim((string)$_SERVER['SERVER_ADDR']);
+            $serverIp = self::normalizeServerIP($_SERVER['SERVER_ADDR']);
         }
         return array(
             'licenseKey' => $licenseKey,
@@ -347,8 +356,21 @@ class AuthPro
         $value = strtolower(trim((string)$value));
         $value = preg_replace('#^https?://#', '', $value);
         $value = preg_replace('#/.*$#', '', $value);
+        if ($value !== '' && $value[0] === '[') {
+            $value = trim($value, '[]');
+        }
         $value = preg_replace('#:\d+$#', '', $value);
-        return $value;
+        return rtrim($value, '.');
+    }
+
+    private static function normalizeServerIP($value)
+    {
+        $value = trim((string)$value);
+        $zone = strrpos($value, '%');
+        if ($zone !== false) {
+            $value = substr($value, 0, $zone);
+        }
+        return trim($value, '[]');
     }
 [[if .NeedSign]]
 
@@ -409,7 +431,9 @@ const sdkPackJSTemplate = `'use strict';
     baseUrl: [[js .BaseURL]],
     appId: [[.AppID]],
     appKey: [[js .AppKey]],
+[[if .NeedSign]]
     appSecret: [[js .AppSecret]],
+[[end]]
     modules: {
       license: [[jsBool .License]],
       piracy: [[jsBool .Piracy]],
@@ -469,7 +493,13 @@ const sdkPackJSTemplate = `'use strict';
     var reason = (result && (result.msg || (result.data && result.data.reason))) || '';
     var message = [[if .Piracy]]'未授权访问'[[else]]'授权无效'[[end]] + (reason ? ': ' + reason : '');
     if (typeof document !== 'undefined') {
-      document.body.innerHTML = '<main style="font-family:sans-serif;padding:48px;text-align:center"><h1>' + message + '</h1></main>';
+      document.body.textContent = '';
+      var main = document.createElement('main');
+      main.style.cssText = 'font-family:sans-serif;padding:48px;text-align:center';
+      var title = document.createElement('h1');
+      title.textContent = message;
+      main.appendChild(title);
+      document.body.appendChild(main);
     }
     throw new Error(message);
   }
@@ -517,9 +547,25 @@ const sdkPackJSTemplate = `'use strict';
     }
     return {
       licenseKey: String(options.licenseKey || ''),
-      domain: domain.toLowerCase(),
-      serverIp: serverIp
+      domain: normalizeDomain(domain),
+      serverIp: normalizeServerIP(serverIp)
     };
+  }
+
+  function normalizeDomain(value) {
+    value = String(value || '').toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    if (value.charAt(0) === '[') {
+      value = value.replace(/^\[/, '').replace(/\]$/, '');
+    }
+    value = value.replace(/:\d+$/, '');
+    return value.replace(/\.+$/, '');
+  }
+
+  function normalizeServerIP(value) {
+    value = String(value || '').trim();
+    var zone = value.lastIndexOf('%');
+    if (zone >= 0) value = value.slice(0, zone);
+    return value.replace(/^\[/, '').replace(/\]$/, '');
   }
 [[if .NeedHTTP]]
 

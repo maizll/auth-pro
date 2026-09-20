@@ -188,6 +188,78 @@ func TestBuildSDKPackOmitsDisabledModulesAndOptionalJS(t *testing.T) {
 	}
 }
 
+func TestBuildSDKPackOmitsSecretWhenNoSigningModule(t *testing.T) {
+	payload, _, err := buildSDKPack(testSDKPackInput([]string{sdkPackModuleAds, sdkPackModulePluginSource}, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := zipFiles(t, payload)
+	php := files["auth-pro-sdk-app_demo_1/auth_pro_sdk.php"]
+	js := files["auth-pro-sdk-app_demo_1/auth-pro-sdk.js"]
+	if strings.Contains(php, "sk_live_demo_secret_aaa") || strings.Contains(js, "sk_live_demo_secret_aaa") {
+		t.Fatal("unsigned modules should not bake appSecret")
+	}
+	if !strings.Contains(php, "https://auth.example.com/software-source/app_demo_1/index.json") {
+		t.Fatal("plugin source URL missing from ads/plugin pack")
+	}
+}
+
+func TestBuildSDKPackLicenseV2FieldOrderMatchesBackend(t *testing.T) {
+	payload, _, err := buildSDKPack(testSDKPackInput([]string{sdkPackModuleLicense, sdkPackModuleUpdate}, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	php := zipFiles(t, payload)["auth-pro-sdk-app_demo_1/auth_pro_sdk.php"]
+	licenseParts := []string{"'v2'", "self::APP_KEY", "$ctx['licenseKey']", "$ctx['domain']", "$ctx['serverIp']", "(string)$timestamp"}
+	assertAppearsInOrder(t, php, licenseParts)
+	updateParts := []string{"'v2'", "self::APP_KEY", "(string)$version", "$ctx['licenseKey']", "$ctx['domain']", "$ctx['serverIp']", "(string)$timestamp"}
+	assertAppearsInOrder(t, php, updateParts)
+	if !strings.Contains(php, "rtrim($value, '.')") {
+		t.Fatal("php domain normalize must strip trailing dots to match v2 canonical")
+	}
+
+	req := licenseVerifyRequest{
+		AppKey: "app_demo_1", LicenseKey: "LIC", Domain: "Example.COM.", ServerIP: "127.0.0.1", Timestamp: 1700000000,
+	}
+	req.Domain = normalizeLicenseDomain(req.Domain)
+	req.ServerIP = normalizeLicenseServerIP(req.ServerIP)
+	if req.Domain != "example.com" {
+		t.Fatalf("backend canonical domain=%q", req.Domain)
+	}
+	want := licenseVerifyV2Sign(req, "sk_live_demo_secret_aaa")
+	got := licenseVerifyV2Sign(licenseVerifyRequest{
+		AppKey: "app_demo_1", LicenseKey: "LIC", Domain: "example.com", ServerIP: "127.0.0.1", Timestamp: 1700000000,
+	}, "sk_live_demo_secret_aaa")
+	if want != got {
+		t.Fatalf("php-normalized domain must produce the same HMAC as backend")
+	}
+}
+
+func TestPHPCommentDoesNotBreakOut(t *testing.T) {
+	input := testSDKPackInput([]string{sdkPackModuleLicense}, false)
+	input.AppName = "evil */ echo secret"
+	payload, _, err := buildSDKPack(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	php := zipFiles(t, payload)["auth-pro-sdk-app_demo_1/auth_pro_sdk.php"]
+	if strings.Contains(php, "evil */") {
+		t.Fatal("app name must not terminate the PHP file comment")
+	}
+}
+
+func assertAppearsInOrder(t *testing.T, haystack string, parts []string) {
+	t.Helper()
+	cursor := 0
+	for _, part := range parts {
+		idx := strings.Index(haystack[cursor:], part)
+		if idx < 0 {
+			t.Fatalf("missing %q after offset %d", part, cursor)
+		}
+		cursor += idx + len(part)
+	}
+}
+
 func TestBuildSDKPackPiracyImpliesLicenseVerify(t *testing.T) {
 	payload, _, err := buildSDKPack(testSDKPackInput([]string{sdkPackModulePiracy}, true))
 	if err != nil {
