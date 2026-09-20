@@ -47,4 +47,26 @@ assert.equal(payload.enabled, true)
 const zeroSort = mapManageRowToForm({ id: 1, name: 'Dash', title: '工作台', sort: 0 })
 assert.equal(zeroSort?.sort, 0)
 
+const alreadyChinese = mapManageRowToForm({
+  id: 211,
+  name: 'OnlineUpdate',
+  title: '在线更新',
+  parentId: 0
+})
+assert.equal(alreadyChinese?.name, '在线更新')
+
+const fromMeta = mapManageRowToForm({
+  id: 8,
+  name: 'Sdk',
+  meta: { title: 'menus.integration.title' }
+})
+assert.equal(fromMeta?.name, '接入开发')
+
+const saved = toMenuSavePayload({
+  label: 'PluginStore',
+  path: '/plugin-store',
+  name: '   '
+})
+assert.equal(saved.title, '')
+
 console.log('menu-form ok')

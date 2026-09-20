@@ -9,6 +9,7 @@
     @closed="handleClosed"
   >
     <ArtForm
+      :key="formEpoch"
       ref="formRef"
       v-model="form"
       :items="formItems"
@@ -111,6 +112,7 @@
 
   const formRef = ref()
   const isEdit = ref(false)
+  const formEpoch = ref(0)
 
   const form = reactive<MenuFormData & { menuType: 'menu' | 'button' }>({
     menuType: 'menu',
@@ -279,13 +281,33 @@
   })
 
   const resetForm = (): void => {
-    formRef.value?.reset()
+    // 不要调用 ArtForm.reset()：它会按首次挂载的空快照删掉 name 等字段，
+    // 并与 ElDialog @closed 竞态，导致再次打开编辑时「名称」空白。
     form.menuType = 'menu'
     form.id = 0
     form.parentId = 0
     form.name = ''
     form.label = ''
     form.path = ''
+    form.component = ''
+    form.icon = ''
+    form.sort = 1
+    form.keepAlive = true
+    form.isHide = false
+    form.isHideTab = false
+    form.isEnable = true
+    form.fixedTab = false
+    form.isFullPage = false
+    form.roles = []
+    form.link = ''
+    form.isIframe = false
+    form.showBadge = false
+    form.showTextBadge = ''
+    form.activePath = ''
+    form.authName = ''
+    form.authLabel = ''
+    form.authIcon = ''
+    form.authSort = 1
   }
 
   const applyMappedForm = (mapped: ReturnType<typeof mapManageRowToForm>) => {
@@ -353,15 +375,18 @@
   }
 
   watch(
-    () => props.visible,
-    (newVal) => {
-      if (newVal) {
+    () => [props.visible, props.editData] as const,
+    ([visible]) => {
+      if (!visible) return
+      form.menuType = props.type
+      isEdit.value = !!props.editData
+      if (props.editData) {
+        loadFormData()
+      } else {
+        resetForm()
         form.menuType = props.type
-        isEdit.value = !!props.editData
-        nextTick(() => {
-          if (props.editData) loadFormData()
-        })
       }
+      formEpoch.value += 1
     }
   )
 

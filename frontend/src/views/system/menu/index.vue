@@ -131,8 +131,7 @@
       prop: 'title',
       label: '菜单名称',
       minWidth: 160,
-      formatter: (row: MenuItem) =>
-        h('span', resolveMenuTitle(row.title, row.name))
+      formatter: (row: MenuItem) => resolveMenuTitle(row.title, row.name)
     },
     {
       prop: 'type',
