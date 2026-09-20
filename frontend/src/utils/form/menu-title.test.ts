@@ -39,7 +39,7 @@ const resolved = resolveManageMenuTree([
   {
     name: 'Sdk',
     title: 'menus.integration.title',
-    children: [{ name: 'PluginStore', title: 'menus.integration.store' }]
+    children: [{ name: 'PluginStore', title: 'menus.integration.store', children: [] }]
   }
 ])
 assert.equal(resolved[0].title, '接入开发')
