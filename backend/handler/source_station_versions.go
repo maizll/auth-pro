@@ -181,6 +181,9 @@ func (store *memorySourceStore) SetVersionStatus(kind, itemID, version, status, 
 	}
 	if status == sourceVersionDeprecated {
 		action = "deprecate"
+		if err := store.repointOrDeprecateItemAfterVersionLocked(kind, itemID, actor, note); err != nil {
+			return sourceRelease{}, err
+		}
 	}
 	store.auditLocked(action, kind+"-version", itemID+"@"+version, actor, note)
 	if err := store.denormalizeLatestLocked(kind, itemID); err != nil {
@@ -395,14 +398,88 @@ func (store *memorySourceStore) denormalizeLatestLocked(kind, itemID string) err
 
 func (store *memorySourceStore) pickDisplayVersionLocked(kind, itemID, latest, fallback string) (sourceRelease, bool) {
 	if latest != "" {
-		if item, ok := store.versionMap(kind)[itemID][latest]; ok {
+		if item, ok := store.versionMap(kind)[itemID][latest]; ok && item.Status == sourceVersionPublished {
 			return item, true
 		}
 	}
 	if item, ok := store.pickVersionLocked(kind, itemID, fallback, sourceVersionPublished); ok {
 		return item, true
 	}
+	if item, ok := pickPublishedSourceRelease(store.listedVersionsLocked(kind, itemID)); ok {
+		return item, true
+	}
 	return store.pickVersionLocked(kind, itemID, fallback, "")
+}
+
+func (store *memorySourceStore) listedVersionsLocked(kind, itemID string) []sourceRelease {
+	bucket := store.versionMap(kind)[itemID]
+	result := make([]sourceRelease, 0, len(bucket))
+	for _, item := range bucket {
+		result = append(result, item)
+	}
+	return result
+}
+
+func (store *memorySourceStore) repointOrDeprecateItemAfterVersionLocked(kind, itemID, actor, note string) error {
+	if rel, ok := pickPublishedSourceRelease(store.listedVersionsLocked(kind, itemID)); ok {
+		return store.setLatestLocked(kind, itemID, rel.Version, actor, note)
+	}
+	return store.markItemDeprecatedLocked(kind, itemID, actor, note)
+}
+
+func (store *memorySourceStore) markItemDeprecatedLocked(kind, itemID, actor, note string) error {
+	now := time.Now().UTC()
+	if kind == sourceKindTemplate {
+		item, ok := store.templates[itemID]
+		if !ok {
+			return errSourceNotFound
+		}
+		if item.Status == sourceItemDeprecated {
+			return nil
+		}
+		if !sourceTransitionAllowed(item.Status, sourceItemDeprecated) {
+			return nil
+		}
+		item.Status = sourceItemDeprecated
+		item.ReviewNote = truncateText(note, 500)
+		item.ReviewedBy = actor
+		item.UpdatedAt = now
+		store.templates[itemID] = item
+		store.auditLocked(sourceCatalogAuditAction(sourceItemDeprecated), kind, itemID, actor, note)
+		return nil
+	}
+	item, ok := store.plugins[itemID]
+	if !ok {
+		return errSourceNotFound
+	}
+	if item.Status == sourceItemDeprecated {
+		return nil
+	}
+	if !sourceTransitionAllowed(item.Status, sourceItemDeprecated) {
+		return nil
+	}
+	item.Status = sourceItemDeprecated
+	item.ReviewNote = truncateText(note, 500)
+	item.ReviewedBy = actor
+	item.UpdatedAt = now
+	store.plugins[itemID] = item
+	store.auditLocked(sourceCatalogAuditAction(sourceItemDeprecated), kind, itemID, actor, note)
+	return nil
+}
+
+func pickPublishedSourceRelease(items []sourceRelease) (sourceRelease, bool) {
+	var best sourceRelease
+	found := false
+	for _, item := range items {
+		if item.Status != sourceVersionPublished {
+			continue
+		}
+		if !found || item.UpdatedAt.After(best.UpdatedAt) || (item.UpdatedAt.Equal(best.UpdatedAt) && item.Version > best.Version) {
+			best = item
+			found = true
+		}
+	}
+	return best, found
 }
 
 func (mysqlSourceStore) ListVersions(kind, itemID string) ([]sourceRelease, error) {
@@ -537,6 +614,9 @@ func (mysqlSourceStore) SetVersionStatus(kind, itemID, version, status, actor, n
 	}
 	if status == sourceVersionDeprecated {
 		action = "deprecate"
+		if err := (mysqlSourceStore{}).repointOrDeprecateItemAfterVersion(kind, itemID, actor, note); err != nil {
+			return sourceRelease{}, err
+		}
 	}
 	mysqlAppendAudit(db, action, kind+"-version", itemID+"@"+version, actor, note)
 	_ = (mysqlSourceStore{}).denormalizeLatest(kind, itemID)
@@ -719,13 +799,23 @@ func (mysqlSourceStore) denormalizeLatest(kind, itemID string) error {
 
 func (mysqlSourceStore) displayVersion(kind, itemID, latest, fallback string) (sourceRelease, error) {
 	if latest != "" {
-		if item, err := (mysqlSourceStore{}).GetVersion(kind, itemID, latest); err == nil {
+		if item, err := (mysqlSourceStore{}).GetVersion(kind, itemID, latest); err == nil && item.Status == sourceVersionPublished {
 			return item, nil
 		}
 	}
 	versions, err := (mysqlSourceStore{}).ListVersions(kind, itemID)
 	if err != nil {
 		return sourceRelease{}, err
+	}
+	if rel, ok := pickPublishedSourceRelease(versions); ok {
+		if fallback != "" {
+			for _, item := range versions {
+				if item.Version == fallback && item.Status == sourceVersionPublished {
+					return item, nil
+				}
+			}
+		}
+		return rel, nil
 	}
 	for _, item := range versions {
 		if item.Version == fallback {
@@ -736,6 +826,36 @@ func (mysqlSourceStore) displayVersion(kind, itemID, latest, fallback string) (s
 		return sourceRelease{}, errSourceNotFound
 	}
 	return versions[0], nil
+}
+
+func (mysqlSourceStore) repointOrDeprecateItemAfterVersion(kind, itemID, actor, note string) error {
+	versions, err := (mysqlSourceStore{}).ListVersions(kind, itemID)
+	if err != nil {
+		return err
+	}
+	if rel, ok := pickPublishedSourceRelease(versions); ok {
+		return (mysqlSourceStore{}).pointLatest(kind, itemID, rel.Version)
+	}
+	if kind == sourceKindTemplate {
+		item, err := (mysqlSourceStore{}).GetTemplate(itemID)
+		if err != nil {
+			return err
+		}
+		if item.Status == sourceItemDeprecated || !sourceTransitionAllowed(item.Status, sourceItemDeprecated) {
+			return nil
+		}
+		_, err = (mysqlSourceStore{}).SetTemplateStatus(itemID, sourceItemDeprecated, actor, note)
+		return err
+	}
+	item, err := (mysqlSourceStore{}).GetPlugin(itemID)
+	if err != nil {
+		return err
+	}
+	if item.Status == sourceItemDeprecated || !sourceTransitionAllowed(item.Status, sourceItemDeprecated) {
+		return nil
+	}
+	_, err = (mysqlSourceStore{}).SetPluginStatus(itemID, sourceItemDeprecated, actor, note)
+	return err
 }
 
 func latestIfPublished(current string, rel sourceRelease) string {

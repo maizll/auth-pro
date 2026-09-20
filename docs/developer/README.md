@@ -8,7 +8,7 @@
 GET /software-source/{app_key}/index.json
 ```
 
-未带应用标识的 `/software-source/index.json` 返回空目录，不要当作默认软件源。管理员上架后条目自动进入该应用软件源目录，下架或弃用会从目录移除。
+未带应用标识的 `/software-source/index.json` 返回空目录，不要当作默认软件源。管理员上架后条目自动进入该应用软件源目录。弃用后会从公开软件源目录清除，不再展示；下架同样从目录移除。
 
 ## 文档目录
 

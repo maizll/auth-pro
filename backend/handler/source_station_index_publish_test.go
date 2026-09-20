@@ -44,6 +44,105 @@ func TestPublicSoftwareSourceIndexFollowsShelfAndUnshelf(t *testing.T) {
 	}
 }
 
+func TestDeprecateClearsPublicIndexAndAdminDefaultCatalog(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	sha := sourceTestSHA256()
+
+	sourceRegisterAndPublish(t, router, admin, sourceKindPlugin, "gone-plugin",
+		`{"appId":1,"id":"gone-plugin","name":"待弃用插件","category":"other","downloadUrl":"https://cdn.example.com/gone-plugin.zip","sha256":"`+sha+`"}`)
+	sourceRegisterAndPublish(t, router, admin, sourceKindTemplate, "gone-home",
+		`{"appId":1,"id":"gone-home","name":"待弃用首页","templateUrl":"https://cdn.example.com/gone-home.zip","sha256":"`+sha+`","schemaVersion":1}`)
+
+	assertPublicIndexIDs(t, router, "app-a", []string{"gone-plugin"}, []string{"gone-home"})
+	assertAdminDefaultCatalogIDs(t, router, admin, []string{"gone-plugin", "gone-home"})
+
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/gone-plugin/deprecate", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("deprecate plugin=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/templates/gone-home/deprecate", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("deprecate template=%s", rec.Body.String())
+	}
+
+	assertPublicIndexIDs(t, router, "app-a", nil, nil)
+	assertLocalSoftwareSourceIDs(t, "http://127.0.0.1/software-source/app-a/index.json", nil, nil)
+	assertAdminDefaultCatalogIDs(t, router, admin, nil)
+
+	audit := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/catalog-items?status=deprecated", admin, "")
+	if ids := sourceCatalogItemIDs(t, audit.Body.Bytes()); !sameStringSet(ids, []string{"gone-plugin", "gone-home"}) {
+		t.Fatalf("status=deprecated should keep audit rows, got %v body=%s", ids, audit.Body.String())
+	}
+
+	snap, err := store.LatestIndexSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(snap.Payload, "gone-plugin") || strings.Contains(snap.Payload, "gone-home") {
+		t.Fatalf("deprecate must republish index without stale entries: %s", snap.Payload)
+	}
+}
+
+func TestDeprecateLatestPublishedVersionClearsPublicIndex(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	sha := sourceTestSHA256()
+
+	sourceRegisterAndPublish(t, router, admin, sourceKindPlugin, "solo-plugin",
+		`{"appId":1,"id":"solo-plugin","name":"单版本插件","version":"1.0.0","category":"other","downloadUrl":"https://cdn.example.com/solo-1.0.0.zip","sha256":"`+sha+`"}`)
+	sourceRegisterAndPublish(t, router, admin, sourceKindTemplate, "solo-home",
+		`{"appId":1,"id":"solo-home","name":"单版本首页","version":"1.0.0","templateUrl":"https://cdn.example.com/solo-home.zip","sha256":"`+sha+`","schemaVersion":1}`)
+
+	assertPublicIndexIDs(t, router, "app-a", []string{"solo-plugin"}, []string{"solo-home"})
+	assertAdminDefaultCatalogIDs(t, router, admin, []string{"solo-plugin", "solo-home"})
+
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/solo-plugin/versions/1.0.0/deprecate", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("deprecate plugin version=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/templates/solo-home/versions/1.0.0/deprecate", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("deprecate template version=%s", rec.Body.String())
+	}
+
+	assertPublicIndexIDs(t, router, "app-a", nil, nil)
+	assertLocalSoftwareSourceIDs(t, "http://127.0.0.1/software-source/app-a/index.json", nil, nil)
+	assertAdminDefaultCatalogIDs(t, router, admin, nil)
+}
+
+func TestDeprecateLatestVersionRepointsToRemainingPublished(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	sha1 := sourceTestSHA256()
+	sha2 := strings.Repeat("cd", 32)
+
+	sourceRegisterAndPublish(t, router, admin, sourceKindPlugin, "multi-plugin",
+		`{"appId":1,"id":"multi-plugin","name":"多版本插件","version":"1.0.0","category":"other","downloadUrl":"https://cdn.example.com/multi-1.0.0.zip","sha256":"`+sha1+`"}`)
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/multi-plugin/versions", admin,
+		`{"version":"1.0.1","downloadUrl":"https://cdn.example.com/multi-1.0.1.zip","sha256":"`+sha2+`","changelog":"下一版"}`); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("create 1.0.1=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/multi-plugin/versions/1.0.1/approve", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("approve 1.0.1=%s", rec.Body.String())
+	}
+
+	live := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
+	if !strings.Contains(live.Body.String(), `"version":"1.0.1"`) || !strings.Contains(live.Body.String(), "multi-1.0.1.zip") {
+		t.Fatalf("latest should be 1.0.1: %s", live.Body.String())
+	}
+
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/multi-plugin/versions/1.0.1/deprecate", admin, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("deprecate 1.0.1=%s", rec.Body.String())
+	}
+
+	assertPublicIndexIDs(t, router, "app-a", []string{"multi-plugin"}, nil)
+	rolled := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
+	if !strings.Contains(rolled.Body.String(), `"version":"1.0.0"`) || !strings.Contains(rolled.Body.String(), "multi-1.0.0.zip") {
+		t.Fatalf("remaining published version should stay in public index: %s", rolled.Body.String())
+	}
+	if strings.Contains(rolled.Body.String(), "multi-1.0.1.zip") {
+		t.Fatalf("deprecated latest must not remain the public version: %s", rolled.Body.String())
+	}
+	assertAdminDefaultCatalogIDs(t, router, admin, []string{"multi-plugin"})
+}
+
 func TestPublishedIndexUpdatesOnMetadataVersionAndCategories(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
@@ -76,6 +175,18 @@ func TestPublishedIndexUpdatesOnMetadataVersionAndCategories(t *testing.T) {
 	}
 	assertPublicIndexIDs(t, router, "app-a", nil, nil)
 	assertLocalSoftwareSourceIDs(t, "http://127.0.0.1/software-source/app-a/index.json", nil, nil)
+}
+
+func assertAdminDefaultCatalogIDs(t *testing.T, router http.Handler, admin string, want []string) {
+	t.Helper()
+	rec := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/catalog-items", admin, "")
+	if sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("admin catalog=%s", rec.Body.String())
+	}
+	got := sourceCatalogItemIDs(t, rec.Body.Bytes())
+	if !sameStringSet(got, want) {
+		t.Fatalf("admin default catalog=%v want %v body=%s", got, want, rec.Body.String())
+	}
 }
 
 func assertPublicIndexIDs(t *testing.T, router http.Handler, appKey string, plugins, templates []string) {
