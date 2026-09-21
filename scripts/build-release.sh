@@ -51,8 +51,12 @@ printf '[3/5] Building Linux amd64 backend...\n'
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go -C "$BACKEND_DIR" build -trimpath -ldflags "$LDFLAGS" -o "$BACKEND_DIR/auto_pro_linux_amd64" .
 cp "$BACKEND_DIR/auto_pro_linux_amd64" "$PACKAGE_DIR/backend/auth_pro"
 
-printf '[4/5] Writing manifest...\n'
+printf '[4/5] Writing manifest and Baota helper scripts...\n'
 printf '{\n  "version": "%s",\n  "frontendDir": ".",\n  "backendFile": "backend/auth_pro",\n  "requiredFiles": []\n}\n' "$VERSION" > "$PACKAGE_DIR/manifest.json"
+mkdir -p "$PACKAGE_DIR/scripts"
+cp "$ROOT_DIR/scripts/baota-install.sh" "$PACKAGE_DIR/scripts/baota-install.sh"
+cp "$ROOT_DIR/scripts/baota-upgrade.sh" "$PACKAGE_DIR/scripts/baota-upgrade.sh"
+chmod +x "$PACKAGE_DIR/scripts/baota-install.sh" "$PACKAGE_DIR/scripts/baota-upgrade.sh"
 
 printf '[5/5] Creating tar.gz package and latest.json...\n'
 rm -f "$PACKAGE_PATH"
