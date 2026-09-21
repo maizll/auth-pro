@@ -24,16 +24,14 @@
     <el-card shadow="never" class="campaign-card">
       <div class="toolbar">
         <div class="filters">
-          <el-select
+          <BizAppSelect
             v-model="query.appId"
+            api="promotion"
             placeholder="全部应用"
             clearable
-            filterable
             class="filter-item"
             @change="fetchList"
-          >
-            <el-option v-for="app in appOptions" :key="app.id" :label="app.name" :value="app.id" />
-          </el-select>
+          />
           <el-input
             v-model="query.keyword"
             placeholder="活动名称或应用"
@@ -111,9 +109,7 @@
         </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }: { row: PromotionCampaignItem }">
-            <el-tag :type="statusMeta[row.status].type" effect="light">
-              {{ statusMeta[row.status].label }}
-            </el-tag>
+            <BizStatusTag domain="campaign" :status="row.status" />
           </template>
         </el-table-column>
         <el-table-column label="操作" width="210" fixed="right">
@@ -168,21 +164,14 @@
 
         <div class="form-grid">
           <el-form-item label="所属应用" prop="appId">
-            <el-select
+            <BizAppSelect
               v-model="form.appId"
+              api="promotion"
               placeholder="选择应用"
-              filterable
               style="width: 100%"
               :disabled="isEdit"
               @change="handleAppChange"
-            >
-              <el-option
-                v-for="app in appOptions"
-                :key="app.id"
-                :label="app.name"
-                :value="app.id"
-              />
-            </el-select>
+            />
           </el-form-item>
           <el-form-item label="活动状态">
             <div class="switch-field">
@@ -352,7 +341,6 @@
   import {
     createPromotionCampaign,
     deletePromotionCampaign,
-    fetchPromotionApps,
     fetchPromotionCampaigns,
     fetchPromotionPlans,
     togglePromotionCampaign,
@@ -377,7 +365,7 @@
 
   interface CampaignForm {
     id: number
-    appId?: number
+    appId?: number | null
     name: string
     audience: PromotionAudience
     dateRange: [Date | null, Date | null]
@@ -394,11 +382,10 @@
   const isEdit = ref(false)
   const formRef = ref<FormInstance>()
   const tableData = ref<PromotionCampaignItem[]>([])
-  const appOptions = ref<Array<{ id: number; name: string }>>([])
   const planOptions = ref<PromotionPlanOption[]>([])
 
   const query = reactive<{
-    appId?: number
+    appId?: number | null
     keyword: string
     audience: PromotionAudience | ''
     status: PromotionCampaignStatus | ''
@@ -439,13 +426,6 @@
     { label: '代理商', value: 'agent' },
     { label: '全部', value: 'all' }
   ]
-
-  const statusMeta: Record<PromotionCampaignStatus, { label: string; type: TagProps['type'] }> = {
-    active: { label: '进行中', type: 'success' },
-    upcoming: { label: '未开始', type: 'primary' },
-    ended: { label: '已结束', type: 'info' },
-    disabled: { label: '已禁用', type: 'warning' }
-  }
 
   const formRules: FormRules<CampaignForm> = {
     name: [{ required: true, message: '请输入活动名称', trigger: 'blur' }],
@@ -608,16 +588,12 @@
     return `活动计算价 ¥${money(result)}`
   }
 
-  const fetchApps = async () => {
-    appOptions.value = (await fetchPromotionApps()) || []
-  }
-
   const fetchList = async () => {
     loading.value = true
     try {
       tableData.value =
         (await fetchPromotionCampaigns({
-          appId: query.appId,
+          appId: typeof query.appId === 'number' ? query.appId : undefined,
           keyword: query.keyword.trim() || undefined,
           audience: query.audience || undefined,
           status: query.status || undefined
@@ -684,10 +660,11 @@
     void nextTick(() => formRef.value?.validateField('plans').catch(() => undefined))
   }
 
-  const handleAppChange = async (appId?: number) => {
+  const handleAppChange = async (appId?: string | number | Array<string | number> | null) => {
     form.plans = []
     planOptions.value = []
-    if (appId) await loadPlans(appId)
+    const id = Number(appId)
+    if (appId && !Array.isArray(appId) && Number.isFinite(id)) await loadPlans(id)
     formRef.value?.clearValidate('plans')
   }
 
@@ -795,7 +772,7 @@
   }
 
   onMounted(async () => {
-    await Promise.all([fetchApps(), fetchList()])
+    await fetchList()
   })
 </script>
 

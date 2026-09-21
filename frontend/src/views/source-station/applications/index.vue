@@ -18,9 +18,7 @@
         <el-table-column prop="email" label="邮箱" min-width="160" show-overflow-tooltip />
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="statusMeta(row.status).type" size="small">
-              {{ statusMeta(row.status).label }}
-            </el-tag>
+            <BizStatusTag domain="review" :status="row.status" size="small" />
           </template>
         </el-table-column>
         <el-table-column prop="reviewNote" label="审核说明" min-width="140" show-overflow-tooltip />
@@ -88,7 +86,6 @@
   import { onMounted, ref } from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import {
-    SOURCE_APPLICATION_STATUS,
     approveSourceApplication,
     cancelSourceDeveloper,
     fetchSourceApplications,
@@ -102,10 +99,6 @@
   const devLoading = ref(false)
   const applications = ref<SourceApplication[]>([])
   const developers = ref<SourceDeveloper[]>([])
-
-  function statusMeta(value: string) {
-    return SOURCE_APPLICATION_STATUS[value] || { label: value, type: 'info' as const }
-  }
 
   async function loadApplications() {
     loading.value = true
@@ -128,11 +121,15 @@
   }
 
   async function handleApprove(row: SourceApplication) {
-    await ElMessageBox.confirm(`通过 ${row.displayName || row.username} 的入驻申请？通过后该代理商可使用同一账号进入开发者端。`, '通过入驻', {
-      type: 'success',
-      confirmButtonText: '确认通过',
-      cancelButtonText: '返回'
-    })
+    await ElMessageBox.confirm(
+      `通过 ${row.displayName || row.username} 的入驻申请？通过后该代理商可使用同一账号进入开发者端。`,
+      '通过入驻',
+      {
+        type: 'success',
+        confirmButtonText: '确认通过',
+        cancelButtonText: '返回'
+      }
+    )
     await approveSourceApplication(row.id)
     ElMessage.success('已通过入驻并绑定代理商开发者资格')
     await Promise.all([loadApplications(), loadDevelopers()])
@@ -204,5 +201,4 @@
     font-weight: 700;
     color: var(--art-gray-900);
   }
-
 </style>

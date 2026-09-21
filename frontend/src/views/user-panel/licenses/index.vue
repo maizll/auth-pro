@@ -15,14 +15,13 @@
               <iconify-icon icon="ri:search-line" width="15" />
             </template>
           </el-input>
-          <el-select
+          <BizAppSelect
             v-model="searchForm.appId"
+            api="user-panel"
             placeholder="全部应用"
             clearable
             class="filter-select"
-          >
-            <el-option v-for="app in appList" :key="app.id" :label="app.name" :value="app.id" />
-          </el-select>
+          />
           <el-select
             v-model="searchForm.status"
             placeholder="全部状态"
@@ -66,9 +65,12 @@
         </el-table-column>
         <el-table-column prop="statusLabel" label="状态" width="90" align="center">
           <template #default="{ row }">
-            <el-tag :type="statusTagMap[row.status]" size="small" effect="light">{{
-              row.statusLabel
-            }}</el-tag>
+            <BizStatusTag
+              domain="license"
+              :status="row.status"
+              :label="row.statusLabel"
+              size="small"
+            />
           </template>
         </el-table-column>
         <el-table-column prop="expireAt" label="到期时间" width="130" />
@@ -264,11 +266,13 @@
         </template>
         <template #extra>
           <div v-if="redeemResult.type === 'key'" class="license-key-result">
-            <el-input :model-value="redeemResult.licenseKey" readonly>
-              <template #append>
-                <el-button @click="copyRedeemedKey">复制密钥</el-button>
-              </template>
-            </el-input>
+            <BizCopySecret
+              :value="redeemResult.licenseKey"
+              default-visible
+              copy-label="复制密钥"
+              success-text="密钥已复制"
+              fail-text="复制失败，请手动复制"
+            />
           </div>
           <el-alert
             v-else
@@ -300,9 +304,12 @@
   import LicenseVersionsDialog from '@/components/core/panels/LicenseVersionsDialog.vue'
 
   const loading = ref(false)
-  const searchForm = reactive({ keyword: '', appId: '', status: '' })
+  const searchForm = reactive({
+    keyword: '',
+    appId: '' as string | number | null,
+    status: ''
+  })
   const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
-  const appList = ref<{ id: number; name: string }[]>([])
   const tableData = ref<any[]>([])
   const editDialog = reactive({
     visible: false,
@@ -359,11 +366,6 @@
     ip: 'ri:router-line',
     key: 'ri:key-2-line'
   }
-  const statusTagMap: Record<string, TagType | undefined> = {
-    active: 'success',
-    expiring: 'warning',
-    expired: 'info'
-  }
   const editableTargetTypes = new Set(['domain', 'wildcard', 'ip', 'key'])
   const targetLabel = computed(() => {
     if (editDialog.type === 'ip') return 'IP'
@@ -376,17 +378,6 @@
   function getToken() {
     const stored = localStorage.getItem('user_panel_token')
     return stored || ''
-  }
-
-  async function fetchApps() {
-    try {
-      const { data } = await axios.get('/api/user-panel/apps', {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      })
-      if (data.code === 200) appList.value = data.data || []
-    } catch {
-      ElMessage.error('加载应用列表失败')
-    }
   }
 
   async function fetchList() {
@@ -587,22 +578,11 @@
     }
   }
 
-  async function copyRedeemedKey() {
-    if (!redeemResult.licenseKey) return
-    try {
-      await navigator.clipboard.writeText(redeemResult.licenseKey)
-      ElMessage.success('密钥已复制')
-    } catch {
-      ElMessage.error('复制失败，请手动复制')
-    }
-  }
-
   function closeRedeemResult() {
     redeemResult.visible = false
   }
 
   onMounted(() => {
-    fetchApps()
     fetchList()
   })
 </script>

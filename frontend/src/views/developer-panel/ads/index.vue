@@ -14,7 +14,12 @@
       </template>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px" class="ad-form">
         <el-form-item label="关联应用">
-          <el-select v-model="form.appId" clearable placeholder="可选，广告本身为全站投放" style="width: 100%">
+          <el-select
+            v-model="form.appId"
+            clearable
+            placeholder="可选，广告本身为全站投放"
+            style="width: 100%"
+          >
             <el-option
               v-for="app in apps"
               :key="app.id"
@@ -53,10 +58,7 @@
             >
               <el-button :loading="uploadingImage">本地上传</el-button>
             </el-upload>
-            <el-input
-              v-model="form.imageUrl"
-              placeholder="或粘贴 https:// 外链 / 本站已上传地址"
-            />
+            <el-input v-model="form.imageUrl" placeholder="或粘贴 https:// 外链 / 本站已上传地址" />
             <p class="field-hint">支持本地上传或 https 外链，不接受 http:// 或本地路径。</p>
             <img v-if="form.imageUrl" :src="form.imageUrl" alt="" class="image-preview" />
           </div>
@@ -85,9 +87,7 @@
         </el-table-column>
         <el-table-column label="状态" width="110" align="center">
           <template #default="{ row }">
-            <el-tag :type="statusMeta(row.status).type" size="small">
-              {{ statusMeta(row.status).label }}
-            </el-tag>
+            <BizStatusTag domain="ad" :status="row.status" size="small" />
           </template>
         </el-table-column>
         <el-table-column prop="reviewNote" label="审核说明" min-width="160" show-overflow-tooltip />
@@ -103,7 +103,7 @@
   import { useRouter } from 'vue-router'
   import type { FormInstance, FormRules, UploadFile } from 'element-plus'
   import { ElMessage } from 'element-plus'
-  import { AD_POSITIONS, SOURCE_APPLICATION_STATUS } from '@/api/source-station'
+  import { AD_POSITIONS } from '@/api/source-station'
   import {
     DEVELOPER_INFO_KEY,
     DEVELOPER_TOKEN_KEY,
@@ -160,10 +160,6 @@
     ]
   }
 
-  function statusMeta(value: string) {
-    return SOURCE_APPLICATION_STATUS[value] || { label: value || '-', type: 'info' as const }
-  }
-
   function positionLabels(values?: string[]) {
     if (!values?.length) return '-'
     return values
@@ -196,7 +192,8 @@
       const listBody = unwrap(listRes)
       if (!appsBody || !listBody) return
       if (appsBody.code === 200) {
-        apps.value = (appsBody as { data?: { list?: SourceDeveloperCatalogApp[] } }).data?.list || []
+        apps.value =
+          (appsBody as { data?: { list?: SourceDeveloperCatalogApp[] } }).data?.list || []
       }
       if (listBody.code === 200) {
         applications.value =

@@ -33,17 +33,11 @@
 
         <!-- AppSecret -->
         <template #appSecret="{ row }">
-          <span v-if="!row.showSecret">••••••••••••••••</span>
-          <span v-else>{{ row.appSecret }}</span>
-          <ElButton
-            link
-            type="primary"
-            size="small"
-            class="secret-toggle"
-            @click="row.showSecret = !row.showSecret"
-          >
-            {{ row.showSecret ? '隐藏' : '查看' }}
-          </ElButton>
+          <BizCopySecret
+            :value="row.appSecret"
+            success-text="已复制"
+            fail-text="复制失败，请手动复制"
+          />
         </template>
 
         <!-- 版本 -->
@@ -135,7 +129,6 @@
 
   /** 行级本地状态 */
   type AppRow = LicenseAppItem & {
-    showSecret: boolean
     licenseRequiredChanging: boolean
   }
 
@@ -217,7 +210,6 @@
         const normalized = (records as unknown as LicenseAppItem[]).map((item) => ({
           ...item,
           licenseRequired: item.licenseRequired !== false,
-          showSecret: false,
           licenseRequiredChanging: false
         }))
         return normalized as unknown as typeof records
@@ -366,10 +358,6 @@
     // 无搜索栏时去掉表格卡片的上间距
     .no-search-card {
       margin-top: 0;
-    }
-
-    .secret-toggle {
-      margin-left: 8px;
     }
 
     .version-count {
