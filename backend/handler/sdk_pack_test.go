@@ -59,7 +59,10 @@ func TestNormalizeSDKPackBaseURL(t *testing.T) {
 	}
 }
 
-func testSDKPackInput(modules []string, includeJS bool) sdkPackInput {
+func testSDKPackInput(modules []string, language string) sdkPackInput {
+	if language == "" {
+		language = "php"
+	}
 	return sdkPackInput{
 		AppID:     12,
 		AppName:   "演示应用",
@@ -67,7 +70,13 @@ func testSDKPackInput(modules []string, includeJS bool) sdkPackInput {
 		AppSecret: "sk_live_demo_secret_aaa",
 		BaseURL:   "https://auth.example.com",
 		Modules:   modules,
-		IncludeJS: includeJS,
+		Language:  language,
+	}
+}
+
+func testSDKPackModulesAll() []string {
+	return []string{
+		sdkPackModuleLicense, sdkPackModulePiracy, sdkPackModuleUpdate, sdkPackModuleAds, sdkPackModulePluginSource,
 	}
 }
 
@@ -107,115 +116,159 @@ func TestSDKPackPluginSourceURLMatchesIsolationContract(t *testing.T) {
 	}
 }
 
-func TestBuildSDKPackHybridLayoutAndAPIs(t *testing.T) {
-	otherSecret := "sk_live_other_app_secret_bbb"
-	payload, filename, err := buildSDKPack(testSDKPackInput([]string{
-		sdkPackModuleLicense, sdkPackModulePiracy, sdkPackModuleUpdate, sdkPackModuleAds, sdkPackModulePluginSource,
-	}, true))
+func TestNormalizeSDKPackLanguage(t *testing.T) {
+	if _, err := normalizeSDKPackLanguage(""); err == nil || !strings.Contains(err.Error(), "请选择接入语言") {
+		t.Fatalf("empty language want 请选择接入语言, got %v", err)
+	}
+	if _, err := normalizeSDKPackLanguage("   "); err == nil || !strings.Contains(err.Error(), "请选择接入语言") {
+		t.Fatalf("blank language want 请选择接入语言, got %v", err)
+	}
+	if _, err := normalizeSDKPackLanguage("java"); err == nil || !strings.Contains(err.Error(), "不支持的接入语言") {
+		t.Fatalf("invalid language want 不支持的接入语言, got %v", err)
+	}
+	got, err := normalizeSDKPackLanguage(" PHP ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filename != "auth-pro-client-app_demo_1.zip" {
-		t.Fatalf("filename=%q", filename)
+	if got != "php" {
+		t.Fatalf("language=%q", got)
 	}
-	files := zipFiles(t, payload)
-	root := "auth-pro-client-app_demo_1/"
-	readme := files[root+"README.md"]
-	configRaw := files[root+"config.json"]
-	if readme == "" || configRaw == "" {
-		t.Fatalf("missing README/config: %v", keysOf(files))
+}
+
+func TestBuildSDKPackRequiresLanguage(t *testing.T) {
+	input := testSDKPackInput([]string{sdkPackModuleLicense}, "php")
+	input.Language = ""
+	if _, _, err := buildSDKPack(input); err == nil || !strings.Contains(err.Error(), "请选择接入语言") {
+		t.Fatalf("missing language want 请选择接入语言, got %v", err)
 	}
-	for _, lang := range sdkPackLanguages {
-		if !strings.Contains(readme, lang) {
-			t.Fatalf("README missing language %s", lang)
-		}
-		foundVendor := false
-		foundExample := false
-		for name := range files {
-			if strings.HasPrefix(name, root+"vendor/"+lang+"/") {
-				foundVendor = true
+	input.Language = "ruby"
+	if _, _, err := buildSDKPack(input); err == nil || !strings.Contains(err.Error(), "不支持的接入语言") {
+		t.Fatalf("invalid language want 不支持的接入语言, got %v", err)
+	}
+}
+
+func TestBuildSDKPackSingleLanguageLayout(t *testing.T) {
+	otherSecret := "sk_live_other_app_secret_bbb"
+	type langSpec struct {
+		lang     string
+		filename string
+		root     string
+		must     []string
+		mustNot  []string
+	}
+	specs := []langSpec{
+		{
+			lang: "php", filename: "auth-pro-php-app_demo_1.zip", root: "auth-pro-php-app_demo_1/",
+			must:    []string{"README.md", "config.json", "AuthPro.php", "example.php"},
+			mustNot: []string{"index.js", "auth-pro.js", "authpro.go", "__init__.py", "vendor/", "examples/node", "examples/python", "examples/go", "examples/browser"},
+		},
+		{
+			lang: "node", filename: "auth-pro-node-app_demo_1.zip", root: "auth-pro-node-app_demo_1/",
+			must:    []string{"README.md", "config.json", "index.js", "example.js"},
+			mustNot: []string{"AuthPro.php", "auth-pro.js", "authpro.go", "__init__.py", "vendor/", "examples/php"},
+		},
+		{
+			lang: "python", filename: "auth-pro-python-app_demo_1.zip", root: "auth-pro-python-app_demo_1/",
+			must:    []string{"README.md", "config.json", "authpro/__init__.py", "example.py"},
+			mustNot: []string{"AuthPro.php", "index.js", "auth-pro.js", "authpro.go", "vendor/", "examples/php"},
+		},
+		{
+			lang: "go", filename: "auth-pro-go-app_demo_1.zip", root: "auth-pro-go-app_demo_1/",
+			must:    []string{"README.md", "config.json", "authpro/authpro.go", "go.mod", "example.go"},
+			mustNot: []string{"AuthPro.php", "index.js", "auth-pro.js", "__init__.py", "vendor/", "examples/php"},
+		},
+		{
+			lang: "browser", filename: "auth-pro-browser-app_demo_1.zip", root: "auth-pro-browser-app_demo_1/",
+			must:    []string{"README.md", "config.json", "auth-pro.js", "example.html"},
+			mustNot: []string{"AuthPro.php", "index.js", "authpro.go", "__init__.py", "vendor/", "examples/php", "examples/node"},
+		},
+	}
+
+	for _, spec := range specs {
+		spec := spec
+		t.Run(spec.lang, func(t *testing.T) {
+			payload, filename, err := buildSDKPack(testSDKPackInput(testSDKPackModulesAll(), spec.lang))
+			if err != nil {
+				t.Fatal(err)
 			}
-			if strings.HasPrefix(name, root+"examples/"+lang+"/") {
-				foundExample = true
+			if filename != spec.filename {
+				t.Fatalf("filename=%q want %q", filename, spec.filename)
 			}
-		}
-		if !foundVendor || !foundExample {
-			t.Fatalf("lang %s vendor=%t example=%t", lang, foundVendor, foundExample)
-		}
-	}
-
-	var cfg map[string]any
-	if err := json.Unmarshal([]byte(configRaw), &cfg); err != nil {
-		t.Fatal(err)
-	}
-	if cfg["appKey"] != "app_demo_1" || cfg["baseUrl"] != "https://auth.example.com" {
-		t.Fatalf("config=%v", cfg)
-	}
-	if cfg["appSecret"] != "sk_live_demo_secret_aaa" {
-		t.Fatal("server config should include appSecret when signing modules enabled")
-	}
-	if strings.Contains(configRaw, otherSecret) {
-		t.Fatal("pack leaked another app secret")
-	}
-
-	browserCfg := files[root+"examples/browser/config.json"]
-	if browserCfg == "" {
-		t.Fatal("browser example config missing")
-	}
-	if strings.Contains(browserCfg, "appSecret") || strings.Contains(browserCfg, "sk_live_demo_secret_aaa") {
-		t.Fatal("browser config must not embed appSecret")
-	}
-
-	phpCore := files[root+"vendor/php/src/AuthPro.php"]
-	nodeCore := files[root+"vendor/node/src/index.js"]
-	pyCore := files[root+"vendor/python/authpro/__init__.py"]
-	goCore := files[root+"vendor/go/authpro/authpro.go"]
-	browserCore := files[root+"vendor/browser/src/auth-pro.js"]
-	for _, needle := range []string{"/api/license/verify", "/api/app/version/check", "/api/v1/public/advertisements", "pluginSource"} {
-		for lang, body := range map[string]string{"php": phpCore, "node": nodeCore, "python": pyCore, "go": goCore} {
-			if !strings.Contains(body, needle) && !(needle == "pluginSource" && (strings.Contains(body, "plugin_source_url") || strings.Contains(body, "PluginSourceURL") || strings.Contains(body, "pluginSourceUrl"))) {
-				if needle == "pluginSource" {
+			files := zipFiles(t, payload)
+			for _, rel := range spec.must {
+				if files[spec.root+rel] == "" {
+					t.Fatalf("missing %s; have %v", spec.root+rel, keysOf(files))
+				}
+			}
+			for name := range files {
+				if !strings.HasPrefix(name, spec.root) {
+					t.Fatalf("entry outside single root %s: %s", spec.root, name)
+				}
+				for _, other := range sdkPackLanguages {
+					if other == spec.lang {
+						continue
+					}
+					if strings.Contains(name, "/vendor/"+other+"/") || strings.Contains(name, "/examples/"+other+"/") {
+						t.Fatalf("%s pack contains other language path %s", spec.lang, name)
+					}
+				}
+				for _, banned := range spec.mustNot {
+					if strings.Contains(name, banned) {
+						t.Fatalf("%s pack should not contain %q (saw %s)", spec.lang, banned, name)
+					}
+				}
+			}
+			readme := files[spec.root+"README.md"]
+			if !strings.Contains(readme, "把") && !strings.Contains(readme, "复制") {
+				t.Fatal("README should tell user where to put the folder")
+			}
+			for _, other := range sdkPackLanguages {
+				if other == spec.lang {
 					continue
 				}
-				t.Fatalf("%s missing %s", lang, needle)
+				if strings.Contains(readme, "vendor/"+other) {
+					t.Fatalf("README still documents other language vendor/%s", other)
+				}
 			}
-		}
-	}
-	if !strings.Contains(phpCore, "function verify") && !strings.Contains(phpCore, "public static function verify") {
-		t.Fatal("php verify missing")
-	}
-	if !strings.Contains(browserCore, "function ads") || !strings.Contains(browserCore, "pluginSourceUrl") {
-		t.Fatal("browser must implement ads and pluginSourceUrl")
-	}
-	if strings.Contains(browserCore, "sk_live_demo_secret_aaa") {
-		t.Fatal("browser vendor must not bake app secret")
-	}
-	if strings.Contains(readme, "auth_pro_sdk.php") {
-		t.Fatal("old monolithic pack should be superseded in README")
-	}
-	pluginURL := "https://auth.example.com/software-source/app_demo_1/index.json"
-	if !strings.Contains(readme, pluginURL) {
-		t.Fatalf("readme should document plugin URL %s", pluginURL)
+			if strings.Contains(readme, "五语言") {
+				t.Fatal("README must not say 五语言")
+			}
+			cfg := files[spec.root+"config.json"]
+			if strings.Contains(cfg, otherSecret) {
+				t.Fatal("pack leaked another app secret")
+			}
+			if spec.lang == "browser" {
+				if strings.Contains(cfg, "appSecret") || strings.Contains(cfg, "sk_live_demo_secret_aaa") {
+					t.Fatal("browser config must omit appSecret")
+				}
+				core := files[spec.root+"auth-pro.js"]
+				if strings.Contains(core, "sk_live_demo_secret_aaa") {
+					t.Fatal("browser entry must not bake app secret")
+				}
+			} else if !strings.Contains(cfg, "sk_live_demo_secret_aaa") {
+				t.Fatal("server language config should include appSecret when signing modules enabled")
+			}
+		})
 	}
 }
 
 func TestBuildSDKPackOmitsSecretWhenNoSigningModule(t *testing.T) {
-	payload, _, err := buildSDKPack(testSDKPackInput([]string{sdkPackModuleAds, sdkPackModulePluginSource}, true))
+	payload, _, err := buildSDKPack(testSDKPackInput([]string{sdkPackModuleAds, sdkPackModulePluginSource}, "php"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	files := zipFiles(t, payload)
-	cfg := files["auth-pro-client-app_demo_1/config.json"]
+	cfg := files["auth-pro-php-app_demo_1/config.json"]
 	if strings.Contains(cfg, "appSecret") || strings.Contains(cfg, "sk_live_demo_secret_aaa") {
 		t.Fatal("unsigned modules should not bake appSecret into config.json")
 	}
-	if !strings.Contains(files["auth-pro-client-app_demo_1/README.md"], "https://auth.example.com/software-source/app_demo_1/index.json") {
+	if !strings.Contains(files["auth-pro-php-app_demo_1/README.md"], "https://auth.example.com/software-source/app_demo_1/index.json") {
 		t.Fatal("plugin source URL missing from ads/plugin pack")
 	}
 }
 
 func TestBuildSDKPackSwitchingAppOnlyChangesConfig(t *testing.T) {
-	a := testSDKPackInput([]string{sdkPackModuleLicense, sdkPackModuleAds}, false)
+	a := testSDKPackInput([]string{sdkPackModuleLicense, sdkPackModuleAds}, "php")
 	b := a
 	b.AppID = 99
 	b.AppName = "另一应用"
@@ -231,22 +284,22 @@ func TestBuildSDKPackSwitchingAppOnlyChangesConfig(t *testing.T) {
 	}
 	fa := zipFiles(t, pa)
 	fb := zipFiles(t, pb)
-	vendorA := fa["auth-pro-client-app_demo_1/vendor/php/src/AuthPro.php"]
-	vendorB := fb["auth-pro-client-app_other/vendor/php/src/AuthPro.php"]
-	if vendorA == "" || vendorA != vendorB {
-		t.Fatal("vendor core must be identical across apps")
+	coreA := fa["auth-pro-php-app_demo_1/AuthPro.php"]
+	coreB := fb["auth-pro-php-app_other/AuthPro.php"]
+	if coreA == "" || coreA != coreB {
+		t.Fatal("language entry must be identical across apps")
 	}
-	if fa["auth-pro-client-app_demo_1/config.json"] == fb["auth-pro-client-app_other/config.json"] {
+	if fa["auth-pro-php-app_demo_1/config.json"] == fb["auth-pro-php-app_other/config.json"] {
 		t.Fatal("config.json must differ between apps")
 	}
 }
 
 func TestBuildSDKPackLicenseV2FieldOrderMatchesBackend(t *testing.T) {
-	payload, _, err := buildSDKPack(testSDKPackInput([]string{sdkPackModuleLicense, sdkPackModuleUpdate}, false))
+	payload, _, err := buildSDKPack(testSDKPackInput([]string{sdkPackModuleLicense, sdkPackModuleUpdate}, "php"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	php := zipFiles(t, payload)["auth-pro-client-app_demo_1/vendor/php/src/AuthPro.php"]
+	php := zipFiles(t, payload)["auth-pro-php-app_demo_1/AuthPro.php"]
 	licenseParts := []string{"'v2'", "self::cfg('appKey', '')", "$ctx['licenseKey']", "$ctx['domain']", "$ctx['serverIp']", "(string)$timestamp"}
 	assertAppearsInOrder(t, php, licenseParts)
 	updateParts := []string{"'v2'", "self::cfg('appKey', '')", "(string)$currentVersion", "$ctx['licenseKey']", "$ctx['domain']", "$ctx['serverIp']", "(string)$timestamp"}
@@ -273,24 +326,24 @@ func TestBuildSDKPackLicenseV2FieldOrderMatchesBackend(t *testing.T) {
 }
 
 func TestPHPCommentDoesNotBreakOut(t *testing.T) {
-	input := testSDKPackInput([]string{sdkPackModuleLicense}, false)
+	input := testSDKPackInput([]string{sdkPackModuleLicense}, "php")
 	input.AppName = "evil */ echo secret"
 	payload, _, err := buildSDKPack(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	example := zipFiles(t, payload)["auth-pro-client-app_demo_1/examples/php/boot.php"]
+	example := zipFiles(t, payload)["auth-pro-php-app_demo_1/example.php"]
 	if strings.Contains(example, "evil */") {
 		t.Fatal("app name must not terminate the PHP file comment")
 	}
 }
 
 func TestBuildSDKPackPiracyImpliesLicenseVerifyOnBoot(t *testing.T) {
-	payload, _, err := buildSDKPack(testSDKPackInput([]string{sdkPackModulePiracy}, true))
+	payload, _, err := buildSDKPack(testSDKPackInput([]string{sdkPackModulePiracy}, "php"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	php := zipFiles(t, payload)["auth-pro-client-app_demo_1/vendor/php/src/AuthPro.php"]
+	php := zipFiles(t, payload)["auth-pro-php-app_demo_1/AuthPro.php"]
 	if !strings.Contains(php, "/api/license/verify") {
 		t.Fatal("piracy pack must still call license verify so the server can record hits")
 	}
@@ -333,7 +386,7 @@ func TestParseSDKPackHTTPRequestUsesOriginFallback(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
-	body := `{"appId":3,"modules":["ads"]}`
+	body := `{"appId":3,"modules":["ads"],"language":"php"}`
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/sdk/pack", strings.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Request.Host = "license.local:19127"
@@ -346,8 +399,22 @@ func TestParseSDKPackHTTPRequestUsesOriginFallback(t *testing.T) {
 	if req.AppID != 3 || req.BaseURL != "https://license.local:19127" {
 		t.Fatalf("parsed=%+v", req)
 	}
-	if !req.IncludeJS {
-		t.Fatal("includeJs should default true")
+	if req.Language != "php" {
+		t.Fatalf("language=%q", req.Language)
+	}
+}
+
+func TestParseSDKPackHTTPRequestRejectsMissingLanguage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/sdk/pack", strings.NewReader(`{"appId":3,"modules":["ads"]}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Host = "license.local:19127"
+
+	_, err := parseSDKPackHTTPRequest(c)
+	if err == nil || !strings.Contains(err.Error(), "请选择接入语言") {
+		t.Fatalf("want 请选择接入语言, got %v", err)
 	}
 }
 
@@ -355,7 +422,7 @@ func TestAdminSDKPackDownloadRejectsMissingAppID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/sdk/pack", strings.NewReader(`{"modules":["license"]}`))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/sdk/pack", strings.NewReader(`{"modules":["license"],"language":"php"}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 	AdminSDKPackDownload(c)
 	if recorder.Code != http.StatusOK {
@@ -373,6 +440,26 @@ func TestAdminSDKPackDownloadRejectsMissingAppID(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), "sk_live_") {
 		t.Fatal("error response must not include secrets")
+	}
+}
+
+func TestAdminSDKPackDownloadRejectsMissingLanguage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/sdk/pack", strings.NewReader(`{"appId":3,"modules":["license"]}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Host = "license.local"
+	AdminSDKPackDownload(c)
+	var body struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != 400 || !strings.Contains(body.Msg, "请选择接入语言") {
+		t.Fatalf("want 400 请选择接入语言, got %+v body=%s", body, recorder.Body.String())
 	}
 }
 

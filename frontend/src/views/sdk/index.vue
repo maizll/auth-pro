@@ -5,15 +5,13 @@
         <div>
           <h2>SDK 接入包</h2>
           <p>
-            按应用下载薄 ZIP：内含五语言
-            <code>vendor/</code>
-            快照、中文示例与预填
+            先选应用，再选一种语言，下载该语言的接入文件夹。解压后整份放进项目，从核心文件
+            require / import 即可。换应用只改
             <code>config.json</code>
-            。换应用只改配置；浏览器包不含
-            appSecret。密钥仅写入所选应用的服务端配置。
+            ；浏览器包不含 appSecret。
           </p>
         </div>
-        <ElTag type="primary" size="large">Hybrid Client Pack</ElTag>
+        <ElTag type="primary" size="large">Client SDK Pack</ElTag>
       </div>
     </ElCard>
 
@@ -37,6 +35,13 @@
             />
           </ElSelect>
         </ElFormItem>
+        <ElFormItem label="接入语言" required>
+          <ElRadioGroup v-model="packForm.language" class="language-options">
+            <ElRadio v-for="item in sdkLanguageOptions" :key="item.key" :value="item.key">
+              {{ item.label }}
+            </ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
         <ElFormItem label="接入模块" required>
           <ElCheckboxGroup v-model="packForm.modules" class="module-options">
             <ElCheckbox v-for="item in moduleOptions" :key="item.key" :value="item.key">
@@ -52,8 +57,8 @@
           />
         </ElFormItem>
         <ElFormItem>
-          <ElButton type="primary" :loading="generating" @click="generatePack">
-            下载接入包（五语言）
+          <ElButton type="primary" :loading="generating" :disabled="!packForm.language" @click="generatePack">
+            {{ downloadButtonText }}
           </ElButton>
         </ElFormItem>
       </ElForm>
@@ -64,9 +69,8 @@
         <div>
           <h2>SDK 接入示例</h2>
           <p>
-            下列为协议级片段，便于核对签名字段。生产接入请优先使用接入包中的
-            <code>vendor/*</code> + <code>config.json</code>（统一
-            boot/verify/checkUpdate/ads/pluginSourceUrl）。
+            下列为协议级片段，便于核对签名字段。生产接入请优先使用「SDK 接入」页按语言下载的接入包（单语言文件夹 +
+            <code>config.json</code>，统一 boot / verify / checkUpdate / ads / pluginSourceUrl）。
           </p>
         </div>
         <ElTag type="info" size="large">License SDK</ElTag>
@@ -141,13 +145,29 @@
     }
   ]
 
+  type SdkPackLanguage = 'php' | 'node' | 'python' | 'go' | 'browser'
+
+  const sdkLanguageOptions: { key: SdkPackLanguage; label: string }[] = [
+    { key: 'php', label: 'PHP' },
+    { key: 'node', label: 'Node.js' },
+    { key: 'python', label: 'Python' },
+    { key: 'go', label: 'Go' },
+    { key: 'browser', label: '浏览器' }
+  ]
+
   const route = useRoute()
   const apps = ref<LicenseAppItem[]>([])
   const generating = ref(false)
   const packForm = reactive({
     appId: undefined as number | undefined,
+    language: 'php' as SdkPackLanguage,
     modules: moduleOptions.map((item) => item.key),
     baseUrl: typeof window !== 'undefined' ? window.location.origin : ''
+  })
+
+  const downloadButtonText = computed(() => {
+    const item = sdkLanguageOptions.find((lang) => lang.key === packForm.language)
+    return item ? `下载 ${item.label} 接入包` : '下载接入包'
   })
 
   const loadApps = async () => {
@@ -167,11 +187,16 @@
       ElMessage.warning('请至少选择一个接入模块')
       return
     }
+    if (!packForm.language) {
+      ElMessage.warning('请选择接入语言')
+      return
+    }
     generating.value = true
     let objectUrl = ''
     try {
       const file = await fetchDownloadSDKPack({
         appId: packForm.appId,
+        language: packForm.language,
         modules: packForm.modules,
         baseUrl: packForm.baseUrl.trim() || undefined
       })
@@ -183,7 +208,7 @@
       objectUrl = URL.createObjectURL(file)
       const anchor = document.createElement('a')
       anchor.href = objectUrl
-      anchor.download = `auth-pro-client-${app?.appKey || packForm.appId}.zip`
+      anchor.download = `auth-pro-${packForm.language}-${app?.appKey || packForm.appId}.zip`
       document.body.appendChild(anchor)
       anchor.click()
       anchor.remove()
@@ -599,6 +624,12 @@ export async function verifyLicense({ domain, serverIp = '', licenseKey = '' }) 
     margin-left: 8px;
     color: var(--el-text-color-secondary);
     font-weight: 400;
+  }
+
+  .language-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
   }
 
   .intro-content,

@@ -6,12 +6,11 @@
           <div>
             <h2>开发文档</h2>
             <p>
-              推荐在「SDK 接入」页按应用下载混合接入包：仓库
+              推荐在「SDK 接入」页按应用、按语言下载接入包：每次只含一种语言的文件夹（PHP / Node.js / Python / Go / 浏览器），复制进项目后 require / import 即可。仓库
               <code>sdk/{php,node,python,go,browser}</code>
               提供统一 API（boot / verify / checkUpdate / ads /
-              pluginSourceUrl），ZIP 仅预填本应用
-              <code>config.json</code> 并附带
-              <code>vendor/</code> 离线快照。下文为协议说明，便于自行实现或核对签名。
+              pluginSourceUrl），ZIP 预填本应用
+              <code>config.json</code>。下文为协议说明，便于自行实现或核对签名。
             </p>
           </div>
           <ElTag type="primary" size="large">License API</ElTag>

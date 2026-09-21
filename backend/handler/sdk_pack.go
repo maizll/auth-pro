@@ -7,12 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"mime"
 	"net"
 	"net/http"
 	"net/url"
-	"path"
 	"strings"
 	"time"
 
@@ -47,6 +45,14 @@ var sdkPackModuleSet = map[string]struct{}{
 
 var sdkPackLanguages = []string{"php", "node", "python", "go", "browser"}
 
+var sdkPackLanguageLabels = map[string]string{
+	"php":     "PHP",
+	"node":    "Node.js",
+	"python":  "Python",
+	"go":      "Go",
+	"browser": "浏览器",
+}
+
 var errSDKPackAppID = errors.New("请选择应用")
 
 type sdkPackInput struct {
@@ -56,14 +62,14 @@ type sdkPackInput struct {
 	AppSecret string
 	BaseURL   string
 	Modules   []string
-	IncludeJS bool // 兼容旧请求字段；混合包始终包含全部语言
+	Language  string
 }
 
 type sdkPackHTTPRequest struct {
-	AppID     int64    `json:"appId"`
-	Modules   []string `json:"modules"`
-	BaseURL   string   `json:"baseUrl"`
-	IncludeJS *bool    `json:"includeJs"`
+	AppID    int64    `json:"appId"`
+	Modules  []string `json:"modules"`
+	BaseURL  string   `json:"baseUrl"`
+	Language string   `json:"language"`
 }
 
 type sdkPackConfigJSON struct {
@@ -103,6 +109,17 @@ func normalizeSDKPackModules(raw []string) ([]string, error) {
 		}
 	}
 	return ordered, nil
+}
+
+func normalizeSDKPackLanguage(raw string) (string, error) {
+	name := strings.ToLower(strings.TrimSpace(raw))
+	if name == "" {
+		return "", errors.New("请选择接入语言")
+	}
+	if _, ok := sdkPackLanguageLabels[name]; !ok {
+		return "", fmt.Errorf("不支持的接入语言：%s，请选择 php、node、python、go 或 browser", raw)
+	}
+	return name, nil
 }
 
 func normalizeSDKPackBaseURL(raw, fallback string) (string, error) {
@@ -198,8 +215,34 @@ func sdkPackBuildConfigJSON(input sdkPackInput, modules []string, includeSecret 
 	return json.MarshalIndent(cfg, "", "  ")
 }
 
+func sdkPackRootName(lang, appKey string) string {
+	return "auth-pro-" + lang + "-" + sdkPackSafeName(appKey)
+}
+
+func sdkPackRequireSnippet(lang string) (fence, snippet, dropIn string) {
+	dropIn = "auth-pro-" + lang
+	switch lang {
+	case "php":
+		return "php", "require __DIR__ . '/" + dropIn + "/AuthPro.php';\nAuthPro::boot(__DIR__ . '/" + dropIn + "/config.json');", dropIn
+	case "node":
+		return "js", "const AuthPro = require('./" + dropIn + "/index.js');\nawait AuthPro.boot('./" + dropIn + "/config.json');", dropIn
+	case "python":
+		return "python", "import sys\nsys.path.insert(0, \"" + dropIn + "\")\nimport authpro\nauthpro.boot(\"" + dropIn + "/config.json\")", dropIn
+	case "go":
+		return "go", "import authpro \"github.com/maizll/auth-pro/sdk/go/authpro\"\n// go mod edit -replace github.com/maizll/auth-pro/sdk/go=./" + dropIn + "\n_ = authpro.Boot(\"" + dropIn + "/config.json\")", dropIn
+	case "browser":
+		return "html", "<script src=\"./" + dropIn + "/auth-pro.js\"></script>\n<script>AuthPro.boot(config)</script>", dropIn
+	default:
+		return "", "", dropIn
+	}
+}
+
 func buildSDKPack(input sdkPackInput) ([]byte, string, error) {
 	modules, err := normalizeSDKPackModules(input.Modules)
+	if err != nil {
+		return nil, "", err
+	}
+	lang, err := normalizeSDKPackLanguage(input.Language)
 	if err != nil {
 		return nil, "", err
 	}
@@ -219,9 +262,11 @@ func buildSDKPack(input sdkPackInput) ([]byte, string, error) {
 	needSign := sdkPackHasModule(modules, sdkPackModuleLicense) ||
 		sdkPackHasModule(modules, sdkPackModulePiracy) ||
 		sdkPackHasModule(modules, sdkPackModuleUpdate)
+	includeSecret := needSign && lang != "browser"
 
-	safe := sdkPackSafeName(appKey)
-	root := "auth-pro-client-" + safe + "/"
+	safeRoot := sdkPackRootName(lang, appKey)
+	root := safeRoot + "/"
+	fence, snippet, dropIn := sdkPackRequireSnippet(lang)
 	meta := sdkPackTemplateData{
 		AppID:           input.AppID,
 		AppName:         strings.TrimSpace(input.AppName),
@@ -236,13 +281,15 @@ func buildSDKPack(input sdkPackInput) ([]byte, string, error) {
 		PluginSource:    sdkPackHasModule(modules, sdkPackModulePluginSource),
 		ModuleLabels:    sdkPackModuleLabels(modules),
 		GeneratedAt:     time.Now().UTC().Format("2006-01-02 15:04 UTC"),
+		Language:        lang,
+		LanguageLabel:   sdkPackLanguageLabels[lang],
+		DropInDir:       dropIn,
+		RequireFence:    fence,
+		RequireSnippet:  snippet,
+		Browser:         lang == "browser",
 	}
 
-	serverConfig, err := sdkPackBuildConfigJSON(input, modules, needSign)
-	if err != nil {
-		return nil, "", err
-	}
-	browserConfig, err := sdkPackBuildConfigJSON(input, modules, false)
+	configJSON, err := sdkPackBuildConfigJSON(input, modules, includeSecret)
 	if err != nil {
 		return nil, "", err
 	}
@@ -253,21 +300,16 @@ func buildSDKPack(input sdkPackInput) ([]byte, string, error) {
 
 	files := map[string][]byte{
 		root + "README.md":   []byte(readme),
-		root + "config.json": serverConfig,
+		root + "config.json": configJSON,
 	}
-
-	for _, lang := range sdkPackLanguages {
-		example, exErr := renderSDKPackExample(lang, meta)
-		if exErr != nil {
-			return nil, "", exErr
-		}
-		files[root+"examples/"+lang+"/"+example.name] = []byte(example.body)
-		if err := appendSDKVendorFiles(files, root, lang); err != nil {
-			return nil, "", err
-		}
+	example, exErr := renderSDKPackExample(lang, meta)
+	if exErr != nil {
+		return nil, "", exErr
 	}
-	// 浏览器示例旁放一份不含 appSecret 的配置，避免误拷密钥到前端。
-	files[root+"examples/browser/config.json"] = browserConfig
+	files[root+example.name] = []byte(example.body)
+	if err := appendSDKLanguageFiles(files, root, lang); err != nil {
+		return nil, "", err
+	}
 
 	var buffer bytes.Buffer
 	archive := zip.NewWriter(&buffer)
@@ -287,49 +329,52 @@ func buildSDKPack(input sdkPackInput) ([]byte, string, error) {
 	if err := archive.Close(); err != nil {
 		return nil, "", err
 	}
-	return buffer.Bytes(), "auth-pro-client-" + safe + ".zip", nil
+	return buffer.Bytes(), safeRoot + ".zip", nil
 }
 
-func appendSDKVendorFiles(files map[string][]byte, root, lang string) error {
-	prefix := path.Join("sdk_assets", lang)
-	err := fs.WalkDir(clientSDKAssets, prefix, func(walkPath string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			// 跳过 Python 字节码目录
-			if d.Name() == "__pycache__" {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		baseName := path.Base(walkPath)
-		if strings.HasPrefix(baseName, ".") || strings.HasSuffix(baseName, ".pyc") {
-			return nil
-		}
-		rel := strings.TrimPrefix(walkPath, prefix+"/")
-		if rel == walkPath || rel == "" {
-			return fmt.Errorf("unexpected sdk asset path %q", walkPath)
-		}
-		raw, err := clientSDKAssets.ReadFile(walkPath)
-		if err != nil {
-			return err
-		}
-		files[root+"vendor/"+lang+"/"+rel] = raw
-		return nil
-	})
-	if err != nil {
-		return err
+func appendSDKLanguageFiles(files map[string][]byte, root, lang string) error {
+	entries, ok := sdkPackLanguageEntries[lang]
+	if !ok {
+		return fmt.Errorf("不支持的接入语言：%s", lang)
 	}
-	// go.mod 不能放在 sdk_assets/go/ 下（会形成嵌套 module，go:embed 会跳过整棵树）
-	if lang == "go" {
-		mod, readErr := clientSDKAssets.ReadFile("sdk_assets/_meta/go.mod.txt")
-		if readErr != nil {
-			return readErr
+	for _, item := range entries {
+		raw, err := clientSDKAssets.ReadFile(item.src)
+		if err != nil {
+			return fmt.Errorf("读取 %s 接入库失败：%w", lang, err)
 		}
-		files[root+"vendor/go/go.mod"] = mod
+		files[root+item.dest] = raw
+	}
+	if lang == "go" {
+		mod, err := clientSDKAssets.ReadFile("sdk_assets/_meta/go.mod.txt")
+		if err != nil {
+			return err
+		}
+		files[root+"go.mod"] = mod
 	}
 	return nil
+}
+
+type sdkPackAssetEntry struct {
+	src  string
+	dest string
+}
+
+var sdkPackLanguageEntries = map[string][]sdkPackAssetEntry{
+	"php": {
+		{src: "sdk_assets/php/src/AuthPro.php", dest: "AuthPro.php"},
+	},
+	"node": {
+		{src: "sdk_assets/node/src/index.js", dest: "index.js"},
+	},
+	"python": {
+		{src: "sdk_assets/python/authpro/__init__.py", dest: "authpro/__init__.py"},
+	},
+	"go": {
+		{src: "sdk_assets/go/authpro/authpro.go", dest: "authpro/authpro.go"},
+	},
+	"browser": {
+		{src: "sdk_assets/browser/src/auth-pro.js", dest: "auth-pro.js"},
+	},
 }
 
 func sdkPackModuleLabels(modules []string) []string {
@@ -371,6 +416,10 @@ func parseSDKPackHTTPRequest(c *gin.Context) (sdkPackInput, error) {
 	if raw.AppID <= 0 {
 		return sdkPackInput{}, errSDKPackAppID
 	}
+	language, err := normalizeSDKPackLanguage(raw.Language)
+	if err != nil {
+		return sdkPackInput{}, err
+	}
 	modules, err := normalizeSDKPackModules(raw.Modules)
 	if err != nil {
 		return sdkPackInput{}, err
@@ -379,15 +428,11 @@ func parseSDKPackHTTPRequest(c *gin.Context) (sdkPackInput, error) {
 	if err != nil {
 		return sdkPackInput{}, err
 	}
-	includeJS := true
-	if raw.IncludeJS != nil {
-		includeJS = *raw.IncludeJS
-	}
 	return sdkPackInput{
-		AppID:     raw.AppID,
-		BaseURL:   baseURL,
-		Modules:   modules,
-		IncludeJS: includeJS,
+		AppID:    raw.AppID,
+		BaseURL:  baseURL,
+		Modules:  modules,
+		Language: language,
 	}, nil
 }
 
@@ -424,7 +469,7 @@ func AdminSDKPackDownload(c *gin.Context) {
 	}
 	app.BaseURL = req.BaseURL
 	app.Modules = req.Modules
-	app.IncludeJS = req.IncludeJS
+	app.Language = req.Language
 	payload, filename, err := buildSDKPack(app)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})

@@ -7,33 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
 
-// TestSDKPackLanguageVerifyAgainstHTTPStub extracts the hybrid zip and drives
-// PHP/Node/Python verify() against a local httptest stub (acceptance smoke).
-func TestSDKPackLanguageVerifyAgainstHTTPStub(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.URL.Path == "/api/license/verify":
-			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"result": "pass"}})
-		case r.URL.Path == "/api/app/version/check":
-			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"hasUpdate": false}})
-		case r.URL.Path == "/api/v1/public/advertisements":
-			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"records": []any{}, "placeholder": nil}})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-
-	input := testSDKPackInput([]string{
-		sdkPackModuleLicense, sdkPackModulePiracy, sdkPackModuleUpdate, sdkPackModuleAds, sdkPackModulePluginSource,
-	}, true)
-	input.BaseURL = server.URL
+func extractSDKPack(t *testing.T, language, baseURL string) string {
+	t.Helper()
+	input := testSDKPackInput(testSDKPackModulesAll(), language)
+	input.BaseURL = baseURL
 	payload, _, err := buildSDKPack(input)
 	if err != nil {
 		t.Fatal(err)
@@ -50,12 +31,47 @@ func TestSDKPackLanguageVerifyAgainstHTTPStub(t *testing.T) {
 	if out, err := exec.Command("unzip", "-q", zipPath, "-d", extractDir).CombinedOutput(); err != nil {
 		t.Fatalf("unzip: %v (%s)", err, out)
 	}
-	root := filepath.Join(extractDir, "auth-pro-client-app_demo_1")
+	root := filepath.Join(extractDir, "auth-pro-"+language+"-app_demo_1")
+	if _, err := os.Stat(root); err != nil {
+		t.Fatalf("missing pack root %s: %v", root, err)
+	}
+	entries, err := os.ReadDir(extractDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("zip should contain a single language folder, got %v", names)
+	}
+	return root
+}
+
+// TestSDKPackLanguageVerifyAgainstHTTPStub extracts one zip per language and
+// drives PHP/Node/Python/Go/browser verify() against a local httptest stub.
+func TestSDKPackLanguageVerifyAgainstHTTPStub(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/license/verify":
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"result": "pass"}})
+		case r.URL.Path == "/api/app/version/check":
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"hasUpdate": false}})
+		case r.URL.Path == "/api/v1/public/advertisements":
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"records": []any{}, "placeholder": nil}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
 
 	t.Run("php", func(t *testing.T) {
 		if _, err := exec.LookPath("php"); err != nil {
 			t.Skip("php not installed")
 		}
+		root := extractSDKPack(t, "php", server.URL)
 		scriptPath := filepath.Join(t.TempDir(), "smoke.php")
 		script := `<?php
 require $argv[1];
@@ -71,7 +87,7 @@ echo AuthPro::pluginSourceUrl();
 		if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command("php", scriptPath, filepath.Join(root, "vendor/php/src/AuthPro.php"), filepath.Join(root, "config.json"))
+		cmd := exec.Command("php", scriptPath, filepath.Join(root, "AuthPro.php"), filepath.Join(root, "config.json"))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("php verify: %v (%s)", err, out)
@@ -85,6 +101,7 @@ echo AuthPro::pluginSourceUrl();
 		if _, err := exec.LookPath("node"); err != nil {
 			t.Skip("node not installed")
 		}
+		root := extractSDKPack(t, "node", server.URL)
 		script := `
 const AuthPro = require(process.argv[1]);
 (async () => {
@@ -96,7 +113,7 @@ const AuthPro = require(process.argv[1]);
   console.log(AuthPro.pluginSourceUrl());
 })().catch((e) => { console.error(e); process.exit(1); });
 `
-		cmd := exec.Command("node", "-e", script, filepath.Join(root, "vendor/node/src/index.js"), filepath.Join(root, "config.json"))
+		cmd := exec.Command("node", "-e", script, filepath.Join(root, "index.js"), filepath.Join(root, "config.json"))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("node verify: %v (%s)", err, out)
@@ -110,6 +127,7 @@ const AuthPro = require(process.argv[1]);
 		if _, err := exec.LookPath("python3"); err != nil {
 			t.Skip("python3 not installed")
 		}
+		root := extractSDKPack(t, "python", server.URL)
 		script := `
 import sys
 sys.path.insert(0, sys.argv[1])
@@ -121,7 +139,7 @@ authpro.ads("home-banner")
 authpro.check_update("1.0.0")
 print(authpro.plugin_source_url())
 `
-		cmd := exec.Command("python3", "-c", script, filepath.Join(root, "vendor/python"), filepath.Join(root, "config.json"))
+		cmd := exec.Command("python3", "-c", script, root, filepath.Join(root, "config.json"))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("python verify: %v (%s)", err, out)
@@ -132,11 +150,8 @@ print(authpro.plugin_source_url())
 	})
 
 	t.Run("go", func(t *testing.T) {
-		modRoot := filepath.Join(root, "vendor/go")
-		// Use the repo sdk/go with replace to the extracted vendor for isolation.
-		_, thisFile, _, _ := runtime.Caller(0)
-		repoSDK := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "../../../sdk/go"))
-		if _, err := os.Stat(filepath.Join(modRoot, "authpro/authpro.go")); err != nil {
+		root := extractSDKPack(t, "go", server.URL)
+		if _, err := os.Stat(filepath.Join(root, "authpro/authpro.go")); err != nil {
 			t.Fatal(err)
 		}
 		testMain := filepath.Join(t.TempDir(), "main_test.go")
@@ -156,23 +171,19 @@ func TestSmoke(t *testing.T) {
 		if err := os.WriteFile(testMain, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		// Prefer extracted vendor module.
-		cmd := exec.Command("go", "test", "-count=1", ".")
-		cmd.Dir = filepath.Dir(testMain)
-		cmd.Env = append(os.Environ(), "GO111MODULE=on")
-		// Initialize a tiny module that replaces to extracted vendor.
 		init := exec.Command("go", "mod", "init", "authpro.smoke")
 		init.Dir = filepath.Dir(testMain)
 		if out, err := init.CombinedOutput(); err != nil {
 			t.Fatalf("go mod init: %v (%s)", err, out)
 		}
-		edit := exec.Command("go", "mod", "edit", "-require=github.com/maizll/auth-pro/sdk/go@v0.0.0", "-replace=github.com/maizll/auth-pro/sdk/go="+modRoot)
+		edit := exec.Command("go", "mod", "edit", "-require=github.com/maizll/auth-pro/sdk/go@v0.0.0", "-replace=github.com/maizll/auth-pro/sdk/go="+root)
 		edit.Dir = filepath.Dir(testMain)
 		if out, err := edit.CombinedOutput(); err != nil {
-			// fallback to repo sdk if replace path odd on OS
-			_ = repoSDK
 			t.Fatalf("go mod edit: %v (%s)", err, out)
 		}
+		cmd := exec.Command("go", "test", "-count=1", ".")
+		cmd.Dir = filepath.Dir(testMain)
+		cmd.Env = append(os.Environ(), "GO111MODULE=on")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("go smoke: %v (%s)", err, out)
@@ -183,9 +194,9 @@ func TestSmoke(t *testing.T) {
 		if _, err := exec.LookPath("node"); err != nil {
 			t.Skip("node not installed")
 		}
+		root := extractSDKPack(t, "browser", server.URL)
 		script := `
 const fs = require('fs');
-const path = require('path');
 const AuthPro = require(process.argv[1]);
 const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (cfg.appSecret) { console.error('browser config leaked secret'); process.exit(1); }
@@ -199,8 +210,7 @@ if (cfg.appSecret) { console.error('browser config leaked secret'); process.exit
   console.log(AuthPro.pluginSourceUrl());
 })().catch((e) => { console.error(e); process.exit(1); });
 `
-		browserCfg := filepath.Join(root, "examples/browser/config.json")
-		cmd := exec.Command("node", "-e", script, filepath.Join(root, "vendor/browser/src/auth-pro.js"), browserCfg)
+		cmd := exec.Command("node", "-e", script, filepath.Join(root, "auth-pro.js"), filepath.Join(root, "config.json"))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("browser smoke: %v (%s)", err, out)
