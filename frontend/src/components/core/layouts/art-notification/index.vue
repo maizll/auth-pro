@@ -1,107 +1,104 @@
 <!-- 四端共用站内通知：通知 / 消息 / 待办 -->
 <template>
   <Teleport to="body">
-  <div
-    class="art-notification-panel"
-    :style="panelStyle"
-    v-show="visible"
-    @click.stop
-  >
-    <div class="flex-cb px-3.5 mt-3.5">
-      <span class="text-base font-medium text-g-800">{{ $t('notice.title') }}</span>
-      <span
-        class="text-xs text-g-800 px-1.5 py-1 c-p select-none rounded hover:bg-g-200"
-        @click="handleReadAll"
-      >
-        {{ $t('notice.btnRead') }}
-      </span>
-    </div>
+    <div class="art-notification-panel" :style="panelStyle" v-show="visible" @click.stop>
+      <div class="flex-cb px-3.5 mt-3.5">
+        <span class="text-base font-medium text-g-800">{{ $t('notice.title') }}</span>
+        <span
+          class="text-xs text-g-800 px-1.5 py-1 c-p select-none rounded hover:bg-g-200"
+          @click="handleReadAll"
+        >
+          {{ $t('notice.btnRead') }}
+        </span>
+      </div>
 
-    <ul class="box-border flex items-end w-full h-12.5 px-3.5 border-b-d">
-      <li
-        v-for="(item, index) in barList"
-        :key="index"
-        class="h-12 leading-12 mr-5 overflow-hidden text-[13px] text-g-700 c-p select-none"
-        :class="{ 'bar-active': barActiveIndex === index }"
-        @click="changeBar(index)"
-      >
-        {{ item.name }} ({{ item.num }})
-      </li>
-    </ul>
+      <ul class="box-border flex items-end w-full h-12.5 px-3.5 border-b-d">
+        <li
+          v-for="(item, index) in barList"
+          :key="index"
+          class="h-12 leading-12 mr-5 overflow-hidden text-[13px] text-g-700 c-p select-none"
+          :class="{ 'bar-active': barActiveIndex === index }"
+          @click="changeBar(index)"
+        >
+          {{ item.name }} ({{ item.num }})
+        </li>
+      </ul>
 
-    <div class="notice-body">
-      <div ref="scrollRef" class="notice-scroll scrollbar-thin">
-        <ul v-if="barActiveIndex === 0">
-          <li
-            v-for="item in noticeList"
-            :key="item.id || item.eventType + item.createdAt"
-            class="box-border flex-c px-3.5 py-3.5 c-p last:border-b-0 hover:bg-g-200/60"
-            :class="{ 'is-unread': !item.read && !item.derived }"
-            @click="handleItemClick(item)"
-          >
-            <div
-              class="size-9 leading-9 text-center rounded-lg flex-cc"
-              :class="[getNoticeStyle(noticeTypeOf(item)).iconClass]"
+      <div class="notice-body">
+        <div ref="scrollRef" class="notice-scroll scrollbar-thin">
+          <ul v-if="barActiveIndex === 0">
+            <li
+              v-for="item in noticeList"
+              :key="item.id || item.eventType + item.createdAt"
+              class="box-border flex-c px-3.5 py-3.5 c-p last:border-b-0 hover:bg-g-200/60"
+              :class="{ 'is-unread': !item.read && !item.derived }"
+              @click="handleItemClick(item)"
             >
-              <ArtSvgIcon
-                class="text-lg !bg-transparent"
-                :icon="getNoticeStyle(noticeTypeOf(item)).icon"
-              />
-            </div>
-            <div class="w-[calc(100%-45px)] ml-3.5">
-              <h4 class="text-sm font-normal leading-5.5 text-g-900">{{ item.title }}</h4>
-              <p v-if="item.body" class="mt-1 text-xs text-g-600 line-clamp-2">{{ item.body }}</p>
-              <p class="mt-1.5 text-xs text-g-500">{{ formatNoticeTime(item.createdAt) }}</p>
-            </div>
-          </li>
-        </ul>
+              <div
+                class="size-9 leading-9 text-center rounded-lg flex-cc"
+                :class="[getNoticeStyle(noticeTypeOf(item)).iconClass]"
+              >
+                <ArtSvgIcon
+                  class="text-lg !bg-transparent"
+                  :icon="getNoticeStyle(noticeTypeOf(item)).icon"
+                />
+              </div>
+              <div class="w-[calc(100%-45px)] ml-3.5">
+                <h4 class="text-sm font-normal leading-5.5 text-g-900">{{ item.title }}</h4>
+                <p v-if="item.body" class="mt-1 text-xs text-g-600 line-clamp-2">{{ item.body }}</p>
+                <p class="mt-1.5 text-xs text-g-500">{{ formatNoticeTime(item.createdAt) }}</p>
+              </div>
+            </li>
+          </ul>
 
-        <ul v-else-if="barActiveIndex === 1">
-          <li
-            v-for="item in msgList"
-            :key="item.id || item.eventType + item.createdAt"
-            class="box-border flex-c px-3.5 py-3.5 c-p last:border-b-0 hover:bg-g-200/60"
-            :class="{ 'is-unread': !item.read && !item.derived }"
-            @click="handleItemClick(item)"
-          >
-            <div
-              class="size-9 leading-9 text-center rounded-lg flex-cc bg-success/12 text-success"
+          <ul v-else-if="barActiveIndex === 1">
+            <li
+              v-for="item in msgList"
+              :key="item.id || item.eventType + item.createdAt"
+              class="box-border flex-c px-3.5 py-3.5 c-p last:border-b-0 hover:bg-g-200/60"
+              :class="{ 'is-unread': !item.read && !item.derived }"
+              @click="handleItemClick(item)"
             >
-              <ArtSvgIcon class="text-lg !bg-transparent" icon="ri:message-3-line" />
-            </div>
-            <div class="w-[calc(100%-45px)] ml-3.5">
-              <h4 class="text-sm font-normal leading-5.5 text-g-900">{{ item.title }}</h4>
-              <p v-if="item.body" class="mt-1 text-xs text-g-600 line-clamp-2">{{ item.body }}</p>
-              <p class="mt-1.5 text-xs text-g-500">{{ formatNoticeTime(item.createdAt) }}</p>
-            </div>
-          </li>
-        </ul>
+              <div
+                class="size-9 leading-9 text-center rounded-lg flex-cc bg-success/12 text-success"
+              >
+                <ArtSvgIcon class="text-lg !bg-transparent" icon="ri:message-3-line" />
+              </div>
+              <div class="w-[calc(100%-45px)] ml-3.5">
+                <h4 class="text-sm font-normal leading-5.5 text-g-900">{{ item.title }}</h4>
+                <p v-if="item.body" class="mt-1 text-xs text-g-600 line-clamp-2">{{ item.body }}</p>
+                <p class="mt-1.5 text-xs text-g-500">{{ formatNoticeTime(item.createdAt) }}</p>
+              </div>
+            </li>
+          </ul>
 
-        <ul v-else>
-          <li
-            v-for="item in pendingList"
-            :key="item.eventType + item.title"
-            class="box-border px-3.5 py-3.5 c-p last:border-b-0 hover:bg-g-200/60"
-            @click="handleItemClick(item)"
-          >
-            <h4 class="text-sm font-medium leading-5.5 text-g-900">{{ item.title }}</h4>
-            <p v-if="item.body" class="mt-1 text-xs text-g-600">{{ item.body }}</p>
-          </li>
-        </ul>
+          <ul v-else>
+            <li
+              v-for="item in pendingList"
+              :key="item.eventType + item.title"
+              class="box-border px-3.5 py-3.5 c-p last:border-b-0 hover:bg-g-200/60"
+              @click="handleItemClick(item)"
+            >
+              <h4 class="text-sm font-medium leading-5.5 text-g-900">{{ item.title }}</h4>
+              <p v-if="item.body" class="mt-1 text-xs text-g-600">{{ item.body }}</p>
+            </li>
+          </ul>
 
-        <div v-if="currentTabIsEmpty" class="notice-empty text-g-500 text-center">
-          <ArtSvgIcon icon="system-uicons:inbox" class="text-5xl" />
-          <p class="mt-3.5 text-xs">{{ $t('notice.text[0]') }}{{ barList[barActiveIndex].name }}</p>
+          <div v-if="currentTabIsEmpty" class="notice-empty text-g-500 text-center">
+            <ArtSvgIcon icon="system-uicons:inbox" class="text-5xl" />
+            <p class="mt-3.5 text-xs"
+              >{{ $t('notice.text[0]') }}{{ barList[barActiveIndex].name }}</p
+            >
+          </div>
+        </div>
+
+        <div class="notice-footer box-border w-full px-3.5">
+          <ElButton class="w-full" @click="handleViewAll" v-ripple>
+            {{ $t('notice.viewAll') }}
+          </ElButton>
         </div>
       </div>
-
-      <div class="notice-footer box-border w-full px-3.5">
-        <ElButton class="w-full" @click="handleViewAll" v-ripple>
-          {{ $t('notice.viewAll') }}
-        </ElButton>
-      </div>
     </div>
-  </div>
   </Teleport>
 </template>
 
@@ -117,6 +114,7 @@
     type InAppNotification,
     type NotificationTab
   } from '@/api/notifications'
+  import { placeNotificationPanel, type Box } from './placement'
 
   defineOptions({ name: 'ArtNotification' })
 
@@ -167,7 +165,8 @@
   function noticeTypeOf(item: InAppNotification): NoticeType {
     if (item.eventType.includes('password') || item.eventType.includes('expir')) return 'email'
     if (item.eventType.includes('apply') || item.eventType.includes('ticket')) return 'user'
-    if (item.eventType.includes('reject') || item.eventType.includes('deprecat')) return 'collection'
+    if (item.eventType.includes('reject') || item.eventType.includes('deprecat'))
+      return 'collection'
     if (item.eventType.includes('approved') || item.eventType.includes('paid')) return 'message'
     return 'notice'
   }
@@ -206,36 +205,25 @@
     if (scrollRef.value) scrollRef.value.scrollTop = 0
   }
 
+  function toBox(rect: DOMRect): Box {
+    return { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left }
+  }
+
   function updatePlacement() {
-    const margin = 8
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
-    const width = Math.min(360, Math.max(220, viewportWidth - margin * 2))
-    const anchor = props.anchor?.getBoundingClientRect()
-    let left = viewportWidth - width - margin
-    let top = margin
-    let maxHeight = Math.min(520, viewportHeight - margin * 2)
-    if (anchor) {
-      left = anchor.right - width
-      const belowTop = anchor.bottom + margin
-      const spaceBelow = viewportHeight - belowTop - margin
-      const spaceAbove = anchor.top - margin * 2
-      if (spaceBelow >= 200 || spaceBelow >= spaceAbove) {
-        top = belowTop
-        maxHeight = Math.min(520, spaceBelow)
-      } else {
-        maxHeight = Math.min(520, spaceAbove)
-        top = Math.max(margin, anchor.top - margin - maxHeight)
-      }
-    }
-    left = Math.min(Math.max(margin, left), Math.max(margin, viewportWidth - width - margin))
-    top = Math.max(margin, Math.min(top, viewportHeight - margin))
-    maxHeight = Math.min(maxHeight, viewportHeight - top - margin)
-    if (maxHeight < 120) {
-      top = margin
-      maxHeight = viewportHeight - margin * 2
-    }
-    placement.value = { top, left, width, maxHeight: Math.max(80, maxHeight) }
+    const anchorEl = props.anchor ?? null
+    const anchor = anchorEl ? toBox(anchorEl.getBoundingClientRect()) : null
+    const frameEl = anchorEl?.closest('#app-main, .panel-main') as HTMLElement | null
+    const frame = frameEl ? toBox(frameEl.getBoundingClientRect()) : null
+    placement.value = placeNotificationPanel(
+      anchor,
+      {
+        top: 0,
+        right: window.innerWidth,
+        bottom: window.innerHeight,
+        left: 0
+      },
+      frame
+    )
   }
 
   const panelStyle = computed(() => ({

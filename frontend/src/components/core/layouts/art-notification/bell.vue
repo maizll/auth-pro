@@ -1,13 +1,19 @@
 <template>
   <div ref="rootRef" class="art-notification-bell" @click.stop>
-    <ElBadge :value="unread" :hidden="unread <= 0" :max="99" class="notice-badge">
-      <button type="button" class="bell-btn" :title="$t('notice.title')" @click="toggle">
+    <ElBadge :value="unread" :hidden="unread <= 0" :max="99" :offset="[0, 10]" class="notice-badge">
+      <button
+        ref="buttonRef"
+        type="button"
+        class="bell-btn"
+        :title="$t('notice.title')"
+        @click="toggle"
+      >
         <IconifyIcon icon="ri:notification-3-line" width="18" />
       </button>
     </ElBadge>
     <ArtNotification
       :value="open"
-      :anchor="rootRef"
+      :anchor="buttonRef"
       @update:value="open = $event"
       @unread="unread = $event"
     />
@@ -25,6 +31,7 @@
   const open = ref(false)
   const unread = ref(0)
   const rootRef = ref<HTMLElement | null>(null)
+  const buttonRef = ref<HTMLElement | null>(null)
   let timer: ReturnType<typeof setInterval> | null = null
 
   async function refreshUnread() {
@@ -69,6 +76,15 @@
     position: relative;
     display: inline-flex;
     align-items: center;
+    overflow: visible;
+
+    /* 后台顶栏 leading-15 行高 60px 会撑开 ElBadge 行盒，红点因此贴到顶栏上沿并被切掉一半 */
+    line-height: 1;
+  }
+
+  :deep(.notice-badge) {
+    overflow: visible;
+    line-height: 1;
   }
 
   .bell-btn {
@@ -83,7 +99,9 @@
     background: transparent;
     border: 0;
     border-radius: 8px;
-    transition: color 0.2s, background 0.2s;
+    transition:
+      color 0.2s,
+      background 0.2s;
 
     &:hover {
       color: var(--el-color-primary);

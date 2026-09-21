@@ -7,7 +7,7 @@
     ]"
   >
     <div
-      class="relative box-border flex-b h-15 leading-15 select-none"
+      class="relative box-border flex-b items-center overflow-visible h-15 leading-15 select-none"
       :class="[
         tabStyle === 'tab-card' || tabStyle === 'tab-google'
           ? 'border-b border-[var(--art-card-border)]'
