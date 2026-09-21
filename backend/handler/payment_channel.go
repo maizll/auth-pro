@@ -16,6 +16,18 @@ func pluginCategoryIsExclusive(category string) bool {
 	return strings.TrimSpace(category) != "payment"
 }
 
+// epayHardExclusivePeer 返回易支付另一版本。二者硬互斥；官方直连不参与。
+func epayHardExclusivePeer(id string) (string, bool) {
+	switch strings.TrimSpace(id) {
+	case "epay":
+		return "epay-v2", true
+	case "epay-v2":
+		return "epay", true
+	default:
+		return "", false
+	}
+}
+
 func pluginPayOptions(db *sql.DB) []payOption {
 	if db == nil {
 		return nil

@@ -24,6 +24,15 @@
       </div>
     </ElCard>
 
+    <ElAlert
+      v-if="showSoftDedupeHint"
+      class="pay-channel-block"
+      title="同方式将在收银台去重，优先官方当面付。"
+      type="info"
+      show-icon
+      :closable="false"
+    />
+
     <ElCard
       v-if="showEpayCard"
       id="pay-channel-epay"
@@ -749,6 +758,9 @@
   // 已启用的支付插件同时展示，不用单一 activeVersion 互相隐藏。
   const showEpayCard = computed(() => epayPluginOn.value)
   const showEpayV2Card = computed(() => epayV2PluginOn.value)
+  const showSoftDedupeHint = computed(
+    () => alipayF2FPluginOn.value && (epayPluginOn.value || epayV2PluginOn.value)
+  )
   const solePaymentCard = computed(() => {
     const visible = [showEpayCard.value, showEpayV2Card.value, alipayF2FPluginOn.value].filter(
       Boolean

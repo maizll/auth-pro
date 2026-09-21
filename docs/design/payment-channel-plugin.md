@@ -7,7 +7,7 @@
 | 范围 | 支付渠道插件的生命周期、SPI、安全、从易支付迁出路径 |
 | 不在范围 | 易支付 V1/V2 协议细节、插件权益独立 SKU、反扫（商家扫用户付款码）实现 |
 
-**锁定决策：支付渠道是可并存的官方商店插件，不是替换易支付的全局开关。** 易支付继续用原配置与回调；官方支付宝当面付启用后作为额外渠道出现在 `pay-options`。
+**锁定决策（soft_dedupe）：** 支付渠道是可并存的官方商店插件，不是替换易支付的全局开关。`epay` 与 `epay-v2` 硬互斥（启用一个会关掉另一个，收银台同一 payType 只留一条）。官方直连与易支付同方式软并存：配置页可同时填写，收银台同一 pay method 去重且优先官方。易支付继续用原配置与回调。
 
 ---
 
@@ -64,7 +64,7 @@
 | 上架 | 软件源 `plugin.json`（`id` 与 catalog 一致，`category=payment`） |
 | 安装 | 内置插件始终 local、`canEnable=true`；远程 ZIP 只落数据目录，不执行代码。曾上传同 ID `alipay-f2f` ZIP 时 **内置 catalog 优先**，商店显示启用/配置，不会停在「需运行实现」 |
 | 启用 | `POST /api/system/plugins/alipay-f2f/toggle`。**支付分类不再互斥**，可与易支付同时启用 |
-| 配置 | 系统设置唯一入口 `/system/epay-config`。已启用的 `epay` / `epay-v2` / `alipay-f2f` 在同一页分段同时可配，`?channel=` 只滚动定位（当面付为 `?channel=alipay-f2f`）。禁止单一 `activeVersion` 藏掉其它插件，禁止平行系统菜单。未来官方微信等同理加分段 + 商店 `configTarget`，不要新侧栏。`GET/PUT /api/system/alipay-f2f-config`，密钥进 `system_configs.group=payment`。**不渲染** ZIP `config.schema.json` |
+| 配置 | 系统设置唯一入口 `/system/epay-config`。已启用的易支付与当面付在同一页分段同时可配，`?channel=` 只滚动定位。`epay` ↔ `epay-v2` 硬互斥；官方直连与易支付软并存。禁止平行系统菜单。未来官方微信等同理加分段 + 商店 `configTarget`，不要新侧栏。`GET/PUT /api/system/alipay-f2f-config`，密钥进 `system_configs.group=payment`。**不渲染** ZIP `config.schema.json` |
 | 出现在收银台 | `plugins.enabled=1` **且** 渠道 `Available()`（凭证齐全） |
 | 停用 | 不再出现在 pay-options；已发出的 pending 订单仍接受合法 notify（与易支付 `validateForNotify` 一致） |
 
@@ -93,7 +93,7 @@ type Channel interface {
 
 易支付 **不** 迁入该注册表（避免行为漂移）。`parseOnlinePaySelection` 先识别注册表渠道，再回退 `easypay` / `easypay-v2`。
 
-`dedupePayOptions` 只折叠易支付 V1/V2 的同一 `payType`；插件渠道按 `code` 保留，因此「支付宝」与「支付宝当面付」可同时出现。
+`dedupePayOptions`（soft_dedupe）：`epay` 与 `epay-v2` 的同一 `payType` 硬互斥，只保留先出现的一条。官方直连与易支付同方式软并存（都可启用、配置页同时显示），但收银台同一 pay method 去重且优先官方，例如同时有易支付支付宝与当面付时只留 `alipay-f2f:alipay`。易支付其它方式（如微信）不受当面付影响。
 
 ## 6. 配置 schema（当面付）
 
@@ -124,7 +124,7 @@ type Channel interface {
 
 | 策略 | 说明 |
 | --- | --- |
-| 并存（默认） | 易支付配置不变；当面付是新选项。适合平滑上线 |
+| 并存（默认，soft_dedupe） | 易支付与当面付都可启用，配置页同时填写。收银台同一 pay method 去重，优先官方当面付 |
 | 只开当面付 | 关闭易支付 `easypay_enabled` / 清空 pay types；启用 `alipay-f2f` |
 | 不支持的 | 把历史 `pay_channel=easypay` 订单改写成 `alipay-f2f`。回调仍按下单时渠道验签 |
 

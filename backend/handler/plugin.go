@@ -432,10 +432,18 @@ func AdminPluginToggle(c *gin.Context) {
 	}
 
 	if req.Enabled && pluginCategoryIsExclusive(plugin.Category) {
-		// 同分类互斥：先停用同类，再启用目标。支付渠道插件可并存。
+		// 同分类互斥：先停用同类，再启用目标。支付分类整体不走这里。
 		if _, err := db.Exec("UPDATE plugins SET enabled = 0, updated_at = NOW() WHERE category = ? AND id != ?", plugin.Category, id); err != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更新插件状态失败"})
 			return
+		}
+	} else if req.Enabled {
+		// epay ↔ epay-v2 硬互斥。官方直连（如当面付）与易支付软并存，不在这里停用。
+		if peer, ok := epayHardExclusivePeer(id); ok {
+			if _, err := db.Exec("UPDATE plugins SET enabled = 0, updated_at = NOW() WHERE id = ?", peer); err != nil {
+				c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更新插件状态失败"})
+				return
+			}
 		}
 	}
 

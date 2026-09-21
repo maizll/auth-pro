@@ -171,20 +171,52 @@ func epayPayTypeOptions(channel string, payTypes []string) []payOption {
 }
 
 func dedupePayOptions(options []payOption) []payOption {
-	seen := map[string]bool{}
-	out := options[:0]
+	// soft_dedupe：同一 payType 若有官方直连，收银台只留官方；易支付 V1/V2 之间硬互斥，只留先出现的一条。
+	officialCode := map[string]string{}
 	for _, option := range options {
-		key := option.Code
-		if option.PayType != "" && (option.Channel == payChannelEpayV1 || option.Channel == payChannelEpayV2) {
-			key = "online:" + option.PayType
-		}
-		if seen[key] {
+		if option.PayType == "" || isEpayPayChannel(option.Channel) {
 			continue
 		}
-		seen[key] = true
+		if _, ok := officialCode[option.PayType]; !ok {
+			officialCode[option.PayType] = option.Code
+		}
+	}
+	seen := map[string]bool{}
+	out := make([]payOption, 0, len(options))
+	for _, option := range options {
+		if option.PayType != "" && !isEpayPayChannel(option.Channel) {
+			if officialCode[option.PayType] != option.Code || seen["official:"+option.PayType] {
+				continue
+			}
+			seen["official:"+option.PayType] = true
+			out = append(out, option)
+			continue
+		}
+		if option.PayType != "" && isEpayPayChannel(option.Channel) {
+			if _, official := officialCode[option.PayType]; official {
+				continue
+			}
+			key := "online:" + option.PayType
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, option)
+			continue
+		}
+		if option.Code != "" {
+			if seen[option.Code] {
+				continue
+			}
+			seen[option.Code] = true
+		}
 		out = append(out, option)
 	}
 	return out
+}
+
+func isEpayPayChannel(channel string) bool {
+	return channel == payChannelEpayV1 || channel == payChannelEpayV2
 }
 
 func configuredOnlinePayOptions(db *sql.DB) []payOption {
