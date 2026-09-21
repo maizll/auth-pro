@@ -27,9 +27,10 @@
         <el-menu-item index="/agent-panel/tickets">
           <el-icon><iconify-icon icon="ri:customer-service-2-line" /></el-icon>
           <template #title>
-            <el-badge :value="ticketUnread" :hidden="!ticketUnread" :max="99" class="menu-badge">
-              我的工单
-            </el-badge>
+            <span class="menu-label">
+              <span>我的工单</span>
+              <el-badge v-if="ticketUnread" :value="ticketUnread" :max="99" class="menu-badge" />
+            </span>
           </template>
         </el-menu-item>
         <el-menu-item index="/agent-panel/profile">
@@ -207,28 +208,28 @@
   }
 
   .panel-sidebar {
-    width: 220px;
-    background: var(--el-bg-color);
     display: flex;
     flex-direction: column;
-    transition: width 0.3s;
     flex-shrink: 0;
+    width: 220px;
+    background: var(--el-bg-color);
     border-right: 1px solid var(--el-border-color-lighter);
-    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.03);
+    box-shadow: 2px 0 8px rgb(0 0 0 / 3%);
+    transition: width 0.3s;
 
     .sidebar-header {
-      height: 56px;
       display: flex;
-      align-items: center;
-      padding: 0 16px;
       gap: 10px;
+      align-items: center;
+      height: 56px;
+      padding: 0 16px;
       border-bottom: 1px solid var(--el-border-color-lighter);
 
       .brand-logo {
+        flex-shrink: 0;
         width: 32px;
         height: 32px;
         border-radius: 6px;
-        flex-shrink: 0;
       }
 
       .brand-text {
@@ -240,25 +241,47 @@
     }
 
     .sidebar-menu {
-      border-right: none;
       flex: 1;
       padding: 8px 0;
+      overflow: visible;
+      border-right: none;
 
       :deep(.el-menu-item) {
-        margin: 2px 8px;
-        border-radius: 8px;
         height: 44px;
+        margin: 2px 8px;
+        overflow: visible;
+        line-height: 1;
+        border-radius: 8px;
 
         &.is-active {
-          background: var(--el-color-primary-light-9);
           color: var(--el-color-primary);
+          background: var(--el-color-primary-light-9);
         }
       }
 
+      .menu-label {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        max-width: 100%;
+        overflow: visible;
+        line-height: 1;
+      }
+
       .menu-badge {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        line-height: 1;
+
+        :deep(.el-badge__content.is-fixed),
         :deep(.el-badge__content) {
-          transform: translate(10px, 2px) scale(0.75);
+          position: static;
+          top: auto;
+          right: auto;
+          vertical-align: middle;
           border: none;
+          transform: none;
         }
       }
     }
@@ -270,31 +293,32 @@
   }
 
   .panel-main {
-    flex: 1;
     display: flex;
+    flex: 1;
     flex-direction: column;
     overflow: hidden;
   }
 
   .panel-header {
-    height: 56px;
-    background: var(--el-bg-color);
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: space-between;
+    height: 56px;
     padding: 0 20px;
+    background: var(--el-bg-color);
     border-bottom: 1px solid var(--el-border-color-lighter);
-    flex-shrink: 0;
 
     .header-left {
       display: flex;
-      align-items: center;
       gap: 16px;
+      align-items: center;
 
       .collapse-btn {
-        cursor: pointer;
         color: var(--el-text-color-secondary);
+        cursor: pointer;
         transition: color 0.2s;
+
         &:hover {
           color: var(--el-color-primary);
         }
@@ -303,8 +327,8 @@
 
     .header-right {
       display: flex;
-      align-items: center;
       gap: 12px;
+      align-items: center;
 
       .agent-name {
         font-size: 14px;
@@ -316,9 +340,9 @@
       }
 
       .avatar-btn {
+        color: var(--el-color-primary);
         cursor: pointer;
         background: var(--el-color-primary-light-7);
-        color: var(--el-color-primary);
       }
     }
   }
