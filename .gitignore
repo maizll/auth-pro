@@ -51,3 +51,6 @@ release/
 
 # Local build output
 build-output.txt
+
+__pycache__/
+*.py[cod]
