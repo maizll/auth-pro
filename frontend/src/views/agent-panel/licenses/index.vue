@@ -66,9 +66,12 @@
         </el-table-column>
         <el-table-column prop="statusLabel" label="状态" width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="statusTagMap[row.status]" size="small" effect="light">{{
-              row.statusLabel
-            }}</el-tag>
+            <BizStatusTag
+              domain="license"
+              :status="row.status"
+              :label="row.statusLabel"
+              size="small"
+            />
           </template>
         </el-table-column>
         <el-table-column prop="expireAt" label="到期时间" width="130" />
@@ -258,11 +261,13 @@
         </template>
         <template #extra>
           <div v-if="redeemResult.type === 'key'" class="license-key-result">
-            <el-input :model-value="redeemResult.licenseKey" readonly>
-              <template #append>
-                <el-button @click="copyRedeemedKey">复制密钥</el-button>
-              </template>
-            </el-input>
+            <BizCopySecret
+              :value="redeemResult.licenseKey"
+              default-visible
+              copy-label="复制密钥"
+              success-text="密钥已复制"
+              fail-text="复制失败，请手动复制"
+            />
           </div>
           <el-alert
             v-else
@@ -352,10 +357,6 @@
     ip: 'ri:router-line',
     key: 'ri:key-2-line'
   }
-  const statusTagMap: Record<
-    string,
-    'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined
-  > = { active: 'success', expiring: 'warning', expired: 'info' }
   const editTargetLabel = computed(() => {
     if (editDialog.type === 'key') return '授权密钥'
     if (editDialog.type === 'ip') return 'IP地址'
@@ -581,16 +582,6 @@
       ElMessage.error('兑换失败，请稍后重试')
     } finally {
       redeemDialog.submitting = false
-    }
-  }
-
-  async function copyRedeemedKey() {
-    if (!redeemResult.licenseKey) return
-    try {
-      await navigator.clipboard.writeText(redeemResult.licenseKey)
-      ElMessage.success('密钥已复制')
-    } catch {
-      ElMessage.error('复制失败，请手动复制')
     }
   }
 

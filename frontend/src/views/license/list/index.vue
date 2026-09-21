@@ -42,7 +42,12 @@
 
         <!-- 状态 -->
         <template #statusLabel="{ row }">
-          <ElTag :type="statusTagMap[row.status]" size="small">{{ row.statusLabel }}</ElTag>
+          <BizStatusTag
+            domain="license"
+            :status="row.status"
+            :label="row.statusLabel"
+            size="small"
+          />
         </template>
 
         <!-- 站点 -->
@@ -98,15 +103,14 @@
           </ElFormItem>
         </template>
         <ElFormItem label="应用" prop="appId">
-          <ElSelect
+          <BizAppSelect
             v-model="formData.appId"
+            api="license-options"
             placeholder="请选择应用"
             style="width: 100%"
             :disabled="isEdit"
             @change="handleAppChange"
-          >
-            <ElOption v-for="app in appList" :key="app.id" :label="app.name" :value="app.id" />
-          </ElSelect>
+          />
         </ElFormItem>
         <ElFormItem v-if="!isEdit" label="套餐" prop="planId">
           <ElSelect
@@ -218,7 +222,6 @@
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchLicenseList,
-    fetchLicenseAppOptions,
     fetchLicenseOwners,
     fetchCreateLicense,
     fetchUpdateLicense,
@@ -228,7 +231,6 @@
     fetchUnbindLicenseSite,
     fetchPlanList,
     type LicenseItem,
-    type LicenseAppOption,
     type LicenseOwnerOption,
     type LicensePlanOption,
     type LicenseSearchParams,
@@ -264,7 +266,6 @@
     appId: undefined
   })
 
-  const appList = ref<LicenseAppOption[]>([])
   const planList = ref<LicensePlanOption[]>([])
 
   const ownerTypeOptions = [
@@ -283,16 +284,10 @@
     key: 'info'
   }
 
-  const statusTagMap: Record<string, TagType> = {
-    active: 'success',
-    expired: 'info',
-    disabled: 'danger'
-  }
-
   const formRef = ref()
   const formData = reactive({
     id: 0,
-    appId: '',
+    appId: '' as string | number | null,
     planId: null as number | null,
     ownerType: 'user' as OwnerType,
     ownerId: null as number | null,
@@ -534,15 +529,6 @@
     if (visible && ownerOptions.value.length === 0) fetchOwnerOptions('')
   }
 
-  const fetchAppList = async () => {
-    try {
-      const data = await fetchLicenseAppOptions()
-      appList.value = data || []
-    } catch {
-      appList.value = []
-    }
-  }
-
   const fetchPlans = async (appId: string | number) => {
     const sequence = ++planRequestSequence
     planList.value = []
@@ -559,11 +545,11 @@
     }
   }
 
-  const handleAppChange = (appId: string | number) => {
-    if (isEdit.value) return
+  const handleAppChange = (appId: string | number | Array<string | number> | null | undefined) => {
+    if (isEdit.value || Array.isArray(appId)) return
     formData.planId = null
     formRef.value?.clearValidate?.('planId')
-    fetchPlans(appId)
+    fetchPlans(appId || '')
   }
 
   // ==================== 增删改操作 ====================
@@ -710,8 +696,6 @@
       submitting.value = false
     }
   }
-
-  onMounted(fetchAppList)
 
   onBeforeUnmount(() => {
     if (ownerSearchTimer) clearTimeout(ownerSearchTimer)
