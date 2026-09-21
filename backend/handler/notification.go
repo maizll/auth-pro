@@ -106,7 +106,9 @@ func currentNotificationStore() notificationStore {
 }
 
 func EnsureNotificationSchema() {
-	_ = currentNotificationStore().Ensure()
+	if err := currentNotificationStore().Ensure(); err != nil {
+		log.Printf("ensure notifications table failed: %v", err)
+	}
 }
 
 func RegisterNotificationRoutes(api *gin.RouterGroup) {
@@ -374,7 +376,8 @@ func emitNotification(item inAppNotification) {
 	item.RefID = truncateText(item.RefID, 80)
 	if _, err := currentNotificationStore().Insert(item); err != nil {
 		if !notificationStoreUnavailable(err) {
-			log.Printf("in-app notification emit failed: %v", err)
+			log.Printf("in-app notification emit failed: role=%s user=%d event=%s title=%q err=%v",
+				item.UserRole, item.UserID, item.EventType, item.Title, err)
 		}
 	}
 }
