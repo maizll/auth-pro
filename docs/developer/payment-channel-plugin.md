@@ -65,16 +65,22 @@ import _ "auto_pro/payment/alipayf2f"
 
 支付分类 **允许同时启用多个插件**（与实名互斥不同）。
 
-**需要凭证的官方支付插件必须有真实配置页**，与易支付相同：
+**需要凭证的官方支付插件必须有真实配置页**，与易支付相同，并且必须收口到唯一支付配置页。硬规范：新支付插件配置必须进入 `/system/epay-config`，已启用的易支付与官方直连在该页按分段同时展示、同时可配。商店 `configTarget` 指向该页并带 `channel=<插件 id>`（只滚动定位）。禁止再增加平行系统菜单。未来官方微信等支付插件同样只加分段和 `configTarget`，不要新侧栏菜单。
 
-1. 系统设置页面（当面付：`alipay-f2f-config.vue`）。
-2. 菜单「系统设置 → 支付宝当面付」。
-3. 商店 `pluginConfigPaths['alipay-f2f'] = '/system/alipay-f2f-config'`，启用后卡片显示「配置」。
+产品规则 **soft_dedupe**：
+
+- `epay` ↔ `epay-v2` **硬互斥**：启用其中一个会关掉另一个；收银台同一 payType 也只留一条。
+- 官方直连与易支付同方式 **软并存**：可以同时启用、在支付配置页同时填写。
+- 收银台同一 pay method **去重且优先官方**（当面付支付宝盖过易支付支付宝；易支付微信仍保留）。
+
+1. 配置表单并入 `/system/epay-config`。易支付与 `alipay-f2f` 按是否 local+enabled 出区块，可同时出现。当面付与易支付同时启用时，页顶提示「同方式将在收银台去重，优先官方当面付。」
+2. 侧栏只保留「支付配置」（`EpayConfig` → `/system/epay-config`）。不要新增「支付宝当面付」或「微信支付」这类系统菜单。
+3. 商店 `pluginConfigPaths['alipay-f2f'] = '/system/epay-config?channel=alipay-f2f'`（`epay` / `epay-v2` 同理带 `channel`），启用后卡片显示「配置」。
 4. `GET/PUT /api/system/alipay-f2f-config`；GET **永不**返回私钥，只给 `privateKeySet`。
 
 纯 ZIP 上传没有 Go 实现时商店会显示「需运行实现」。官方当面付不能走这条路：内置 catalog 覆盖同 ID 的历史 ZIP。`config.schema.json` 仅作文档，产品不据此渲染表单。
 
-路径：启用 → 系统设置填写凭证。
+路径：启用 → 系统设置「支付配置」填写凭证。
 
 ### 3.5 配置存储
 
@@ -82,7 +88,7 @@ import _ "auto_pro/payment/alipayf2f"
 
 ### 3.6 前端
 
-- 商店 `pluginConfigPaths[id]` 指向配置页。
+- 商店 `pluginConfigPaths[id]` 指向 `/system/epay-config?channel=<插件 id>`。该页同时渲染所有已启用支付插件的配置分段，`channel` 只负责滚到对应分段。
 - 下单响应若 `checkoutMode === 'qrcode'`（或带 `qrCode`），弹窗展示二维码并轮询订单状态；否则 `window.location.href = payUrl`。
 
 ## 4. 当面付正扫要点
@@ -91,7 +97,7 @@ import _ "auto_pro/payment/alipayf2f"
 2. 成功 `code=10000` 时取 `qr_code`。
 3. 用户扫码后支付宝 POST 表单到 notify；用 **支付宝公钥** RSA2 验签（排除 `sign`、`sign_type`）。
 4. `trade_status` 为 `TRADE_SUCCESS` 或 `TRADE_FINISHED` 才结算。
-5. 沙箱：配置页打开「沙箱」，或把网关写成 `https://openapi-sandbox.dl.alipaydev.com/gateway.do`。使用沙箱 APPID/密钥，**不要提交真实商户密钥**。
+5. 沙箱：配置页打开「沙箱」，网关按开关自动使用正式或沙箱地址，不要手填网关。使用沙箱 APPID/密钥，**不要提交真实商户密钥**。异步通知由当前站点 origin + `/api/payment/alipay-f2f/notify` 生成，保存时这两项写空。
 
 证书模式：打开开关并填写两个 SN，请求会带 `app_cert_sn` / `alipay_root_cert_sn`。P0 不解析证书文件。
 
@@ -119,4 +125,4 @@ go test ./payment/... ./handler/ -count=1
 | 商店能启用但收银台没有 | 未配置 APPID/密钥，或 `Available()` 为 false |
 | 启用当面付后易支付消失 | 旧逻辑支付分类互斥；现行支付分类已允许并存。请更新到含本契约的版本 |
 | 扫码后一直 pending | notify 公网不可达，或验签公钥与网关环境（沙箱/正式）不一致 |
-| 与易支付支付宝抢同一按钮 | `dedupePayOptions` 误按 payType 折叠；插件必须用自己的 `code` |
+| 收银台同时出现易支付支付宝和当面付 | 同一 pay method 应去重并优先官方当面付（soft_dedupe）。请更新到含该规则的版本 |

@@ -7,28 +7,28 @@
             <h2>支付宝当面付</h2>
             <p>配置开放平台当面付（正扫）。启用后会出现在收银台，用户扫商家收款码完成支付。</p>
           </div>
-          <ElButton v-if="pluginEnabled" type="primary" :loading="saving" @click="handleSave">
-            保存配置
-          </ElButton>
+          <ElButton type="primary" :loading="saving" @click="handleSave">保存配置</ElButton>
         </div>
       </template>
 
-      <div v-if="!loading && !pluginEnabled" class="plugin-empty">
-        <ElEmpty description="请先到应用商店启用「支付宝当面付」插件">
-          <ElButton type="primary" @click="router.push('/plugin-store')">前往应用商店</ElButton>
-        </ElEmpty>
-      </div>
-
-      <ElForm v-if="pluginEnabled" :model="form" label-position="top" class="config-form">
+      <ElForm :model="form" label-position="top" class="config-form">
         <section class="section-card">
           <div class="section-title with-switch">
             <div>
               <strong>开放平台凭证</strong>
-              <span>应用私钥只写不读。沙箱与正式环境请使用对应 APPID / 密钥，不要把生产私钥提交到仓库。</span>
+              <span
+                >应用私钥只写不读。沙箱与正式环境请使用对应 APPID /
+                密钥，不要把生产私钥提交到仓库。</span
+              >
             </div>
             <div class="enable-switch">
               <span>沙箱环境</span>
-              <ElSwitch v-model="form.sandbox" inline-prompt active-text="沙箱" inactive-text="正式" />
+              <ElSwitch
+                v-model="form.sandbox"
+                inline-prompt
+                active-text="沙箱"
+                inactive-text="正式"
+              />
             </div>
           </div>
           <ElRow :gutter="16">
@@ -64,38 +64,35 @@
           <div class="section-title">
             <div>
               <strong>网关与通知</strong>
-              <span>均可留空：网关按沙箱开关选择默认地址；通知地址按当前域名生成 /api/payment/alipay-f2f/notify。</span>
+              <span>由沙箱开关和当前站点自动生成，无需填写。保存时使用系统默认。</span>
             </div>
           </div>
-          <ElRow :gutter="16">
-            <ElCol :xs="24" :md="12">
-              <ElFormItem label="网关地址">
-                <ElInput
-                  v-model.trim="form.gateway"
-                  :placeholder="
-                    form.sandbox
-                      ? 'https://openapi-sandbox.dl.alipaydev.com/gateway.do'
-                      : 'https://openapi.alipay.com/gateway.do'
-                  "
-                />
-              </ElFormItem>
-            </ElCol>
-            <ElCol :xs="24" :md="12">
-              <ElFormItem label="异步通知 URL">
-                <ElInput
-                  v-model.trim="form.notifyUrl"
-                  placeholder="https://your-host/api/payment/alipay-f2f/notify"
-                />
-              </ElFormItem>
-            </ElCol>
-          </ElRow>
+          <div class="callback-list">
+            <div class="callback-item">
+              <span>网关地址</span>
+              <div class="callback-value">
+                <code>{{ gatewayURL }}</code>
+                <ElButton link type="primary" @click="copyText(gatewayURL)">复制</ElButton>
+              </div>
+            </div>
+            <div class="callback-item">
+              <span>异步通知</span>
+              <div class="callback-value">
+                <code>{{ notifyURL }}</code>
+                <ElButton link type="primary" @click="copyText(notifyURL)">复制</ElButton>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section class="section-card">
           <div class="section-title with-switch">
             <div>
               <strong>证书模式（可选）</strong>
-              <span>公钥模式即可沙箱联调。证书模式请填写开放平台提供的 SN，仍使用上面的支付宝公钥验签。</span>
+              <span
+                >公钥模式即可沙箱联调。证书模式请填写开放平台提供的
+                SN，仍使用上面的支付宝公钥验签。</span
+              >
             </div>
             <div class="enable-switch">
               <span>证书模式</span>
@@ -122,18 +119,17 @@
 
 <script setup lang="ts">
   import type { AlipayF2FConfigData } from '@/api/system-manage'
-  import {
-    fetchAlipayF2FConfig,
-    fetchPluginList,
-    fetchUpdateAlipayF2FConfig
-  } from '@/api/system-manage'
+  import { fetchAlipayF2FConfig, fetchUpdateAlipayF2FConfig } from '@/api/system-manage'
 
-  defineOptions({ name: 'AlipayF2FConfig' })
+  defineOptions({ name: 'AlipayF2FConfigCard' })
 
-  const router = useRouter()
+  const productionGateway = 'https://openapi.alipay.com/gateway.do'
+  const sandboxGateway = 'https://openapi-sandbox.dl.alipaydev.com/gateway.do'
+  const notifyPath = '/api/payment/alipay-f2f/notify'
+
   const loading = ref(false)
   const saving = ref(false)
-  const pluginEnabled = ref(false)
+  const activated = ref(false)
   const form = reactive<AlipayF2FConfigData>({
     appId: '',
     privateKey: '',
@@ -147,14 +143,20 @@
     alipayRootCertSn: ''
   })
 
+  const gatewayURL = computed(() => (form.sandbox ? sandboxGateway : productionGateway))
+  const notifyURL = computed(() => {
+    if (typeof window === 'undefined' || !window.location?.origin) return notifyPath
+    return `${window.location.origin}${notifyPath}`
+  })
+
   const applyForm = (data: AlipayF2FConfigData) => {
     Object.assign(form, {
       appId: data.appId || '',
       privateKey: '',
       privateKeySet: Boolean(data.privateKeySet),
       alipayPublicKey: data.alipayPublicKey || '',
-      gateway: data.gateway || '',
-      notifyUrl: data.notifyUrl || '',
+      gateway: '',
+      notifyUrl: '',
       sandbox: Boolean(data.sandbox),
       certMode: Boolean(data.certMode),
       appCertSn: data.appCertSn || '',
@@ -162,14 +164,18 @@
     })
   }
 
+  const copyText = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value)
+      ElMessage.success('已复制')
+    } catch {
+      ElMessage.error('复制失败')
+    }
+  }
+
   const loadConfig = async () => {
     loading.value = true
     try {
-      const pluginData = await fetchPluginList()
-      const plugins = (pluginData.categories || []).flatMap((group) => group.plugins)
-      const plugin = plugins.find((item) => item.id === 'alipay-f2f')
-      pluginEnabled.value = Boolean(plugin?.local && plugin.enabled)
-      if (!pluginEnabled.value) return
       applyForm(await fetchAlipayF2FConfig())
     } finally {
       loading.value = false
@@ -191,7 +197,11 @@
     }
     saving.value = true
     try {
-      const data = await fetchUpdateAlipayF2FConfig({ ...form })
+      const data = await fetchUpdateAlipayF2FConfig({
+        ...form,
+        gateway: '',
+        notifyUrl: ''
+      })
       applyForm(data)
       ElMessage.success('支付宝当面付配置已保存')
     } catch (error: any) {
@@ -201,57 +211,102 @@
     }
   }
 
-  onMounted(loadConfig)
+  onMounted(async () => {
+    await loadConfig()
+    activated.value = true
+  })
+
+  onActivated(() => {
+    if (!activated.value) return
+    loadConfig()
+  })
 </script>
 
 <style scoped>
   .alipay-f2f-config-page {
-    padding: 4px;
+    height: 100%;
   }
+
   .config-card {
+    height: 100%;
     border: none;
   }
+
   .card-header {
     display: flex;
-    justify-content: space-between;
     gap: 16px;
     align-items: flex-start;
+    justify-content: space-between;
   }
+
   .card-header h2 {
     margin: 0 0 4px;
     font-size: 18px;
   }
+
   .card-header p {
     margin: 0;
     color: var(--el-text-color-secondary);
   }
-  .plugin-empty {
-    padding: 40px 0;
-  }
+
   .section-card {
-    margin-bottom: 20px;
     padding: 16px 16px 4px;
+    margin-bottom: 20px;
     border: 1px solid var(--el-border-color-lighter);
     border-radius: 12px;
   }
+
   .section-title {
     display: flex;
-    justify-content: space-between;
     gap: 16px;
+    justify-content: space-between;
     margin-bottom: 12px;
   }
+
   .section-title strong {
     display: block;
     margin-bottom: 4px;
   }
+
   .section-title span {
-    color: var(--el-text-color-secondary);
     font-size: 13px;
+    color: var(--el-text-color-secondary);
   }
+
   .enable-switch {
     display: flex;
-    align-items: center;
     gap: 8px;
+    align-items: center;
     white-space: nowrap;
+  }
+
+  .callback-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .callback-item span {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .callback-value {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+
+  .callback-value code {
+    flex: 1;
+    padding: 8px 10px;
+    font-size: 13px;
+    word-break: break-all;
+    background: var(--el-fill-color-light);
+    border-radius: 8px;
   }
 </style>

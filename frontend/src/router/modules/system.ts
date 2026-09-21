@@ -60,17 +60,6 @@ export const systemRoutes: AppRouteRecord = {
       }
     },
     {
-      path: 'alipay-f2f-config',
-      name: 'AlipayF2FConfig',
-      component: '/system/alipay-f2f-config',
-      meta: {
-        title: 'menus.system.alipayF2FConfig',
-        icon: 'ri:alipay-fill',
-        keepAlive: true,
-        roles: ['R_SUPER']
-      }
-    },
-    {
       path: 'mail-config',
       name: 'MailConfig',
       component: '/system/mail-config',

@@ -1,31 +1,57 @@
 <template>
   <div class="epay-config-page">
-    <ElCard v-if="activeVersion === 'epay'" v-loading="loading" class="config-card" shadow="never">
+    <ElCard
+      v-if="!anyPaymentPlugin"
+      v-loading="loading"
+      class="config-card pay-channel-block config-card--fill"
+      shadow="never"
+    >
       <template #header>
         <div class="card-header">
           <div>
             <h2>支付配置</h2>
             <p>管理已启用支付插件的网关、商户信息、回调地址和默认支付方式</p>
           </div>
-          <ElButton v-if="pluginEnabled" type="primary" :loading="saving" @click="handleSave">
-            保存配置
-          </ElButton>
         </div>
       </template>
-
-      <div v-if="!loading && !pluginEnabled" class="plugin-empty">
+      <div v-if="!loading && loadError" class="plugin-empty">
+        <ElEmpty :description="loadError" />
+      </div>
+      <div v-else-if="!loading && !anyPaymentPlugin" class="plugin-empty">
         <ElEmpty description="当前没有启用中的支付插件，请先到应用商店启用支付插件">
           <ElButton type="primary" @click="router.push('/plugin-store')">前往应用商店</ElButton>
         </ElEmpty>
       </div>
-      <ElForm
-        v-if="pluginEnabled"
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-position="top"
-        class="config-form"
-      >
+    </ElCard>
+
+    <ElAlert
+      v-if="showSoftDedupeHint"
+      class="pay-channel-block"
+      title="同方式将在收银台去重，优先官方当面付。"
+      type="info"
+      show-icon
+      :closable="false"
+    />
+
+    <ElCard
+      v-if="showEpayCard"
+      id="pay-channel-epay"
+      v-loading="loading"
+      class="config-card pay-channel-block"
+      :class="{ 'config-card--fill': solePaymentCard }"
+      shadow="never"
+    >
+      <template #header>
+        <div class="card-header">
+          <div>
+            <h2>支付配置</h2>
+            <p>管理已启用支付插件的网关、商户信息、回调地址和默认支付方式</p>
+          </div>
+          <ElButton type="primary" :loading="saving" @click="handleSave">保存配置</ElButton>
+        </div>
+      </template>
+
+      <ElForm ref="formRef" :model="form" :rules="rules" label-position="top" class="config-form">
         <ElRow :gutter="24">
           <ElCol :xs="24" :lg="15">
             <section class="section-card">
@@ -204,7 +230,13 @@
       </ElForm>
     </ElCard>
 
-    <ElCard v-if="pluginEnabled && activeVersion === 'epay-v2'" class="config-card" shadow="never">
+    <ElCard
+      v-if="showEpayV2Card"
+      id="pay-channel-epay-v2"
+      class="config-card pay-channel-block"
+      :class="{ 'config-card--fill': solePaymentCard }"
+      shadow="never"
+    >
       <template #header>
         <div class="card-header">
           <div>
@@ -442,6 +474,15 @@
         </ElRow>
       </ElForm>
     </ElCard>
+
+    <div
+      v-if="alipayF2FPluginOn"
+      id="pay-channel-alipay-f2f"
+      class="pay-channel-block"
+      :class="{ 'config-card--fill': solePaymentCard }"
+    >
+      <AlipayF2FConfigCard />
+    </div>
 
     <ElDialog
       v-model="testDialog.visible"
@@ -698,18 +739,34 @@
     fetchUpdatePaymentConfig,
     fetchUpdatePaymentV2Config
   } from '@/api/system-manage'
+  import AlipayF2FConfigCard from './modules/alipay-f2f-config-card.vue'
 
   defineOptions({ name: 'EpayConfig' })
 
   const route = useRoute()
   const router = useRouter()
   const formRef = ref<FormInstance>()
-  const loading = ref(false)
+  const loading = ref(true)
   const saving = ref(false)
-  const pluginEnabled = ref(true)
-  const activeVersion = ref<'epay' | 'epay-v2'>('epay')
   const epayPluginOn = ref(false)
   const epayV2PluginOn = ref(false)
+  const alipayF2FPluginOn = ref(false)
+  const loadError = ref('')
+  const anyPaymentPlugin = computed(
+    () => epayPluginOn.value || epayV2PluginOn.value || alipayF2FPluginOn.value
+  )
+  // 已启用的支付插件同时展示，不用单一 activeVersion 互相隐藏。
+  const showEpayCard = computed(() => epayPluginOn.value)
+  const showEpayV2Card = computed(() => epayV2PluginOn.value)
+  const showSoftDedupeHint = computed(
+    () => alipayF2FPluginOn.value && (epayPluginOn.value || epayV2PluginOn.value)
+  )
+  const solePaymentCard = computed(() => {
+    const visible = [showEpayCard.value, showEpayV2Card.value, alipayF2FPluginOn.value].filter(
+      Boolean
+    )
+    return visible.length <= 1
+  })
 
   const paymentTypeOptions: Array<{ label: string; value: EpayPayType }> = [
     { label: '支付宝', value: 'alipay' },
@@ -1161,19 +1218,33 @@
     }
   }
 
-  // 支付配置跟随支付插件启用状态动态加载：插件未启用时不展示具体配置。
+  const channelQuery = () => (typeof route.query.channel === 'string' ? route.query.channel : '')
+
+  // channel 只滚动到对应分段，不隐藏其它已启用插件。
+  const focusChannel = async () => {
+    const channel = channelQuery()
+    await nextTick()
+    if (channel !== 'epay' && channel !== 'epay-v2' && channel !== 'alipay-f2f') return
+    document.getElementById(`pay-channel-${channel}`)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start'
+    })
+  }
+
+  // 支付配置跟随支付插件启用状态动态加载：任一支付插件启用则展示对应区块，可同时配置。
   const loadConfig = async () => {
     loading.value = true
+    loadError.value = ''
     try {
       const pluginData = await fetchPluginList()
       const plugins = (pluginData.categories || []).flatMap((group) => group.plugins)
-      const epayPlugin = plugins.find((plugin) => plugin.id === 'epay')
-      const epayV2Plugin = plugins.find((plugin) => plugin.id === 'epay-v2')
-      epayPluginOn.value = Boolean(epayPlugin?.local && epayPlugin.enabled)
-      epayV2PluginOn.value = Boolean(epayV2Plugin?.local && epayV2Plugin.enabled)
-      pluginEnabled.value = epayPluginOn.value || epayV2PluginOn.value
-      if (!pluginEnabled.value) return
-      activeVersion.value = epayPluginOn.value ? 'epay' : 'epay-v2'
+      const pluginOn = (id: string) => {
+        const plugin = plugins.find((item) => item.id === id)
+        return Boolean(plugin?.local && plugin.enabled)
+      }
+      epayPluginOn.value = pluginOn('epay')
+      epayV2PluginOn.value = pluginOn('epay-v2')
+      alipayF2FPluginOn.value = pluginOn('alipay-f2f')
       if (epayPluginOn.value) {
         const data = await fetchPaymentConfig()
         applyForm(data)
@@ -1182,10 +1253,21 @@
         const dataV2 = await fetchPaymentV2Config()
         applyFormV2(dataV2)
       }
+    } catch (error: any) {
+      loadError.value = error?.message || '加载支付插件失败'
     } finally {
       loading.value = false
     }
+    if (!loadError.value) await focusChannel()
   }
+
+  watch(
+    () => route.query.channel,
+    () => {
+      if (loading.value) return
+      focusChannel()
+    }
+  )
 
   const applyForm = (data: PaymentConfigData) => {
     const payTypes = Array.isArray(data.easypayPayTypes)
@@ -1223,8 +1305,19 @@
 <style scoped lang="scss">
   .epay-config-page {
     .config-card {
-      min-height: 100%;
       border: 0;
+    }
+
+    .config-card--fill {
+      min-height: 100%;
+    }
+
+    .pay-channel-block + .pay-channel-block {
+      margin-top: 16px;
+    }
+
+    .pay-channel-block {
+      scroll-margin-top: 72px;
     }
 
     .card-header {

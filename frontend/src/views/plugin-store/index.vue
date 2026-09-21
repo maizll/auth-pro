@@ -379,11 +379,11 @@
   }
 
   // 需要独立配置页的插件；其余按类别归到统一配置页。
-  // 官方当面付与易支付一样：商店「配置」指向系统设置页，不渲染 ZIP 里的 schema。
+  // 官方支付插件与易支付一样：商店「配置」指向唯一支付配置页，用 channel 定位分段，不渲染 ZIP 里的 schema。
   const pluginConfigPaths: Record<string, string> = {
-    epay: '/system/epay-config',
-    'epay-v2': '/system/epay-config',
-    'alipay-f2f': '/system/alipay-f2f-config'
+    epay: '/system/epay-config?channel=epay',
+    'epay-v2': '/system/epay-config?channel=epay-v2',
+    'alipay-f2f': '/system/epay-config?channel=alipay-f2f'
   }
 
   // 内置/已编译运行时：显示启用与配置。纯第三方 ZIP 仍为「需运行实现」。

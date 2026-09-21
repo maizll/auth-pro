@@ -292,7 +292,6 @@
       "menu": "Menus",
       "config": "Config",
       "epayConfig": "Payment",
-      "alipayF2FConfig": "Alipay F2F",
       "paymentOrders": "Orders",
       "mailConfig": "Mail",
       "mailLogs": "Mail Logs"

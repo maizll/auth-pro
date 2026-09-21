@@ -4,7 +4,7 @@
 
 - 新增支付渠道 SPI（`backend/payment`）：官方商店插件可注册渠道，pay-options / 下单 / `/api/payment/{channel}/notify` 走统一契约。
 - 官方插件「支付宝当面付」（`alipay-f2f`）：正扫 `alipay.trade.precreate` 展示收款码，异步 RSA2 验签入账。可与易支付并存。
-- 内置 catalog 提供启用/配置（与易支付相同）：系统设置页填写凭证；商店「配置」进入 `/system/alipay-f2f-config`。曾上传同 ID ZIP 不会停在「需运行实现」。
+- 内置 catalog 提供启用/配置（与易支付相同）：凭证都在系统设置「支付配置」`/system/epay-config`，易支付与当面付分段同时可配。`epay` 与 `epay-v2` 硬互斥；官方直连与易支付软并存，收银台同一 pay method 去重且优先官方当面付。商店「配置」进入 `/system/epay-config?channel=alipay-f2f`。侧栏不单独增加「支付宝当面付」。曾上传同 ID ZIP 不会停在「需运行实现」。
 - 已接入用户/代理授权购买、余额充值、用户升级代理。插件权益独立 SKU 尚未落地。
 - 设计说明：`docs/design/payment-channel-plugin.md`；开发者指南：`docs/developer/payment-channel-plugin.md`。
 

@@ -416,3 +416,21 @@ func cleanupPurchaseLimitCampaignMenu(db *sql.DB) {
 	_, _ = db.Exec("DELETE FROM role_menus WHERE menu_id = 213")
 	_, _ = db.Exec("DELETE FROM menus WHERE id = 213 OR name = 'PurchaseLimitCampaigns'")
 }
+
+// removeAlipayF2FConfigMenu 删除「支付宝当面付」独立侧栏。
+// 配置已并入 EpayConfig；id 213 也曾被该菜单占用，名称/路径/组件一并清掉，避免老库仍显示。
+func removeAlipayF2FConfigMenu(db *sql.DB) {
+	_, _ = db.Exec(`
+		DELETE rm FROM role_menus rm
+		INNER JOIN menus m ON m.id = rm.menu_id
+		WHERE m.name = 'AlipayF2FConfig'
+			OR m.path IN ('alipay-f2f-config', '/system/alipay-f2f-config')
+			OR m.component = '/system/alipay-f2f-config'
+	`)
+	_, _ = db.Exec(`
+		DELETE FROM menus
+		WHERE name = 'AlipayF2FConfig'
+			OR path IN ('alipay-f2f-config', '/system/alipay-f2f-config')
+			OR component = '/system/alipay-f2f-config'
+	`)
+}

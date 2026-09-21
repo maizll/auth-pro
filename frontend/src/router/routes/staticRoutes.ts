@@ -73,6 +73,15 @@ export const staticRoutes: AppRouteRecordRaw[] = [
     component: () => import('@views/user-panel/reset-password/index.vue'),
     meta: { title: '重置密码', isHideTab: true }
   },
+  // 当面付配置已并入支付配置页；保留旧地址，避免书签 404。
+  {
+    path: '/system/alipay-f2f-config',
+    name: 'AlipayF2FConfigRedirect',
+    redirect: (to) => ({
+      path: '/system/epay-config',
+      query: { ...to.query, channel: 'alipay-f2f' }
+    })
+  },
   // 支付网关回跳地址兼容（后端及历史订单 return_url 指向 /agent/*，重定向到现行代理商面板并保留 query）
   {
     path: '/agent/finance',

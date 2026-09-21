@@ -22,8 +22,8 @@ AuthPro 商店官方插件。安装/启用并填写开放平台凭证后，收�
 
 1. 应用商店找到内置「支付宝当面付」（`canEnable=true`）。若以前上传过同 ID ZIP，内置条目优先，**不会**停在「已安装 / 资源包已解压 / 需运行实现」。
 2. 点击 **启用**（支付类插件可与易支付并存）。
-3. 商店卡片 **配置**，或系统设置 → **支付宝当面付**，填写开放平台凭证（APPID / RSA2 私钥 / 支付宝公钥 / 沙箱 / 通知 URL）。**不要把应用私钥提交到仓库或工单**。
-4. 保存后，用户购买页 pay-options 会出现「支付宝当面付」。
+3. 商店卡片 **配置**，或系统设置 → **支付配置**（当面付分段），填写开放平台凭证（APPID / RSA2 私钥 / 支付宝公钥 / 沙箱 / 通知 URL）。**不要把应用私钥提交到仓库或工单**。
+4. 保存后，用户购买页 pay-options 会出现「支付宝当面付」。若易支付也开启了支付宝，收银台同一方式只保留当面付。
 
 ## 配置项（占位，勿填入真实生产密钥）
 
@@ -32,9 +32,9 @@ AuthPro 商店官方插件。安装/启用并填写开放平台凭证后，收�
 | APPID | 开放平台应用 APPID | `2021000000000000` |
 | 应用私钥 | RSA2（PKCS#1 或 PKCS#8 PEM） | 留空表示保持已保存值 |
 | 支付宝公钥 | 公钥模式：开放平台「支付宝公钥」 | PEM 或裸 base64 |
-| 网关 | 可留空 | 正式 `https://openapi.alipay.com/gateway.do` |
-| 沙箱 | 打开后默认沙箱网关 | `https://openapi-sandbox.dl.alipaydev.com/gateway.do` |
-| 异步通知 | 可留空，系统按当前域名生成 | `https://your-host/api/payment/alipay-f2f/notify` |
+| 网关 | 管理端只读。随沙箱开关显示，保存时写空，运行时用默认 | 正式 `https://openapi.alipay.com/gateway.do`；沙箱 `https://openapi-sandbox.dl.alipaydev.com/gateway.do` |
+| 沙箱 | 主表单开关。打开后网关展示为沙箱地址 | |
+| 异步通知 | 管理端只读，当前站点 origin + `/api/payment/alipay-f2f/notify`。保存时写空 | `https://your-host/api/payment/alipay-f2f/notify` |
 | 证书模式 | 可选。开启后需填应用公钥证书 SN、支付宝根证书 SN | 公钥仍用于验签 |
 
 沙箱联调：在[支付宝开放平台沙箱](https://open.alipay.com/)创建应用，使用沙箱 APPID 与密钥，**不要**把生产私钥写入本仓库。

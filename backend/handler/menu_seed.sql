@@ -79,7 +79,6 @@ INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `title`, `i
 (204, 2, 'Menus',         'menu',        '/system/menu',        'menus.system.menu',       'ri:menu-2-line',         2, 1, 0, 0),
 (205, 2, 'SystemConfig',  'config',      '/system/config',      'menus.system.config',     'ri:settings-3-line',     3, 1, 0, 0),
 (208, 2, 'EpayConfig',       'epay-config',        '/system/epay-config',        'menus.system.epayConfig',       'ri:bank-card-line',      4, 1, 0, 0),
-(213, 2, 'AlipayF2FConfig',  'alipay-f2f-config',  '/system/alipay-f2f-config',  'menus.system.alipayF2FConfig',  'ri:alipay-fill',         5, 1, 0, 0),
 (206, 2, 'MailConfig',       'mail-config',        '/system/mail-config',        'menus.system.mailConfig',       'ri:mail-settings-line',  6, 1, 0, 0),
 (207, 2, 'MailLogs',         'mail-logs',          '/system/mail-logs',          'menus.system.mailLogs',         'ri:mail-check-line',     7, 1, 0, 0),
 (203, 2, 'UserCenter',       'user-center',        '/system/user-center',        'menus.system.userCenter',       'ri:user-settings-line',  8, 1, 0, 1);

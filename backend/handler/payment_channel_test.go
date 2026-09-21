@@ -51,25 +51,51 @@ func TestParseOnlinePaySelectionAcceptsAlipayF2F(t *testing.T) {
 	}
 }
 
-func TestDedupePayOptionsKeepsPluginChannelAlongsideEasypay(t *testing.T) {
+func TestDedupePayOptionsSoftDedupePrefersOfficial(t *testing.T) {
 	options := dedupePayOptions([]payOption{
 		{Code: "easypay:alipay", Channel: payChannelEpayV1, PayType: "alipay", Label: "支付宝"},
 		{Code: "easypay-v2:alipay", Channel: payChannelEpayV2, PayType: "alipay", Label: "支付宝"},
+		{Code: "easypay:wxpay", Channel: payChannelEpayV1, PayType: "wxpay", Label: "微信"},
 		{Code: "alipay-f2f:alipay", Channel: alipayf2f.ChannelID, PayType: "alipay", Label: "支付宝当面付"},
 		{Code: "balance", Label: "余额支付"},
 	})
 	if len(options) != 3 {
-		t.Fatalf("got %d options, want 3 (easypay collapsed, plugin kept): %#v", len(options), options)
+		t.Fatalf("got %d options, want official alipay + easypay wxpay + balance: %#v", len(options), options)
 	}
 	codes := map[string]bool{}
 	for _, opt := range options {
 		codes[opt.Code] = true
 	}
-	if !codes["easypay:alipay"] || !codes["alipay-f2f:alipay"] || !codes["balance"] {
+	if !codes["alipay-f2f:alipay"] || !codes["easypay:wxpay"] || !codes["balance"] {
 		t.Fatalf("unexpected codes: %#v", options)
 	}
-	if codes["easypay-v2:alipay"] {
-		t.Fatal("easypay v1/v2 alipay should still collapse")
+	if codes["easypay:alipay"] || codes["easypay-v2:alipay"] {
+		t.Fatal("same pay method must prefer official face-to-face over easypay")
+	}
+}
+
+func TestDedupePayOptionsCollapsesEpayVersions(t *testing.T) {
+	options := dedupePayOptions([]payOption{
+		{Code: "easypay:alipay", Channel: payChannelEpayV1, PayType: "alipay", Label: "支付宝"},
+		{Code: "easypay-v2:alipay", Channel: payChannelEpayV2, PayType: "alipay", Label: "支付宝"},
+		{Code: "balance", Label: "余额支付"},
+	})
+	if len(options) != 2 || options[0].Code != "easypay:alipay" || options[1].Code != "balance" {
+		t.Fatalf("epay v1/v2 must hard-collapse to the first option, got %#v", options)
+	}
+}
+
+func TestEpayHardExclusivePeer(t *testing.T) {
+	peer, ok := epayHardExclusivePeer("epay")
+	if !ok || peer != "epay-v2" {
+		t.Fatalf("epay peer = %q %v", peer, ok)
+	}
+	peer, ok = epayHardExclusivePeer("epay-v2")
+	if !ok || peer != "epay" {
+		t.Fatalf("epay-v2 peer = %q %v", peer, ok)
+	}
+	if _, ok := epayHardExclusivePeer("alipay-f2f"); ok {
+		t.Fatal("official direct channel must stay soft-coexistent with easypay")
 	}
 }
 
