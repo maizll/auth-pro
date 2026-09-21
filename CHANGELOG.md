@@ -1,18 +1,12 @@
 # 更新日志
 
-## [未发布] 支付渠道插件契约 + 支付宝当面付官方插件
+## [v1.4.3] 2026-09-21 — 单语言 SDK、当面付插件、业务组件
 
-- 新增支付渠道 SPI（`backend/payment`）：官方商店插件可注册渠道，pay-options / 下单 / `/api/payment/{channel}/notify` 走统一契约。
-- 官方插件「支付宝当面付」（`alipay-f2f`）：正扫 `alipay.trade.precreate` 展示收款码，异步 RSA2 验签入账。可与易支付并存。
-- 内置 catalog 提供启用/配置（与易支付相同）：凭证都在系统设置「支付配置」`/system/epay-config`，易支付与当面付分段同时可配。`epay` 与 `epay-v2` 硬互斥；官方直连与易支付软并存，收银台同一 pay method 去重且优先官方当面付。商店「配置」进入 `/system/epay-config?channel=alipay-f2f`。侧栏不单独增加「支付宝当面付」。曾上传同 ID ZIP 不会停在「需运行实现」。
-- 已接入用户/代理授权购买、余额充值、用户升级代理。插件权益独立 SKU 尚未落地。
-- 设计说明：`docs/design/payment-channel-plugin.md`；开发者指南：`docs/developer/payment-channel-plugin.md`。
-
-## [SDK] 2026-09-21 — 按语言下载单文件夹接入包
-
-- 管理端「SDK 接入」必须选择一种语言（PHP / Node.js / Python / Go / 浏览器），下载 ZIP 只含该语言，不再五语言打成一包。
-- 解压后为单根目录：入口文件 + 预填 `config.json` + 中文 README（放置方式 + require/import 示例）+ 可选 example。浏览器包不含 appSecret。
-- 仓库 `sdk/{php,node,python,go,browser}` 与 `sdk_assets` 嵌入仍保留；仅打包组装与下载 UX 变化。不 bump 产品版本。
+- SDK 接入包改为按单一语言下载（PHP / Node.js / Python / Go / 浏览器）。解压后为单根目录：入口文件 + 预填 `config.json` + 中文 README + 可选 example。浏览器包不含 appSecret。仓库仍保留五语言源码。
+- 新增支付渠道插件契约（`backend/payment`）。官方插件「支付宝当面付」（`alipay-f2f`）支持正扫 `alipay.trade.precreate`，异步 RSA2 验签入账。已接入用户/代理授权购买、余额充值、用户升级代理。
+- 当面付配置并入系统设置「支付配置」，去掉重复侧栏。网关与异步通知地址只读、自动生成。`epay` 与 `epay-v2` 硬互斥；官方直连与易支付软并存，配置页提示去重规则，收银台同一支付方式去重且优先官方当面付。
+- 新增业务组件 `BizAppSelect`、`BizStatusTag`、`BizCopySecret`，替换应用下拉、状态标签与密钥显隐复制。
+- 根目录 `VERSION` / `AppVersion` / `VITE_VERSION` 默认 `1.4.3`。发布说明见 `docs/release-notes-1.4.3.txt`。
 
 ## [v1.4.2] 2026-09-21 — 菜单管理可改上级、商店/更新一级、开发者广告可本地上传
 

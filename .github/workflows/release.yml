@@ -75,9 +75,10 @@ jobs:
           AUTO_PRO_UPDATE_RELEASES_URL: 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/releases.json'
           AUTO_PRO_REQUIRE_GIT_RELEASE_NOTES: '1'
           AUTO_PRO_RELEASE_NOTES: |
-            菜单管理可改上级，编辑时回填中文标题。
-            应用商店与在线更新默认一级菜单。
-            开发者广告申请支持本地上传（https 外链仍可用）。
+            SDK 接入包改为按单一语言下载。
+            支付渠道支持插件契约，并提供支付宝当面付官方插件。
+            新增 BizAppSelect、BizStatusTag、BizCopySecret 业务组件。
+            当面付配置并入「支付配置」，去掉重复侧栏；网关与异步通知只读自动生成；多支付插件给出软互斥提示。
         run: ./scripts/build-release.sh '${{ steps.version.outputs.value }}'
 
       - name: Run backend tests
