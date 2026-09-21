@@ -47,7 +47,15 @@ rm -rf "$BACKEND_DIR/static"/*
 cp -R "$FRONTEND_DIR/dist"/. "$PACKAGE_DIR"/
 cp -R "$FRONTEND_DIR/dist"/. "$BACKEND_DIR/static"/
 
-printf '[3/5] Building Linux amd64 backend...\n'
+printf '[3/5] Syncing client SDK assets and building Linux amd64 backend...\n'
+rm -rf "$BACKEND_DIR/handler/sdk_assets"
+mkdir -p "$BACKEND_DIR/handler/sdk_assets/_meta" "$BACKEND_DIR/handler/sdk_assets/go"
+cp -a "$ROOT_DIR/sdk/php" "$ROOT_DIR/sdk/node" "$ROOT_DIR/sdk/python" "$ROOT_DIR/sdk/browser" \
+  "$BACKEND_DIR/handler/sdk_assets/"
+cp -a "$ROOT_DIR/sdk/go/authpro" "$BACKEND_DIR/handler/sdk_assets/go/"
+cp "$ROOT_DIR/sdk/go/go.mod" "$BACKEND_DIR/handler/sdk_assets/_meta/go.mod.txt"
+rm -rf "$BACKEND_DIR/handler/sdk_assets/python/authpro/__pycache__"
+rm -f "$BACKEND_DIR/handler/sdk_assets/go/authpro/"*_test.go
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go -C "$BACKEND_DIR" build -trimpath -ldflags "$LDFLAGS" -o "$BACKEND_DIR/auto_pro_linux_amd64" .
 cp "$BACKEND_DIR/auto_pro_linux_amd64" "$PACKAGE_DIR/backend/auth_pro"
 

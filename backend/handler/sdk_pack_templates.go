@@ -2,7 +2,7 @@ package handler
 
 import (
 	"bytes"
-	"encoding/json"
+	"fmt"
 	"strings"
 	"text/template"
 )
@@ -11,7 +11,6 @@ type sdkPackTemplateData struct {
 	AppID           int64
 	AppName         string
 	AppKey          string
-	AppSecret       string
 	BaseURL         string
 	PluginIndexURL  string
 	PluginIndexPath string
@@ -20,52 +19,20 @@ type sdkPackTemplateData struct {
 	Update          bool
 	Ads             bool
 	PluginSource    bool
-	Guard           bool
-	NeedHTTP        bool
-	NeedSign        bool
-	IncludeJS       bool
 	ModuleLabels    []string
 	GeneratedAt     string
 }
 
-func phpSingleQuote(value string) string {
-	replacer := strings.NewReplacer(`\`, `\\`, `'`, `\'`)
-	return "'" + replacer.Replace(value) + "'"
-}
-
-func jsQuote(value string) string {
-	payload, err := json.Marshal(value)
-	if err != nil {
-		return `""`
-	}
-	return string(payload)
-}
-
-func phpBool(value bool) string {
-	if value {
-		return "true"
-	}
-	return "false"
-}
-
-func jsBool(value bool) string {
-	if value {
-		return "true"
-	}
-	return "false"
-}
-
-func phpComment(value string) string {
-	return strings.ReplaceAll(value, "*/", "* /")
+type sdkPackExampleFile struct {
+	name string
+	body string
 }
 
 var sdkPackTemplateFuncs = template.FuncMap{
-	"php":        phpSingleQuote,
-	"js":         jsQuote,
-	"phpBool":    phpBool,
-	"jsBool":     jsBool,
-	"phpComment": phpComment,
-	"join":       func(items []string, sep string) string { return strings.Join(items, sep) },
+	"join": func(items []string, sep string) string { return strings.Join(items, sep) },
+	"phpComment": func(value string) string {
+		return strings.ReplaceAll(value, "*/", "* /")
+	},
 }
 
 func renderSDKPackTemplate(name, raw string, data sdkPackTemplateData) (string, error) {
@@ -80,551 +47,236 @@ func renderSDKPackTemplate(name, raw string, data sdkPackTemplateData) (string, 
 	return out.String(), nil
 }
 
-const sdkPackConfigExampleTemplate = `<?php
-/**
- * 复制本文件为 auth_pro_config.php（与 auth_pro_sdk.php 同目录），按需填写。
- * 密钥授权请填写 licenseKey；域名/IP 授权可留空，SDK 会读取当前站点。
- */
-return array(
-    'licenseKey' => '',
-    'domain' => '',
-    'serverIp' => '',
-    'appVersion' => '1.0.0',
-);
-`
+func renderSDKPackExample(lang string, data sdkPackTemplateData) (sdkPackExampleFile, error) {
+	raw, ok := sdkPackExampleTemplates[lang]
+	if !ok {
+		return sdkPackExampleFile{}, fmt.Errorf("未知示例语言：%s", lang)
+	}
+	body, err := renderSDKPackTemplate("example-"+lang, raw.body, data)
+	if err != nil {
+		return sdkPackExampleFile{}, err
+	}
+	return sdkPackExampleFile{name: raw.name, body: body}, nil
+}
 
-const sdkPackReadmeTemplate = `# AuthPro 接入包（[[.AppName]]）
+const sdkPackReadmeTemplate = `# AuthPro 客户端接入包（[[.AppName]]）
 
-本包已绑定当前授权站上的**这一个应用**，不要用于其它应用。
+> 本包已取代旧版「单文件 PHP/JS 模板汤」接入包。核心库在仓库 ` + "`" + `sdk/*` + "`" + `，本 ZIP 只预填本应用的 ` + "`" + `config.json` + "`" + `，并把五语言库快照到 ` + "`" + `vendor/` + "`" + `，方便离线 require/import。
+
+## 本应用信息
 
 - 授权站：` + "`" + `[[.BaseURL]]` + "`" + `
 - 应用 ID：[[.AppID]]
 - appKey：` + "`" + `[[.AppKey]]` + "`" + `
 - 已选模块：[[join .ModuleLabels "、"]]
 [[if .PluginSource]]
-- 插件源清单（应用隔离，直接填到消费者「软件源管理」）：` + "`" + `[[.PluginIndexURL]]` + "`" + `
+- 插件源清单（应用隔离）：` + "`" + `[[.PluginIndexURL]]` + "`" + `
 [[end]]
 
-## PHP（推荐，宝塔 / 常规 PHP 产品）
+## 目录结构
 
-1. 把本目录复制到项目，例如 ` + "`" + `includes/auth-pro-sdk/` + "`" + `。
-2. 复制 ` + "`" + `config.example.php` + "`" + ` 为 ` + "`" + `auth_pro_config.php` + "`" + `，填写授权码（密钥授权必填；域名授权可留空）。
-3. 在站点入口增加两行：
+` + "```" + `text
+auth-pro-client-*/
+  README.md
+  config.json                 # 本应用预填（含服务端 appSecret）
+  examples/{php,node,python,go,browser}/
+  vendor/{php,node,python,go,browser}/   # sdk/* 快照
+` + "```" + `
+
+换应用时**只改** ` + "`" + `config.json` + "`" + `（或重新下载接入包），不要改 ` + "`" + `vendor/` + "`" + ` 源码。
+
+## 五语言公共 API
+
+| API | 说明 |
+| --- | --- |
+| ` + "`" + `boot(config)` + "`" + ` | 加载配置；开启 license/piracy 时校验失败会拦截/抛错 |
+| ` + "`" + `verify()` + "`" + ` | 仅授权校验，返回 ` + "`" + `{ ok, code, message, data }` + "`" + `，不强制退出 |
+| ` + "`" + `checkUpdate(currentVersion)` + "`" + ` | 对照 ` + "`" + `/api/app/version/check` + "`" + ` |
+| ` + "`" + `ads(slot)` + "`" + ` | 广告位：home-banner / sidebar / popup |
+| ` + "`" + `pluginSourceUrl()` + "`" + ` | 本应用 ` + "`" + `/software-source/{appKey}/index.json` + "`" + ` |
+
+## 快速开始
+
+### PHP
 
 ` + "```" + `php
-require __DIR__ . '/includes/auth-pro-sdk/auth_pro_sdk.php';
-AuthPro::boot();
+require __DIR__ . '/vendor/php/src/AuthPro.php';
+AuthPro::boot(__DIR__ . '/config.json');
+$result = AuthPro::verify();
 ` + "```" + `
 
-` + "`" + `AuthPro::boot()` + "`" + ` 会按本包勾选的模块工作：授权失败时直接中断（盗版入口开启时展示拦截页）。可选调用：
-
-[[if .Ads]]- ` + "`" + `AuthPro::ads('home-banner')` + "`" + `（` + "`" + `sidebar` + "`" + ` / ` + "`" + `popup` + "`" + `）
-[[end]][[if .Update]]- ` + "`" + `AuthPro::checkUpdate('1.0.0')` + "`" + ` 对照本站 ` + "`" + `/api/app/version/check` + "`" + `
-[[end]][[if .PluginSource]]- ` + "`" + `AuthPro::pluginSourceUrl()` + "`" + ` 返回本应用清单 ` + "`" + `[[.PluginIndexPath]]` + "`" + `
-[[end]]
-
-## Node / JS（可选）
-[[if .IncludeJS]]
-HMAC 签名依赖 Node ` + "`" + `crypto` + "`" + `，请用 ` + "`" + `require` + "`" + ` 接入，不要直接当浏览器脚本跑授权校验。
+### Node.js
 
 ` + "```" + `js
-const AuthPro = require('./auth-pro-sdk.js');
-await AuthPro.boot();
+const AuthPro = require('./vendor/node/src/index.js');
+await AuthPro.boot('./config.json');
+const result = await AuthPro.verify();
 ` + "```" + `
-[[else]]
-本包未包含 JS 文件。重新生成时勾选「同时生成 Node/JS」。
-[[end]]
+
+### Python
+
+` + "```" + `python
+import sys
+sys.path.insert(0, "vendor/python")
+import authpro
+authpro.boot("config.json")
+print(authpro.verify())
+` + "```" + `
+
+### Go
+
+` + "```" + `go
+import authpro "github.com/maizll/auth-pro/sdk/go/authpro"
+// 离线包可将 vendor/go 以 replace 引入，或直接复制 authpro 包
+_ = authpro.Boot("config.json")
+` + "```" + `
+
+### 浏览器
+
+浏览器 vendor **不会**写入 ` + "`" + `appSecret` + "`" + `。请用 ` + "`" + `examples/browser/config.json` + "`" + `（已去密钥）。` + "`" + `ads` + "`" + ` / ` + "`" + `pluginSourceUrl` + "`" + ` 可直连；` + "`" + `verify` + "`" + ` / ` + "`" + `checkUpdate` + "`" + ` 请走服务端 SDK 或配置 ` + "`" + `proxyVerifyUrl` + "`" + ` / ` + "`" + `proxyCheckUpdateUrl` + "`" + ` 同源代理。
 
 生成时间：[[.GeneratedAt]]
 `
 
-const sdkPackPHPTemplate = `<?php
+type sdkPackExampleTemplate struct {
+	name string
+	body string
+}
+
+var sdkPackExampleTemplates = map[string]sdkPackExampleTemplate{
+	"php": {
+		name: "boot.php",
+		body: `<?php
 /**
- * AuthPro 客户端 SDK
- * 已绑定应用：[[phpComment .AppName]]（appId=[[.AppID]] / appKey=[[.AppKey]]）
- * 授权站：[[.BaseURL]]
- *
- * require 本文件后调用 AuthPro::boot();
+ * AuthPro PHP 示例 — [[phpComment .AppName]]
+ * 将本目录上一级的 config.json + vendor/php 拷入业务项目即可。
  */
-if (class_exists('AuthPro', false)) {
-    return;
+require dirname(__DIR__, 2) . '/vendor/php/src/AuthPro.php';
+
+AuthPro::boot(dirname(__DIR__, 2) . '/config.json');
+
+// 仅校验，不退出：
+$result = AuthPro::verify();
+if (empty($result['ok'])) {
+    fwrite(STDERR, 'verify failed: ' . ($result['message'] ?? '') . PHP_EOL);
 }
 
-class AuthPro
-{
-    const BASE_URL = [[php .BaseURL]];
-    const APP_ID = [[.AppID]];
-    const APP_KEY = [[php .AppKey]];
-[[if .NeedSign]]
-    const APP_SECRET = [[php .AppSecret]];
+[[if .Ads]]print_r(AuthPro::ads('home-banner'));
+[[end]][[if .Update]]$update = AuthPro::checkUpdate('1.0.0');
+[[end]][[if .PluginSource]]echo AuthPro::pluginSourceUrl(), PHP_EOL;
 [[end]]
-    const MODULE_LICENSE = [[phpBool .License]];
-    const MODULE_PIRACY = [[phpBool .Piracy]];
-    const MODULE_UPDATE = [[phpBool .Update]];
-    const MODULE_ADS = [[phpBool .Ads]];
-    const MODULE_PLUGIN_SOURCE = [[phpBool .PluginSource]];
-[[if .PluginSource]]
-    // 应用隔离公开清单：{origin}/software-source/{app_key}/index.json（app_key 与授权 appKey 相同）
-    const PLUGIN_SOURCE_URL = [[php .PluginIndexURL]];
+`,
+	},
+	"node": {
+		name: "boot.js",
+		body: `'use strict';
+/**
+ * AuthPro Node 示例 — [[.AppName]]
+ */
+const path = require('path');
+const AuthPro = require('../../vendor/node/src/index.js');
+
+(async () => {
+  await AuthPro.boot(path.join(__dirname, '../../config.json'));
+  const result = await AuthPro.verify();
+  console.log('verify', result);
+[[if .Ads]]  console.log('ads', await AuthPro.ads('home-banner'));
+[[end]][[if .Update]]  console.log('update', await AuthPro.checkUpdate('1.0.0'));
+[[end]][[if .PluginSource]]  console.log('pluginSource', AuthPro.pluginSourceUrl());
+[[end]]})().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});
+`,
+	},
+	"python": {
+		name: "boot.py",
+		body: `#!/usr/bin/env python3
+# AuthPro Python 示例 — [[.AppName]]
+import os
+import sys
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, os.path.join(ROOT, "vendor", "python"))
+
+import authpro
+
+authpro.boot(os.path.join(ROOT, "config.json"))
+print("verify", authpro.verify())
+[[if .Ads]]print("ads", authpro.ads("home-banner"))
+[[end]][[if .Update]]print("update", authpro.check_update("1.0.0"))
+[[end]][[if .PluginSource]]print("pluginSource", authpro.plugin_source_url())
 [[end]]
+`,
+	},
+	"go": {
+		name: "boot.go",
+		body: `package main
 
-    private static $options = array();
+// AuthPro Go 示例 — [[.AppName]]
+// 离线使用：将 vendor/go 放到 GOPATH/module，或：
+//   go mod edit -replace github.com/maizll/auth-pro/sdk/go=../../vendor/go
 
-    public static function configure($options = array())
-    {
-        if (!is_array($options)) {
-            $options = array();
-        }
-        $local = self::loadLocalConfig();
-        self::$options = array_merge($local, $options);
-        return true;
-    }
+import (
+	"fmt"
+	"path/filepath"
+	"runtime"
 
-    public static function boot($options = array())
-    {
-        self::configure($options);
-[[if .Guard]]
-        $result = self::verify();
-        if (empty($result['ok'])) {
-            self::deny($result);
-        }
-[[end]]
-        return true;
-    }
-[[if .Guard]]
+	authpro "github.com/maizll/auth-pro/sdk/go/authpro"
+)
 
-    public static function verify()
-    {
-        $ctx = self::requestContext();
-        $timestamp = time();
-        $payload = array(
-            'appKey' => self::APP_KEY,
-            'domain' => $ctx['domain'],
-            'serverIp' => $ctx['serverIp'],
-            'licenseKey' => $ctx['licenseKey'],
-            'timestamp' => $timestamp,
-            'signVersion' => 'v2',
-            'sign' => self::v2Sign(array(
-                'v2',
-                self::APP_KEY,
-                $ctx['licenseKey'],
-                $ctx['domain'],
-                $ctx['serverIp'],
-                (string)$timestamp,
-            )),
-        );
-        $response = self::httpJson('POST', '/api/license/verify', $payload);
-        $ok = isset($response['code']) && (int)$response['code'] === 200
-            && isset($response['data']['result']) && $response['data']['result'] === 'pass';
-        $response['ok'] = $ok;
-        return $response;
-    }
-
-    public static function deny($result)
-    {
-        $reason = '';
-        if (is_array($result)) {
-            if (!empty($result['msg'])) {
-                $reason = (string)$result['msg'];
-            } elseif (!empty($result['data']['reason'])) {
-                $reason = (string)$result['data']['reason'];
-            }
-        }
-        $title = '授权无效';
-        $hint = '请检查授权码、域名是否与后台登记一致。';
-[[if .Piracy]]
-        $title = '未授权访问';
-        $hint = '当前站点未通过授权校验。授权站会记录未授权命中，请联系软件提供方开通正版。';
-[[end]]
-        if (PHP_SAPI === 'cli') {
-            fwrite(STDERR, $title . ': ' . $reason . PHP_EOL);
-            exit(1);
-        }
-        if (!headers_sent()) {
-            http_response_code(403);
-            header('Content-Type: text/html; charset=utf-8');
-        }
-        echo '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'
-            . htmlspecialchars($title, ENT_QUOTES, 'UTF-8')
-            . '</title><style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}main{max-width:520px;padding:32px;background:#1e293b;border-radius:16px}h1{margin:0 0 12px;font-size:24px}p{line-height:1.7;color:#cbd5e1}</style></head><body><main><h1>'
-            . htmlspecialchars($title, ENT_QUOTES, 'UTF-8')
-            . '</h1><p>'
-            . htmlspecialchars($hint, ENT_QUOTES, 'UTF-8')
-            . '</p><p>'
-            . htmlspecialchars($reason, ENT_QUOTES, 'UTF-8')
-            . '</p></main></body></html>';
-        exit;
-    }
-[[end]]
-[[if .Ads]]
-
-    public static function ads($position = 'home-banner')
-    {
-        $position = trim((string)$position);
-        if ($position === '') {
-            $position = 'home-banner';
-        }
-        $response = self::httpJson('GET', '/api/v1/public/advertisements?position=' . rawurlencode($position), null);
-        if (isset($response['data']) && is_array($response['data'])) {
-            return $response['data'];
-        }
-        return array('records' => array(), 'placeholder' => null);
-    }
-[[end]]
-[[if .Update]]
-
-    public static function checkUpdate($version = null)
-    {
-        $ctx = self::requestContext();
-        if ($version === null || $version === '') {
-            $version = isset(self::$options['appVersion']) ? self::$options['appVersion'] : '1.0.0';
-        }
-        $timestamp = time();
-        $payload = array(
-            'appKey' => self::APP_KEY,
-            'currentVersion' => (string)$version,
-            'domain' => $ctx['domain'],
-            'serverIp' => $ctx['serverIp'],
-            'licenseKey' => $ctx['licenseKey'],
-            'timestamp' => $timestamp,
-            'signVersion' => 'v2',
-            'sign' => self::v2Sign(array(
-                'v2',
-                self::APP_KEY,
-                (string)$version,
-                $ctx['licenseKey'],
-                $ctx['domain'],
-                $ctx['serverIp'],
-                (string)$timestamp,
-            )),
-        );
-        $response = self::httpJson('POST', '/api/app/version/check', $payload);
-        if (isset($response['data']['downloadUrl']) && is_string($response['data']['downloadUrl'])
-            && strpos($response['data']['downloadUrl'], 'http') !== 0) {
-            $response['data']['downloadUrl'] = self::BASE_URL . $response['data']['downloadUrl'];
-        }
-        return $response;
-    }
-[[end]]
-[[if .PluginSource]]
-
-    public static function pluginSourceUrl()
-    {
-        return self::PLUGIN_SOURCE_URL;
-    }
-[[end]]
-
-    private static function loadLocalConfig()
-    {
-        $path = dirname(__FILE__) . '/auth_pro_config.php';
-        if (!is_file($path)) {
-            return array();
-        }
-        $data = include $path;
-        return is_array($data) ? $data : array();
-    }
-
-    private static function requestContext()
-    {
-        $licenseKey = '';
-        $domain = '';
-        $serverIp = '';
-        if (isset(self::$options['licenseKey'])) {
-            $licenseKey = trim((string)self::$options['licenseKey']);
-        }
-        if (isset(self::$options['domain'])) {
-            $domain = self::normalizeDomain(self::$options['domain']);
-        }
-        if (isset(self::$options['serverIp'])) {
-            $serverIp = self::normalizeServerIP(self::$options['serverIp']);
-        }
-        if ($domain === '' && !empty($_SERVER['HTTP_HOST'])) {
-            $domain = self::normalizeDomain($_SERVER['HTTP_HOST']);
-        }
-        if ($serverIp === '' && !empty($_SERVER['SERVER_ADDR'])) {
-            $serverIp = self::normalizeServerIP($_SERVER['SERVER_ADDR']);
-        }
-        return array(
-            'licenseKey' => $licenseKey,
-            'domain' => $domain,
-            'serverIp' => $serverIp,
-        );
-    }
-
-    private static function normalizeDomain($value)
-    {
-        $value = strtolower(trim((string)$value));
-        $value = preg_replace('#^https?://#', '', $value);
-        $value = preg_replace('#/.*$#', '', $value);
-        if ($value !== '' && $value[0] === '[') {
-            $value = trim($value, '[]');
-        }
-        $value = preg_replace('#:\d+$#', '', $value);
-        return rtrim($value, '.');
-    }
-
-    private static function normalizeServerIP($value)
-    {
-        $value = trim((string)$value);
-        $zone = strrpos($value, '%');
-        if ($zone !== false) {
-            $value = substr($value, 0, $zone);
-        }
-        return trim($value, '[]');
-    }
-[[if .NeedSign]]
-
-    private static function v2Sign($parts)
-    {
-        return hash_hmac('sha256', implode("\n", $parts), self::APP_SECRET);
-    }
-[[end]]
-[[if .NeedHTTP]]
-
-    private static function httpJson($method, $path, $payload)
-    {
-        $url = self::BASE_URL . $path;
-        $body = $payload === null ? null : json_encode($payload);
-        if (function_exists('curl_init')) {
-            $ch = curl_init($url);
-            $headers = array('Accept: application/json');
-            $opts = array(
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 8,
-                CURLOPT_FOLLOWLOCATION => true,
-            );
-            if ($method === 'POST') {
-                $headers[] = 'Content-Type: application/json';
-                $opts[CURLOPT_POST] = true;
-                $opts[CURLOPT_POSTFIELDS] = $body;
-            }
-            $opts[CURLOPT_HTTPHEADER] = $headers;
-            curl_setopt_array($ch, $opts);
-            $raw = curl_exec($ch);
-            curl_close($ch);
-        } else {
-            $header = "Accept: application/json\r\n";
-            $http = array('method' => $method, 'timeout' => 8, 'ignore_errors' => true);
-            if ($method === 'POST') {
-                $header .= "Content-Type: application/json\r\n";
-                $http['content'] = $body;
-            }
-            $http['header'] = $header;
-            $raw = @file_get_contents($url, false, stream_context_create(array('http' => $http)));
-        }
-        $decoded = json_decode($raw ? $raw : '{}', true);
-        return is_array($decoded) ? $decoded : array();
-    }
-[[end]]
-}
-`
-
-const sdkPackJSTemplate = `'use strict';
-(function (root, factory) {
-  if (typeof module === 'object' && module.exports) {
-    module.exports = factory();
-  } else {
-    root.AuthPro = factory();
-  }
-}(typeof self !== 'undefined' ? self : this, function () {
-  var cfg = {
-    baseUrl: [[js .BaseURL]],
-    appId: [[.AppID]],
-    appKey: [[js .AppKey]],
-[[if .NeedSign]]
-    appSecret: [[js .AppSecret]],
-[[end]]
-    modules: {
-      license: [[jsBool .License]],
-      piracy: [[jsBool .Piracy]],
-      update: [[jsBool .Update]],
-      ads: [[jsBool .Ads]],
-      pluginSource: [[jsBool .PluginSource]]
-    }[[if .PluginSource]],
-    pluginSourceUrl: [[js .PluginIndexURL]][[end]]
-  };
-  var options = {};
-
-  function configure(next) {
-    options = Object.assign({}, options, next || {});
-    return exports;
-  }
-
-  function boot(next) {
-    configure(next);
-[[if .Guard]]
-    return verify().then(function (result) {
-      if (!result.ok) {
-        deny(result);
-      }
-      return result;
-    });
-[[else]]
-    return Promise.resolve(true);
-[[end]]
-  }
-[[if .NeedSign]]
-
-  function v2Sign(parts) {
-    return hmacSha256Hex(cfg.appSecret, parts.join('\n'));
-  }
-[[end]]
-[[if .Guard]]
-
-  function verify() {
-    var ctx = requestContext();
-    var timestamp = Math.floor(Date.now() / 1000);
-    var payload = {
-      appKey: cfg.appKey,
-      domain: ctx.domain,
-      serverIp: ctx.serverIp,
-      licenseKey: ctx.licenseKey,
-      timestamp: timestamp,
-      signVersion: 'v2',
-      sign: v2Sign(['v2', cfg.appKey, ctx.licenseKey, ctx.domain, ctx.serverIp, String(timestamp)])
-    };
-    return httpJson('POST', '/api/license/verify', payload).then(function (body) {
-      body.ok = body && body.code === 200 && body.data && body.data.result === 'pass';
-      return body;
-    });
-  }
-
-  function deny(result) {
-    var reason = (result && (result.msg || (result.data && result.data.reason))) || '';
-    var message = [[if .Piracy]]'未授权访问'[[else]]'授权无效'[[end]] + (reason ? ': ' + reason : '');
-    if (typeof document !== 'undefined') {
-      document.body.textContent = '';
-      var main = document.createElement('main');
-      main.style.cssText = 'font-family:sans-serif;padding:48px;text-align:center';
-      var title = document.createElement('h1');
-      title.textContent = message;
-      main.appendChild(title);
-      document.body.appendChild(main);
-    }
-    throw new Error(message);
-  }
-[[end]]
-[[if .Ads]]
-
-  function ads(position) {
-    position = position || 'home-banner';
-    return httpJson('GET', '/api/v1/public/advertisements?position=' + encodeURIComponent(position), null).then(function (body) {
-      return (body && body.data) || { records: [], placeholder: null };
-    });
-  }
-[[end]]
-[[if .Update]]
-
-  function checkUpdate(version) {
-    var ctx = requestContext();
-    version = version || options.appVersion || '1.0.0';
-    var timestamp = Math.floor(Date.now() / 1000);
-    var payload = {
-      appKey: cfg.appKey,
-      currentVersion: String(version),
-      domain: ctx.domain,
-      serverIp: ctx.serverIp,
-      licenseKey: ctx.licenseKey,
-      timestamp: timestamp,
-      signVersion: 'v2',
-      sign: v2Sign(['v2', cfg.appKey, String(version), ctx.licenseKey, ctx.domain, ctx.serverIp, String(timestamp)])
-    };
-    return httpJson('POST', '/api/app/version/check', payload);
-  }
-[[end]]
-[[if .PluginSource]]
-
-  function pluginSourceUrl() {
-    return cfg.pluginSourceUrl;
-  }
-[[end]]
-
-  function requestContext() {
-    var domain = String(options.domain || '');
-    var serverIp = String(options.serverIp || '');
-    if (typeof location !== 'undefined' && !domain) {
-      domain = location.hostname || '';
-    }
-    return {
-      licenseKey: String(options.licenseKey || ''),
-      domain: normalizeDomain(domain),
-      serverIp: normalizeServerIP(serverIp)
-    };
-  }
-
-  function normalizeDomain(value) {
-    value = String(value || '').toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-    if (value.charAt(0) === '[') {
-      value = value.replace(/^\[/, '').replace(/\]$/, '');
-    }
-    value = value.replace(/:\d+$/, '');
-    return value.replace(/\.+$/, '');
-  }
-
-  function normalizeServerIP(value) {
-    value = String(value || '').trim();
-    var zone = value.lastIndexOf('%');
-    if (zone >= 0) value = value.slice(0, zone);
-    return value.replace(/^\[/, '').replace(/\]$/, '');
-  }
-[[if .NeedHTTP]]
-
-  function httpJson(method, path, payload) {
-    var url = cfg.baseUrl + path;
-    if (typeof fetch === 'function') {
-      var init = { method: method, headers: { Accept: 'application/json' } };
-      if (method === 'POST') {
-        init.headers['Content-Type'] = 'application/json';
-        init.body = JSON.stringify(payload);
-      }
-      return fetch(url, init).then(function (res) { return res.json(); });
-    }
-    var http = require(url.indexOf('https://') === 0 ? 'https' : 'http');
-    return new Promise(function (resolve, reject) {
-      var req = http.request(url, {
-        method: method,
-        headers: method === 'POST'
-          ? { 'Content-Type': 'application/json', Accept: 'application/json' }
-          : { Accept: 'application/json' }
-      }, function (res) {
-        var chunks = [];
-        res.on('data', function (c) { chunks.push(c); });
-        res.on('end', function () {
-          try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')); }
-          catch (err) { reject(err); }
+func main() {
+	_, file, _, _ := runtime.Caller(0)
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	if err := authpro.Boot(filepath.Join(root, "config.json")); err != nil {
+		panic(err)
+	}
+	result, err := authpro.Verify()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("verify: %+v\n", result)
+[[if .Ads]]	ads, _ := authpro.Ads("home-banner")
+	fmt.Printf("ads: %+v\n", ads)
+[[end]][[if .Update]]	update, _ := authpro.CheckUpdate("1.0.0")
+	fmt.Printf("update: %+v\n", update)
+[[end]][[if .PluginSource]]	url, _ := authpro.PluginSourceURL()
+	fmt.Println("pluginSource", url)
+[[end]]}
+`,
+	},
+	"browser": {
+		name: "index.html",
+		body: `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>AuthPro Browser 示例 — [[.AppName]]</title>
+</head>
+<body>
+  <h1>AuthPro Browser SDK</h1>
+  <p>本页使用 <code>examples/browser/config.json</code>（不含 appSecret）。授权/更新请走服务端或代理。</p>
+  <pre id="out"></pre>
+  <script src="../../vendor/browser/src/auth-pro.js"></script>
+  <script>
+    fetch('./config.json').then(function (r) { return r.json(); }).then(function (cfg) {
+      return AuthPro.boot(cfg).then(function () {
+        var lines = [];
+        lines.push('pluginSourceUrl = ' + AuthPro.pluginSourceUrl());
+        return AuthPro.ads('home-banner').then(function (ads) {
+          lines.push('ads = ' + JSON.stringify(ads));
+          return AuthPro.verify();
+        }).then(function (result) {
+          lines.push('verify = ' + JSON.stringify(result));
+          document.getElementById('out').textContent = lines.join('\n');
         });
       });
-      req.on('error', reject);
-      if (method === 'POST') req.write(JSON.stringify(payload));
-      req.end();
+    }).catch(function (err) {
+      document.getElementById('out').textContent = String(err);
     });
-  }
-[[end]]
-[[if .NeedSign]]
-
-  function hmacSha256Hex(secret, text) {
-    var crypto = require('crypto');
-    return crypto.createHmac('sha256', secret).update(text).digest('hex');
-  }
-[[end]]
-
-  var exports = {
-    boot: boot,
-    configure: configure,
-    config: cfg
-  };
-[[if .Guard]]
-  exports.verify = verify;
-[[end]]
-[[if .Ads]]
-  exports.ads = ads;
-[[end]]
-[[if .Update]]
-  exports.checkUpdate = checkUpdate;
-[[end]]
-[[if .PluginSource]]
-  exports.pluginSourceUrl = pluginSourceUrl;
-[[end]]
-  return exports;
-}));
-`
+  </script>
+</body>
+</html>
+`,
+	},
+}

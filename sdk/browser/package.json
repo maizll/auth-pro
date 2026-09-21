@@ -1,0 +1,8 @@
+{
+  "name": "@auth-pro/browser-sdk",
+  "version": "1.0.0",
+  "description": "AuthPro 浏览器端 SDK（不含 appSecret；授权/更新签名请走服务端或代理）",
+  "main": "src/auth-pro.js",
+  "license": "UNLICENSED",
+  "files": ["src"]
+}

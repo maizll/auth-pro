@@ -291,11 +291,12 @@ export function fetchUpdateAppLicenseRequired(id: number, licenseRequired: boole
   })
 }
 
-/** 下载按应用生成的客户端接入 ZIP（密钥由后端按 appId 读取，不走前端） */
+/** 下载按应用生成的混合客户端接入 ZIP（五语言 vendor + config；密钥由后端按 appId 读取） */
 export function fetchDownloadSDKPack(payload: {
   appId: number
   modules: string[]
   baseUrl?: string
+  /** @deprecated 混合包始终包含全部语言，可忽略 */
   includeJs?: boolean
 }) {
   return request.post<Blob>({

@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "authpro-client-sdk"
+version = "1.0.0"
+description = "AuthPro 客户端 SDK（Python）"
+requires-python = ">=3.8"
+license = { text = "Proprietary" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["authpro*"]
