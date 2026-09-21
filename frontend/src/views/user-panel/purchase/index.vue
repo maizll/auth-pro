@@ -1,334 +1,348 @@
 <template>
   <div class="user-purchase">
-    <!-- 步骤指示器 -->
-    <div class="steps-bar">
-      <template v-for="(item, index) in stepItems" :key="item.value">
-        <div
-          class="step"
-          :class="{ active: step >= item.value, done: step > item.value }"
-          @click="goStep(item.value)"
-        >
-          <div class="step-dot">{{ item.value }}</div>
-          <span class="step-text">{{ item.label }}</span>
-        </div>
-        <div
-          v-if="index < stepItems.length - 1"
-          class="step-line"
-          :class="{ active: step > item.value }"
-        ></div>
-      </template>
-    </div>
+    <header class="page-head">
+      <h2>购买授权</h2>
+      <p>选择应用和套餐，填写授权信息后支付，授权会即时开通。</p>
+    </header>
 
-    <!-- Step 1: 选择应用 -->
-    <transition name="fade" mode="out-in">
-      <div v-if="step === 1" key="step1" class="step-content">
-        <div v-if="appList.length === 0" class="empty-card">
-          暂无可购买应用，请联系管理员先启用应用和套餐
+    <el-card
+      v-if="step === 4 && purchaseResult"
+      shadow="never"
+      class="step-card art-card success-card"
+    >
+      <div class="success-hero">
+        <div class="success-icon-wrap">
+          <iconify-icon icon="ri:checkbox-circle-fill" width="34" />
         </div>
-        <div v-else class="app-grid">
-          <div
-            v-for="app in appList"
-            :key="app.id"
-            class="app-card"
-            :class="{ active: formData.appId === app.id, 'has-promo': hasPromotion(app) }"
-            @click="selectApp(app.id)"
+        <div class="success-title-block">
+          <h3>授权已生成</h3>
+          <p>购买完成，授权已经即时生效</p>
+        </div>
+        <BizStatusTag domain="license" status="active" label="已生效" size="small" />
+      </div>
+
+      <div class="license-no-card">
+        <span class="license-no-label">授权编号</span>
+        <span class="license-no-value">{{ purchaseResult?.licenseNo }}</span>
+      </div>
+
+      <div class="success-info-grid">
+        <div class="success-info-item">
+          <span class="info-label">应用</span>
+          <span class="info-value">{{ purchaseResult?.appName }}</span>
+        </div>
+        <div class="success-info-item">
+          <span class="info-label">套餐</span>
+          <span class="info-value">{{ purchaseResult?.planName }}</span>
+        </div>
+        <div class="success-info-item">
+          <span class="info-label">授权时长</span>
+          <span class="info-value">{{ formatDuration(purchaseResult?.durationDays) }}</span>
+        </div>
+        <div class="success-info-item">
+          <span class="info-label">剩余余额</span>
+          <span class="info-value">¥{{ userBalance.toFixed(2) }}</span>
+        </div>
+      </div>
+
+      <div class="success-amount-card">
+        <span>本次扣款</span>
+        <strong>¥{{ Number(purchaseResult?.cost || 0).toFixed(2) }}</strong>
+      </div>
+
+      <div class="success-actions">
+        <el-button size="large" @click="goToLicenses">查看授权</el-button>
+        <el-button type="primary" size="large" @click="resetFlow">继续购买</el-button>
+      </div>
+    </el-card>
+
+    <el-card
+      v-else-if="appsLoading && !appList.length"
+      v-loading="true"
+      shadow="never"
+      class="step-card art-card state-card"
+    >
+      <div class="state-placeholder">正在加载可购买应用</div>
+    </el-card>
+
+    <el-card
+      v-else-if="appsError && !appList.length"
+      shadow="never"
+      class="step-card art-card state-card"
+    >
+      <el-empty description="应用列表加载失败，请稍后重试" :image-size="80">
+        <el-button type="primary" @click="retryApps">重新加载</el-button>
+      </el-empty>
+    </el-card>
+
+    <el-card v-else-if="!appList.length" shadow="never" class="step-card art-card state-card">
+      <el-empty description="暂无可购买应用，请联系管理员先启用应用和套餐" :image-size="80" />
+    </el-card>
+
+    <template v-else>
+      <el-card shadow="never" class="step-card art-card" :class="{ 'is-done': !!formData.appId }">
+        <template #header>
+          <div class="step-card-head">
+            <span class="step-index">1</span>
+            <div>
+              <h3>选择应用</h3>
+              <p>选择要开通授权的应用</p>
+            </div>
+          </div>
+        </template>
+
+        <BizAppSelect
+          :key="appSelectKey"
+          v-model="formData.appId"
+          :loader="loadPurchaseAppOptions"
+          placeholder="请选择要开通的应用"
+          class="purchase-app-select"
+          @change="onAppChange"
+        />
+
+        <div v-if="selectedApp" class="app-summary">
+          <div class="app-summary-icon">
+            <iconify-icon :icon="selectedApp.icon || 'ri:apps-line'" width="22" />
+          </div>
+          <div class="app-summary-body">
+            <div class="app-summary-title">
+              <strong>{{ selectedApp.name }}</strong>
+              <BizStatusTag
+                v-if="hasPromotion(selectedApp)"
+                domain="campaign"
+                status="active"
+                label="限时活动"
+                size="small"
+              />
+            </div>
+            <p>{{ selectedApp.desc }}</p>
+          </div>
+          <div class="app-summary-price">
+            <span>¥{{ minPlanPrice(selectedApp).toFixed(2) }}</span>
+            <em>起</em>
+          </div>
+        </div>
+      </el-card>
+
+      <el-card shadow="never" class="step-card art-card" :class="{ 'is-done': !!formData.planId }">
+        <template #header>
+          <div class="step-card-head">
+            <span class="step-index">2</span>
+            <div>
+              <h3>选择套餐</h3>
+              <p>确认时长和价格，活动价以下单时为准</p>
+            </div>
+          </div>
+        </template>
+
+        <el-empty v-if="!formData.appId" description="请先选择应用" :image-size="72" />
+        <el-empty
+          v-else-if="!filteredAppPlans.length"
+          description="当前授权类型暂无套餐，可在下一步更换类型"
+          :image-size="72"
+        />
+        <div v-else class="plan-grid">
+          <button
+            v-for="plan in filteredAppPlans"
+            :key="plan.id"
+            type="button"
+            class="plan-card"
+            :class="{ active: formData.planId === plan.id, 'has-promo': plan.promotion }"
+            @click="selectPlan(plan.id)"
           >
-            <div v-if="hasPromotion(app)" class="app-promo-badge">
-              <iconify-icon icon="ri:flashlight-fill" width="14" />
-              <span>限时活动</span>
+            <div class="plan-head">
+              <span class="plan-name">{{ plan.name }}</span>
+              <BizStatusTag
+                v-if="plan.promotion"
+                domain="campaign"
+                status="active"
+                :label="plan.promotion.name"
+                size="small"
+              />
             </div>
-            <div class="app-icon-wrap">
-              <iconify-icon :icon="app.icon" width="26" />
+            <div class="plan-pricing">
+              <span class="plan-currency">¥</span>
+              <span class="plan-amount">{{ Number(plan.price).toFixed(2) }}</span>
+              <span v-if="plan.promotion" class="plan-original">
+                ¥{{ Number(plan.originalPrice).toFixed(2) }}
+              </span>
             </div>
-            <h4 class="app-name">{{ app.name }}</h4>
-            <p class="app-desc">{{ app.desc }}</p>
-            <div class="app-footer">
-              <div class="app-pricing">
-                <span class="price-currency">¥</span>
-                <span class="price-amount">{{ minPlanPrice(app).toFixed(2) }}</span>
-                <span class="price-unit">起</span>
-              </div>
-              <div class="plan-count">{{ app.plans.length }} 个套餐</div>
+            <div class="plan-meta">
+              <span class="plan-duration">{{ plan.durationText }}</span>
+              <span v-if="plan.promotion" class="plan-time">
+                {{ promoRuleText(plan.promotion) }} · 截止 {{ plan.promotion.endsAt }}
+              </span>
+              <span v-if="plan.purchaseLimit" class="plan-limit">
+                {{ purchaseLimitText(plan.purchaseLimit) }}
+              </span>
             </div>
-            <div class="app-check-icon" v-if="formData.appId === app.id">
-              <iconify-icon icon="ri:checkbox-circle-fill" width="22" />
-            </div>
-          </div>
+          </button>
         </div>
-      </div>
+      </el-card>
 
-      <div v-else-if="step === 2" key="step2" class="step-content">
-        <div class="config-layout">
-          <div class="config-main">
-            <div class="config-section">
-              <label class="config-label">授权类型</label>
-              <div class="type-options">
-                <div
-                  v-for="t in availableTypeOptions"
-                  :key="t.value"
-                  class="type-chip"
-                  :class="{ active: formData.type === t.value }"
-                  @click="selectType(t.value)"
-                >
-                  <iconify-icon :icon="t.icon" width="18" />
-                  <span>{{ t.label }}</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="config-section">
-              <label class="config-label">{{ domainLabel }}</label>
-              <div class="domain-input-wrap">
-                <iconify-icon :icon="domainIcon" width="18" class="input-icon" />
-                <input
-                  v-model="formData.domain"
-                  :disabled="formData.type === 'key'"
-                  :placeholder="domainPlaceholder"
-                  class="domain-input"
-                />
-              </div>
-            </div>
-
-            <div class="config-section">
-              <label class="config-label">选择套餐</label>
-              <div class="plan-grid">
-                <div
-                  v-for="plan in filteredAppPlans"
-                  :key="plan.id"
-                  class="plan-card"
-                  :class="{ active: formData.planId === plan.id, 'has-promo': plan.promotion }"
-                  @click="selectPlan(plan.id)"
-                >
-                  <div v-if="plan.promotion" class="promo-badge">{{ plan.promotion.name }}</div>
-                  <div class="plan-head">
-                    <span class="plan-name">{{ plan.name }}</span>
-                    <span v-if="plan.promotion" class="plan-tag promo">{{
-                      promoRuleText(plan.promotion)
-                    }}</span>
-                  </div>
-                  <div class="plan-pricing">
-                    <span class="plan-currency">¥</span>
-                    <span class="plan-amount">{{ Number(plan.price).toFixed(2) }}</span>
-                    <span v-if="plan.promotion" class="plan-original"
-                      >¥{{ Number(plan.originalPrice).toFixed(2) }}</span
-                    >
-                  </div>
-                  <div class="plan-meta">
-                    <span class="plan-duration">{{ plan.durationText }}</span>
-                    <span v-if="plan.promotion" class="plan-time"
-                      >活动截止：{{ plan.promotion.endsAt }}</span
-                    >
-                    <span v-if="plan.purchaseLimit" class="plan-limit">
-                      限购：{{ purchaseLimitText(plan.purchaseLimit) }}
-                    </span>
-                  </div>
-                </div>
-              </div>
+      <el-card shadow="never" class="step-card art-card" :class="{ 'is-done': infoReady }">
+        <template #header>
+          <div class="step-card-head">
+            <span class="step-index">3</span>
+            <div>
+              <h3>填写授权信息</h3>
+              <p>授权类型决定可用套餐，目标在支付前校验</p>
             </div>
           </div>
+        </template>
 
-          <div class="config-preview">
-            <div class="preview-card">
-              <div class="preview-header">
-                <iconify-icon :icon="selectedApp?.icon || 'ri:apps-line'" width="24" />
-                <span>{{ selectedApp?.name }}</span>
-              </div>
-              <div class="preview-body">
-                <div class="preview-item">
-                  <span class="preview-key">套餐</span>
-                  <span class="preview-val">{{ selectedPlan?.name }}</span>
-                </div>
-                <div class="preview-item">
-                  <span class="preview-key">时长</span>
-                  <span class="preview-val">{{ selectedPlan?.durationText }}</span>
-                </div>
-                <div class="preview-item">
-                  <span class="preview-key">类型</span>
-                  <span class="preview-val">{{ typeLabels[formData.type] }}</span>
-                </div>
-                <div class="preview-item">
-                  <span class="preview-key">目标</span>
-                  <span class="preview-val mono">{{ displayTarget }}</span>
-                </div>
-                <div v-if="hasDiscount" class="preview-item">
-                  <span class="preview-key">优惠</span>
-                  <span class="preview-val preview-discount">
-                    <template v-if="selectedPromotion">
-                      {{ promoRuleText(selectedPromotion) }}，优惠 ¥{{ discountAmount.toFixed(2) }}
-                    </template>
-                    <template v-else>已优惠 ¥{{ discountAmount.toFixed(2) }}</template>
-                  </span>
-                </div>
-              </div>
-              <div class="preview-footer">
-                <span class="preview-total-label">套餐价格</span>
-                <div class="preview-price-wrap">
-                  <span v-if="hasDiscount" class="preview-original-price"
-                    >原价 ¥{{ originalPrice.toFixed(2) }}</span
-                  >
-                  <span
-                    class="preview-total-price"
-                    :class="{ 'promotion-price': !!selectedPromotion }"
-                    >¥{{ computedCost.toFixed(2) }}</span
-                  >
-                </div>
-              </div>
+        <div v-if="!formData.appId" class="section-muted">请先选择应用</div>
+        <template v-else>
+          <div class="field-block">
+            <label class="field-label">授权类型</label>
+            <div v-if="availableTypeOptions.length" class="type-options">
+              <button
+                v-for="item in availableTypeOptions"
+                :key="item.value"
+                type="button"
+                class="type-chip"
+                :class="{ active: formData.type === item.value }"
+                @click="selectType(item.value)"
+              >
+                <iconify-icon :icon="item.icon" width="16" />
+                <span>{{ item.label }}</span>
+              </button>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div v-else-if="step === 3" key="step3" class="step-content">
-        <div class="payment-layout">
-          <div class="payment-detail-card">
-            <div class="payment-header">
-              <iconify-icon icon="ri:file-list-3-line" width="20" />
-              <span>订单详情</span>
-            </div>
-            <div class="payment-rows">
-              <div class="payment-row">
-                <span>应用</span><span>{{ selectedApp?.name }}</span>
-              </div>
-              <div class="payment-row">
-                <span>套餐</span><span>{{ selectedPlan?.name }}</span>
-              </div>
-              <div class="payment-row">
-                <span>授权时长</span><span>{{ selectedPlan?.durationText }}</span>
-              </div>
-              <div class="payment-row">
-                <span>授权类型</span><span>{{ typeLabels[formData.type] }}</span>
-              </div>
-              <div class="payment-row">
-                <span>授权目标</span><span class="mono">{{ displayTarget }}</span>
-              </div>
-            </div>
-            <div class="payment-total-row">
-              <span>应付金额</span>
-              <div class="payment-price">
-                <span class="price-sym">¥</span>
-                <span class="price-num">{{ computedCost.toFixed(2) }}</span>
-              </div>
-            </div>
+            <p v-else class="field-error">当前应用暂不支持自助开通</p>
           </div>
 
-          <div class="payment-action-card">
-            <div class="payment-method">
-              <label class="config-label">支付方式</label>
-              <div class="method-options">
-                <div
-                  v-for="option in payOptions"
-                  :key="option.code"
-                  class="method-item"
-                  :class="{
-                    active: payMethod === option.code,
-                    'balance-method': option.code === 'balance'
-                  }"
-                  @click="payMethod = option.code"
-                >
-                  <iconify-icon :icon="option.icon" width="24" :color="option.color" />
-                  <span>{{ option.label }}</span>
-                  <template v-if="option.code === 'balance'">
-                    <span class="method-balance">¥{{ userBalance.toFixed(2) }}</span>
-                    <button
-                      class="method-recharge-btn"
-                      type="button"
-                      @click.stop="openRechargeDialog"
-                    >
-                      充值余额
-                    </button>
-                  </template>
-                </div>
-              </div>
-            </div>
-            <div
-              class="balance-warning"
-              v-if="payMethod === 'balance' && userBalance < computedCost"
+          <div class="field-block">
+            <label class="field-label">{{ domainLabel }}</label>
+            <el-input
+              v-model="formData.domain"
+              :disabled="formData.type === 'key'"
+              :placeholder="domainPlaceholder"
+              clearable
             >
-              <span>当前余额不足，无法完成购买</span>
-              <button type="button" @click="openRechargeDialog">立即充值</button>
-            </div>
-            <button
-              class="purchase-btn"
-              :disabled="
-                purchasing ||
-                (payMethod === 'balance' && userBalance < computedCost) ||
-                (isOnlinePay && computedCost <= 0)
-              "
-              @click="handlePurchase"
-            >
-              <iconify-icon icon="ri:secure-payment-line" width="20" />
-              <span>{{ purchaseButtonText }}</span>
-            </button>
-            <p class="payment-hint">
-              <iconify-icon icon="ri:shield-check-line" width="14" />
-              <template v-if="payMethod === 'balance'">
-                套餐价格以后端为准，余额扣款后授权即时生效
+              <template #prefix>
+                <iconify-icon :icon="domainIcon" width="16" />
               </template>
-              <template v-else>支付成功后授权即时生效</template>
-            </p>
+            </el-input>
+            <p v-if="targetFieldError" class="field-error">{{ targetFieldError }}</p>
+            <p v-else-if="formData.type === 'key'" class="field-hint">密钥由系统在开通后自动生成</p>
+          </div>
+        </template>
+      </el-card>
+
+      <el-card shadow="never" class="step-card art-card">
+        <template #header>
+          <div class="step-card-head">
+            <span class="step-index">4</span>
+            <div>
+              <h3>支付并提交</h3>
+              <p>确认订单后选择余额或在线支付</p>
+            </div>
+          </div>
+        </template>
+
+        <div class="pay-layout">
+          <div class="order-panel">
+            <div class="order-row">
+              <span>应用</span>
+              <strong>{{ selectedApp?.name || '—' }}</strong>
+            </div>
+            <div class="order-row">
+              <span>套餐</span>
+              <strong>{{ selectedPlan?.name || '—' }}</strong>
+            </div>
+            <div class="order-row">
+              <span>授权时长</span>
+              <strong>{{ selectedPlan?.durationText || '—' }}</strong>
+            </div>
+            <div class="order-row">
+              <span>授权类型</span>
+              <strong>{{ typeLabels[formData.type] || '—' }}</strong>
+            </div>
+            <div class="order-row">
+              <span>授权目标</span>
+              <strong class="mono">{{ displayTarget }}</strong>
+            </div>
+            <div v-if="hasDiscount" class="order-row">
+              <span>优惠</span>
+              <strong class="discount">
+                <template v-if="selectedPromotion">
+                  {{ promoRuleText(selectedPromotion) }}，优惠 ¥{{ discountAmount.toFixed(2) }}
+                </template>
+                <template v-else>已优惠 ¥{{ discountAmount.toFixed(2) }}</template>
+              </strong>
+            </div>
+            <div class="order-total">
+              <span>应付金额</span>
+              <div>
+                <em v-if="hasDiscount">原价 ¥{{ originalPrice.toFixed(2) }}</em>
+                <strong>¥{{ computedCost.toFixed(2) }}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="method-panel">
+            <label class="field-label">支付方式</label>
+            <div class="method-options">
+              <button
+                v-for="option in payOptions"
+                :key="option.code"
+                type="button"
+                class="method-item"
+                :class="{ active: payMethod === option.code }"
+                @click="payMethod = option.code"
+              >
+                <iconify-icon :icon="option.icon" width="22" :color="option.color" />
+                <span class="method-label">{{ option.label }}</span>
+                <template v-if="option.code === 'balance'">
+                  <span class="method-balance">¥{{ userBalance.toFixed(2) }}</span>
+                  <el-button size="small" @click.stop="openRechargeDialog">充值余额</el-button>
+                </template>
+              </button>
+            </div>
+            <el-alert
+              v-if="balanceShort"
+              type="warning"
+              show-icon
+              :closable="false"
+              title="当前余额不足，无法使用余额支付"
+              class="balance-alert"
+            >
+              <el-button link type="primary" @click="openRechargeDialog">立即充值</el-button>
+            </el-alert>
           </div>
         </div>
-      </div>
+      </el-card>
 
-      <div v-else-if="step === 4" key="step4" class="step-content">
-        <div class="success-card">
-          <div class="success-hero">
-            <div class="success-icon-wrap">
-              <iconify-icon icon="ri:checkbox-circle-fill" width="34" />
-            </div>
-            <div class="success-title-block">
-              <h3>授权已生成</h3>
-              <p>购买完成，授权已经即时生效</p>
-            </div>
+      <div class="purchase-bar">
+        <div class="purchase-bar-summary">
+          <div class="summary-line">
+            <span>{{ selectedApp?.name || '未选择应用' }}</span>
+            <span class="summary-dot">·</span>
+            <span>{{ selectedPlan?.name || '未选择套餐' }}</span>
           </div>
-
-          <div class="license-no-card">
-            <span class="license-no-label">授权编号</span>
-            <span class="license-no-value">{{ purchaseResult?.licenseNo }}</span>
+          <div class="summary-price">
+            <span v-if="hasDiscount" class="summary-original">¥{{ originalPrice.toFixed(2) }}</span>
+            <strong>¥{{ computedCost.toFixed(2) }}</strong>
           </div>
-
-          <div class="success-info-grid">
-            <div class="success-info-item">
-              <span class="info-label">应用</span>
-              <span class="info-value">{{ purchaseResult?.appName }}</span>
-            </div>
-            <div class="success-info-item">
-              <span class="info-label">套餐</span>
-              <span class="info-value">{{ purchaseResult?.planName }}</span>
-            </div>
-            <div class="success-info-item">
-              <span class="info-label">授权时长</span>
-              <span class="info-value">{{ formatDuration(purchaseResult?.durationDays) }}</span>
-            </div>
-            <div class="success-info-item">
-              <span class="info-label">剩余余额</span>
-              <span class="info-value">¥{{ userBalance.toFixed(2) }}</span>
-            </div>
-          </div>
-
-          <div class="success-amount-card">
-            <span>本次扣款</span>
-            <strong>¥{{ Number(purchaseResult?.cost || 0).toFixed(2) }}</strong>
-          </div>
-
-          <div class="success-actions">
-            <el-button size="large" @click="goToLicenses">查看授权</el-button>
-            <el-button type="primary" size="large" @click="resetFlow">继续购买</el-button>
-          </div>
+          <p class="summary-hint">{{ purchaseHint }}</p>
         </div>
+        <el-button
+          type="primary"
+          size="large"
+          class="purchase-submit"
+          :loading="purchasing"
+          :disabled="purchaseDisabled"
+          @click="handlePurchase"
+        >
+          <iconify-icon v-if="!purchasing" icon="ri:secure-payment-line" width="18" />
+          {{ purchaseButtonText }}
+        </el-button>
       </div>
-    </transition>
-
-    <div class="bottom-nav" v-if="step < 4">
-      <el-button v-if="step > 1" @click="step--">上一步</el-button>
-      <el-button v-if="step < 3" type="primary" :disabled="!canNext" @click="handleNext">
-        下一步
-      </el-button>
-    </div>
+    </template>
 
     <el-dialog v-model="rechargeDialog.visible" title="余额充值" width="420px" append-to-body>
       <div class="recharge-dialog-body">
-        <label class="config-label">充值金额</label>
+        <label class="field-label">充值金额</label>
         <el-input-number
           v-model="rechargeDialog.amount"
           :min="0.01"
@@ -349,7 +363,7 @@
           </button>
         </div>
 
-        <label class="config-label recharge-pay-label">支付方式</label>
+        <label class="field-label recharge-pay-label">支付方式</label>
         <el-radio-group
           v-if="rechargeMethodOptions.length > 0"
           v-model="rechargeDialog.payType"
@@ -446,13 +460,6 @@
   const rechargeOrderStorageKey = 'user_panel_recharge_order'
   const purchaseOrderStorageKey = 'user_panel_purchase_order'
 
-  const stepItems = [
-    { value: 1, label: '选择应用' },
-    { value: 2, label: '授权配置' },
-    { value: 3, label: '支付购买' },
-    { value: 4, label: '生成授权' }
-  ]
-
   function getToken() {
     return localStorage.getItem('user_panel_token') || ''
   }
@@ -460,39 +467,74 @@
   const authHeaders = computed(() => ({ Authorization: `Bearer ${getToken()}` }))
 
   const appList = ref<any[]>([])
+  const appsLoading = ref(true)
+  const appsError = ref(false)
+  const appsLoaded = ref(false)
+  const appSelectKey = ref(0)
+  let appsRequest: Promise<void> | null = null
+
+  function ensureApps() {
+    if (!appsRequest) {
+      appsRequest = fetchApps().finally(() => {
+        appsRequest = null
+      })
+    }
+    return appsRequest
+  }
+
+  async function loadPurchaseAppOptions() {
+    if (!appsLoaded.value) await ensureApps()
+    return appList.value
+  }
+
+  function retryApps() {
+    appsLoaded.value = false
+    ensureApps()
+  }
 
   async function fetchApps() {
+    appsLoading.value = true
+    appsError.value = false
     try {
       const { data } = await axios.get('/api/user-panel/apps/purchase', {
         headers: authHeaders.value
       })
-      if (data.code === 200) {
-        const apps = (data.data || []).map((a: any) => ({
-          ...a,
-          icon: a.icon || 'ri:apps-line',
-          desc: a.desc || a.name,
-          purchaseLicenseTypes: Array.isArray(a.purchaseLicenseTypes)
-            ? a.purchaseLicenseTypes
-            : typeOptionCatalog.map((option) => option.value),
-          plans: (a.plans || []).map((p: any) => ({
-            ...p,
-            price: normalizePrice(p)
-          }))
+      if (data.code !== 200) {
+        appsLoaded.value = false
+        appsError.value = true
+        ElMessage.error(data.msg || '加载可购买应用失败')
+        return
+      }
+      const apps = (data.data || []).map((a: any) => ({
+        ...a,
+        icon: a.icon || 'ri:apps-line',
+        desc: a.desc || a.name,
+        purchaseLicenseTypes: Array.isArray(a.purchaseLicenseTypes)
+          ? a.purchaseLicenseTypes
+          : typeOptionCatalog.map((option) => option.value),
+        plans: (a.plans || []).map((p: any) => ({
+          ...p,
+          price: normalizePrice(p)
         }))
-        appList.value = apps
-        if (formData.appId) {
-          const selected = apps.find((app: any) => app.id == formData.appId)
-          if (!selected) {
-            resetPurchaseSelection()
-            step.value = 1
-          } else if (!selected.purchaseLicenseTypes.includes(formData.type)) {
-            formData.type = selected.purchaseLicenseTypes[0] || ''
-            formData.domain = ''
-          }
+      }))
+      appList.value = apps
+      appsLoaded.value = true
+      if (formData.appId) {
+        const selected = apps.find((app: any) => app.id == formData.appId)
+        if (!selected) {
+          resetPurchaseSelection()
+          step.value = 1
+        } else if (!selected.purchaseLicenseTypes.includes(formData.type)) {
+          formData.type = selected.purchaseLicenseTypes[0] || ''
+          formData.domain = ''
         }
       }
     } catch {
+      appsLoaded.value = false
+      appsError.value = true
       ElMessage.error('加载可购买应用失败')
+    } finally {
+      appsLoading.value = false
     }
   }
 
@@ -571,7 +613,7 @@
   }
 
   onMounted(() => {
-    fetchApps()
+    ensureApps()
     fetchBalance()
     fetchPayOptions()
     fetchRechargeOptions()
@@ -701,13 +743,47 @@
     return `确认支付 ¥${computedCost.value.toFixed(2)}`
   })
   const displayTarget = computed(() =>
-    formData.type === 'key' ? '系统自动生成' : formData.domain || '-'
+    formData.type === 'key' ? '系统自动生成' : formData.domain || '—'
   )
 
-  const canNext = computed(() => {
-    if (step.value === 1) return !!formData.appId
-    if (step.value === 2) return !!formData.planId && !getTargetError()
-    return true
+  const targetFieldError = computed(() => {
+    if (!formData.appId) return ''
+    const allowed = availableTypeOptions.value.some((option) => option.value === formData.type)
+    if (!allowed) return availableTypeOptions.value.length ? '当前应用不支持该授权类型' : ''
+    const target = formData.domain.trim()
+    if (!target || formData.type === 'key') return ''
+    return validateLicenseTarget(formData.type, target)
+  })
+
+  const infoReady = computed(() => !!formData.appId && !!formData.planId && !getTargetError())
+
+  const submitBlockReason = computed(() => {
+    if (!formData.appId) return '请先选择应用'
+    if (!availableTypeOptions.value.length) return '当前应用暂不支持自助开通'
+    if (!formData.planId) return '请选择套餐'
+    return getTargetError()
+  })
+
+  const balanceShort = computed(
+    () =>
+      !!formData.planId && payMethod.value === 'balance' && userBalance.value < computedCost.value
+  )
+
+  const purchaseDisabled = computed(
+    () =>
+      purchasing.value ||
+      !!submitBlockReason.value ||
+      balanceShort.value ||
+      (isOnlinePay.value && computedCost.value <= 0)
+  )
+
+  const purchaseHint = computed(() => {
+    if (submitBlockReason.value) return submitBlockReason.value
+    if (balanceShort.value) return '当前余额不足，请先充值或更换支付方式'
+    if (isOnlinePay.value && computedCost.value <= 0) return '0 元套餐请使用余额支付'
+    return payMethod.value === 'balance'
+      ? '套餐价格以后端为准，余额扣款后授权即时生效'
+      : '支付成功后授权即时生效'
   })
 
   function minPlanPrice(app: any) {
@@ -731,8 +807,17 @@
     formData.domain = ''
   }
 
+  function onAppChange(id: string | number | Array<string | number> | null | undefined) {
+    if (id === null || id === undefined || id === '' || Array.isArray(id)) {
+      resetPurchaseSelection()
+      return
+    }
+    selectApp(id)
+  }
+
   function selectPlan(id: string | number) {
     formData.planId = id
+    fetchPayOptions()
   }
 
   function selectType(type: string) {
@@ -746,11 +831,6 @@
         formData.planId = ''
       }
     }
-  }
-
-  function goStep(target: number) {
-    if (target >= step.value) return
-    step.value = target
   }
 
   function formatDuration(days: number | string | undefined) {
@@ -782,7 +862,9 @@
     purchaseResult.value = null
     step.value = 1
     resetPurchaseSelection()
-    fetchApps()
+    appsLoaded.value = false
+    appSelectKey.value += 1
+    ensureApps()
     fetchBalance()
   }
 
@@ -966,28 +1048,6 @@
     return new Promise((resolve) => window.setTimeout(resolve, ms))
   }
 
-  function handleNext() {
-    if (step.value === 1 && !formData.appId) {
-      ElMessage.warning('请先选择应用')
-      return
-    }
-    if (step.value === 2) {
-      const targetError = getTargetError()
-      if (targetError) {
-        ElMessage.warning(targetError)
-        return
-      }
-    }
-    if (step.value === 2 && !formData.planId) {
-      ElMessage.warning('请选择套餐')
-      return
-    }
-    step.value++
-    if (step.value === 3) {
-      fetchPayOptions()
-    }
-  }
-
   async function handlePurchase() {
     if (purchasing.value) return
     if (isOnlinePay.value && computedCost.value <= 0) {
@@ -1067,782 +1127,552 @@
 
 <style scoped lang="scss">
   .user-purchase {
-    max-width: 960px;
+    max-width: 980px;
+    padding-bottom: 12px;
     margin: 0 auto;
   }
 
-  // 步骤条
-  .steps-bar {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px 0 32px;
-    gap: 0;
+  .page-head {
+    margin-bottom: 16px;
 
-    .step {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      cursor: pointer;
-
-      .step-dot {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        background: var(--el-fill-color);
-        color: var(--el-text-color-secondary);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 12px;
-        font-weight: 700;
-        transition: all 0.3s;
-      }
-
-      .step-text {
-        font-size: 13px;
-        color: var(--el-text-color-secondary);
-        font-weight: 500;
-        transition: color 0.3s;
-      }
-
-      &.active .step-dot {
-        background: var(--el-color-primary);
-        color: #fff;
-        box-shadow: 0 2px 8px rgba(64, 158, 255, 0.3);
-      }
-
-      &.active .step-text {
-        color: var(--el-color-primary);
-      }
-
-      &.done .step-dot {
-        background: var(--el-color-success);
-        color: #fff;
-      }
+    h2 {
+      margin: 0 0 6px;
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--el-text-color-primary);
     }
 
-    .step-line {
-      width: 60px;
-      height: 2px;
-      background: var(--el-fill-color);
-      margin: 0 12px;
-      border-radius: 1px;
-      transition: background 0.3s;
-
-      &.active {
-        background: var(--el-color-primary);
-      }
-    }
-  }
-
-  // 过渡动画
-  .fade-enter-active,
-  .fade-leave-active {
-    transition:
-      opacity 0.2s,
-      transform 0.2s;
-  }
-  .fade-enter-from {
-    opacity: 0;
-    transform: translateX(12px);
-  }
-  .fade-leave-to {
-    opacity: 0;
-    transform: translateX(-12px);
-  }
-
-  // Step 1 应用网格
-  .app-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
-  }
-
-  .app-card {
-    position: relative;
-    padding: 20px 18px 16px;
-    border-radius: 18px;
-    border: 1.5px solid var(--el-border-color-lighter);
-    cursor: pointer;
-    transition: all 0.25s ease;
-    background: linear-gradient(180deg, var(--el-bg-color) 0%, var(--el-bg-color-page) 100%);
-    text-align: center;
-    overflow: hidden;
-
-    &:hover {
-      border-color: var(--el-color-primary-light-5);
-      transform: translateY(-3px);
-      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
-    }
-
-    &.active {
-      border-color: var(--el-color-primary);
-      background: linear-gradient(
-        135deg,
-        var(--el-color-primary-light-9) 0%,
-        var(--el-bg-color) 100%
-      );
-      box-shadow: 0 10px 26px rgba(64, 158, 255, 0.16);
-    }
-
-    &.has-promo {
-      border-color: var(--el-color-danger-light-5);
-      background: linear-gradient(
-        180deg,
-        var(--el-color-danger-light-9) 0%,
-        var(--el-bg-color) 70%
-      );
-    }
-  }
-
-  .app-promo-badge {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 3px 8px;
-    border-radius: 999px;
-    background: linear-gradient(135deg, #f43f5e, #e11d48);
-    color: #fff;
-    font-size: 10px;
-    font-weight: 700;
-    box-shadow: 0 4px 10px rgba(225, 29, 72, 0.22);
-  }
-
-  .app-icon-wrap {
-    width: 50px;
-    height: 50px;
-    border-radius: 13px;
-    background: linear-gradient(
-      135deg,
-      var(--el-color-primary-light-8),
-      var(--el-color-primary-light-9)
-    );
-    color: var(--el-color-primary);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto 10px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
-  }
-
-  .app-name {
-    font-size: 14px;
-    font-weight: 700;
-    margin-bottom: 4px;
-    color: var(--el-text-color-primary);
-  }
-
-  .app-desc {
-    font-size: 11px;
-    color: var(--el-text-color-secondary);
-    margin-bottom: 12px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .app-footer {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
-    padding-top: 8px;
-    border-top: 1px dashed var(--el-border-color-lighter);
-  }
-
-  .app-pricing {
-    display: flex;
-    align-items: baseline;
-    gap: 3px;
-
-    .price-currency {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--el-color-primary);
-    }
-    .price-amount {
-      font-size: 21px;
-      font-weight: 800;
-      color: var(--el-color-primary);
-      font-family: 'DIN Alternate', 'Roboto Mono', monospace;
-    }
-    .price-unit {
-      font-size: 11px;
+    p {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.6;
       color: var(--el-text-color-secondary);
     }
   }
 
-  .app-check-icon {
-    position: absolute;
-    top: 12px;
-    left: 12px;
-    color: var(--el-color-primary);
+  .step-card {
+    margin-bottom: 16px;
+    background: var(--el-bg-color);
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 12px;
+
+    :deep(.el-card__header) {
+      padding: 14px 18px;
+      border-bottom-color: var(--el-border-color-lighter);
+    }
+
+    :deep(.el-card__body) {
+      padding: 18px;
+    }
+
+    &.is-done .step-index {
+      background: var(--el-color-success);
+    }
   }
 
-  // Step 2 配置
-  .config-layout {
+  .step-card-head {
     display: flex;
-    gap: 24px;
+    gap: 12px;
+    align-items: center;
+
+    h3 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--el-text-color-primary);
+    }
+
+    p {
+      margin: 2px 0 0;
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+    }
   }
 
-  .config-main {
-    flex: 1;
-  }
-
-  .config-section {
-    margin-bottom: 28px;
-  }
-
-  .config-label {
-    display: block;
+  .step-index {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
     font-size: 13px;
-    font-weight: 600;
-    color: var(--el-text-color-primary);
-    margin-bottom: 12px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--el-color-primary);
+    border-radius: 50%;
   }
 
-  .type-options {
+  .state-card {
+    min-height: 220px;
+  }
+
+  .state-placeholder {
+    min-height: 160px;
+  }
+
+  .purchase-app-select {
+    display: block;
+    width: 100%;
+    max-width: 520px;
+  }
+
+  .app-summary {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 14px;
+    margin-top: 14px;
+    background: var(--el-fill-color-light);
+    border-radius: 10px;
+  }
+
+  .app-summary-icon {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    color: var(--el-color-primary);
+    background: var(--el-color-primary-light-9);
+    border-radius: 10px;
+  }
+
+  .app-summary-body {
+    flex: 1;
+    min-width: 0;
+
+    p {
+      margin: 4px 0 0;
+      overflow: hidden;
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .app-summary-title {
     display: flex;
     gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .type-chip {
-    display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 16px;
-    border-radius: 20px;
-    border: 1.5px solid var(--el-border-color-lighter);
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--el-text-color-regular);
-    transition: all 0.2s;
 
-    &:hover {
-      border-color: var(--el-color-primary-light-5);
-      color: var(--el-color-primary);
-    }
-
-    &.active {
-      border-color: var(--el-color-primary);
-      background: var(--el-color-primary-light-9);
-      color: var(--el-color-primary);
-    }
-  }
-
-  .domain-input-wrap {
-    position: relative;
-    max-width: 380px;
-
-    .input-icon {
-      position: absolute;
-      left: 14px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--el-text-color-placeholder);
-    }
-
-    .domain-input {
-      width: 100%;
-      height: 40px;
-      padding: 0 14px 0 40px;
-      border-radius: 10px;
-      border: 1.5px solid var(--el-border-color);
-      outline: none;
+    strong {
       font-size: 14px;
-      transition: all 0.2s;
-      background: var(--el-bg-color);
-
-      &:focus {
-        border-color: var(--el-color-primary);
-        box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.1);
-      }
-
-      &::placeholder {
-        color: var(--el-text-color-placeholder);
-      }
+      color: var(--el-text-color-primary);
     }
   }
 
-  // 套餐卡片（第二步）
+  .app-summary-price {
+    display: flex;
+    gap: 2px;
+    align-items: baseline;
+    font-weight: 700;
+    color: var(--el-color-primary);
+
+    span {
+      font-size: 18px;
+    }
+
+    em {
+      font-size: 12px;
+      font-style: normal;
+      font-weight: 500;
+    }
+  }
+
   .plan-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
   }
 
   .plan-card {
     position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 20px 18px;
-    border-radius: 16px;
-    border: 1.5px solid var(--el-border-color-lighter);
-    background: var(--el-bg-color);
+    padding: 14px 14px 12px;
+    text-align: left;
     cursor: pointer;
-    transition: all 0.22s ease;
-    overflow: hidden;
+    background: var(--el-bg-color);
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 10px;
+    transition:
+      border-color 0.2s,
+      box-shadow 0.2s;
 
     &:hover {
       border-color: var(--el-color-primary-light-5);
-      transform: translateY(-2px);
-      box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
     }
 
     &.active {
+      background: var(--el-color-primary-light-9);
       border-color: var(--el-color-primary);
-      background: linear-gradient(
-        180deg,
-        var(--el-color-primary-light-9) 0%,
-        var(--el-bg-color) 100%
-      );
-      box-shadow: 0 8px 22px rgba(64, 158, 255, 0.14);
+      box-shadow: 0 0 0 1px var(--el-color-primary) inset;
     }
-
-    &.has-promo {
-      border-color: var(--el-color-danger-light-5);
-      background: linear-gradient(
-        180deg,
-        var(--el-color-danger-light-9) 0%,
-        var(--el-bg-color) 70%
-      );
-
-      &.active {
-        border-color: var(--el-color-danger);
-        background: linear-gradient(
-          180deg,
-          var(--el-color-danger-light-8) 0%,
-          var(--el-color-danger-light-9) 100%
-        );
-      }
-    }
-  }
-
-  .promo-badge {
-    position: absolute;
-    top: 14px;
-    right: 14px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    background: linear-gradient(135deg, #f43f5e, #e11d48);
-    color: #fff;
-    font-size: 11px;
-    font-weight: 700;
-    box-shadow: 0 6px 14px rgba(225, 29, 72, 0.22);
   }
 
   .plan-head {
     display: flex;
+    gap: 8px;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
-    min-height: 22px;
+    margin-bottom: 8px;
   }
 
   .plan-name {
-    font-size: 15px;
-    font-weight: 700;
+    font-size: 14px;
+    font-weight: 600;
     color: var(--el-text-color-primary);
-  }
-
-  .plan-tag {
-    padding: 4px 8px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 700;
-    background: var(--el-color-primary-light-9);
-    color: var(--el-color-primary);
-  }
-
-  .plan-tag.promo {
-    background: var(--el-color-danger-light-8);
-    color: var(--el-color-danger);
   }
 
   .plan-pricing {
     display: flex;
+    gap: 2px;
     align-items: baseline;
-    gap: 6px;
+    margin-bottom: 8px;
   }
 
-  .plan-currency {
-    font-size: 14px;
+  .plan-currency,
+  .plan-amount {
     font-weight: 700;
     color: var(--el-color-primary);
   }
 
   .plan-amount {
-    font-size: 26px;
-    font-weight: 800;
-    color: var(--el-color-primary);
-    font-family: 'DIN Alternate', 'Roboto Mono', monospace;
-  }
-
-  .plan-card.has-promo .plan-amount,
-  .plan-card.has-promo .plan-currency {
-    color: var(--el-color-danger);
+    font-size: 22px;
+    line-height: 1;
   }
 
   .plan-original {
-    margin-left: auto;
+    margin-left: 6px;
     font-size: 12px;
-    color: var(--el-text-color-secondary);
+    color: var(--el-text-color-placeholder);
     text-decoration: line-through;
   }
 
   .plan-meta {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
     font-size: 12px;
     color: var(--el-text-color-secondary);
   }
 
   .plan-duration {
+    color: var(--el-text-color-primary);
+  }
+
+  .field-block + .field-block {
+    margin-top: 16px;
+  }
+
+  .field-label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--el-text-color-primary);
   }
 
-  .plan-time {
-    line-height: 1.4;
+  .field-hint,
+  .section-muted {
+    margin: 8px 0 0;
+    font-size: 12px;
     color: var(--el-text-color-secondary);
   }
 
-  .plan-limit {
-    line-height: 1.4;
-    color: var(--el-color-warning);
+  .field-error {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: var(--el-color-danger);
   }
 
-  // 预览卡
-  .config-preview {
-    width: 260px;
-    flex-shrink: 0;
-  }
-
-  .preview-card {
-    border-radius: 16px;
-    border: 1px solid var(--el-border-color-lighter);
-    overflow: hidden;
-    background: var(--el-bg-color);
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
-
-    .preview-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 16px 20px;
-      background: var(--el-color-primary-light-9);
-      color: var(--el-color-primary);
-      font-weight: 600;
-      font-size: 14px;
-    }
-
-    .preview-body {
-      padding: 16px 20px;
-
-      .preview-item {
-        display: flex;
-        justify-content: space-between;
-        padding: 6px 0;
-
-        .preview-key {
-          font-size: 12px;
-          color: var(--el-text-color-secondary);
-        }
-        .preview-val {
-          font-size: 12px;
-          font-weight: 500;
-          color: var(--el-text-color-primary);
-
-          &.mono {
-            font-family: 'Roboto Mono', monospace;
-            font-size: 11px;
-          }
-
-          &.preview-discount {
-            color: var(--el-color-danger);
-          }
-        }
-      }
-    }
-
-    .preview-footer {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 14px 20px;
-      border-top: 1px dashed var(--el-border-color-lighter);
-
-      .preview-total-label {
-        font-size: 13px;
-        font-weight: 600;
-      }
-
-      .preview-price-wrap {
-        display: flex;
-        gap: 8px;
-        align-items: baseline;
-      }
-
-      .preview-original-price {
-        color: var(--el-text-color-placeholder);
-        font-family: 'DIN Alternate', 'Roboto Mono', monospace;
-        font-size: 12px;
-        text-decoration: line-through;
-      }
-
-      .preview-total-price {
-        font-size: 20px;
-        font-weight: 800;
-        color: var(--el-color-primary);
-        font-family: 'DIN Alternate', 'Roboto Mono', monospace;
-
-        &.promotion-price {
-          color: var(--el-color-danger);
-        }
-      }
-    }
-  }
-
-  // Step 3 支付
-  .payment-layout {
+  .type-options {
     display: flex;
-    flex-direction: column;
-    gap: 20px;
-  }
-
-  .payment-detail-card,
-  .payment-action-card {
-    background: var(--el-bg-color);
-    border-radius: 16px;
-    border: 1px solid var(--el-border-color-lighter);
-    padding: 24px;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
-  }
-
-  .payment-detail-card {
-    flex: 1;
-
-    .payment-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 15px;
-      font-weight: 600;
-      margin-bottom: 20px;
-      color: var(--el-text-color-primary);
-    }
-
-    .payment-row {
-      display: flex;
-      justify-content: space-between;
-      padding: 10px 0;
-      font-size: 13px;
-      border-bottom: 1px solid var(--el-border-color-extra-light);
-
-      span:first-child {
-        color: var(--el-text-color-secondary);
-      }
-      span:last-child {
-        font-weight: 500;
-        color: var(--el-text-color-primary);
-      }
-
-      .mono {
-        font-family: 'Roboto Mono', monospace;
-      }
-    }
-
-    .payment-total-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding-top: 16px;
-      margin-top: 4px;
-
-      span:first-child {
-        font-size: 14px;
-        font-weight: 600;
-      }
-
-      .payment-price {
-        .price-sym {
-          font-size: 16px;
-          font-weight: 600;
-          color: var(--el-color-primary);
-        }
-        .price-num {
-          font-size: 28px;
-          font-weight: 800;
-          color: var(--el-color-primary);
-          font-family: 'DIN Alternate', 'Roboto Mono', monospace;
-        }
-      }
-    }
-  }
-
-  .payment-action-card {
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-
-    .method-options {
-      display: flex;
-      gap: 10px;
-    }
-
-    .method-item {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      padding: 12px;
-      border-radius: 10px;
-      border: 1.5px solid var(--el-border-color-lighter);
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 500;
-      transition: all 0.2s;
-      flex-direction: column;
-
-      .method-balance {
-        font-size: 11px;
-        color: var(--el-color-success);
-        font-family: 'DIN Alternate', 'Roboto Mono', monospace;
-      }
-
-      .method-recharge-btn {
-        margin-top: 4px;
-        padding: 4px 10px;
-        border: none;
-        border-radius: 999px;
-        color: var(--el-color-primary);
-        background: var(--el-color-primary-light-9);
-        cursor: pointer;
-        font-size: 12px;
-        font-weight: 700;
-      }
-
-      &.active {
-        border-color: var(--el-color-primary);
-        background: var(--el-color-primary-light-9);
-      }
-    }
-
-    .balance-method {
-      min-height: 116px;
-    }
-  }
-
-  .purchase-btn {
-    width: 100%;
-    height: 48px;
-    border: none;
-    border-radius: 12px;
-    background: linear-gradient(135deg, #409eff 0%, #2563eb 100%);
-    color: #fff;
-    font-size: 15px;
-    font-weight: 700;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-wrap: wrap;
     gap: 8px;
-    box-shadow: 0 4px 14px rgba(64, 158, 255, 0.35);
-    transition: all 0.25s;
+  }
 
-    &:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 20px rgba(64, 158, 255, 0.45);
-    }
+  .type-chip {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    height: 34px;
+    padding: 0 12px;
+    color: var(--el-text-color-regular);
+    cursor: pointer;
+    background: var(--el-bg-color);
+    border: 1px solid var(--el-border-color);
+    border-radius: 8px;
 
-    &:active {
-      transform: translateY(0);
+    &.active {
+      color: var(--el-color-primary);
+      background: var(--el-color-primary-light-9);
+      border-color: var(--el-color-primary);
     }
   }
 
-  .payment-hint {
+  .pay-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: 16px;
+  }
+
+  .order-panel,
+  .method-panel {
+    min-width: 0;
+  }
+
+  .order-row,
+  .order-total {
     display: flex;
+    gap: 12px;
     align-items: center;
-    justify-content: center;
-    gap: 4px;
-    font-size: 11px;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+
+    strong {
+      font-weight: 600;
+      color: var(--el-text-color-primary);
+      text-align: right;
+    }
+  }
+
+  .order-total {
+    padding-top: 12px;
+    margin-top: 4px;
+    border-top: 1px dashed var(--el-border-color-lighter);
+
+    strong {
+      font-size: 20px;
+      color: var(--el-color-primary);
+    }
+
+    em {
+      display: block;
+      font-size: 12px;
+      font-style: normal;
+      color: var(--el-text-color-placeholder);
+      text-align: right;
+      text-decoration: line-through;
+    }
+  }
+
+  .discount {
+    color: var(--el-color-danger) !important;
+  }
+
+  .mono {
+    font-family: 'Roboto Mono', ui-monospace, monospace;
+  }
+
+  .method-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .method-item {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    width: 100%;
+    min-height: 48px;
+    padding: 8px 12px;
+    text-align: left;
+    cursor: pointer;
+    background: var(--el-bg-color);
+    border: 1px solid var(--el-border-color);
+    border-radius: 10px;
+
+    &.active {
+      background: var(--el-color-primary-light-9);
+      border-color: var(--el-color-primary);
+    }
+  }
+
+  .method-label {
+    flex: 1;
+    font-size: 14px;
+    color: var(--el-text-color-primary);
+  }
+
+  .method-balance {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--el-color-success);
+  }
+
+  .balance-alert {
+    margin-top: 12px;
+  }
+
+  .purchase-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    margin-top: 4px;
+    background: var(--el-bg-color);
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgb(15 23 42 / 8%);
+  }
+
+  .purchase-bar-summary {
+    min-width: 0;
+  }
+
+  .summary-line {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 13px;
+    color: var(--el-text-color-primary);
+  }
+
+  .summary-dot {
     color: var(--el-text-color-placeholder);
   }
 
-  .empty-card {
-    padding: 40px 24px;
-    border-radius: 16px;
-    border: 1px dashed var(--el-border-color);
-    color: var(--el-text-color-secondary);
-    text-align: center;
-    background: var(--el-bg-color);
-  }
-
-  .plan-count {
-    margin-top: 2px;
-    font-size: 12px;
-    color: var(--el-text-color-secondary);
-    font-weight: 600;
-  }
-
-  .section-title {
+  .summary-price {
     display: flex;
-    align-items: center;
     gap: 8px;
-    margin-bottom: 16px;
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--el-text-color-primary);
-  }
+    align-items: baseline;
+    margin-top: 2px;
 
-  .plan-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .domain-input:disabled {
-    cursor: not-allowed;
-    background: var(--el-fill-color-lighter);
-  }
-
-  .balance-warning {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 10px;
-    background: var(--el-color-danger-light-9);
-    color: var(--el-color-danger);
-    font-size: 13px;
-    text-align: center;
-
-    button {
-      border: none;
-      border-radius: 999px;
-      padding: 4px 10px;
-      color: #fff;
-      background: var(--el-color-danger);
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 700;
+    strong {
+      font-size: 20px;
+      color: var(--el-color-primary);
     }
   }
 
-  .purchase-btn:disabled {
-    cursor: not-allowed;
-    opacity: 0.55;
-    transform: none;
-    box-shadow: none;
+  .summary-original {
+    font-size: 12px;
+    color: var(--el-text-color-placeholder);
+    text-decoration: line-through;
+  }
+
+  .summary-hint {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .purchase-submit {
+    flex-shrink: 0;
+    min-width: 180px;
+  }
+
+  .success-hero {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .success-icon-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    color: var(--el-color-success);
+    background: var(--el-color-success-light-9);
+    border-radius: 50%;
+  }
+
+  .success-title-block {
+    flex: 1;
+
+    h3 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    p {
+      margin: 4px 0 0;
+      font-size: 13px;
+      color: var(--el-text-color-secondary);
+    }
+  }
+
+  .license-no-card {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    margin-top: 16px;
+    background: var(--el-fill-color-light);
+    border-radius: 10px;
+  }
+
+  .license-no-label {
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .license-no-value {
+    font-family: 'Roboto Mono', ui-monospace, monospace;
+    font-weight: 600;
+  }
+
+  .success-info-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .success-info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    background: var(--el-fill-color-lighter);
+    border-radius: 10px;
+  }
+
+  .info-label {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .info-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+  }
+
+  .success-amount-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 14px;
+    margin-top: 16px;
+    border-top: 1px dashed var(--el-border-color-lighter);
+
+    span {
+      color: var(--el-text-color-secondary);
+    }
+
+    strong {
+      font-size: 22px;
+      color: var(--el-color-primary);
+    }
+  }
+
+  .success-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 16px;
   }
 
   .recharge-dialog-body {
@@ -1851,225 +1681,61 @@
     }
 
     .quick-amounts {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      display: flex;
       gap: 8px;
-      margin: 12px 0 18px;
+      margin-top: 10px;
 
       button {
-        height: 34px;
-        border: 1px solid var(--el-border-color-lighter);
-        border-radius: 10px;
-        background: var(--el-bg-color);
-        color: var(--el-text-color-regular);
+        flex: 1;
+        height: 32px;
         cursor: pointer;
-        font-weight: 700;
-        transition: all 0.2s;
+        background: var(--el-fill-color-blank);
+        border: 1px solid var(--el-border-color);
+        border-radius: 6px;
 
         &:hover {
           color: var(--el-color-primary);
-          border-color: var(--el-color-primary);
-          background: var(--el-color-primary-light-9);
+          border-color: var(--el-color-primary-light-5);
         }
       }
     }
 
     .recharge-pay-label {
-      margin-top: 6px;
+      margin-top: 16px;
     }
 
     .recharge-pay-types {
-      width: 100%;
+      display: flex;
+      flex-wrap: wrap;
     }
 
-    .recharge-pay-empty {
-      margin: 0;
-      padding: 10px 12px;
-      border-radius: 10px;
-      background: var(--el-color-warning-light-9);
-      color: var(--el-color-warning);
-      font-size: 13px;
-    }
-
+    .recharge-pay-empty,
     .recharge-tip {
-      margin: 12px 0 0;
+      margin: 8px 0 0;
       font-size: 12px;
       color: var(--el-text-color-secondary);
     }
   }
 
-  .success-card {
-    position: relative;
-    max-width: 640px;
-    margin: 0 auto;
-    padding: 34px;
-    border-radius: 24px;
-    border: 1px solid rgba(22, 199, 154, 0.18);
-    background:
-      radial-gradient(circle at 18% 8%, rgba(22, 199, 154, 0.14), transparent 28%),
-      linear-gradient(180deg, var(--el-bg-color) 0%, var(--el-bg-color-page) 100%);
-    box-shadow: 0 18px 50px rgba(31, 45, 61, 0.08);
-  }
-
-  .success-hero {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    margin-bottom: 24px;
-    text-align: left;
-  }
-
-  .success-icon-wrap {
-    width: 64px;
-    height: 64px;
-    border-radius: 22px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
-    background: linear-gradient(135deg, #20d6ad 0%, #12b886 100%);
-    box-shadow: 0 12px 26px rgba(18, 184, 134, 0.28);
-  }
-
-  .success-title-block {
-    h3 {
-      margin: 0;
-      font-size: 24px;
-      font-weight: 800;
-      color: var(--el-text-color-primary);
-    }
-
-    p {
-      margin: 6px 0 0;
-      font-size: 13px;
-      color: var(--el-text-color-secondary);
-    }
-  }
-
-  .license-no-card {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 18px 20px;
-    border-radius: 16px;
-    background: var(--el-bg-color);
-    border: 1px solid var(--el-border-color-lighter);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.8);
-    margin-bottom: 16px;
-  }
-
-  .license-no-label {
-    font-size: 12px;
-    color: var(--el-text-color-secondary);
-  }
-
-  .license-no-value {
-    font-size: 18px;
-    font-weight: 800;
-    letter-spacing: 0.4px;
-    color: var(--el-color-primary);
-    font-family: 'DIN Alternate', 'Roboto Mono', monospace;
-    word-break: break-all;
-  }
-
-  .success-info-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-
-  .success-info-item {
-    padding: 14px 16px;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.78);
-    border: 1px solid var(--el-border-color-extra-light);
-
-    .info-label {
-      display: block;
-      margin-bottom: 6px;
-      font-size: 12px;
-      color: var(--el-text-color-secondary);
-    }
-
-    .info-value {
-      display: block;
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--el-text-color-primary);
-    }
-  }
-
-  .success-amount-card {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 18px;
-    border-radius: 16px;
-    background: linear-gradient(135deg, var(--el-color-primary-light-9), var(--el-bg-color));
-    border: 1px solid var(--el-color-primary-light-7);
-    margin-bottom: 24px;
-
-    span {
-      font-size: 13px;
-      color: var(--el-text-color-secondary);
-    }
-
-    strong {
-      font-size: 24px;
-      color: var(--el-color-primary);
-      font-family: 'DIN Alternate', 'Roboto Mono', monospace;
-    }
-  }
-
-  .success-actions {
-    display: flex;
-    justify-content: center;
-
-    .el-button {
-      min-width: 140px;
-      border-radius: 12px;
-      font-weight: 700;
-    }
-  }
-
-  // 底部导航
-  .bottom-nav {
-    display: flex;
-    justify-content: center;
-    gap: 12px;
-    padding: 24px 0;
-  }
-
-  @media (max-width: 768px) {
-    .app-grid {
-      grid-template-columns: 1fr;
-    }
-    .config-layout {
-      flex-direction: column;
-    }
-    .config-preview {
-      width: 100%;
-    }
-    .payment-layout {
-      flex-direction: column;
-    }
-    .payment-action-card {
-      width: 100%;
-    }
-    .plan-grid {
-      grid-template-columns: repeat(2, 1fr);
-    }
-    .success-card {
-      padding: 24px 18px;
-    }
-    .success-hero {
-      flex-direction: column;
-      text-align: center;
-    }
+  @media (width <= 768px) {
+    .pay-layout,
     .success-info-grid {
       grid-template-columns: 1fr;
+    }
+
+    .purchase-bar {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .purchase-submit {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .success-hero,
+    .success-actions {
+      flex-wrap: wrap;
     }
   }
 </style>
