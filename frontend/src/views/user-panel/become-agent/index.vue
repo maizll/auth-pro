@@ -249,15 +249,24 @@
         </aside>
       </div>
     </template>
+    <PayQrDialog
+      :visible="qrCheckout.visible"
+      :qr-code="qrCheckout.qrCode"
+      :amount="qrCheckout.amount"
+      :order-no="qrCheckout.orderNo"
+      @close="qrCheckout.visible = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-  import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+  import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { Icon as IconifyIcon } from '@iconify/vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import axios from 'axios'
+  import PayQrDialog from '@/components/core/pay/PayQrDialog.vue'
+  import { isQrCheckout } from '@/utils/checkout'
 
   interface UpgradeLevel {
     id: number
@@ -300,7 +309,9 @@
     amount: number
     payChannel: string
     payMethod: string
-    payUrl: string
+    payUrl?: string
+    qrCode?: string
+    checkoutMode?: string
   }
 
   const route = useRoute()
@@ -315,6 +326,12 @@
   ])
   const payMethod = ref('balance')
   const pendingOrder = ref<PendingUpgradeOrder | null>(null)
+  const qrCheckout = reactive({
+    visible: false,
+    qrCode: '',
+    orderNo: '',
+    amount: '' as string | number
+  })
   const paymentIssue = ref('')
   const cancelling = ref(false)
   const confirmed = ref(false)
@@ -369,7 +386,7 @@
         clearPendingOrder()
       }
     }
-    if (stored && (!stored.orderNo || !stored.payUrl)) {
+    if (stored && (!stored.orderNo || (!stored.payUrl && !stored.qrCode))) {
       clearPendingOrder()
       stored = null
     }
@@ -391,7 +408,7 @@
 
       const status = data.data?.status
       if (status === 'pending') {
-        if (stored?.orderNo === orderNo && stored.payUrl) {
+        if (stored?.orderNo === orderNo && (stored.payUrl || stored.qrCode)) {
           pendingOrder.value = stored
         } else {
           paymentIssue.value = '订单仍待支付，但当前页面缺少收银台地址，请取消订单后重新下单'
@@ -416,7 +433,48 @@
   }
 
   function continuePendingPayment() {
-    if (pendingOrder.value?.payUrl) window.location.assign(pendingOrder.value.payUrl)
+    if (!pendingOrder.value) return
+    if (isQrCheckout(pendingOrder.value)) {
+      openUpgradeQr(pendingOrder.value)
+      void pollUpgradeQr(pendingOrder.value.orderNo)
+      return
+    }
+    if (pendingOrder.value.payUrl) window.location.assign(pendingOrder.value.payUrl)
+  }
+
+  function openUpgradeQr(order: PendingUpgradeOrder) {
+    qrCheckout.visible = true
+    qrCheckout.qrCode = order.qrCode || ''
+    qrCheckout.orderNo = order.orderNo
+    qrCheckout.amount = order.amount
+  }
+
+  async function pollUpgradeQr(orderNo: string) {
+    for (let index = 0; index < 40; index++) {
+      try {
+        const { data } = await axios.get(`/api/user-panel/agent-upgrade/orders/${orderNo}`, {
+          headers: authHeaders()
+        })
+        const status = data.data?.status
+        if (status === 'completed') {
+          qrCheckout.visible = false
+          clearPendingOrder()
+          localStorage.removeItem('user_panel_token')
+          localStorage.removeItem('user_panel_info')
+          goAgentLogin()
+          return
+        }
+        if (status === 'failed' || status === 'cancelled') {
+          qrCheckout.visible = false
+          ElMessage.warning(data.data?.errorMessage || '支付未完成')
+          return
+        }
+      } catch {
+        /* keep polling */
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1500))
+    }
+    ElMessage.info('支付结果处理中，请勿关闭页面，稍后刷新查看')
   }
 
   async function cancelPendingPayment() {
@@ -522,17 +580,24 @@
         return
       }
 
-      if (data.data?.payUrl) {
+      if (data.data?.payUrl || isQrCheckout(data.data)) {
         const order: PendingUpgradeOrder = {
           orderNo: data.data.orderNo,
           amount: Number(data.data.amount || selectedLevel.value.price),
           payChannel: data.data.payChannel || '',
           payMethod: data.data.payMethod || payMethod.value,
-          payUrl: data.data.payUrl
+          payUrl: data.data.payUrl,
+          qrCode: data.data.qrCode,
+          checkoutMode: data.data.checkoutMode
         }
         pendingOrder.value = order
         localStorage.setItem(upgradeOrderStorageKey, JSON.stringify(order))
-        window.location.assign(order.payUrl)
+        if (isQrCheckout(order)) {
+          openUpgradeQr(order)
+          await pollUpgradeQr(order.orderNo)
+          return
+        }
+        window.location.assign(order.payUrl || '')
         return
       }
 

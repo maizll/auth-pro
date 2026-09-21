@@ -351,16 +351,16 @@
 
         <label class="config-label recharge-pay-label">支付方式</label>
         <el-radio-group
-          v-if="rechargeOptions.payTypes.length > 0"
+          v-if="rechargeMethodOptions.length > 0"
           v-model="rechargeDialog.payType"
           class="recharge-pay-types"
         >
           <el-radio-button
-            v-for="payType in rechargeOptions.payTypes"
-            :key="payType"
-            :label="payType"
+            v-for="item in rechargeMethodOptions"
+            :key="item.code"
+            :label="item.code"
           >
-            {{ payTypeLabels[payType] || payType }}
+            {{ item.label }}
           </el-radio-button>
         </el-radio-group>
         <p v-else class="recharge-pay-empty">支付通道未开启，请联系管理员</p>
@@ -371,13 +371,21 @@
         <el-button
           type="primary"
           :loading="rechargeDialog.submitting"
-          :disabled="rechargeOptions.payTypes.length === 0"
+          :disabled="rechargeMethodOptions.length === 0"
           @click="submitRecharge"
         >
           去支付
         </el-button>
       </template>
     </el-dialog>
+
+    <PayQrDialog
+      :visible="qrCheckout.visible"
+      :qr-code="qrCheckout.qrCode"
+      :amount="qrCheckout.amount"
+      :order-no="qrCheckout.orderNo"
+      @close="qrCheckout.visible = false"
+    />
   </div>
 </template>
 
@@ -387,6 +395,8 @@
   import { ElMessage } from 'element-plus'
   import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
+  import PayQrDialog from '@/components/core/pay/PayQrDialog.vue'
+  import { isQrCheckout } from '@/utils/checkout'
 
   const router = useRouter()
   const route = useRoute()
@@ -411,7 +421,26 @@
   }
   const rechargeOptions = reactive({
     payTypes: [] as string[],
-    defaultType: 'alipay'
+    defaultType: 'alipay',
+    options: [] as Array<{ code: string; label: string; payType?: string }>
+  })
+  const qrCheckout = reactive({
+    visible: false,
+    qrCode: '',
+    orderNo: '',
+    amount: '' as string | number
+  })
+  const rechargeMethodOptions = computed(() => {
+    if (rechargeOptions.options.length > 0) {
+      return rechargeOptions.options.map((item) => ({
+        code: item.code,
+        label: item.label || payTypeLabels[item.payType || ''] || item.code
+      }))
+    }
+    return rechargeOptions.payTypes.map((code) => ({
+      code,
+      label: payTypeLabels[code] || code
+    }))
   })
   const quickRechargeAmounts = [10, 30, 50, 100]
   const rechargeOrderStorageKey = 'user_panel_recharge_order'
@@ -513,6 +542,13 @@
     window.dispatchEvent(new CustomEvent('user-panel-balance-refresh'))
   }
 
+  function showQrCheckout(data: { qrCode?: string; orderNo?: string; amount?: string | number }) {
+    qrCheckout.visible = true
+    qrCheckout.qrCode = data.qrCode || ''
+    qrCheckout.orderNo = data.orderNo || ''
+    qrCheckout.amount = data.amount || ''
+  }
+
   async function fetchRechargeOptions() {
     try {
       const { data } = await axios.get('/api/user-panel/recharge/options', {
@@ -521,10 +557,12 @@
       if (data.code === 200) {
         rechargeOptions.payTypes = Array.isArray(data.data?.payTypes) ? data.data.payTypes : []
         rechargeOptions.defaultType = data.data?.defaultType || 'alipay'
-        if (!rechargeOptions.payTypes.includes(rechargeDialog.payType)) {
-          rechargeDialog.payType = rechargeOptions.payTypes.includes(rechargeOptions.defaultType)
+        rechargeOptions.options = Array.isArray(data.data?.options) ? data.data.options : []
+        const codes = rechargeMethodOptions.value.map((item) => item.code)
+        if (!codes.includes(rechargeDialog.payType)) {
+          rechargeDialog.payType = codes.includes(rechargeOptions.defaultType)
             ? rechargeOptions.defaultType
-            : rechargeOptions.payTypes[0] || rechargeOptions.defaultType
+            : codes[0] || rechargeOptions.defaultType
         }
       }
     } catch {
@@ -774,12 +812,25 @@
 
       if (data.code === 200) {
         const orderNo = data.data?.orderNo || ''
+        if (orderNo) sessionStorage.setItem(rechargeOrderStorageKey, orderNo)
+        if (isQrCheckout(data.data)) {
+          rechargeDialog.visible = false
+          showQrCheckout(data.data)
+          const paid = await pollRechargeOrder(orderNo)
+          if (paid) {
+            qrCheckout.visible = false
+            sessionStorage.removeItem(rechargeOrderStorageKey)
+            await fetchBalance()
+            notifyBalanceRefresh()
+            ElMessage.success('充值已到账，余额已刷新')
+          }
+          return
+        }
         const payUrl = data.data?.payUrl || ''
         if (!payUrl) {
           ElMessage.error('支付地址生成失败')
           return
         }
-        if (orderNo) sessionStorage.setItem(rechargeOrderStorageKey, orderNo)
         window.location.href = payUrl
         return
       }
@@ -966,6 +1017,31 @@
         { headers: authHeaders.value }
       )
       if (data.code === 200) {
+        if (isQrCheckout(data.data)) {
+          const orderNo = data.data?.orderNo || ''
+          if (orderNo) sessionStorage.setItem(purchaseOrderStorageKey, orderNo)
+          showQrCheckout(data.data)
+          const result = await pollPurchaseOrder(orderNo)
+          if (result) {
+            qrCheckout.visible = false
+            purchaseResult.value = {
+              licenseNo: result.licenseNo,
+              licenseId: result.licenseId,
+              orderNo,
+              payMethod: result.payMethod,
+              appName: result.appName,
+              planName: result.planName,
+              durationDays: result.durationDays,
+              cost: Number(result.cost || 0)
+            }
+            userBalance.value = Number(result.newBalance || userBalance.value)
+            sessionStorage.removeItem(purchaseOrderStorageKey)
+            notifyBalanceRefresh()
+            step.value = 4
+            ElMessage.success('支付成功，授权已生成')
+          }
+          return
+        }
         if (data.data?.payUrl) {
           const orderNo = data.data?.orderNo || ''
           if (orderNo) sessionStorage.setItem(purchaseOrderStorageKey, orderNo)

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auth-pro.local/schemas/alipay-f2f-config.json",
+  "title": "支付宝当面付插件配置",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["appId", "alipayPublicKey"],
+  "properties": {
+    "appId": {
+      "type": "string",
+      "description": "支付宝开放平台 APPID，沙箱与正式环境各有独立值。"
+    },
+    "privateKey": {
+      "type": "string",
+      "description": "应用 RSA2 私钥。只写不读；空字符串表示保持已保存值。"
+    },
+    "alipayPublicKey": {
+      "type": "string",
+      "description": "支付宝公钥（公钥模式）或支付宝公钥证书中的公钥（证书模式验签）。"
+    },
+    "gateway": {
+      "type": "string",
+      "description": "网关地址。留空时按 sandbox 选择正式或沙箱默认地址。"
+    },
+    "notifyUrl": {
+      "type": "string",
+      "description": "异步通知 URL。留空由核心按 /api/payment/alipay-f2f/notify 生成。"
+    },
+    "sandbox": {
+      "type": "boolean",
+      "description": "是否使用沙箱网关。"
+    },
+    "certMode": {
+      "type": "boolean",
+      "description": "证书模式。开启后请求携带 app_cert_sn 与 alipay_root_cert_sn。"
+    },
+    "appCertSn": {
+      "type": "string",
+      "description": "应用公钥证书 SN。证书模式必填。"
+    },
+    "alipayRootCertSn": {
+      "type": "string",
+      "description": "支付宝根证书 SN。证书模式必填。"
+    }
+  }
+}

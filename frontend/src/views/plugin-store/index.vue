@@ -381,7 +381,8 @@
   // 需要独立配置页的插件；其余按类别归到统一配置页
   const pluginConfigPaths: Record<string, string> = {
     epay: '/system/epay-config',
-    'epay-v2': '/system/epay-config'
+    'epay-v2': '/system/epay-config',
+    'alipay-f2f': '/system/alipay-f2f-config'
   }
 
   // 配置入口；返回空串表示无独立配置页。

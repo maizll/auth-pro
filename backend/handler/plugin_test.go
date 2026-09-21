@@ -38,4 +38,14 @@ func TestListedCatalogPluginsIncludeKuaitongAndTencent(t *testing.T) {
 	if tencent.Icon != "ri:id-card-line" {
 		t.Fatalf("unexpected icon: %q", tencent.Icon)
 	}
+
+	var alipayF2F pluginInfo
+	for _, plugin := range listedCatalogPlugins() {
+		if plugin.ID == "alipay-f2f" {
+			alipayF2F = plugin
+		}
+	}
+	if alipayF2F.ID == "" || alipayF2F.Category != "payment" {
+		t.Fatal("alipay-f2f official payment plugin is missing")
+	}
 }

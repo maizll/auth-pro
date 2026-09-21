@@ -361,6 +361,32 @@ export function fetchPaymentV2TestStatus(orderNo: string) {
   })
 }
 
+export interface AlipayF2FConfigData {
+  appId: string
+  privateKey?: string
+  privateKeySet: boolean
+  alipayPublicKey: string
+  gateway: string
+  notifyUrl: string
+  sandbox: boolean
+  certMode: boolean
+  appCertSn: string
+  alipayRootCertSn: string
+}
+
+export function fetchAlipayF2FConfig() {
+  return request.get<AlipayF2FConfigData>({
+    url: '/api/system/alipay-f2f-config'
+  })
+}
+
+export function fetchUpdateAlipayF2FConfig(data: AlipayF2FConfigData) {
+  return request.put<AlipayF2FConfigData>({
+    url: '/api/system/alipay-f2f-config',
+    data
+  })
+}
+
 export type PaymentOrderSubjectType = 'user' | 'agent' | 'test'
 export type PaymentOrderStatus = 'pending' | 'paid' | 'failed' | 'cancelled'
 

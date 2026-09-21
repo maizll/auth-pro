@@ -17,6 +17,7 @@ GET /software-source/{app_key}/index.json
 | 章节 | 说明 |
 | --- | --- |
 | [插件开发指南](./plugin-package.md) | plugin.json 字段、分类、完整示例 |
+| [支付渠道插件](./payment-channel-plugin.md) | 支付 SPI、官方支付宝当面付参考实现 |
 | [首页模板开发指南](./template-package.md) | template.json、`kind: "template"`、自动绑定首页模板 |
 | [打包与上传规范](./packaging.md) | ZIP 布局、硬校验、登记流程 |
 | [校验失败说明](./validation.md) | 错误字段 / 规则 → 原因与改法 |

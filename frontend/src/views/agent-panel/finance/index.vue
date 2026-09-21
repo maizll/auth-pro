@@ -184,8 +184,8 @@
           充值金额 <em>¥{{ Number(rechargeAmount).toFixed(2) }}</em>
         </div>
         <el-radio-group v-model="rechargeDialog.payType" class="pay-type-group">
-          <el-radio-button v-for="pt in rechargeOptions.payTypes" :key="pt" :value="pt">
-            {{ payTypeLabels[pt] || pt }}
+          <el-radio-button v-for="item in rechargeMethodOptions" :key="item.code" :value="item.code">
+            {{ item.label }}
           </el-radio-button>
         </el-radio-group>
       </div>
@@ -196,6 +196,13 @@
         </el-button>
       </template>
     </el-dialog>
+    <PayQrDialog
+      :visible="qrCheckout.visible"
+      :qr-code="qrCheckout.qrCode"
+      :amount="qrCheckout.amount"
+      :order-no="qrCheckout.orderNo"
+      @close="qrCheckout.visible = false"
+    />
   </div>
 </template>
 
@@ -205,6 +212,8 @@
   import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
   import { useRoute, useRouter } from 'vue-router'
+  import PayQrDialog from '@/components/core/pay/PayQrDialog.vue'
+  import { isQrCheckout } from '@/utils/checkout'
 
   const route = useRoute()
   const router = useRouter()
@@ -338,9 +347,28 @@
   const rechargeOptions = reactive({
     enabled: false,
     payTypes: [] as string[],
-    defaultType: 'alipay'
+    defaultType: 'alipay',
+    options: [] as Array<{ code: string; label: string; payType?: string }>
   })
   const rechargeDialog = reactive({ visible: false, payType: 'alipay', submitting: false })
+  const qrCheckout = reactive({
+    visible: false,
+    qrCode: '',
+    orderNo: '',
+    amount: '' as string | number
+  })
+  const rechargeMethodOptions = computed(() => {
+    if (rechargeOptions.options.length > 0) {
+      return rechargeOptions.options.map((item) => ({
+        code: item.code,
+        label: item.label || payTypeLabels[item.payType || ''] || item.code
+      }))
+    }
+    return rechargeOptions.payTypes.map((code) => ({
+      code,
+      label: payTypeLabels[code] || code
+    }))
+  })
   let rechargePollTimer: ReturnType<typeof setInterval> | null = null
 
   const payTypeLabels: Record<string, string> = {
@@ -359,6 +387,7 @@
         rechargeOptions.enabled = !!data.data?.enabled
         rechargeOptions.payTypes = Array.isArray(data.data?.payTypes) ? data.data.payTypes : []
         rechargeOptions.defaultType = data.data?.defaultType || 'alipay'
+        rechargeOptions.options = Array.isArray(data.data?.options) ? data.data.options : []
       }
     } catch {
       return
@@ -366,7 +395,7 @@
   }
 
   function handleRecharge() {
-    if (!rechargeOptions.enabled || rechargeOptions.payTypes.length === 0) {
+    if (!rechargeOptions.enabled || rechargeMethodOptions.value.length === 0) {
       ElMessage.warning('线上支付未开启，请联系管理员')
       return
     }
@@ -375,9 +404,10 @@
       ElMessage.warning('请输入充值金额')
       return
     }
-    rechargeDialog.payType = rechargeOptions.payTypes.includes(rechargeOptions.defaultType)
+    const codes = rechargeMethodOptions.value.map((item) => item.code)
+    rechargeDialog.payType = codes.includes(rechargeOptions.defaultType)
       ? rechargeOptions.defaultType
-      : rechargeOptions.payTypes[0]
+      : codes[0]
     rechargeDialog.visible = true
   }
 
@@ -393,8 +423,17 @@
         },
         { headers: authHeaders.value }
       )
-      if (data.code === 200 && data.data?.payUrl) {
+      if (data.code === 200 && (data.data?.payUrl || isQrCheckout(data.data))) {
         sessionStorage.setItem('agent_panel_recharge_order', data.data.orderNo)
+        if (isQrCheckout(data.data)) {
+          rechargeDialog.visible = false
+          qrCheckout.visible = true
+          qrCheckout.qrCode = data.data.qrCode || ''
+          qrCheckout.orderNo = data.data.orderNo || ''
+          qrCheckout.amount = data.data.amount || rechargeAmount.value
+          await pollAgentRechargeQr(data.data.orderNo)
+          return
+        }
         ElMessage.success('充值订单已创建，正在跳转收银台')
         window.location.href = data.data.payUrl
       } else {
@@ -449,6 +488,33 @@
       clearInterval(rechargePollTimer)
       rechargePollTimer = null
     }
+  }
+
+  async function pollAgentRechargeQr(orderNo: string) {
+    for (let index = 0; index < 40; index++) {
+      try {
+        const { data } = await axios.get(`/api/agent-panel/recharge/orders/${orderNo}`, {
+          headers: authHeaders.value
+        })
+        if (data.data?.status === 'paid') {
+          qrCheckout.visible = false
+          sessionStorage.removeItem('agent_panel_recharge_order')
+          ElMessage.success('充值成功，余额已到账')
+          fetchOverview()
+          fetchTransactions()
+          return
+        }
+        if (data.data?.status === 'failed' || data.data?.status === 'cancelled') {
+          qrCheckout.visible = false
+          ElMessage.warning('充值未完成')
+          return
+        }
+      } catch {
+        /* keep polling */
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1500))
+    }
+    ElMessage.info('支付结果处理中，稍后可刷新页面查看余额')
   }
 
   onMounted(() => {

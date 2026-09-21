@@ -292,6 +292,7 @@
       "menu": "菜单管理",
       "config": "系统配置",
       "epayConfig": "支付配置",
+      "alipayF2FConfig": "支付宝当面付",
       "paymentOrders": "订单列表",
       "mailConfig": "邮件配置",
       "mailLogs": "邮件日志"

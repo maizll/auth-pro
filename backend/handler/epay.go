@@ -80,6 +80,31 @@ func UserRechargeCreate(c *gin.Context) {
 		return
 	}
 
+	if selection, ok := parseOnlinePaySelection(req.PayType); ok && isRegisteredPayChannel(selection.Channel) {
+		orderNo := generateRechargeOrderNo()
+		result, frontendReturnURL, err := createRegisteredChannelPayment(c, db, selection, orderNo, amountCents, "用户余额充值", "/user/dashboard")
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+			return
+		}
+		amount := formatCents(amountCents)
+		_, err = db.Exec(`
+			INSERT INTO recharge_orders (
+				order_no, subject_type, subject_id, user_id, amount, pay_channel, pay_method, status, return_url, remark
+			) VALUES (?, 'user', ?, ?, ?, ?, ?, 'pending', ?, ?)
+		`, orderNo, userID, userID, amount, selection.Channel, selection.PayType, frontendReturnURL, "用户余额充值")
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建充值订单失败"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"code": 200,
+			"msg":  "充值订单已创建",
+			"data": checkoutData(orderNo, amount, selection.PayType, result),
+		})
+		return
+	}
+
 	payConfig, err := loadEpayConfig(db)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取易支付配置失败"})
@@ -436,13 +461,19 @@ func UserRechargeOptions(c *gin.Context) {
 	if !available {
 		payTypes = []string{}
 	}
+	options := []payOption{}
+	if available {
+		options = append(options, epayPayTypeOptions(payChannelEpayV1, payTypes)...)
+	}
+	options = append(options, pluginPayOptions(db)...)
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"msg":  "",
 		"data": gin.H{
-			"easypayEnabled": available,
+			"easypayEnabled": available || len(options) > 0,
 			"payTypes":       payTypes,
 			"defaultType":    payConfig.resolveDefaultPayType(),
+			"options":        dedupePayOptions(options),
 		},
 	})
 }
