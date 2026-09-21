@@ -15,11 +15,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// EnsureAccountUpgradeSchema upgrades existing installations without changing
-// legacy account ownership or enabling self-service sales by default.
-func EnsureAccountUpgradeSchema(db *sql.DB) error {
-	if err := ensureAgentLevelSchema(db); err != nil {
-		return fmt.Errorf("初始化代理等级失败: %w", err)
+// ensureAccountUpgradeSchemaUnlocked applies the account-upgrade DDL. Callers
+// must already hold accountSchemaEnsureMu; the lock and the success fast path
+// live in EnsureAccountUpgradeSchema.
+func ensureAccountUpgradeSchemaUnlocked(db *sql.DB) error {
+	if !agentLevelSchemaReady.Load() {
+		if err := ensureAgentLevelSchemaBody(db); err != nil {
+			return fmt.Errorf("初始化代理等级失败: %w", err)
+		}
+		agentLevelSchemaReady.Store(true)
 	}
 	if err := ensureUserAuthStorage(db); err != nil {
 		return fmt.Errorf("初始化用户认证资料失败: %w", err)
