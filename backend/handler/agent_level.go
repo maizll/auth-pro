@@ -18,7 +18,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-func ensureAgentLevelSchema(db *sql.DB) error {
+func ensureAgentLevelSchemaBody(db *sql.DB) error {
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS agent_levels (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
