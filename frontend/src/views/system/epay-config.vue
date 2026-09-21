@@ -739,7 +739,6 @@
   const formRef = ref<FormInstance>()
   const loading = ref(true)
   const saving = ref(false)
-  const activeVersion = ref<'epay' | 'epay-v2'>('epay')
   const epayPluginOn = ref(false)
   const epayV2PluginOn = ref(false)
   const alipayF2FPluginOn = ref(false)
@@ -747,8 +746,9 @@
   const anyPaymentPlugin = computed(
     () => epayPluginOn.value || epayV2PluginOn.value || alipayF2FPluginOn.value
   )
-  const showEpayCard = computed(() => epayPluginOn.value && activeVersion.value === 'epay')
-  const showEpayV2Card = computed(() => epayV2PluginOn.value && activeVersion.value === 'epay-v2')
+  // 已启用的支付插件同时展示，不用单一 activeVersion 互相隐藏。
+  const showEpayCard = computed(() => epayPluginOn.value)
+  const showEpayV2Card = computed(() => epayV2PluginOn.value)
   const solePaymentCard = computed(() => {
     const visible = [showEpayCard.value, showEpayV2Card.value, alipayF2FPluginOn.value].filter(
       Boolean
@@ -1208,20 +1208,9 @@
 
   const channelQuery = () => (typeof route.query.channel === 'string' ? route.query.channel : '')
 
-  // 易支付 V1/V2 仍互斥展示；channel 指定已启用的版本时展开对应分段。
-  const resolveActiveVersion = () => {
-    const channel = channelQuery()
-    if (epayPluginOn.value && epayV2PluginOn.value) {
-      activeVersion.value = channel === 'epay-v2' ? 'epay-v2' : 'epay'
-      return
-    }
-    activeVersion.value = epayV2PluginOn.value ? 'epay-v2' : 'epay'
-  }
-
+  // channel 只滚动到对应分段，不隐藏其它已启用插件。
   const focusChannel = async () => {
     const channel = channelQuery()
-    if (channel === 'epay' && epayPluginOn.value) activeVersion.value = 'epay'
-    if (channel === 'epay-v2' && epayV2PluginOn.value) activeVersion.value = 'epay-v2'
     await nextTick()
     if (channel !== 'epay' && channel !== 'epay-v2' && channel !== 'alipay-f2f') return
     document.getElementById(`pay-channel-${channel}`)?.scrollIntoView({
@@ -1230,8 +1219,7 @@
     })
   }
 
-  // 支付配置跟随支付插件启用状态动态加载：任一支付插件启用则展示对应区块。
-  // 当面付与易支付互不挤占，可同时出现。
+  // 支付配置跟随支付插件启用状态动态加载：任一支付插件启用则展示对应区块，可同时配置。
   const loadConfig = async () => {
     loading.value = true
     loadError.value = ''
@@ -1245,7 +1233,6 @@
       epayPluginOn.value = pluginOn('epay')
       epayV2PluginOn.value = pluginOn('epay-v2')
       alipayF2FPluginOn.value = pluginOn('alipay-f2f')
-      resolveActiveVersion()
       if (epayPluginOn.value) {
         const data = await fetchPaymentConfig()
         applyForm(data)
