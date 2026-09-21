@@ -97,7 +97,7 @@ import _ "auto_pro/payment/alipayf2f"
 2. 成功 `code=10000` 时取 `qr_code`。
 3. 用户扫码后支付宝 POST 表单到 notify；用 **支付宝公钥** RSA2 验签（排除 `sign`、`sign_type`）。
 4. `trade_status` 为 `TRADE_SUCCESS` 或 `TRADE_FINISHED` 才结算。
-5. 沙箱：配置页打开「沙箱」，或把网关写成 `https://openapi-sandbox.dl.alipaydev.com/gateway.do`。使用沙箱 APPID/密钥，**不要提交真实商户密钥**。
+5. 沙箱：配置页打开「沙箱」，网关按开关自动使用正式或沙箱地址，不要手填网关。使用沙箱 APPID/密钥，**不要提交真实商户密钥**。异步通知由当前站点 origin + `/api/payment/alipay-f2f/notify` 生成，保存时这两项写空。
 
 证书模式：打开开关并填写两个 SN，请求会带 `app_cert_sn` / `alipay_root_cert_sn`。P0 不解析证书文件。
 

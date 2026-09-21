@@ -32,9 +32,9 @@ AuthPro 商店官方插件。安装/启用并填写开放平台凭证后，收�
 | APPID | 开放平台应用 APPID | `2021000000000000` |
 | 应用私钥 | RSA2（PKCS#1 或 PKCS#8 PEM） | 留空表示保持已保存值 |
 | 支付宝公钥 | 公钥模式：开放平台「支付宝公钥」 | PEM 或裸 base64 |
-| 网关 | 可留空 | 正式 `https://openapi.alipay.com/gateway.do` |
-| 沙箱 | 打开后默认沙箱网关 | `https://openapi-sandbox.dl.alipaydev.com/gateway.do` |
-| 异步通知 | 可留空，系统按当前域名生成 | `https://your-host/api/payment/alipay-f2f/notify` |
+| 网关 | 管理端只读。随沙箱开关显示，保存时写空，运行时用默认 | 正式 `https://openapi.alipay.com/gateway.do`；沙箱 `https://openapi-sandbox.dl.alipaydev.com/gateway.do` |
+| 沙箱 | 主表单开关。打开后网关展示为沙箱地址 | |
+| 异步通知 | 管理端只读，当前站点 origin + `/api/payment/alipay-f2f/notify`。保存时写空 | `https://your-host/api/payment/alipay-f2f/notify` |
 | 证书模式 | 可选。开启后需填应用公钥证书 SN、支付宝根证书 SN | 公钥仍用于验签 |
 
 沙箱联调：在[支付宝开放平台沙箱](https://open.alipay.com/)创建应用，使用沙箱 APPID 与密钥，**不要**把生产私钥写入本仓库。
