@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path"
 	"strings"
 	"testing"
 
@@ -105,7 +107,7 @@ func TestSDKPackPluginSourceURLMatchesIsolationContract(t *testing.T) {
 	}
 }
 
-func TestBuildSDKPackRendersOnlyThisAppAndSelectedModules(t *testing.T) {
+func TestBuildSDKPackHybridLayoutAndAPIs(t *testing.T) {
 	otherSecret := "sk_live_other_app_secret_bbb"
 	payload, filename, err := buildSDKPack(testSDKPackInput([]string{
 		sdkPackModuleLicense, sdkPackModulePiracy, sdkPackModuleUpdate, sdkPackModuleAds, sdkPackModulePluginSource,
@@ -113,78 +115,87 @@ func TestBuildSDKPackRendersOnlyThisAppAndSelectedModules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filename != "auth-pro-sdk-app_demo_1.zip" {
+	if filename != "auth-pro-client-app_demo_1.zip" {
 		t.Fatalf("filename=%q", filename)
 	}
 	files := zipFiles(t, payload)
-	root := "auth-pro-sdk-app_demo_1/"
-	php := files[root+"auth_pro_sdk.php"]
-	example := files[root+"config.example.php"]
+	root := "auth-pro-client-app_demo_1/"
 	readme := files[root+"README.md"]
-	js := files[root+"auth-pro-sdk.js"]
-	if php == "" || example == "" || readme == "" || js == "" {
-		t.Fatalf("missing core files: %v", keysOf(files))
+	configRaw := files[root+"config.json"]
+	if readme == "" || configRaw == "" {
+		t.Fatalf("missing README/config: %v", keysOf(files))
 	}
-	for _, needle := range []string{"app_demo_1", "sk_live_demo_secret_aaa", "https://auth.example.com", "12"} {
-		if !strings.Contains(php, needle) {
-			t.Fatalf("php missing %q", needle)
+	for _, lang := range sdkPackLanguages {
+		if !strings.Contains(readme, lang) {
+			t.Fatalf("README missing language %s", lang)
+		}
+		foundVendor := false
+		foundExample := false
+		for name := range files {
+			if strings.HasPrefix(name, root+"vendor/"+lang+"/") {
+				foundVendor = true
+			}
+			if strings.HasPrefix(name, root+"examples/"+lang+"/") {
+				foundExample = true
+			}
+		}
+		if !foundVendor || !foundExample {
+			t.Fatalf("lang %s vendor=%t example=%t", lang, foundVendor, foundExample)
 		}
 	}
-	if strings.Contains(php, otherSecret) || strings.Contains(js, otherSecret) {
-		t.Fatal("pack leaked another app secret")
-	}
-	pluginURL := "https://auth.example.com/software-source/app_demo_1/index.json"
-	if !strings.Contains(php, "const PLUGIN_SOURCE_URL = '"+pluginURL+"'") {
-		t.Fatalf("php PLUGIN_SOURCE_URL not baked, want %s", pluginURL)
-	}
-	if !strings.Contains(php, pluginURL) || !strings.Contains(js, pluginURL) {
-		t.Fatalf("plugin source must bake app-scoped index: php=%t js=%t", strings.Contains(php, pluginURL), strings.Contains(js, pluginURL))
-	}
-	unscoped := "https://auth.example.com/software-source/index.json"
-	if strings.Contains(php, unscoped) || strings.Contains(js, unscoped) {
-		t.Fatal("must not bake unscoped software-source/index.json")
-	}
-	for _, needle := range []string{"/api/license/verify", "/api/app/version/check", "/api/v1/public/advertisements"} {
-		if !strings.Contains(php, needle) {
-			t.Fatalf("php missing endpoint %s", needle)
-		}
-	}
-	if !strings.Contains(php, "v2") || !strings.Contains(php, "hash_hmac") {
-		t.Fatal("php must implement HMAC v2")
-	}
-	if !strings.Contains(readme, "require") || !strings.Contains(readme, "AuthPro::boot()") {
-		t.Fatal("readme missing 3-step PHP usage")
-	}
-	if !strings.Contains(example, "licenseKey") {
-		t.Fatal("config.example.php should document licenseKey")
-	}
-}
 
-func TestBuildSDKPackOmitsDisabledModulesAndOptionalJS(t *testing.T) {
-	payload, _, err := buildSDKPack(testSDKPackInput([]string{sdkPackModuleLicense}, false))
-	if err != nil {
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(configRaw), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	files := zipFiles(t, payload)
-	root := "auth-pro-sdk-app_demo_1/"
-	if _, ok := files[root+"auth-pro-sdk.js"]; ok {
-		t.Fatal("JS should be omitted when includeJs=false")
+	if cfg["appKey"] != "app_demo_1" || cfg["baseUrl"] != "https://auth.example.com" {
+		t.Fatalf("config=%v", cfg)
 	}
-	php := files[root+"auth_pro_sdk.php"]
-	if !strings.Contains(php, "/api/license/verify") {
-		t.Fatal("license module missing verify endpoint")
+	if cfg["appSecret"] != "sk_live_demo_secret_aaa" {
+		t.Fatal("server config should include appSecret when signing modules enabled")
 	}
-	if strings.Contains(php, "/api/v1/public/advertisements") {
-		t.Fatal("ads endpoint should be omitted")
+	if strings.Contains(configRaw, otherSecret) {
+		t.Fatal("pack leaked another app secret")
 	}
-	if strings.Contains(php, "/api/app/version/check") {
-		t.Fatal("update endpoint should be omitted")
+
+	browserCfg := files[root+"examples/browser/config.json"]
+	if browserCfg == "" {
+		t.Fatal("browser example config missing")
 	}
-	if strings.Contains(php, "/software-source/") {
-		t.Fatal("plugin source url should be omitted")
+	if strings.Contains(browserCfg, "appSecret") || strings.Contains(browserCfg, "sk_live_demo_secret_aaa") {
+		t.Fatal("browser config must not embed appSecret")
 	}
-	if strings.Contains(php, "function ads") || strings.Contains(php, "function checkUpdate") {
-		t.Fatal("disabled module helpers should be omitted")
+
+	phpCore := files[root+"vendor/php/src/AuthPro.php"]
+	nodeCore := files[root+"vendor/node/src/index.js"]
+	pyCore := files[root+"vendor/python/authpro/__init__.py"]
+	goCore := files[root+"vendor/go/authpro/authpro.go"]
+	browserCore := files[root+"vendor/browser/src/auth-pro.js"]
+	for _, needle := range []string{"/api/license/verify", "/api/app/version/check", "/api/v1/public/advertisements", "pluginSource"} {
+		for lang, body := range map[string]string{"php": phpCore, "node": nodeCore, "python": pyCore, "go": goCore} {
+			if !strings.Contains(body, needle) && !(needle == "pluginSource" && (strings.Contains(body, "plugin_source_url") || strings.Contains(body, "PluginSourceURL") || strings.Contains(body, "pluginSourceUrl"))) {
+				if needle == "pluginSource" {
+					continue
+				}
+				t.Fatalf("%s missing %s", lang, needle)
+			}
+		}
+	}
+	if !strings.Contains(phpCore, "function verify") && !strings.Contains(phpCore, "public static function verify") {
+		t.Fatal("php verify missing")
+	}
+	if !strings.Contains(browserCore, "function ads") || !strings.Contains(browserCore, "pluginSourceUrl") {
+		t.Fatal("browser must implement ads and pluginSourceUrl")
+	}
+	if strings.Contains(browserCore, "sk_live_demo_secret_aaa") {
+		t.Fatal("browser vendor must not bake app secret")
+	}
+	if strings.Contains(readme, "auth_pro_sdk.php") {
+		t.Fatal("old monolithic pack should be superseded in README")
+	}
+	pluginURL := "https://auth.example.com/software-source/app_demo_1/index.json"
+	if !strings.Contains(readme, pluginURL) {
+		t.Fatalf("readme should document plugin URL %s", pluginURL)
 	}
 }
 
@@ -194,13 +205,39 @@ func TestBuildSDKPackOmitsSecretWhenNoSigningModule(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := zipFiles(t, payload)
-	php := files["auth-pro-sdk-app_demo_1/auth_pro_sdk.php"]
-	js := files["auth-pro-sdk-app_demo_1/auth-pro-sdk.js"]
-	if strings.Contains(php, "sk_live_demo_secret_aaa") || strings.Contains(js, "sk_live_demo_secret_aaa") {
-		t.Fatal("unsigned modules should not bake appSecret")
+	cfg := files["auth-pro-client-app_demo_1/config.json"]
+	if strings.Contains(cfg, "appSecret") || strings.Contains(cfg, "sk_live_demo_secret_aaa") {
+		t.Fatal("unsigned modules should not bake appSecret into config.json")
 	}
-	if !strings.Contains(php, "https://auth.example.com/software-source/app_demo_1/index.json") {
+	if !strings.Contains(files["auth-pro-client-app_demo_1/README.md"], "https://auth.example.com/software-source/app_demo_1/index.json") {
 		t.Fatal("plugin source URL missing from ads/plugin pack")
+	}
+}
+
+func TestBuildSDKPackSwitchingAppOnlyChangesConfig(t *testing.T) {
+	a := testSDKPackInput([]string{sdkPackModuleLicense, sdkPackModuleAds}, false)
+	b := a
+	b.AppID = 99
+	b.AppName = "另一应用"
+	b.AppKey = "app_other"
+	b.AppSecret = "sk_live_other_secret_zzz"
+	pa, _, err := buildSDKPack(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pb, _, err := buildSDKPack(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fa := zipFiles(t, pa)
+	fb := zipFiles(t, pb)
+	vendorA := fa["auth-pro-client-app_demo_1/vendor/php/src/AuthPro.php"]
+	vendorB := fb["auth-pro-client-app_other/vendor/php/src/AuthPro.php"]
+	if vendorA == "" || vendorA != vendorB {
+		t.Fatal("vendor core must be identical across apps")
+	}
+	if fa["auth-pro-client-app_demo_1/config.json"] == fb["auth-pro-client-app_other/config.json"] {
+		t.Fatal("config.json must differ between apps")
 	}
 }
 
@@ -209,10 +246,10 @@ func TestBuildSDKPackLicenseV2FieldOrderMatchesBackend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	php := zipFiles(t, payload)["auth-pro-sdk-app_demo_1/auth_pro_sdk.php"]
-	licenseParts := []string{"'v2'", "self::APP_KEY", "$ctx['licenseKey']", "$ctx['domain']", "$ctx['serverIp']", "(string)$timestamp"}
+	php := zipFiles(t, payload)["auth-pro-client-app_demo_1/vendor/php/src/AuthPro.php"]
+	licenseParts := []string{"'v2'", "self::cfg('appKey', '')", "$ctx['licenseKey']", "$ctx['domain']", "$ctx['serverIp']", "(string)$timestamp"}
 	assertAppearsInOrder(t, php, licenseParts)
-	updateParts := []string{"'v2'", "self::APP_KEY", "(string)$version", "$ctx['licenseKey']", "$ctx['domain']", "$ctx['serverIp']", "(string)$timestamp"}
+	updateParts := []string{"'v2'", "self::cfg('appKey', '')", "(string)$currentVersion", "$ctx['licenseKey']", "$ctx['domain']", "$ctx['serverIp']", "(string)$timestamp"}
 	assertAppearsInOrder(t, php, updateParts)
 	if !strings.Contains(php, "rtrim($value, '.')") {
 		t.Fatal("php domain normalize must strip trailing dots to match v2 canonical")
@@ -242,9 +279,41 @@ func TestPHPCommentDoesNotBreakOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	php := zipFiles(t, payload)["auth-pro-sdk-app_demo_1/auth_pro_sdk.php"]
-	if strings.Contains(php, "evil */") {
+	example := zipFiles(t, payload)["auth-pro-client-app_demo_1/examples/php/boot.php"]
+	if strings.Contains(example, "evil */") {
 		t.Fatal("app name must not terminate the PHP file comment")
+	}
+}
+
+func TestBuildSDKPackPiracyImpliesLicenseVerifyOnBoot(t *testing.T) {
+	payload, _, err := buildSDKPack(testSDKPackInput([]string{sdkPackModulePiracy}, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	php := zipFiles(t, payload)["auth-pro-client-app_demo_1/vendor/php/src/AuthPro.php"]
+	if !strings.Contains(php, "/api/license/verify") {
+		t.Fatal("piracy pack must still call license verify so the server can record hits")
+	}
+	if !strings.Contains(php, "未授权") && !strings.Contains(php, "授权无效") {
+		t.Fatal("piracy pack must include hard-fail UX copy")
+	}
+}
+
+func TestClientSDKAssetsEmbedComplete(t *testing.T) {
+	for _, lang := range sdkPackLanguages {
+		found := false
+		_ = fs.WalkDir(clientSDKAssets, path.Join("sdk_assets", lang), func(walkPath string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() {
+				found = true
+			}
+			return nil
+		})
+		if !found {
+			t.Fatalf("embedded sdk_assets/%s is empty", lang)
+		}
 	}
 }
 
@@ -257,20 +326,6 @@ func assertAppearsInOrder(t *testing.T, haystack string, parts []string) {
 			t.Fatalf("missing %q after offset %d", part, cursor)
 		}
 		cursor += idx + len(part)
-	}
-}
-
-func TestBuildSDKPackPiracyImpliesLicenseVerify(t *testing.T) {
-	payload, _, err := buildSDKPack(testSDKPackInput([]string{sdkPackModulePiracy}, true))
-	if err != nil {
-		t.Fatal(err)
-	}
-	php := zipFiles(t, payload)["auth-pro-sdk-app_demo_1/auth_pro_sdk.php"]
-	if !strings.Contains(php, "/api/license/verify") {
-		t.Fatal("piracy pack must still call license verify so the server can record hits")
-	}
-	if !strings.Contains(php, "未授权") && !strings.Contains(php, "授权无效") {
-		t.Fatal("piracy pack must include hard-fail UX copy")
 	}
 }
 

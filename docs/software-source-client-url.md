@@ -1,6 +1,6 @@
 # 软件源客户端 URL（按应用隔离）
 
-PHP SDK / 授权端「软件源」模块应固化**应用级**公开清单，不要写死未带应用的 `/software-source/index.json`。
+PHP / Node / Python / Go SDK 以及授权端「下载接入包」中的 `vendor/*` 应固化**应用级**公开清单，不要写死未带应用的 `/software-source/index.json`。
 
 ## 推荐固化（路径）
 

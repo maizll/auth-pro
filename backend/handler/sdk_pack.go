@@ -4,12 +4,15 @@ import (
 	"archive/zip"
 	"bytes"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"mime"
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -42,6 +45,8 @@ var sdkPackModuleSet = map[string]struct{}{
 	sdkPackModulePluginSource: {},
 }
 
+var sdkPackLanguages = []string{"php", "node", "python", "go", "browser"}
+
 var errSDKPackAppID = errors.New("请选择应用")
 
 type sdkPackInput struct {
@@ -51,7 +56,7 @@ type sdkPackInput struct {
 	AppSecret string
 	BaseURL   string
 	Modules   []string
-	IncludeJS bool
+	IncludeJS bool // 兼容旧请求字段；混合包始终包含全部语言
 }
 
 type sdkPackHTTPRequest struct {
@@ -59,6 +64,16 @@ type sdkPackHTTPRequest struct {
 	Modules   []string `json:"modules"`
 	BaseURL   string   `json:"baseUrl"`
 	IncludeJS *bool    `json:"includeJs"`
+}
+
+type sdkPackConfigJSON struct {
+	BaseURL    string          `json:"baseUrl"`
+	AppID      int64           `json:"appId"`
+	AppKey     string          `json:"appKey"`
+	AppSecret  string          `json:"appSecret,omitempty"`
+	Modules    map[string]bool `json:"modules"`
+	LicenseKey string          `json:"licenseKey,omitempty"`
+	Domain     string          `json:"domain,omitempty"`
 }
 
 func normalizeSDKPackModules(raw []string) ([]string, error) {
@@ -150,10 +165,37 @@ func sdkPackSafeName(appKey string) string {
 	return name
 }
 
-// sdkPackPluginSourceURL 固化应用隔离清单，等价于 PHP：
+// sdkPackPluginSourceURL 固化应用隔离清单，等价于：
 // rtrim($origin, '/') . '/software-source/' . rawurlencode($appKey) . '/index.json'
 func sdkPackPluginSourceURL(baseURL, appKey string) string {
 	return strings.TrimRight(baseURL, "/") + "/software-source/" + url.PathEscape(strings.TrimSpace(appKey)) + "/index.json"
+}
+
+func sdkPackModuleFlags(modules []string) map[string]bool {
+	flags := map[string]bool{
+		sdkPackModuleLicense:      false,
+		sdkPackModulePiracy:       false,
+		sdkPackModuleUpdate:       false,
+		sdkPackModuleAds:          false,
+		sdkPackModulePluginSource: false,
+	}
+	for _, name := range modules {
+		flags[name] = true
+	}
+	return flags
+}
+
+func sdkPackBuildConfigJSON(input sdkPackInput, modules []string, includeSecret bool) ([]byte, error) {
+	cfg := sdkPackConfigJSON{
+		BaseURL: input.BaseURL,
+		AppID:   input.AppID,
+		AppKey:  input.AppKey,
+		Modules: sdkPackModuleFlags(modules),
+	}
+	if includeSecret {
+		cfg.AppSecret = input.AppSecret
+	}
+	return json.MarshalIndent(cfg, "", "  ")
 }
 
 func buildSDKPack(input sdkPackInput) ([]byte, string, error) {
@@ -165,18 +207,25 @@ func buildSDKPack(input sdkPackInput) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	input.BaseURL = baseURL
 	appKey := strings.TrimSpace(input.AppKey)
 	appSecret := strings.TrimSpace(input.AppSecret)
 	if appKey == "" || appSecret == "" {
 		return nil, "", errors.New("应用密钥不完整，无法生成接入包")
 	}
+	input.AppKey = appKey
+	input.AppSecret = appSecret
+
+	needSign := sdkPackHasModule(modules, sdkPackModuleLicense) ||
+		sdkPackHasModule(modules, sdkPackModulePiracy) ||
+		sdkPackHasModule(modules, sdkPackModuleUpdate)
+
 	safe := sdkPackSafeName(appKey)
-	root := "auth-pro-sdk-" + safe + "/"
-	data := sdkPackTemplateData{
+	root := "auth-pro-client-" + safe + "/"
+	meta := sdkPackTemplateData{
 		AppID:           input.AppID,
 		AppName:         strings.TrimSpace(input.AppName),
 		AppKey:          appKey,
-		AppSecret:       appSecret,
 		BaseURL:         baseURL,
 		PluginIndexURL:  sdkPackPluginSourceURL(baseURL, appKey),
 		PluginIndexPath: sourceStationPublicIndexPath(appKey),
@@ -185,38 +234,40 @@ func buildSDKPack(input sdkPackInput) ([]byte, string, error) {
 		Update:          sdkPackHasModule(modules, sdkPackModuleUpdate),
 		Ads:             sdkPackHasModule(modules, sdkPackModuleAds),
 		PluginSource:    sdkPackHasModule(modules, sdkPackModulePluginSource),
-		IncludeJS:       input.IncludeJS,
+		ModuleLabels:    sdkPackModuleLabels(modules),
 		GeneratedAt:     time.Now().UTC().Format("2006-01-02 15:04 UTC"),
 	}
-	data.Guard = data.License || data.Piracy
-	data.NeedHTTP = data.Guard || data.Update || data.Ads
-	data.NeedSign = data.Guard || data.Update
-	data.ModuleLabels = sdkPackModuleLabels(modules)
 
-	php, err := renderSDKPackTemplate("auth_pro_sdk.php", sdkPackPHPTemplate, data)
+	serverConfig, err := sdkPackBuildConfigJSON(input, modules, needSign)
 	if err != nil {
 		return nil, "", err
 	}
-	example, err := renderSDKPackTemplate("config.example.php", sdkPackConfigExampleTemplate, data)
+	browserConfig, err := sdkPackBuildConfigJSON(input, modules, false)
 	if err != nil {
 		return nil, "", err
 	}
-	readme, err := renderSDKPackTemplate("README.md", sdkPackReadmeTemplate, data)
+	readme, err := renderSDKPackTemplate("README.md", sdkPackReadmeTemplate, meta)
 	if err != nil {
 		return nil, "", err
 	}
-	files := map[string]string{
-		root + "auth_pro_sdk.php":   php,
-		root + "config.example.php": example,
-		root + "README.md":          readme,
+
+	files := map[string][]byte{
+		root + "README.md":   []byte(readme),
+		root + "config.json": serverConfig,
 	}
-	if input.IncludeJS {
-		js, jsErr := renderSDKPackTemplate("auth-pro-sdk.js", sdkPackJSTemplate, data)
-		if jsErr != nil {
-			return nil, "", jsErr
+
+	for _, lang := range sdkPackLanguages {
+		example, exErr := renderSDKPackExample(lang, meta)
+		if exErr != nil {
+			return nil, "", exErr
 		}
-		files[root+"auth-pro-sdk.js"] = js
+		files[root+"examples/"+lang+"/"+example.name] = []byte(example.body)
+		if err := appendSDKVendorFiles(files, root, lang); err != nil {
+			return nil, "", err
+		}
 	}
+	// 浏览器示例旁放一份不含 appSecret 的配置，避免误拷密钥到前端。
+	files[root+"examples/browser/config.json"] = browserConfig
 
 	var buffer bytes.Buffer
 	archive := zip.NewWriter(&buffer)
@@ -229,14 +280,56 @@ func buildSDKPack(input sdkPackInput) ([]byte, string, error) {
 		if err != nil {
 			return nil, "", err
 		}
-		if _, err := entry.Write([]byte(body)); err != nil {
+		if _, err := entry.Write(body); err != nil {
 			return nil, "", err
 		}
 	}
 	if err := archive.Close(); err != nil {
 		return nil, "", err
 	}
-	return buffer.Bytes(), "auth-pro-sdk-" + safe + ".zip", nil
+	return buffer.Bytes(), "auth-pro-client-" + safe + ".zip", nil
+}
+
+func appendSDKVendorFiles(files map[string][]byte, root, lang string) error {
+	prefix := path.Join("sdk_assets", lang)
+	err := fs.WalkDir(clientSDKAssets, prefix, func(walkPath string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			// 跳过 Python 字节码目录
+			if d.Name() == "__pycache__" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		baseName := path.Base(walkPath)
+		if strings.HasPrefix(baseName, ".") || strings.HasSuffix(baseName, ".pyc") {
+			return nil
+		}
+		rel := strings.TrimPrefix(walkPath, prefix+"/")
+		if rel == walkPath || rel == "" {
+			return fmt.Errorf("unexpected sdk asset path %q", walkPath)
+		}
+		raw, err := clientSDKAssets.ReadFile(walkPath)
+		if err != nil {
+			return err
+		}
+		files[root+"vendor/"+lang+"/"+rel] = raw
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	// go.mod 不能放在 sdk_assets/go/ 下（会形成嵌套 module，go:embed 会跳过整棵树）
+	if lang == "go" {
+		mod, readErr := clientSDKAssets.ReadFile("sdk_assets/_meta/go.mod.txt")
+		if readErr != nil {
+			return readErr
+		}
+		files[root+"vendor/go/go.mod"] = mod
+	}
+	return nil
 }
 
 func sdkPackModuleLabels(modules []string) []string {

@@ -1,0 +1,17 @@
+{
+  "name": "auth-pro/client-sdk",
+  "description": "AuthPro 客户端 SDK（PHP）",
+  "type": "library",
+  "license": "proprietary",
+  "require": {
+    "php": ">=7.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "AuthPro\\": "src/"
+    },
+    "classmap": [
+      "src/AuthPro.php"
+    ]
+  }
+}

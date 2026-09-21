@@ -6,7 +6,12 @@
           <div>
             <h2>开发文档</h2>
             <p>
-              推荐在「SDK 接入」页按应用下载 ZIP 接入包（require 一行即可）。下文为协议说明，便于自行实现其它语言。
+              推荐在「SDK 接入」页按应用下载混合接入包：仓库
+              <code>sdk/{php,node,python,go,browser}</code>
+              提供统一 API（boot / verify / checkUpdate / ads /
+              pluginSourceUrl），ZIP 仅预填本应用
+              <code>config.json</code> 并附带
+              <code>vendor/</code> 离线快照。下文为协议说明，便于自行实现或核对签名。
             </p>
           </div>
           <ElTag type="primary" size="large">License API</ElTag>

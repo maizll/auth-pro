@@ -5,11 +5,15 @@
         <div>
           <h2>SDK 接入包</h2>
           <p>
-            按应用生成 ZIP：复制到项目后只需 require 一行。密钥由后台按所选应用写入，不会带上其它应用的
-            appSecret。
+            按应用下载薄 ZIP：内含五语言
+            <code>vendor/</code>
+            快照、中文示例与预填
+            <code>config.json</code>
+            。换应用只改配置；浏览器包不含
+            appSecret。密钥仅写入所选应用的服务端配置。
           </p>
         </div>
-        <ElTag type="primary" size="large">Integration Pack</ElTag>
+        <ElTag type="primary" size="large">Hybrid Client Pack</ElTag>
       </div>
     </ElCard>
 
@@ -47,12 +51,9 @@
             placeholder="默认当前站点 origin，可改为对外域名"
           />
         </ElFormItem>
-        <ElFormItem label="附加语言">
-          <ElCheckbox v-model="packForm.includeJs">同时生成 Node/JS（auth-pro-sdk.js）</ElCheckbox>
-        </ElFormItem>
         <ElFormItem>
           <ElButton type="primary" :loading="generating" @click="generatePack">
-            生成并下载 ZIP
+            下载接入包（五语言）
           </ElButton>
         </ElFormItem>
       </ElForm>
@@ -62,9 +63,11 @@
       <div class="intro-content">
         <div>
           <h2>SDK 接入示例</h2>
-          <p
-            >选择语言后复制示例代码，替换服务地址、appKey、appSecret 和授权目标即可接入授权校验。</p
-          >
+          <p>
+            下列为协议级片段，便于核对签名字段。生产接入请优先使用接入包中的
+            <code>vendor/*</code> + <code>config.json</code>（统一
+            boot/verify/checkUpdate/ads/pluginSourceUrl）。
+          </p>
         </div>
         <ElTag type="info" size="large">License SDK</ElTag>
       </div>
@@ -144,8 +147,7 @@
   const packForm = reactive({
     appId: undefined as number | undefined,
     modules: moduleOptions.map((item) => item.key),
-    baseUrl: typeof window !== 'undefined' ? window.location.origin : '',
-    includeJs: true
+    baseUrl: typeof window !== 'undefined' ? window.location.origin : ''
   })
 
   const loadApps = async () => {
@@ -171,8 +173,7 @@
       const file = await fetchDownloadSDKPack({
         appId: packForm.appId,
         modules: packForm.modules,
-        baseUrl: packForm.baseUrl.trim() || undefined,
-        includeJs: packForm.includeJs
+        baseUrl: packForm.baseUrl.trim() || undefined
       })
       if (!(file instanceof Blob)) {
         ElMessage.error('生成失败，请重试')
@@ -182,7 +183,7 @@
       objectUrl = URL.createObjectURL(file)
       const anchor = document.createElement('a')
       anchor.href = objectUrl
-      anchor.download = `auth-pro-sdk-${app?.appKey || packForm.appId}.zip`
+      anchor.download = `auth-pro-client-${app?.appKey || packForm.appId}.zip`
       document.body.appendChild(anchor)
       anchor.click()
       anchor.remove()
