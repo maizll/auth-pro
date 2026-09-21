@@ -64,7 +64,7 @@
 | 上架 | 软件源 `plugin.json`（`id` 与 catalog 一致，`category=payment`） |
 | 安装 | 内置插件始终 local、`canEnable=true`；远程 ZIP 只落数据目录，不执行代码。曾上传同 ID `alipay-f2f` ZIP 时 **内置 catalog 优先**，商店显示启用/配置，不会停在「需运行实现」 |
 | 启用 | `POST /api/system/plugins/alipay-f2f/toggle`。**支付分类不再互斥**，可与易支付同时启用 |
-| 配置 | 系统设置页 `/system/alipay-f2f-config`（商店「配置」映射同一路径）。`GET/PUT /api/system/alipay-f2f-config`，密钥进 `system_configs.group=payment`。**不渲染** ZIP `config.schema.json` |
+| 配置 | 系统设置唯一入口 `/system/epay-config?channel=alipay-f2f`（商店「配置」映射同一路径）。禁止再加平行系统菜单。`GET/PUT /api/system/alipay-f2f-config`，密钥进 `system_configs.group=payment`。**不渲染** ZIP `config.schema.json` |
 | 出现在收银台 | `plugins.enabled=1` **且** 渠道 `Available()`（凭证齐全） |
 | 停用 | 不再出现在 pay-options；已发出的 pending 订单仍接受合法 notify（与易支付 `validateForNotify` 一致） |
 

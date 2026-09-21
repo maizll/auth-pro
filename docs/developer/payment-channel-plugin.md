@@ -65,16 +65,16 @@ import _ "auto_pro/payment/alipayf2f"
 
 支付分类 **允许同时启用多个插件**（与实名互斥不同）。
 
-**需要凭证的官方支付插件必须有真实配置页**，与易支付相同：
+**需要凭证的官方支付插件必须有真实配置页**，与易支付相同，并且必须收口到唯一支付配置页。硬规范：新支付插件配置必须进入 `/system/epay-config`，禁止再增加平行系统菜单；商店 `configTarget` 指向该页并带 `channel=<插件 id>`。
 
-1. 系统设置页面（当面付：`alipay-f2f-config.vue`）。
-2. 菜单「系统设置 → 支付宝当面付」。
-3. 商店 `pluginConfigPaths['alipay-f2f'] = '/system/alipay-f2f-config'`，启用后卡片显示「配置」。
+1. 配置表单并入 `/system/epay-config`（当面付为该页上的额外区块，按插件是否启用展示，可与易支付同时出现）。
+2. 侧栏只保留「支付配置」（`EpayConfig` → `/system/epay-config`）。不要新增「支付宝当面付」这类系统菜单。
+3. 商店 `pluginConfigPaths['alipay-f2f'] = '/system/epay-config?channel=alipay-f2f'`，启用后卡片显示「配置」。
 4. `GET/PUT /api/system/alipay-f2f-config`；GET **永不**返回私钥，只给 `privateKeySet`。
 
 纯 ZIP 上传没有 Go 实现时商店会显示「需运行实现」。官方当面付不能走这条路：内置 catalog 覆盖同 ID 的历史 ZIP。`config.schema.json` 仅作文档，产品不据此渲染表单。
 
-路径：启用 → 系统设置填写凭证。
+路径：启用 → 系统设置「支付配置」填写凭证。
 
 ### 3.5 配置存储
 
@@ -82,7 +82,7 @@ import _ "auto_pro/payment/alipayf2f"
 
 ### 3.6 前端
 
-- 商店 `pluginConfigPaths[id]` 指向配置页。
+- 商店 `pluginConfigPaths[id]` 指向 `/system/epay-config?channel=<插件 id>`。
 - 下单响应若 `checkoutMode === 'qrcode'`（或带 `qrCode`），弹窗展示二维码并轮询订单状态；否则 `window.location.href = payUrl`。
 
 ## 4. 当面付正扫要点

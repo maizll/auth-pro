@@ -143,6 +143,27 @@ func TestMenuSeedSQLMatchesProductSpec(t *testing.T) {
 	}
 }
 
+func TestProductMenuSpecKeepsSinglePaymentConfigEntry(t *testing.T) {
+	epay := 0
+	for _, spec := range productMenuSpecs() {
+		if spec.Name == "AlipayF2FConfig" || spec.Path == "alipay-f2f-config" || spec.Component == "/system/alipay-f2f-config" {
+			t.Fatalf("payment config must stay on EpayConfig, found parallel menu %+v", spec)
+		}
+		if spec.Name == "EpayConfig" {
+			epay++
+			if spec.Path != "epay-config" || spec.Component != "/system/epay-config" {
+				t.Fatalf("EpayConfig path/component = %s %s", spec.Path, spec.Component)
+			}
+		}
+	}
+	if epay != 1 {
+		t.Fatalf("EpayConfig count = %d, want 1", epay)
+	}
+	if strings.Contains(menuSeedSQL, "AlipayF2FConfig") || strings.Contains(menuSeedSQL, "alipay-f2f-config") {
+		t.Fatal("menu seed must not insert the Alipay F2F sidebar entry")
+	}
+}
+
 func TestBuildMenuTreeExposesProcessorFields(t *testing.T) {
 	rows := []menuRow{
 		{
