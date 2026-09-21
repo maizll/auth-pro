@@ -75,10 +75,11 @@ jobs:
           AUTO_PRO_UPDATE_RELEASES_URL: 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/releases.json'
           AUTO_PRO_REQUIRE_GIT_RELEASE_NOTES: '1'
           AUTO_PRO_RELEASE_NOTES: |
-            SDK 接入包改为按单一语言下载。
-            支付渠道支持插件契约，并提供支付宝当面付官方插件。
-            新增 BizAppSelect、BizStatusTag、BizCopySecret 业务组件。
-            当面付配置并入「支付配置」，去掉重复侧栏；网关与异步通知只读自动生成；多支付插件给出软互斥提示。
+            汇总审核类站内通知（入驻待审/通过/拒绝、取消开发者身份、插件/模板提交与审核/弃用）走统一写入。
+            取消开发者后前台收到「开发者身份已取消」。
+            铃铛面板 Teleport 定位、不透明实底，避免溢出站点边框与透底。
+            待办页只渲染当前 tab、正常行高；派生待办（入驻等）可读。
+            不依赖 WebSocket / 邮件 / 短信配置即可使用站内铃铛。
         run: ./scripts/build-release.sh '${{ steps.version.outputs.value }}'
 
       - name: Run backend tests
