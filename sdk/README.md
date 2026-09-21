@@ -12,4 +12,4 @@
 
 公共 API：`boot` / `verify` / `checkUpdate` / `ads` / `pluginSourceUrl`。
 
-管理端「下载接入包」会把本目录快照进 ZIP 的 `vendor/`，并预填本应用 `config.json`。设计说明见 `docs/superpowers/specs/2026-09-21-client-sdk-hybrid-design.md`。
+管理端「下载接入包」每次只打包**一种**语言：解压得到单文件夹（入口文件 + `config.json` + 短 README），可直接放进项目 require/import。仓库里五种语言库都保留，只是下载不再五语言打成一包。设计说明见 `docs/superpowers/specs/2026-09-21-client-sdk-hybrid-design.md`。

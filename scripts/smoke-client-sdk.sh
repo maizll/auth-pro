@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 混合客户端 SDK 冒烟：语法检查 + 打包 ZIP 结构 + 五语言 verify（httptest stub）
+# 客户端 SDK 冒烟：语法检查 + 单语言打包 ZIP 结构 + 各语言 verify（httptest stub）
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -24,6 +24,6 @@ echo "== go pack builder =="
 (cd backend && go test ./handler/ -run 'SDKPack|ClientSDK' -count=1)
 
 echo "== zip self-test via go test helper =="
-(cd backend && go test ./handler/ -run TestBuildSDKPackHybridLayoutAndAPIs -count=1 -v)
+(cd backend && go test ./handler/ -run 'TestBuildSDKPackSingleLanguageLayout|TestBuildSDKPackRequiresLanguage' -count=1 -v)
 
 echo "ALL SMOKE PASS"

@@ -22,15 +22,17 @@
    - `ads(slot)`：广告位 `home-banner` / `sidebar` / `popup` → `/api/v1/public/advertisements`
    - `pluginSourceUrl()`：应用隔离清单 `{baseUrl}/software-source/{appKey}/index.json`
 3. **应用差异只在 config**，不写死进库源码。
-4. **管理端「下载接入包」** 生成薄 ZIP：
+4. **管理端「下载接入包」** 必须选择**一种**语言（`php` | `node` | `python` | `go` | `browser`），ZIP 只含该语言、可直接丢进项目：
 
 ```text
-auth-pro-client-{app}/
-  README.md
-  config.json
-  examples/{php,node,python,go,browser}/…
-  vendor/{php,node,python,go,browser}/…   # sdk/* 快照（离线 require/import）
+auth-pro-{lang}-{app}/
+  README.md          # 中文：把本文件夹放到哪 + 1～3 行 require/import
+  config.json        # 本应用预填；浏览器包省略 appSecret
+  AuthPro.php | index.js | authpro/ | authpro.go | auth-pro.js
+  example.php | example.js | …   # 可选单文件冒烟示例
 ```
+
+不要再把 php+node+python+go+browser 打进同一个 ZIP。仓库仍保留五种语言库，仅下载组装改为单语言。
 
 5. **浏览器 SDK 不嵌入 `appSecret`**：聚焦 ads / pluginSource；verify / checkUpdate 文档要求服务端 SDK 或同源代理（`proxyVerifyUrl` / `proxyCheckUpdateUrl`）。
 6. **完整模块套件**：license、piracy、update、ads、plugin_source（由 `config.modules` 开关控制 boot 行为；库内 API 始终为真实实现）。
@@ -44,11 +46,11 @@ auth-pro-client-{app}/
 
 ## 接线
 
-- `backend/handler/sdk_pack.go` 从嵌入的 `sdk_assets`（同步自 `sdk/*`）组装 ZIP，并渲染 README / examples / config。
+- `backend/handler/sdk_pack.go` 从嵌入的 `sdk_assets`（同步自 `sdk/*`）按所选语言组装 ZIP，并渲染该语言的 README / example / config。
 - 旧单文件 `auth_pro_sdk.php` / `auth-pro-sdk.js` 模板汤不再作为主产物。
 - 管理端 / 开发者文档文案与上述结构对齐。
 - 不在本变更中 bump 产品 `VERSION` 或切割 GitHub Release。
-- 本阶段不强制发布到 Packagist/npm；`composer.json` / `package.json` / `go.mod` 按可发布形态布局，ZIP vendor 足够 v1。
+- 本阶段不强制发布到 Packagist/npm；`composer.json` / `package.json` / `go.mod` 按可发布形态布局，ZIP 以单语言扁平入口为准。
 
 ## 同步嵌入快照
 
@@ -63,4 +65,4 @@ cp sdk/go/go.mod backend/handler/sdk_assets/_meta/go.mod.txt
 rm -rf backend/handler/sdk_assets/python/authpro/__pycache__
 ```
 
-打包时会把 `_meta/go.mod.txt` 写回 ZIP 内的 `vendor/go/go.mod`。发布脚本 `scripts/build-release.sh` 在 `go build` 前会执行同样同步。
+打包时会把 `_meta/go.mod.txt` 写回 Go 接入包根目录的 `go.mod`。发布脚本 `scripts/build-release.sh` 在 `go build` 前会执行同样同步。
