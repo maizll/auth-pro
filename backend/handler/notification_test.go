@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -65,6 +66,119 @@ func notificationContains(events []string, want string) bool {
 		}
 	}
 	return false
+}
+
+type notificationListItem struct {
+	EventType string `json:"eventType"`
+	Title     string `json:"title"`
+	Read      bool   `json:"read"`
+	Derived   bool   `json:"derived"`
+	ID        int64  `json:"id"`
+}
+
+func notificationListItems(t *testing.T, router http.Handler, token, query string) []notificationListItem {
+	t.Helper()
+	path := "/api/v1/notifications"
+	if query != "" {
+		path += "?" + query
+	}
+	rec := sourceJSON(t, router, http.MethodGet, path, token, "")
+	if sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("list %s = %s", query, rec.Body.String())
+	}
+	var body struct {
+		Data struct {
+			List []notificationListItem `json:"list"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	return body.Data.List
+}
+
+func notificationItemsContain(items []notificationListItem, eventType, titlePart string) bool {
+	for _, item := range items {
+		if item.EventType == eventType && strings.Contains(item.Title, titlePart) {
+			return true
+		}
+	}
+	return false
+}
+
+// insertFailNotificationStore keeps list/unread behavior and forces emit to fail.
+type insertFailNotificationStore struct {
+	notificationStore
+}
+
+func (insertFailNotificationStore) Insert(inAppNotification) (inAppNotification, error) {
+	return inAppNotification{}, errors.New("forced notification insert failure")
+}
+
+func TestDeveloperApplyAdminNoticeAndDerivedTodo(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	_, _, agent := sourceNextAgent(t, "notify-bell")
+
+	apply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", agent, `{}`)
+	if sourceBodyCode(t, apply) != 200 {
+		t.Fatalf("apply=%s", apply.Body.String())
+	}
+
+	notices := notificationListItems(t, router, admin, "tab=notice")
+	if !notificationItemsContain(notices, "developer_apply_submitted", "新的开发者入驻申请") {
+		t.Fatalf("admin notice missing apply: %+v", notices)
+	}
+	todos := notificationListItems(t, router, admin, "tab=todo")
+	if !notificationItemsContain(todos, "todo_developer_apply", "开发者入驻待审核") {
+		t.Fatalf("admin todo missing pending apply: %+v", todos)
+	}
+	for _, item := range todos {
+		if item.EventType == "todo_developer_apply" && !item.Derived {
+			t.Fatalf("pending apply todo must be derived: %+v", item)
+		}
+	}
+
+	unread := sourceJSON(t, router, http.MethodGet, "/api/v1/notifications/unread-count", admin, "")
+	if sourceBodyCode(t, unread) != 200 {
+		t.Fatalf("unread=%s", unread.Body.String())
+	}
+	var countBody struct {
+		Data struct {
+			Count int `json:"count"`
+			Todo  int `json:"todo"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(unread.Body.Bytes(), &countBody); err != nil {
+		t.Fatal(err)
+	}
+	if countBody.Data.Count < 1 || countBody.Data.Todo < 1 {
+		t.Fatalf("badge sources count=%d todo=%d body=%s", countBody.Data.Count, countBody.Data.Todo, unread.Body.String())
+	}
+}
+
+func TestDeveloperApplyDerivedTodoWhenNoticeInsertFails(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	t.Cleanup(SetNotificationStoreForTest(insertFailNotificationStore{notificationStore: newMemoryNotificationStore()}))
+	admin := sourceAdminToken(t)
+	_, _, agent := sourceNextAgent(t, "notify-insert-fail")
+
+	apply := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/apply", agent, `{}`)
+	if sourceBodyCode(t, apply) != 200 {
+		t.Fatalf("apply must succeed when notification insert fails: %s", apply.Body.String())
+	}
+	notices := notificationListItems(t, router, admin, "tab=notice")
+	if notificationItemsContain(notices, "developer_apply_submitted", "新的开发者入驻申请") {
+		t.Fatalf("failed insert must not appear as notice: %+v", notices)
+	}
+	todos := notificationListItems(t, router, admin, "tab=todo")
+	if !notificationItemsContain(todos, "todo_developer_apply", "开发者入驻待审核") {
+		t.Fatalf("pending apply must still derive a todo: %+v", todos)
+	}
+	unread := sourceJSON(t, router, http.MethodGet, "/api/v1/notifications/unread-count", admin, "")
+	if !strings.Contains(unread.Body.String(), `"todo":1`) {
+		t.Fatalf("unread todo=%s", unread.Body.String())
+	}
 }
 
 func TestNotificationApplySubmittedNotifiesAdminNotApplicant(t *testing.T) {

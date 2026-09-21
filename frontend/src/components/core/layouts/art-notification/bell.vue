@@ -12,7 +12,7 @@
 <script setup lang="ts">
   import { onBeforeUnmount, onMounted, ref } from 'vue'
   import { Icon as IconifyIcon } from '@iconify/vue'
-  import { fetchNotificationUnreadCount } from '@/api/notifications'
+  import { fetchNotificationUnreadCount, notificationBadgeCount } from '@/api/notifications'
   import ArtNotification from './index.vue'
 
   defineOptions({ name: 'ArtNotificationBell' })
@@ -25,9 +25,13 @@
   async function refreshUnread() {
     try {
       const { data } = await fetchNotificationUnreadCount()
-      if (data.code === 200) unread.value = data.data?.count || 0
-    } catch {
-      /* Ignore badge polling errors. */
+      if (data.code !== 200) {
+        console.warn('[notifications] 未读数拉取失败', data.msg || data.code)
+        return
+      }
+      unread.value = notificationBadgeCount(data.data?.count, data.data?.todo)
+    } catch (error) {
+      console.warn('[notifications] 未读数拉取失败', error)
     }
   }
 

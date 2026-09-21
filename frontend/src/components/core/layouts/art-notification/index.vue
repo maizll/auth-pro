@@ -188,21 +188,22 @@
   async function loadTab(tab: NotificationTab) {
     try {
       const { data } = await fetchNotifications(tab)
-      const list = data.code === 200 ? data.data?.list || [] : []
+      if (data.code !== 200) {
+        console.warn('[notifications] 通知列表拉取失败', tab, data.msg || data.code)
+        return
+      }
+      const list = data.data?.list || []
       if (tab === 'notice') noticeList.value = list
       if (tab === 'message') msgList.value = list
       if (tab === 'todo') pendingList.value = list
-    } catch {
-      /* Keep last snapshot when the request fails. */
+    } catch (error) {
+      console.warn('[notifications] 通知列表拉取失败', tab, error)
     }
   }
 
   async function refreshAll() {
     await Promise.all([loadTab('notice'), loadTab('message'), loadTab('todo')])
-    const unread =
-      noticeList.value.filter((item) => !item.read && !item.derived).length +
-      msgList.value.filter((item) => !item.read && !item.derived).length
-    emit('unread', unread)
+    emit('unread', unreadNow())
   }
 
   function changeBar(index: number) {
@@ -212,8 +213,8 @@
   async function handleReadAll() {
     try {
       await markAllNotificationsRead()
-    } catch {
-      /* Ignore mark-all failures; refresh still updates the panel. */
+    } catch (error) {
+      console.warn('[notifications] 全部已读失败', error)
     }
     await refreshAll()
   }
@@ -223,8 +224,8 @@
       try {
         await markNotificationRead(item.id)
         item.read = true
-      } catch {
-        /* Navigation still works if mark-read fails. */
+      } catch (error) {
+        console.warn('[notifications] 标记已读失败', error)
       }
     }
     emit('unread', unreadNow())
@@ -235,10 +236,10 @@
   }
 
   function unreadNow() {
-    return (
+    const persisted =
       noticeList.value.filter((item) => !item.read && !item.derived).length +
       msgList.value.filter((item) => !item.read && !item.derived).length
-    )
+    return persisted + pendingList.value.length
   }
 
   function handleViewAll() {
