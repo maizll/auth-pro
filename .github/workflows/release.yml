@@ -75,11 +75,10 @@ jobs:
           AUTO_PRO_UPDATE_RELEASES_URL: 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/releases.json'
           AUTO_PRO_REQUIRE_GIT_RELEASE_NOTES: '1'
           AUTO_PRO_RELEASE_NOTES: |
-            汇总审核类站内通知（入驻待审/通过/拒绝、取消开发者身份、插件/模板提交与审核/弃用）走统一写入。
-            取消开发者后前台收到「开发者身份已取消」。
-            铃铛面板 Teleport 定位、不透明实底，避免溢出站点边框与透底。
-            待办页只渲染当前 tab、正常行高；派生待办（入驻等）可读。
-            不依赖 WebSocket / 邮件 / 短信配置即可使用站内铃铛。
+            用户端「购买授权」整页重排：BizAppSelect 选应用，四段卡片流程，支付接口不变。
+            「我的工单」未读徽标改为行内显示，不再被菜单顶边裁成半个。
+            管理端铃铛未读红点完整显示在图标右上角，不再被顶栏切半。
+            管理端通知下拉紧贴铃铛并限制在后台主区域内。
         run: ./scripts/build-release.sh '${{ steps.version.outputs.value }}'
 
       - name: Run backend tests
