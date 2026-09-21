@@ -476,9 +476,23 @@ func AdminSourceDeveloperCancel(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "申请标识不合法"})
 		return
 	}
-	if err := currentSourceStationStore().FreezeApplication(id, c.GetString("username"), sourceNoteFromBody(c)); err != nil {
+	app, appErr := currentSourceStationStore().GetApplication(id)
+	var dev sourceDeveloper
+	if appErr == nil {
+		dev.AgentID = app.AgentID
+		if app.AgentID > 0 {
+			if found, foundErr := currentSourceStationStore().GetDeveloperByAgentID(app.AgentID); foundErr == nil {
+				dev = found
+			}
+		}
+	}
+	note := sourceNoteFromBody(c)
+	if err := currentSourceStationStore().FreezeApplication(id, c.GetString("username"), note); err != nil {
 		writeSourceDeveloperStoreError(c, err)
 		return
+	}
+	if appErr == nil {
+		notifyDeveloperQualificationRevoked(dev, note)
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已取消并删除开发者资格，可重新申请入驻。"})
 }

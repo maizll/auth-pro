@@ -32,9 +32,14 @@ func AdminSourceCancelDeveloper(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "开发者标识不合法"})
 		return
 	}
-	if err := currentSourceStationStore().FreezeDeveloper(id, c.GetString("username"), sourceNoteFromBody(c)); err != nil {
+	dev, lookupErr := currentSourceStationStore().GetDeveloperByID(id)
+	note := sourceNoteFromBody(c)
+	if err := currentSourceStationStore().FreezeDeveloper(id, c.GetString("username"), note); err != nil {
 		writeSourceDeveloperStoreError(c, err)
 		return
+	}
+	if lookupErr == nil {
+		notifyDeveloperQualificationRevoked(dev, note)
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已取消并删除开发者资格，可重新申请入驻。"})
 }
