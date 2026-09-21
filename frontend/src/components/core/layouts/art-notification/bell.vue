@@ -5,7 +5,12 @@
         <IconifyIcon icon="ri:notification-3-line" width="18" />
       </button>
     </ElBadge>
-    <ArtNotification :value="open" @update:value="open = $event" @unread="unread = $event" />
+    <ArtNotification
+      :value="open"
+      :anchor="rootRef"
+      @update:value="open = $event"
+      @unread="unread = $event"
+    />
   </div>
 </template>
 

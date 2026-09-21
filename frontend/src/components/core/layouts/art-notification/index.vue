@@ -1,11 +1,9 @@
 <!-- 四端共用站内通知：通知 / 消息 / 待办 -->
 <template>
+  <Teleport to="body">
   <div
-    class="art-notification-panel art-card-sm !shadow-xl"
-    :style="{
-      transform: show ? 'scaleY(1)' : 'scaleY(0.9)',
-      opacity: show ? 1 : 0
-    }"
+    class="art-notification-panel"
+    :style="panelStyle"
     v-show="visible"
     @click.stop
   >
@@ -31,9 +29,9 @@
       </li>
     </ul>
 
-    <div class="w-full h-[calc(100%-95px)]">
-      <div class="h-[calc(100%-60px)] overflow-y-scroll scrollbar-thin">
-        <ul v-show="barActiveIndex === 0">
+    <div class="notice-body">
+      <div ref="scrollRef" class="notice-scroll scrollbar-thin">
+        <ul v-if="barActiveIndex === 0">
           <li
             v-for="item in noticeList"
             :key="item.id || item.eventType + item.createdAt"
@@ -58,7 +56,7 @@
           </li>
         </ul>
 
-        <ul v-show="barActiveIndex === 1">
+        <ul v-else-if="barActiveIndex === 1">
           <li
             v-for="item in msgList"
             :key="item.id || item.eventType + item.createdAt"
@@ -72,49 +70,43 @@
               <ArtSvgIcon class="text-lg !bg-transparent" icon="ri:message-3-line" />
             </div>
             <div class="w-[calc(100%-45px)] ml-3.5">
-              <h4 class="text-xs font-normal leading-5.5">{{ item.title }}</h4>
+              <h4 class="text-sm font-normal leading-5.5 text-g-900">{{ item.title }}</h4>
               <p v-if="item.body" class="mt-1 text-xs text-g-600 line-clamp-2">{{ item.body }}</p>
               <p class="mt-1.5 text-xs text-g-500">{{ formatNoticeTime(item.createdAt) }}</p>
             </div>
           </li>
         </ul>
 
-        <ul v-show="barActiveIndex === 2">
+        <ul v-else>
           <li
             v-for="item in pendingList"
             :key="item.eventType + item.title"
-            class="box-border px-5 py-3.5 c-p last:border-b-0 hover:bg-g-200/60"
+            class="box-border px-3.5 py-3.5 c-p last:border-b-0 hover:bg-g-200/60"
             @click="handleItemClick(item)"
           >
-            <h4>{{ item.title }}</h4>
-            <p v-if="item.body" class="text-xs text-g-500 mt-1">{{ item.body }}</p>
+            <h4 class="text-sm font-medium leading-5.5 text-g-900">{{ item.title }}</h4>
+            <p v-if="item.body" class="mt-1 text-xs text-g-600">{{ item.body }}</p>
           </li>
         </ul>
 
-        <div
-          v-show="currentTabIsEmpty"
-          class="relative top-25 h-full text-g-500 text-center !bg-transparent"
-        >
+        <div v-if="currentTabIsEmpty" class="notice-empty text-g-500 text-center">
           <ArtSvgIcon icon="system-uicons:inbox" class="text-5xl" />
-          <p class="mt-3.5 text-xs !bg-transparent"
-            >{{ $t('notice.text[0]') }}{{ barList[barActiveIndex].name }}</p
-          >
+          <p class="mt-3.5 text-xs">{{ $t('notice.text[0]') }}{{ barList[barActiveIndex].name }}</p>
         </div>
       </div>
 
-      <div class="relative box-border w-full px-3.5">
-        <ElButton class="w-full mt-3" @click="handleViewAll" v-ripple>
+      <div class="notice-footer box-border w-full px-3.5">
+        <ElButton class="w-full" @click="handleViewAll" v-ripple>
           {{ $t('notice.viewAll') }}
         </ElButton>
       </div>
     </div>
-
-    <div class="h-25"></div>
   </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-  import { computed, ref, watch } from 'vue'
+  import { computed, onBeforeUnmount, ref, watch } from 'vue'
   import { useI18n } from 'vue-i18n'
   import { useRouter } from 'vue-router'
   import {
@@ -135,6 +127,7 @@
 
   const props = defineProps<{
     value: boolean
+    anchor?: HTMLElement | null
   }>()
 
   const emit = defineEmits<{
@@ -145,6 +138,8 @@
   const show = ref(false)
   const visible = ref(false)
   const barActiveIndex = ref(0)
+  const scrollRef = ref<HTMLElement | null>(null)
+  const placement = ref({ top: 64, left: 8, width: 360, maxHeight: 480 })
   const noticeList = ref<InAppNotification[]>([])
   const msgList = ref<InAppNotification[]>([])
   const pendingList = ref<InAppNotification[]>([])
@@ -208,6 +203,63 @@
 
   function changeBar(index: number) {
     barActiveIndex.value = index
+    if (scrollRef.value) scrollRef.value.scrollTop = 0
+  }
+
+  function updatePlacement() {
+    const margin = 8
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const width = Math.min(360, Math.max(220, viewportWidth - margin * 2))
+    const anchor = props.anchor?.getBoundingClientRect()
+    let left = viewportWidth - width - margin
+    let top = margin
+    let maxHeight = Math.min(520, viewportHeight - margin * 2)
+    if (anchor) {
+      left = anchor.right - width
+      const belowTop = anchor.bottom + margin
+      const spaceBelow = viewportHeight - belowTop - margin
+      const spaceAbove = anchor.top - margin * 2
+      if (spaceBelow >= 200 || spaceBelow >= spaceAbove) {
+        top = belowTop
+        maxHeight = Math.min(520, spaceBelow)
+      } else {
+        maxHeight = Math.min(520, spaceAbove)
+        top = Math.max(margin, anchor.top - margin - maxHeight)
+      }
+    }
+    left = Math.min(Math.max(margin, left), Math.max(margin, viewportWidth - width - margin))
+    top = Math.max(margin, Math.min(top, viewportHeight - margin))
+    maxHeight = Math.min(maxHeight, viewportHeight - top - margin)
+    if (maxHeight < 120) {
+      top = margin
+      maxHeight = viewportHeight - margin * 2
+    }
+    placement.value = { top, left, width, maxHeight: Math.max(80, maxHeight) }
+  }
+
+  const panelStyle = computed(() => ({
+    transform: show.value ? 'scaleY(1)' : 'scaleY(0.9)',
+    opacity: show.value ? 1 : 0,
+    top: `${placement.value.top}px`,
+    left: `${placement.value.left}px`,
+    width: `${placement.value.width}px`,
+    height: `${placement.value.maxHeight}px`,
+    maxHeight: `${placement.value.maxHeight}px`
+  }))
+
+  let placementBound = false
+
+  function bindPlacement(active: boolean) {
+    if (active === placementBound) return
+    placementBound = active
+    if (active) {
+      window.addEventListener('resize', updatePlacement)
+      window.addEventListener('scroll', updatePlacement, true)
+      return
+    }
+    window.removeEventListener('resize', updatePlacement)
+    window.removeEventListener('scroll', updatePlacement, true)
   }
 
   async function handleReadAll() {
@@ -251,6 +303,8 @@
 
   function showNotice(open: boolean) {
     if (open) {
+      updatePlacement()
+      bindPlacement(true)
       visible.value = true
       void refreshAll()
       setTimeout(() => {
@@ -258,11 +312,16 @@
       }, 5)
     } else {
       show.value = false
+      bindPlacement(false)
       setTimeout(() => {
         visible.value = false
       }, 350)
     }
   }
+
+  onBeforeUnmount(() => {
+    bindPlacement(false)
+  })
 
   watch(
     () => props.value,
@@ -273,24 +332,49 @@
 </script>
 
 <style scoped>
-  @reference '@styles/core/tailwind.css';
-
   .art-notification-panel {
-    @apply absolute
-    top-14.5
-    right-5
-    w-90
-    h-125
-    overflow-hidden
-    transition-all
-    duration-300
-    origin-top
-    will-change-[top,left]
-    z-50
-    max-[640px]:top-[65px]
-    max-[640px]:right-0
-    max-[640px]:w-full
-    max-[640px]:h-[80vh];
+    position: fixed;
+    z-index: 2100;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    overflow: hidden;
+    line-height: 1.5;
+    color: var(--el-text-color-primary, #303133);
+    background-color: var(--default-box-color, #fff) !important;
+    border: 1px solid var(--el-border-color-light, rgba(0, 0, 0, 0.08));
+    border-radius: 10px;
+    box-shadow:
+      0 12px 32px rgba(0, 0, 0, 0.16),
+      0 2px 8px rgba(0, 0, 0, 0.08);
+    transform-origin: top right;
+    transition:
+      opacity 0.2s ease,
+      transform 0.2s ease;
+  }
+
+  .notice-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .notice-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .notice-empty {
+    padding: 48px 16px 32px;
+  }
+
+  .notice-footer {
+    flex: none;
+    padding-top: 8px;
+    padding-bottom: 12px;
+    background-color: var(--default-box-color, #fff) !important;
   }
 
   .bar-active {

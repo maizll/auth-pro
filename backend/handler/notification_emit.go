@@ -6,14 +6,40 @@ import (
 	"strings"
 )
 
+// Review notices share one writer. Audience is either every admin, or the
+// applicant binding (agent id + developer id) so both the agent panel and the
+// developer panel lists can see it. Add a key here instead of a new helper.
+const (
+	reviewEventDeveloperApplySubmitted       = "developer_apply_submitted"
+	reviewEventDeveloperApplyApproved        = "developer_apply_approved"
+	reviewEventDeveloperApplyRejected        = "developer_apply_rejected"
+	reviewEventDeveloperQualificationRevoked = "developer_qualification_revoked"
+	reviewEventCatalogSubmitted              = "catalog_item_submitted"
+	reviewEventCatalogApproved               = "catalog_item_approved"
+	reviewEventCatalogRejected               = "catalog_item_rejected"
+	reviewEventCatalogDeprecated             = "catalog_item_deprecated"
+)
+
+type reviewNoticeAudience struct {
+	AgentID     int64
+	DeveloperID int64
+}
+
+func emitReviewNotice(admins bool, who reviewNoticeAudience, category, title, body, link, event, refType, refID string) {
+	if admins {
+		notifyAllAdmins(category, title, body, link, event, refType, refID)
+		return
+	}
+	notifyDeveloperBinding(who.AgentID, who.DeveloperID, category, title, body, link, event, refType, refID)
+}
+
 func notifyDeveloperApplySubmitted(app sourceApplication) {
 	name := sourceFirstNonEmpty(app.DisplayName, app.Username, "代理商")
-	notifyAllAdmins(
-		notificationTabNotice,
+	emitReviewNotice(true, reviewNoticeAudience{}, notificationTabNotice,
 		"新的开发者入驻申请",
 		name+" 提交了入驻申请，请审核",
 		"/source-station/applications",
-		"developer_apply_submitted",
+		reviewEventDeveloperApplySubmitted,
 		"developer_application",
 		itoaSourceID(app.ID),
 	)
@@ -27,16 +53,30 @@ func notifyDeveloperApplyReviewed(app sourceApplication, developer sourceDevelop
 	}
 	title := "开发者入驻已通过"
 	body := "管理员已通过你的入驻申请，可进入开发者工作台"
-	event := "developer_apply_approved"
+	event := reviewEventDeveloperApplyApproved
 	if !approved {
 		title = "开发者入驻未通过"
 		body = "入驻申请未通过"
 		if strings.TrimSpace(note) != "" {
 			body += "：" + truncateText(note, 80)
 		}
-		event = "developer_apply_rejected"
+		event = reviewEventDeveloperApplyRejected
 	}
-	notifyDeveloperBinding(agentID, developerID, notificationTabMessage, title, body, "/agent-panel/become-developer", event, "developer_application", itoaSourceID(app.ID))
+	emitReviewNotice(false, reviewNoticeAudience{AgentID: agentID, DeveloperID: developerID}, notificationTabMessage,
+		title, body, "/agent-panel/become-developer", event, "developer_application", itoaSourceID(app.ID))
+}
+
+func notifyDeveloperQualificationRevoked(dev sourceDeveloper, note string) {
+	if dev.AgentID <= 0 && dev.ID <= 0 {
+		return
+	}
+	body := "管理员已取消你的开发者身份，入驻资格已撤销，可重新申请"
+	if strings.TrimSpace(note) != "" {
+		body += "：" + truncateText(note, 80)
+	}
+	emitReviewNotice(false, reviewNoticeAudience{AgentID: dev.AgentID, DeveloperID: dev.ID}, notificationTabMessage,
+		"开发者身份已取消", body, "/agent-panel/become-developer",
+		reviewEventDeveloperQualificationRevoked, "developer", itoaSourceID(dev.ID))
 }
 
 func notifyCatalogSubmitted(kind, itemID, name string) {
@@ -47,12 +87,11 @@ func notifyCatalogSubmitted(kind, itemID, name string) {
 	if strings.TrimSpace(name) == "" {
 		name = itemID
 	}
-	notifyAllAdmins(
-		notificationTabNotice,
+	emitReviewNotice(true, reviewNoticeAudience{}, notificationTabNotice,
 		"有新的"+label+"待审核",
 		name+" 已提交审核",
 		"/source-station/catalog",
-		"catalog_item_submitted",
+		reviewEventCatalogSubmitted,
 		kind,
 		itemID,
 	)
@@ -74,15 +113,20 @@ func notifyCatalogReviewed(developerID int64, kind, itemID, name, status string)
 	title, body, event := "", "", ""
 	switch status {
 	case sourceItemApproved:
-		title, body, event = label+"审核已通过", name+" 已通过审核，可继续上架", "catalog_item_approved"
+		title, body, event = label+"审核已通过", name+" 已通过审核，可继续上架", reviewEventCatalogApproved
 	case sourceItemRejected:
-		title, body, event = label+"审核未通过", name+" 未通过审核，请修改后再次提交", "catalog_item_rejected"
+		title, body, event = label+"审核未通过", name+" 未通过审核，请修改后再次提交", reviewEventCatalogRejected
 	case sourceItemDeprecated:
-		title, body, event = label+"已被标记弃用", name+" 已从公开目录清除，请查看审核说明", "catalog_item_deprecated"
+		title, body, event = label+"已被标记弃用", name+" 已从公开目录清除，请查看审核说明", reviewEventCatalogDeprecated
 	default:
 		return
 	}
-	notifyDeveloperOwner(developerID, notificationTabMessage, title, body, link, event, kind, itemID)
+	agentID := int64(0)
+	if dev, err := currentSourceStationStore().GetDeveloperByID(developerID); err == nil {
+		agentID = dev.AgentID
+	}
+	emitReviewNotice(false, reviewNoticeAudience{AgentID: agentID, DeveloperID: developerID}, notificationTabMessage,
+		title, body, link, event, kind, itemID)
 }
 
 func notifyCatalogVersionSubmitted(kind, itemID, version string) {

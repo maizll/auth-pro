@@ -214,6 +214,63 @@ func TestNotificationApproveApplyNotifiesDeveloperAgent(t *testing.T) {
 	}
 }
 
+func TestCancelDeveloperNotifiesApplicant(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin, agent, developerID := sourceApproveDeveloper(t, router, "notify-revoke", "")
+
+	cancel := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/developers/"+itoa64(developerID)+"/freeze", admin, `{"note":"资格收回"}`)
+	if sourceBodyCode(t, cancel) != 200 {
+		t.Fatalf("cancel=%s", cancel.Body.String())
+	}
+
+	messages := notificationListItems(t, router, agent, "tab=message")
+	if !notificationItemsContain(messages, "developer_apply_approved", "开发者入驻已通过") {
+		t.Fatalf("approval history should remain: %+v", messages)
+	}
+	if !notificationItemsContain(messages, "developer_qualification_revoked", "开发者身份已取消") {
+		t.Fatalf("applicant missing revoke notice: %+v", messages)
+	}
+	if notificationItemsContain(notificationListItems(t, router, admin, "tab=message"), "developer_qualification_revoked", "开发者身份已取消") {
+		t.Fatal("admin must not receive the applicant revoke notice")
+	}
+}
+
+func TestNotificationRejectPluginNotifiesOwner(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	admin, dev, _ := sourceApproveDeveloper(t, router, "notify-plugin-reject", "")
+	sha := sourceTestSHA256()
+	pluginBody := `{"appId":1,"id":"reject-plugin","name":"驳回插件","version":"1.0.0","description":"notify","category":"other","downloadUrl":"https://cdn.example.com/reject-plugin.zip","sha256":"` + sha + `"}`
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins", dev, pluginBody); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("save plugin=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins/reject-plugin/submit", dev, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("submit=%s", rec.Body.String())
+	}
+	if !notificationContains(notificationListEvents(t, router, admin, "tab=notice"), "catalog_item_submitted") {
+		t.Fatal("admin should see plugin submit notice")
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/reject-plugin/reject", admin, `{"note":"不符合规范"}`); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("reject=%s", rec.Body.String())
+	}
+	if !notificationContains(notificationListEvents(t, router, dev, "tab=message"), "catalog_item_rejected") {
+		t.Fatal("owner missing plugin reject message")
+	}
+
+	templateBody := `{"appId":1,"id":"reject-template","name":"驳回模板","version":"1.0.0","description":"notify","templateUrl":"https://cdn.example.com/reject-template.zip","sha256":"` + sha + `","schemaVersion":1}`
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/templates", dev, templateBody); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("save template=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/templates/reject-template/submit", dev, "{}"); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("submit template=%s", rec.Body.String())
+	}
+	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/templates/reject-template/reject", admin, `{}`); sourceBodyCode(t, rec) != 200 {
+		t.Fatalf("reject template=%s", rec.Body.String())
+	}
+	if !notificationContains(notificationListEvents(t, router, dev, "tab=message"), "catalog_item_rejected") {
+		t.Fatal("owner missing template reject message")
+	}
+}
+
 func TestNotificationDeprecatePluginNotifiesOwner(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	admin, dev, _ := sourceApproveDeveloper(t, router, "notify-deprecate", "")
