@@ -9,6 +9,9 @@ import (
 	"regexp"
 	"strings"
 
+	"auto_pro/payment"
+	"auto_pro/payment/alipayf2f"
+
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -16,8 +19,8 @@ import (
 // ========== 应用商店（插件中心） ==========
 //
 // 插件化能力位：支付服务商、实名认证服务商等以后续可扩展的方式注册。
-// 每个插件是一条 plugins 表记录（id 唯一），enabled 控制该能力位使用哪个实现。
-// 同一 category 下同时只允许一个插件处于启用状态（启用一个会自动停用同类其他插件）。
+// 每个插件是一条 plugins 表记录（id 唯一），enabled 控制该能力位是否启用。
+// 实名认证同一 category 同时只允许一个插件启用；支付渠道插件允许并存。
 
 type pluginInfo struct {
 	ID          string         `json:"id"`
@@ -58,6 +61,16 @@ var pluginCatalog = []pluginInfo{
 		Icon:        "ri:bank-card-2-line",
 		Version:     "2.0.0",
 		Official:    true,
+	},
+	{
+		ID:          "alipay-f2f",
+		Category:    "payment",
+		Name:        "支付宝当面付",
+		Description: "支付宝开放平台当面付（正扫）。启用并配置后作为独立支付渠道，调用 alipay.trade.precreate 生成收款码。",
+		Icon:        "ri:alipay-fill",
+		Version:     "1.0.0",
+		Official:    true,
+		CanEnable:   true, // 运行时编译在后端（与易支付相同）；纯 ZIP 上传不会热加载
 	},
 	{
 		ID:          "alipay-realname",
@@ -106,6 +119,20 @@ func findCatalogPlugin(id string) (pluginInfo, bool) {
 		}
 	}
 	return pluginInfo{}, false
+}
+
+// pluginHasCompiledRuntime 表示当前二进制已包含该插件的运行实现。
+// 内置 catalog（易支付等）始终可启用；支付渠道 SPI 注册表中的官方渠道同样可启用。
+// 纯 ZIP 安装没有 Go 实现，必须返回 false，商店才会显示「需运行实现」。
+func pluginHasCompiledRuntime(id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	if _, ok := findCatalogPlugin(id); ok {
+		return true
+	}
+	return payment.Has(id)
 }
 
 func listedCatalogPlugins() []pluginInfo {
@@ -215,6 +242,9 @@ func pluginConfigured(db *sql.DB, id string) bool {
 	case "epay-v2":
 		cfg, err := loadEpayV2Config(db)
 		return err == nil && cfg.Gateway != "" && cfg.PID != "" && cfg.MerchantKey != "" && cfg.PlatformKey != ""
+	case "alipay-f2f":
+		cfg, err := alipayf2f.LoadConfig(db)
+		return err == nil && cfg.Public().PrivateKeySet && cfg.AppID != "" && cfg.AlipayPublicKey != ""
 	case "alipay-realname":
 		cfg, err := loadRealnameConfig(db)
 		return err == nil && cfg.AppID != "" && cfg.PrivateKey != "" && cfg.AlipayPublicKey != ""
@@ -374,8 +404,12 @@ func AdminPluginToggle(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	plugin, ok := findCatalogPlugin(id)
 	if !ok {
-		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "插件不存在"})
-		return
+		// 官方支付渠道若曾以同 ID ZIP 安装，仍允许启用（运行时已编译进后端）。
+		if !payment.Has(id) {
+			c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "插件不存在"})
+			return
+		}
+		plugin = pluginInfo{ID: id, Category: "payment", Official: true, CanEnable: true}
 	}
 
 	var req struct {
@@ -397,8 +431,8 @@ func AdminPluginToggle(c *gin.Context) {
 		return
 	}
 
-	if req.Enabled {
-		// 同分类互斥：先停用同类，再启用目标
+	if req.Enabled && pluginCategoryIsExclusive(plugin.Category) {
+		// 同分类互斥：先停用同类，再启用目标。支付渠道插件可并存。
 		if _, err := db.Exec("UPDATE plugins SET enabled = 0, updated_at = NOW() WHERE category = ? AND id != ?", plugin.Category, id); err != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更新插件状态失败"})
 			return

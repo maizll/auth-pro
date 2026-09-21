@@ -88,9 +88,10 @@ func productMenuSpecs() []productMenuSpec {
 		{ID: 204, ParentName: "System", Name: "Menus", Path: "menu", Component: "/system/menu", Title: "menus.system.menu", Icon: "ri:menu-2-line", Sort: 2, KeepAlive: true, Roles: super},
 		{ID: 205, ParentName: "System", Name: "SystemConfig", Path: "config", Component: "/system/config", Title: "menus.system.config", Icon: "ri:settings-3-line", Sort: 3, KeepAlive: true, Roles: super},
 		{ID: 208, ParentName: "System", Name: "EpayConfig", Path: "epay-config", Component: "/system/epay-config", Title: "menus.system.epayConfig", Icon: "ri:bank-card-line", Sort: 4, KeepAlive: true, Roles: super},
-		{ID: 206, ParentName: "System", Name: "MailConfig", Path: "mail-config", Component: "/system/mail-config", Title: "menus.system.mailConfig", Icon: "ri:mail-settings-line", Sort: 5, KeepAlive: true, Roles: super},
-		{ID: 207, ParentName: "System", Name: "MailLogs", Path: "mail-logs", Component: "/system/mail-logs", Title: "menus.system.mailLogs", Icon: "ri:mail-check-line", Sort: 6, KeepAlive: true, Roles: super},
-		{ID: 203, ParentName: "System", Name: "UserCenter", Path: "user-center", Component: "/system/user-center", Title: "menus.system.userCenter", Icon: "ri:user-settings-line", Sort: 7, KeepAlive: true, IsHideTab: true, Roles: ops},
+		{ID: 213, ParentName: "System", Name: "AlipayF2FConfig", Path: "alipay-f2f-config", Component: "/system/alipay-f2f-config", Title: "menus.system.alipayF2FConfig", Icon: "ri:alipay-fill", Sort: 5, KeepAlive: true, Roles: super},
+		{ID: 206, ParentName: "System", Name: "MailConfig", Path: "mail-config", Component: "/system/mail-config", Title: "menus.system.mailConfig", Icon: "ri:mail-settings-line", Sort: 6, KeepAlive: true, Roles: super},
+		{ID: 207, ParentName: "System", Name: "MailLogs", Path: "mail-logs", Component: "/system/mail-logs", Title: "menus.system.mailLogs", Icon: "ri:mail-check-line", Sort: 7, KeepAlive: true, Roles: super},
+		{ID: 203, ParentName: "System", Name: "UserCenter", Path: "user-center", Component: "/system/user-center", Title: "menus.system.userCenter", Icon: "ri:user-settings-line", Sort: 8, KeepAlive: true, IsHideTab: true, Roles: ops},
 
 		{ID: 6, Name: "Result", Path: "/result", Component: "/index/index", Title: "menus.result.title", Icon: "ri:checkbox-circle-line", Sort: 90, IsHide: true, Roles: super},
 		{ID: 601, ParentName: "Result", Name: "ResultSuccess", Path: "success", Component: "/result/success", Title: "menus.result.success", Icon: "ri:checkbox-circle-line", Sort: 1, KeepAlive: true, IsHide: true, Roles: super},

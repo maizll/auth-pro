@@ -389,6 +389,13 @@
         下一步
       </el-button>
     </div>
+    <PayQrDialog
+      :visible="qrCheckout.visible"
+      :qr-code="qrCheckout.qrCode"
+      :amount="qrCheckout.amount"
+      :order-no="qrCheckout.orderNo"
+      @close="qrCheckout.visible = false"
+    />
   </div>
 </template>
 
@@ -398,6 +405,8 @@
   import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
   import { useRoute, useRouter } from 'vue-router'
+  import PayQrDialog from '@/components/core/pay/PayQrDialog.vue'
+  import { isQrCheckout } from '@/utils/checkout'
 
   const route = useRoute()
   const router = useRouter()
@@ -411,6 +420,12 @@
   const agentBalance = ref(0)
   const purchasing = ref(false)
   const purchaseResult = ref<any>(null)
+  const qrCheckout = reactive({
+    visible: false,
+    qrCode: '',
+    orderNo: '',
+    amount: '' as string | number
+  })
 
   const payMethodLabels: Record<string, string> = {
     balance: '余额支付',
@@ -573,6 +588,42 @@
       clearInterval(purchasePollTimer)
       purchasePollTimer = null
     }
+  }
+
+  async function pollAgentPurchaseQr(orderNo: string) {
+    for (let index = 0; index < 40; index++) {
+      try {
+        const { data } = await axios.get(`/api/agent-panel/purchase/orders/${orderNo}`, {
+          headers: authHeaders.value
+        })
+        if (data.data?.status === 'paid') {
+          qrCheckout.visible = false
+          purchaseResult.value = {
+            licenseNo: data.data.licenseNo,
+            licenseId: data.data.licenseId,
+            orderNo,
+            payMethod: data.data.payMethod || 'alipay',
+            appName: data.data.appName,
+            planName: data.data.planName,
+            durationDays: data.data.durationDays,
+            cost: Number(data.data.cost || 0)
+          }
+          agentBalance.value = Number(data.data.newBalance || 0)
+          step.value = 4
+          ElMessage.success('支付成功，授权已生成')
+          return
+        }
+        if (data.data?.status === 'failed' || data.data?.status === 'cancelled') {
+          qrCheckout.visible = false
+          ElMessage.warning('支付未完成')
+          return
+        }
+      } catch {
+        /* keep polling */
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1500))
+    }
+    ElMessage.info('支付结果处理中，稍后可刷新页面继续确认')
   }
 
   async function checkPurchaseReturn() {
@@ -936,6 +987,14 @@
         { headers: authHeaders.value }
       )
       if (data.code === 200) {
+        if (isQrCheckout(data.data)) {
+          qrCheckout.visible = true
+          qrCheckout.qrCode = data.data.qrCode || ''
+          qrCheckout.orderNo = data.data.orderNo || ''
+          qrCheckout.amount = data.data.amount || computedCost.value
+          await pollAgentPurchaseQr(data.data.orderNo)
+          return
+        }
         if (data.data?.payUrl) {
           ElMessage.success('支付订单已创建，正在跳转收银台')
           window.location.href = data.data.payUrl

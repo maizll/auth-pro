@@ -594,6 +594,7 @@ func TestParseOnlinePaySelectionSupportsExplicitAndLegacyCodes(t *testing.T) {
 	}{
 		{value: "easypay:alipay", wantChannel: payChannelEpayV1, wantType: "alipay", wantOK: true},
 		{value: "easypay-v2:wxpay", wantChannel: payChannelEpayV2, wantType: "wxpay", wantOK: true},
+		{value: "alipay-f2f:alipay", wantChannel: "alipay-f2f", wantType: "alipay", wantOK: true},
 		{value: "qqpay", wantType: "qqpay", wantOK: true},
 		{value: "unknown:alipay", wantOK: false},
 		{value: "easypay:unknown", wantOK: false},

@@ -833,12 +833,14 @@ func UserAgentUpgradeCreate(c *gin.Context) {
 }
 
 type agentUpgradeOnlineOrderResponse struct {
-	OrderNo    string  `json:"orderNo"`
-	Amount     float64 `json:"amount"`
-	PayChannel string  `json:"payChannel"`
-	PayMethod  string  `json:"payMethod"`
-	PayURL     string  `json:"payUrl"`
-	Status     string  `json:"status"`
+	OrderNo      string  `json:"orderNo"`
+	Amount       float64 `json:"amount"`
+	PayChannel   string  `json:"payChannel"`
+	PayMethod    string  `json:"payMethod"`
+	PayURL       string  `json:"payUrl"`
+	QRCode       string  `json:"qrCode,omitempty"`
+	CheckoutMode string  `json:"checkoutMode,omitempty"`
+	Status       string  `json:"status"`
 }
 
 func createOnlineAgentUpgrade(c *gin.Context, db *sql.DB, userID, levelID uint64, payMethod string) (agentUpgradeOnlineOrderResponse, error) {
@@ -953,8 +955,25 @@ func createOnlineAgentUpgrade(c *gin.Context, db *sql.DB, userID, levelID uint64
 			return agentUpgradeOnlineOrderResponse{}, fmt.Errorf("%w: %v", errAgentUpgradePaymentCreate, err)
 		}
 	default:
-		markAgentUpgradeOrderFailed(db, orderNo, "未知支付通道")
-		return agentUpgradeOnlineOrderResponse{}, errAgentUpgradePaymentUnavailable
+		if !isRegisteredPayChannel(selection.Channel) {
+			markAgentUpgradeOrderFailed(db, orderNo, "未知支付通道")
+			return agentUpgradeOnlineOrderResponse{}, errAgentUpgradePaymentUnavailable
+		}
+		result, _, err := createRegisteredChannelPayment(c, db, selection, orderNo, priceCents, orderName, returnPath)
+		if err != nil {
+			markAgentUpgradeOrderFailed(db, orderNo, err.Error())
+			return agentUpgradeOnlineOrderResponse{}, fmt.Errorf("%w: %v", errAgentUpgradePaymentCreate, err)
+		}
+		return agentUpgradeOnlineOrderResponse{
+			OrderNo:      orderNo,
+			Amount:       float64(priceCents) / 100,
+			PayChannel:   selection.Channel,
+			PayMethod:    selection.PayType,
+			PayURL:       result.PayURL,
+			QRCode:       result.QRCode,
+			CheckoutMode: result.Mode,
+			Status:       "pending",
+		}, nil
 	}
 
 	return agentUpgradeOnlineOrderResponse{

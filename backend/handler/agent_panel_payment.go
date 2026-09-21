@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"auto_pro/payment"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -33,15 +35,36 @@ type onlinePaySelection struct {
 }
 
 func parseOnlinePaySelection(value string) (onlinePaySelection, bool) {
-	parts := strings.SplitN(strings.TrimSpace(value), ":", 2)
-	channel := ""
-	payTypeText := parts[0]
-	if len(parts) == 2 {
-		channel = strings.TrimSpace(parts[0])
-		payTypeText = parts[1]
-		if channel != payChannelEpayV1 && channel != payChannelEpayV2 {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return onlinePaySelection{}, false
+	}
+	parts := strings.SplitN(value, ":", 2)
+	if len(parts) == 1 {
+		if ch, ok := payment.Get(parts[0]); ok {
+			opts := ch.Options()
+			if len(opts) == 0 {
+				return onlinePaySelection{}, false
+			}
+			return onlinePaySelection{Channel: ch.ID(), PayType: opts[0].PayType}, true
+		}
+		payType, ok := normalizeEpayPayType(parts[0], "")
+		if !ok {
 			return onlinePaySelection{}, false
 		}
+		return onlinePaySelection{Channel: "", PayType: payType}, true
+	}
+
+	channel := strings.TrimSpace(parts[0])
+	payTypeText := strings.TrimSpace(parts[1])
+	if ch, ok := payment.Get(channel); ok {
+		if !payment.SupportsPayType(ch, payTypeText) {
+			return onlinePaySelection{}, false
+		}
+		return onlinePaySelection{Channel: ch.ID(), PayType: payTypeText}, true
+	}
+	if channel != payChannelEpayV1 && channel != payChannelEpayV2 {
+		return onlinePaySelection{}, false
 	}
 	payType, ok := normalizeEpayPayType(payTypeText, "")
 	if !ok {
@@ -152,7 +175,7 @@ func dedupePayOptions(options []payOption) []payOption {
 	out := options[:0]
 	for _, option := range options {
 		key := option.Code
-		if option.PayType != "" {
+		if option.PayType != "" && (option.Channel == payChannelEpayV1 || option.Channel == payChannelEpayV2) {
 			key = "online:" + option.PayType
 		}
 		if seen[key] {
@@ -172,6 +195,7 @@ func configuredOnlinePayOptions(db *sql.DB) []payOption {
 	if cfg, err := loadEpayV2Config(db); err == nil && cfg.validateForPay() == nil {
 		options = append(options, epayPayTypeOptions(payChannelEpayV2, cfg.PayTypes)...)
 	}
+	options = append(options, pluginPayOptions(db)...)
 	return dedupePayOptions(options)
 }
 
@@ -388,6 +412,34 @@ func userPurchaseOnline(c *gin.Context, appID int64, planID int64, licenseType s
 	}
 	payType = selection.PayType
 
+	if isRegisteredPayChannel(selection.Channel) {
+		frontendReturnURL := buildFrontendReturnURL(c, orderNo, "/user/purchase")
+		if err := insertAllowedLicensePurchaseOrder(c.Request.Context(), db, orderNo, 0, "user", ownerID, licenseType, domain, plan, quote, selection.Channel, payType, frontendReturnURL); err != nil {
+			if err == errPurchaseTypeNotAllowed {
+				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": purchaseLicenseTypeNotAllowedMessage(licenseType)})
+			} else if violation := purchaseLimitViolationMessage(err); violation != "" {
+				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": violation})
+			} else if err == sql.ErrNoRows {
+				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用不存在或已下架"})
+			} else {
+				c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建购买订单失败"})
+			}
+			return
+		}
+		result, _, err := createRegisteredChannelPayment(c, db, selection, orderNo, amountCents, orderName, "/user/purchase")
+		if err != nil {
+			_, _ = db.Exec(`UPDATE license_purchase_orders SET status = 'failed', remark = ? WHERE order_no = ? AND status = 'pending'`, "支付网关下单失败: "+err.Error(), orderNo)
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"code": 200,
+			"msg":  "支付订单已创建，请扫码完成支付",
+			"data": checkoutData(orderNo, formatCents(amountCents), payType, result),
+		})
+		return
+	}
+
 	payConfig, err := loadEpayConfig(db)
 	if (selection.Channel == "" || selection.Channel == payChannelEpayV1) && err == nil && payConfig.validateForPay() == nil && payConfig.isPayTypeEnabled(payType) {
 		payURL, frontendReturnURL, err := buildEpaySubmitURL(c, payConfig, orderNo, amountCents, payType, orderName, "/user/purchase")
@@ -522,6 +574,34 @@ func agentPanelPurchaseOnline(c *gin.Context, appID int64, planID int64, userID 
 		return
 	}
 	payType = selection.PayType
+
+	if isRegisteredPayChannel(selection.Channel) {
+		frontendReturnURL := buildFrontendReturnURL(c, orderNo, "/agent/purchase")
+		if err := insertAllowedLicensePurchaseOrder(c.Request.Context(), db, orderNo, agentID, ownerType, ownerID, licenseType, domain, plan, quote, selection.Channel, payType, frontendReturnURL); err != nil {
+			if err == errPurchaseTypeNotAllowed {
+				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": purchaseLicenseTypeNotAllowedMessage(licenseType)})
+			} else if violation := purchaseLimitViolationMessage(err); violation != "" {
+				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": violation})
+			} else if err == sql.ErrNoRows {
+				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用不存在或已下架"})
+			} else {
+				c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建购买订单失败"})
+			}
+			return
+		}
+		result, _, err := createRegisteredChannelPayment(c, db, selection, orderNo, amountCents, orderName, "/agent/purchase")
+		if err != nil {
+			_, _ = db.Exec(`UPDATE license_purchase_orders SET status = 'failed', remark = ? WHERE order_no = ? AND status = 'pending'`, "支付网关下单失败: "+err.Error(), orderNo)
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"code": 200,
+			"msg":  "支付订单已创建，请扫码完成支付",
+			"data": checkoutData(orderNo, formatCents(amountCents), payType, result),
+		})
+		return
+	}
 
 	payConfig, err := loadEpayConfig(db)
 	if (selection.Channel == "" || selection.Channel == payChannelEpayV1) && err == nil && payConfig.validateForPay() == nil && payConfig.isPayTypeEnabled(payType) {

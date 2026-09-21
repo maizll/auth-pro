@@ -63,6 +63,9 @@ func main() {
 		api.Any("/payment/easypay-v2/notify", handler.EpayV2Notify)
 		api.Any("/payment/easypay-v2/return", handler.EpayV2Return)
 
+		// 支付渠道插件异步通知（如支付宝当面付 /api/payment/alipay-f2f/notify）
+		api.Any("/payment/:channel/notify", handler.PaymentChannelNotify)
+
 		// 快瞳 / 腾讯云增强人脸拍照提交（扫码手机端调用，token 即凭证，无需登录）
 		api.POST("/realname/face/submit", handler.RealnameFaceSubmit)
 
@@ -219,6 +222,8 @@ func main() {
 			superSecured.PUT("/system/payment-v2-config", handler.AdminPaymentV2ConfigUpdate)
 			superSecured.POST("/system/payment-v2-config/test", handler.AdminPaymentV2TestCreate)
 			superSecured.GET("/system/payment-v2-config/test/:orderNo", handler.AdminPaymentV2TestStatus)
+			superSecured.GET("/system/alipay-f2f-config", handler.AdminAlipayF2FConfig)
+			superSecured.PUT("/system/alipay-f2f-config", handler.AdminAlipayF2FConfigUpdate)
 			secured.GET("/system/payment-orders", handler.AdminPaymentOrderList)
 			superSecured.GET("/system/plugins", handler.AdminPluginList)
 			superSecured.POST("/system/plugins/:id/toggle", handler.AdminPluginToggle)

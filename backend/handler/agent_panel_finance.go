@@ -237,20 +237,26 @@ func AgentPanelRechargeOptions(c *gin.Context) {
 
 	payTypes := []string{}
 	defaultType := ""
+	options := []payOption{}
 	if cfg, err := loadEpayConfig(db); err == nil && cfg.validateForPay() == nil {
 		payTypes = append(payTypes, cfg.PayTypes...)
+		options = append(options, epayPayTypeOptions(payChannelEpayV1, cfg.PayTypes)...)
 		if defaultType == "" {
 			defaultType = cfg.resolveDefaultPayType()
 		}
 	}
 	if cfg, err := loadEpayV2Config(db); err == nil && cfg.validateForPay() == nil {
 		payTypes = append(payTypes, cfg.PayTypes...)
+		options = append(options, epayPayTypeOptions(payChannelEpayV2, cfg.PayTypes)...)
 		if defaultType == "" {
 			defaultType = cfg.resolveDefaultPayType()
 		}
 	}
+	pluginOptions := pluginPayOptions(db)
+	options = append(options, pluginOptions...)
+	options = dedupePayOptions(options)
 
-	// 去重
+	// 去重：易支付方式按 payType 折叠；插件渠道保留完整 code。
 	seen := map[string]bool{}
 	unique := []string{}
 	for _, t := range payTypes {
@@ -258,6 +264,16 @@ func AgentPanelRechargeOptions(c *gin.Context) {
 			seen[normalized] = true
 			unique = append(unique, normalized)
 		}
+	}
+	for _, opt := range pluginOptions {
+		if opt.Code == "" || seen[opt.Code] {
+			continue
+		}
+		seen[opt.Code] = true
+		unique = append(unique, opt.Code)
+	}
+	if defaultType == "" && len(options) > 0 {
+		defaultType = options[0].Code
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -267,6 +283,7 @@ func AgentPanelRechargeOptions(c *gin.Context) {
 			"enabled":     len(unique) > 0,
 			"payTypes":    unique,
 			"defaultType": defaultType,
+			"options":     options,
 		},
 	})
 }
@@ -307,6 +324,20 @@ func AgentPanelRechargeCreate(c *gin.Context) {
 	orderNo := generateRechargeOrderNo()
 	amount := formatCents(amountCents)
 
+	if selection, ok := parseOnlinePaySelection(req.PayType); ok && isRegisteredPayChannel(selection.Channel) {
+		result, frontendReturnURL, err := createRegisteredChannelPayment(c, db, selection, orderNo, amountCents, "代理商余额充值", "/agent/finance")
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+			return
+		}
+		if err := insertAgentRechargeOrder(db, orderNo, agentID, amount, selection.Channel, selection.PayType, frontendReturnURL); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建充值订单失败"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "充值订单已创建", "data": checkoutData(orderNo, amount, selection.PayType, result)})
+		return
+	}
+
 	// V1 优先，未开启则 V2
 	if cfg, err := loadEpayConfig(db); err == nil && cfg.validateForPay() == nil {
 		payType, ok := normalizeEpayPayType(req.PayType, cfg.resolveDefaultPayType())
@@ -319,7 +350,7 @@ func AgentPanelRechargeCreate(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 			return
 		}
-		if err := insertAgentRechargeOrder(db, orderNo, agentID, amount, payType, frontendReturnURL); err != nil {
+		if err := insertAgentRechargeOrder(db, orderNo, agentID, amount, payChannelEpayV1, payType, frontendReturnURL); err != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建充值订单失败"})
 			return
 		}
@@ -338,7 +369,7 @@ func AgentPanelRechargeCreate(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 			return
 		}
-		if err := insertAgentRechargeOrder(db, orderNo, agentID, amount, payType, frontendReturnURL); err != nil {
+		if err := insertAgentRechargeOrder(db, orderNo, agentID, amount, payChannelEpayV2, payType, frontendReturnURL); err != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建充值订单失败"})
 			return
 		}
@@ -349,13 +380,16 @@ func AgentPanelRechargeCreate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "线上支付未开启，请联系管理员"})
 }
 
-func insertAgentRechargeOrder(db *sql.DB, orderNo string, agentID uint, amount string, payType string, returnURL string) error {
+func insertAgentRechargeOrder(db *sql.DB, orderNo string, agentID uint, amount string, payChannel string, payType string, returnURL string) error {
+	if strings.TrimSpace(payChannel) == "" {
+		payChannel = payChannelEpayV1
+	}
 	aid := int64(agentID)
 	_, err := db.Exec(`
 		INSERT INTO recharge_orders (
 			order_no, subject_type, subject_id, agent_id, amount, pay_channel, pay_method, status, return_url, remark
-		) VALUES (?, 'agent', ?, ?, ?, 'easypay', ?, 'pending', ?, ?)
-	`, orderNo, aid, aid, amount, payType, returnURL, "代理商余额充值")
+		) VALUES (?, 'agent', ?, ?, ?, ?, ?, 'pending', ?, ?)
+	`, orderNo, aid, aid, amount, payChannel, payType, returnURL, "代理商余额充值")
 	return err
 }
 

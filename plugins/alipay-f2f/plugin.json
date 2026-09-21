@@ -1,0 +1,13 @@
+{
+  "kind": "plugin",
+  "id": "alipay-f2f",
+  "name": "支付宝当面付",
+  "version": "1.0.0",
+  "description": "AuthPro 官方支付渠道插件。启用并配置后出现在收银台，通过 alipay.trade.precreate 正扫收款，异步 notify 入账。",
+  "author": {
+    "name": "auth_pro 官方",
+    "url": "https://github.com/maizll/auth-pro"
+  },
+  "category": "payment",
+  "icon": "ri:alipay-fill"
+}
