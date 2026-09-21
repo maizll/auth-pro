@@ -59,11 +59,22 @@ import _ "auto_pro/payment/alipayf2f"
 
 当前由 `backend/handler/payment_channel.go` 完成。
 
-### 3.4 商店 catalog
+### 3.4 商店 catalog 与配置页
 
-把插件加入 `pluginCatalog`（`backend/handler/plugin.go`），`Official: true`，`Category: "payment"`。`pluginConfigured()` 判断凭证是否已填。
+把插件加入 `pluginCatalog`（`backend/handler/plugin.go`），`Official: true`，`Category: "payment"`，**`CanEnable: true`**（运行时必须编译进后端）。`pluginConfigured()` 判断凭证是否已填。
 
 支付分类 **允许同时启用多个插件**（与实名互斥不同）。
+
+**需要凭证的官方支付插件必须有真实配置页**，与易支付相同：
+
+1. 系统设置页面（当面付：`alipay-f2f-config.vue`）。
+2. 菜单「系统设置 → 支付宝当面付」。
+3. 商店 `pluginConfigPaths['alipay-f2f'] = '/system/alipay-f2f-config'`，启用后卡片显示「配置」。
+4. `GET/PUT /api/system/alipay-f2f-config`；GET **永不**返回私钥，只给 `privateKeySet`。
+
+纯 ZIP 上传没有 Go 实现时商店会显示「需运行实现」。官方当面付不能走这条路：内置 catalog 覆盖同 ID 的历史 ZIP。`config.schema.json` 仅作文档，产品不据此渲染表单。
+
+路径：启用 → 系统设置填写凭证。
 
 ### 3.5 配置存储
 
@@ -87,8 +98,10 @@ import _ "auto_pro/payment/alipayf2f"
 ## 5. 测试清单
 
 - 注册表：`Register` 后 `pay-options` 能贡献 `alipay-f2f:alipay`。
+- 商店：内置 `alipay-f2f` 的 `canEnable=true`；历史同 ID ZIP 仍只出现一张可启用卡片。
 - 验签：合法 notify 通过；篡改金额失败。
 - 结算：`settleRegisteredChannelNotify` 对 `license_purchase_orders` 入账且幂等。
+- 配置视图 JSON 不含 `privateKey`，只有 `privateKeySet`。
 - `plugin.json` 能通过源站 `fillPluginManifest`。
 
 运行：
@@ -102,6 +115,7 @@ go test ./payment/... ./handler/ -count=1
 
 | 现象 | 原因 |
 | --- | --- |
+| 商店只有「需运行实现」、没有启用/配置 | 只上传了 ZIP，当前二进制没有官方 catalog，或把当面付当成第三方热加载。请部署含内置 `alipay-f2f` 的版本：内置条目 `canEnable=true`，同 ID ZIP 不会盖掉启用/配置 |
 | 商店能启用但收银台没有 | 未配置 APPID/密钥，或 `Available()` 为 false |
 | 启用当面付后易支付消失 | 旧逻辑支付分类互斥；现行支付分类已允许并存。请更新到含本契约的版本 |
 | 扫码后一直 pending | notify 公网不可达，或验签公钥与网关环境（沙箱/正式）不一致 |

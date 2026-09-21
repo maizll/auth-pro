@@ -48,4 +48,7 @@ func TestListedCatalogPluginsIncludeKuaitongAndTencent(t *testing.T) {
 	if alipayF2F.ID == "" || alipayF2F.Category != "payment" {
 		t.Fatal("alipay-f2f official payment plugin is missing")
 	}
+	if !alipayF2F.Official || !alipayF2F.CanEnable {
+		t.Fatal("official alipay-f2f must be enableable in the listed catalog")
+	}
 }

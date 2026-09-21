@@ -169,7 +169,7 @@
                     <ElTag type="warning" size="small" effect="light">未安装</ElTag>
                     <ElText type="info" size="small">来源：{{ plugin.source }}</ElText>
                   </template>
-                  <template v-else-if="plugin.canEnable === false">
+                  <template v-else-if="!pluginHasRuntime(plugin)">
                     <ElTag type="success" size="small" effect="plain">已安装</ElTag>
                     <ElText type="info" size="small">资源包已解压</ElText>
                   </template>
@@ -213,7 +213,7 @@
                       配置
                     </ElButton>
                     <ElButton
-                      v-if="plugin.canEnable !== false"
+                      v-if="pluginHasRuntime(plugin)"
                       :type="plugin.enabled ? 'default' : 'primary'"
                       size="small"
                       :loading="togglingId === plugin.id"
@@ -378,17 +378,24 @@
     return plugin.description.replace(plugin.homepage, '')
   }
 
-  // 需要独立配置页的插件；其余按类别归到统一配置页
+  // 需要独立配置页的插件；其余按类别归到统一配置页。
+  // 官方当面付与易支付一样：商店「配置」指向系统设置页，不渲染 ZIP 里的 schema。
   const pluginConfigPaths: Record<string, string> = {
     epay: '/system/epay-config',
     'epay-v2': '/system/epay-config',
     'alipay-f2f': '/system/alipay-f2f-config'
   }
 
+  // 内置/已编译运行时：显示启用与配置。纯第三方 ZIP 仍为「需运行实现」。
+  const pluginHasRuntime = (plugin: PluginInfo): boolean => {
+    if (plugin.canEnable !== false) return true
+    return Boolean(pluginConfigPaths[plugin.id])
+  }
+
   // 配置入口；返回空串表示无独立配置页。
   // 实名服务商共用系统配置的实名页签，新增服务商无需再改这里。
   const configTarget = (plugin: PluginInfo): string => {
-    if (plugin.canEnable === false) return ''
+    if (!pluginHasRuntime(plugin)) return ''
     const mapped = pluginConfigPaths[plugin.id]
     if (mapped) return mapped
     if (plugin.category === 'realname') return '/system/config?tab=realname'

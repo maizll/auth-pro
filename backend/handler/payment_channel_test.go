@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,6 +19,12 @@ func TestPluginCatalogIncludesAlipayF2F(t *testing.T) {
 	}
 	if plugin.Category != "payment" || !plugin.Official || plugin.Name != "支付宝当面付" {
 		t.Fatalf("unexpected catalog entry: %#v", plugin)
+	}
+	if !plugin.CanEnable {
+		t.Fatal("official alipay-f2f catalog must be enableable (compiled Channel)")
+	}
+	if !pluginHasCompiledRuntime("alipay-f2f") {
+		t.Fatal("alipay-f2f must report compiled runtime")
 	}
 }
 
@@ -122,5 +129,34 @@ func TestOfficialAlipayF2FPluginManifestParses(t *testing.T) {
 func TestRegisteredChannelIsPresent(t *testing.T) {
 	if !payment.Has(alipayf2f.ChannelID) {
 		t.Fatal("alipay-f2f channel should register on import")
+	}
+}
+
+func TestAlipayF2FConfigViewOmitsPrivateKey(t *testing.T) {
+	view := alipayF2FConfigView(alipayf2f.Config{
+		AppID:           "2021000000000000",
+		PrivateKey:      "-----BEGIN RSA PRIVATE KEY-----\nsecret-private\n-----END RSA PRIVATE KEY-----",
+		AlipayPublicKey: "alipay-public",
+		Sandbox:         true,
+	})
+	raw, err := json.Marshal(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := payload["privateKey"]; ok {
+		t.Fatalf("admin GET must not return privateKey: %s", raw)
+	}
+	if payload["privateKeySet"] != true {
+		t.Fatalf("privateKeySet=%v, want true", payload["privateKeySet"])
+	}
+	if payload["appId"] != "2021000000000000" || payload["alipayPublicKey"] != "alipay-public" {
+		t.Fatalf("unexpected public fields: %s", raw)
+	}
+	if strings.Contains(string(raw), "secret-private") {
+		t.Fatalf("leaked private key: %s", raw)
 	}
 }

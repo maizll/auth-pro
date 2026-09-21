@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"strings"
 	"testing"
@@ -138,5 +139,22 @@ func TestPublicViewOmitsPrivateKey(t *testing.T) {
 	encoded := view.AppID + view.AlipayPublicKey + view.Gateway
 	if strings.Contains(encoded, "BEGIN RSA PRIVATE KEY") || strings.Contains(encoded, "secret") {
 		t.Fatal("public view leaked private key material")
+	}
+	raw, err := json.Marshal(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := payload["privateKey"]; ok {
+		t.Fatalf("GET view must not include privateKey: %s", raw)
+	}
+	if payload["privateKeySet"] != true {
+		t.Fatalf("privateKeySet missing: %s", raw)
+	}
+	if strings.Contains(string(raw), "secret") || strings.Contains(string(raw), "BEGIN RSA PRIVATE KEY") {
+		t.Fatalf("marshaled view leaked private key: %s", raw)
 	}
 }

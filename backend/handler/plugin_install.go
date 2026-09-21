@@ -18,7 +18,7 @@ func installPluginZIP(payload []byte, plugin pluginInfo) error {
 	if !pluginIDPattern.MatchString(plugin.ID) {
 		return errors.New("插件标识不合法")
 	}
-	if _, builtin := findCatalogPlugin(plugin.ID); builtin {
+	if pluginHasCompiledRuntime(plugin.ID) {
 		return errors.New("不能覆盖内置插件")
 	}
 	pluginInstallMu.Lock()
@@ -114,7 +114,8 @@ func loadLocalPlugins() ([]pluginInfo, error) {
 		if !entry.IsDir() || !pluginIDPattern.MatchString(entry.Name()) {
 			continue
 		}
-		if _, builtin := findCatalogPlugin(entry.Name()); builtin {
+		// 内置 catalog / 已编译支付渠道优先：同 ID 的历史 ZIP 不得盖掉启用与配置入口。
+		if pluginHasCompiledRuntime(entry.Name()) {
 			continue
 		}
 		payload, err := readLimitedFile(filepath.Join(root, entry.Name(), ".installed.json"), pluginManifestMaxSize)
@@ -123,6 +124,9 @@ func loadLocalPlugins() ([]pluginInfo, error) {
 		}
 		var plugin pluginInfo
 		if json.Unmarshal(payload, &plugin) != nil || plugin.ID != entry.Name() || plugin.Name == "" {
+			continue
+		}
+		if pluginHasCompiledRuntime(plugin.ID) {
 			continue
 		}
 		plugin.Local, plugin.Remote, plugin.Official, plugin.CanEnable = true, false, false, false

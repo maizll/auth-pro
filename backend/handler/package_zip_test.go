@@ -143,6 +143,55 @@ func TestPluginZIPDownloadInstallsAndKeepsLastGoodVersion(t *testing.T) {
 	if err := installPluginZIP(archive, pluginInfo{ID: "epay"}); err == nil {
 		t.Fatal("builtin overwritten")
 	}
+	if err := installPluginZIP(archive, pluginInfo{ID: "alipay-f2f"}); err == nil {
+		t.Fatal("official alipay-f2f ZIP must not overlay builtin runtime")
+	}
+}
+
+func TestUploadedAlipayF2FZIPDoesNotHideBuiltinRuntime(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	root := filepath.Join(config.GetPluginDir(), "alipay-f2f")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := json.Marshal(pluginInfo{
+		ID:        "alipay-f2f",
+		Name:      "uploaded zip only",
+		Category:  "payment",
+		CanEnable: false,
+		Official:  false,
+		Local:     true,
+		Source:    "developer-upload",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".installed.json"), meta, 0644); err != nil {
+		t.Fatal(err)
+	}
+	plugins, err := loadLocalPlugins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found []pluginInfo
+	for _, plugin := range plugins {
+		if plugin.ID == "alipay-f2f" {
+			found = append(found, plugin)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("want a single builtin alipay-f2f card, got %#v", found)
+	}
+	plugin := found[0]
+	if !plugin.CanEnable || !plugin.Official || !plugin.Local || plugin.Remote || plugin.Source != "builtin" {
+		t.Fatalf("leftover ZIP must not stick official 当面付 on 需运行实现: %#v", plugin)
+	}
+	if plugin.Name != "支付宝当面付" {
+		t.Fatalf("catalog name should win leftover ZIP: %q", plugin.Name)
+	}
+	if !pluginHasCompiledRuntime("alipay-f2f") {
+		t.Fatal("compiled runtime missing for alipay-f2f")
+	}
 }
 
 func TestUploadedHomeTemplateZIPAndSafeAssets(t *testing.T) {

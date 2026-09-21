@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"auto_pro/payment"
 	"auto_pro/payment/alipayf2f"
 
 	"github.com/gin-gonic/gin"
@@ -69,6 +70,7 @@ var pluginCatalog = []pluginInfo{
 		Icon:        "ri:alipay-fill",
 		Version:     "1.0.0",
 		Official:    true,
+		CanEnable:   true, // 运行时编译在后端（与易支付相同）；纯 ZIP 上传不会热加载
 	},
 	{
 		ID:          "alipay-realname",
@@ -117,6 +119,20 @@ func findCatalogPlugin(id string) (pluginInfo, bool) {
 		}
 	}
 	return pluginInfo{}, false
+}
+
+// pluginHasCompiledRuntime 表示当前二进制已包含该插件的运行实现。
+// 内置 catalog（易支付等）始终可启用；支付渠道 SPI 注册表中的官方渠道同样可启用。
+// 纯 ZIP 安装没有 Go 实现，必须返回 false，商店才会显示「需运行实现」。
+func pluginHasCompiledRuntime(id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	if _, ok := findCatalogPlugin(id); ok {
+		return true
+	}
+	return payment.Has(id)
 }
 
 func listedCatalogPlugins() []pluginInfo {
@@ -388,8 +404,12 @@ func AdminPluginToggle(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	plugin, ok := findCatalogPlugin(id)
 	if !ok {
-		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "插件不存在"})
-		return
+		// 官方支付渠道若曾以同 ID ZIP 安装，仍允许启用（运行时已编译进后端）。
+		if !payment.Has(id) {
+			c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "插件不存在"})
+			return
+		}
+		plugin = pluginInfo{ID: id, Category: "payment", Official: true, CanEnable: true}
 	}
 
 	var req struct {
