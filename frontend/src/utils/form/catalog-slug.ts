@@ -285,6 +285,20 @@ export function fallbackCatalogSlug(kind: CatalogKind, now = Date.now()): string
   return `${FALLBACK_PREFIX[kind]}-${now.toString(36)}`
 }
 
+export function isStationPackageLocation(value: string): boolean {
+  const raw = String(value || '').trim()
+  if (!raw) return false
+  let path = raw
+  if (raw.includes('://')) {
+    try {
+      path = new URL(raw).pathname
+    } catch {
+      return false
+    }
+  }
+  return /^\/api\/v1\/public\/source-packages\/[a-f0-9]{64}\.zip$/.test(path)
+}
+
 export function isHttpsLocation(value: string): boolean {
   try {
     return new URL(String(value || '').trim()).protocol === 'https:'

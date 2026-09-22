@@ -248,6 +248,9 @@ func main() {
 			superSecured.POST("/system/mail-config/test", handler.AdminMailConfigTest)
 			superSecured.GET("/system/mail-logs", handler.AdminMailLogList)
 			superSecured.GET("/system/mail-logs/:id", handler.AdminMailLogDetail)
+			superSecured.GET("/system/monitor/jobs", handler.AdminMonitorJobs)
+			superSecured.PUT("/system/monitor/jobs/:id", handler.AdminMonitorJobUpdate)
+			superSecured.POST("/system/monitor/jobs/:id/run", handler.AdminMonitorJobRun)
 			superSecured.GET("/system/update/status", handler.AdminOnlineUpdateStatus)
 			superSecured.GET("/system/update/history", handler.AdminOnlineUpdateHistory)
 			superSecured.POST("/system/update/check", handler.AdminOnlineUpdateCheck)
@@ -444,6 +447,8 @@ func main() {
 		handler.EnsureNotificationSchema()
 		handler.BackfillLicensePurchaseTransactions(db)
 	}()
+
+	handler.StartSystemMonitor()
 
 	// 启动
 	host := config.GetHost()

@@ -292,6 +292,7 @@
       "menu": "菜单管理",
       "config": "系统配置",
       "epayConfig": "支付配置",
+      "monitor": "定时任务 / 系统监控",
       "paymentOrders": "订单列表",
       "mailConfig": "邮件配置",
       "mailLogs": "邮件日志"

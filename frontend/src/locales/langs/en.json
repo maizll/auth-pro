@@ -292,6 +292,7 @@
       "menu": "Menus",
       "config": "Config",
       "epayConfig": "Payment",
+      "monitor": "Jobs / Monitor",
       "paymentOrders": "Orders",
       "mailConfig": "Mail",
       "mailLogs": "Mail Logs"

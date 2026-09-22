@@ -52,9 +52,12 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		developer.GET("/ad-applications", SourceDeveloperAdApplications)
 		developer.POST("/ad-applications", SourceDeveloperCreateAdApplication)
 		developer.POST("/advertisements/image", SourceDeveloperAdvertisementImageUpload)
+		developer.POST("/packages/upload", SourceDeveloperPackageUpload)
 		developer.GET("/starter.zip", SourceDeveloperStarterZIP)
 		developer.GET("/skill.md", SourceDeveloperSkillMarkdown)
 	}
+
+	api.GET("/v1/public/source-packages/:name", PublicSourcePackageFile)
 
 	admin := api.Group("/v1/source/admin")
 	admin.Use(middleware.JWTAuth(), middleware.RequireAdmin())
@@ -281,11 +284,17 @@ func validateExternalHTTPS(raw string) error {
 }
 
 func validatePluginDownloadURL(raw string) error {
+	if isStationHostedPackageURL(raw) {
+		return nil
+	}
 	return validateExternalHTTPS(raw)
 }
 
 func validateTemplateLocation(raw string) error {
 	raw = strings.TrimSpace(raw)
+	if isStationHostedPackageURL(raw) {
+		return nil
+	}
 	if strings.HasPrefix(strings.ToLower(raw), "https://") {
 		return validateExternalHTTPS(raw)
 	}
