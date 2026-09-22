@@ -269,6 +269,12 @@ func TestSourceDeveloperStarterPackAndSkill(t *testing.T) {
 	if _, ok := found["SKILL.md"]; !ok {
 		t.Fatal("starter zip missing SKILL.md")
 	}
+	if !bytes.Contains(found["SKILL.md"], []byte("sha256sum")) || !bytes.Contains(found["SKILL.md"], []byte("zip -X")) {
+		t.Fatal("starter SKILL.md missing pack commands")
+	}
+	if _, ok := found["template-example/template.fintech-gold.json"]; !ok {
+		t.Fatal("starter zip missing fintech-gold example")
+	}
 	if _, ok := found["docs/plugin-package.md"]; !ok {
 		t.Fatal("starter zip missing plugin docs")
 	}

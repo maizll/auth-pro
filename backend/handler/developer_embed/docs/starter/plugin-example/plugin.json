@@ -1,0 +1,14 @@
+{
+  "kind": "plugin",
+  "id": "demo-widget",
+  "name": "演示插件",
+  "version": "1.0.0",
+  "description": "AuthPro 源站开发者入门示例插件，仅用于演示清单字段。",
+  "author": {
+    "name": "示例作者",
+    "url": "https://example.com",
+    "email": "author@example.com"
+  },
+  "category": "other",
+  "icon": "ri:puzzle-line"
+}

@@ -47,7 +47,8 @@ rm -rf "$BACKEND_DIR/static"/*
 cp -R "$FRONTEND_DIR/dist"/. "$PACKAGE_DIR"/
 cp -R "$FRONTEND_DIR/dist"/. "$BACKEND_DIR/static"/
 
-printf '[3/5] Syncing client SDK assets and building Linux amd64 backend...\n'
+printf '[3/5] Syncing embedded developer docs, client SDK assets, and building Linux amd64 backend...\n'
+bash "$ROOT_DIR/scripts/sync-developer-embed.sh"
 rm -rf "$BACKEND_DIR/handler/sdk_assets"
 mkdir -p "$BACKEND_DIR/handler/sdk_assets/_meta" "$BACKEND_DIR/handler/sdk_assets/go"
 cp -a "$ROOT_DIR/sdk/php" "$ROOT_DIR/sdk/node" "$ROOT_DIR/sdk/python" "$ROOT_DIR/sdk/browser" \

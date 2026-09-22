@@ -3,11 +3,11 @@ package handler
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"net/http"
-	"os"
 	"path"
-	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -34,12 +34,20 @@ func SourceDeveloperSkillMarkdown(c *gin.Context) {
 		writeCurrentSourceDeveloperError(c, err)
 		return
 	}
+	body := developerSkillMarkdown()
+	if body == "" {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "生成 AI Skill 失败"})
+		return
+	}
 	c.Header("Content-Disposition", `attachment; filename="SKILL.md"`)
-	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(developerSkillMarkdown()))
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(body))
 }
 
 func buildDeveloperStarterZIP() ([]byte, error) {
-	files := developerStarterFiles()
+	files, err := developerStarterFiles()
+	if err != nil {
+		return nil, err
+	}
 	names := make([]string, 0, len(files))
 	for name := range files {
 		names = append(names, name)
@@ -67,200 +75,87 @@ func buildDeveloperStarterZIP() ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
-func developerStarterFiles() map[string]string {
+func developerStarterFiles() (map[string]string, error) {
 	skill := developerSkillMarkdown()
-	return map[string]string{
-		"README.md":                                        developerStarterReadme(),
-		"SKILL.md":                                         skill,
-		"docs/README.md":                                   loadDeveloperDocOr("README.md", developerDocsIndexFallback()),
-		"docs/charter.md":                                  loadDeveloperDocOr("charter.md", developerCharterFallback()),
-		"docs/plugin-package.md":                           loadDeveloperDocOr("plugin-package.md", developerPluginPackageFallback()),
-		"docs/template-package.md":                         loadDeveloperDocOr("template-package.md", developerTemplatePackageFallback()),
-		"docs/packaging.md":                                loadDeveloperDocOr("packaging.md", developerPackagingFallback()),
-		"docs/validation.md":                               loadDeveloperDocOr("validation.md", developerValidationFallback()),
-		"docs/versions.md":                                 loadDeveloperDocOr("versions.md", developerVersionsFallback()),
-		"docs/review-and-catalog.md":                       loadDeveloperDocOr("review-and-catalog.md", developerReviewCatalogFallback()),
-		"plugin-example/plugin.json":                       loadDeveloperDocOr("starter/plugin-example/plugin.json", developerExamplePluginJSON()),
-		"plugin-example/README.md":                         loadDeveloperDocOr("starter/plugin-example/README.md", developerExamplePluginReadme()),
-		"template-example/template.json":                   loadDeveloperDocOr("starter/template-example/template.json", developerExampleTemplateJSON()),
-		"template-example/README.md":                       loadDeveloperDocOr("starter/template-example/README.md", developerExampleTemplateReadme()),
+	if skill == "" {
+		return nil, errMissingEmbeddedDeveloperDoc
+	}
+	files := map[string]string{
+		"SKILL.md": skill,
 		".cursor/skills/auth-pro-plugin-template/SKILL.md": skill,
 	}
+	embedded := map[string]string{
+		"README.md":                                   "starter/README.md",
+		"docs/README.md":                              "README.md",
+		"docs/charter.md":                             "charter.md",
+		"docs/plugin-package.md":                      "plugin-package.md",
+		"docs/template-package.md":                    "template-package.md",
+		"docs/packaging.md":                           "packaging.md",
+		"docs/validation.md":                          "validation.md",
+		"docs/versions.md":                            "versions.md",
+		"docs/review-and-catalog.md":                  "review-and-catalog.md",
+		"plugin-example/plugin.json":                  "starter/plugin-example/plugin.json",
+		"plugin-example/README.md":                    "starter/plugin-example/README.md",
+		"template-example/template.json":              "starter/template-example/template.json",
+		"template-example/template.fintech-gold.json": "starter/template-example/template.fintech-gold.json",
+		"template-example/README.md":                  "starter/template-example/README.md",
+	}
+	for name, rel := range embedded {
+		payload, err := readEmbeddedDeveloperDoc(rel)
+		if err != nil || len(bytes.TrimSpace(payload)) == 0 {
+			return nil, errMissingEmbeddedDeveloperDoc
+		}
+		files[name] = string(payload)
+	}
+	return files, nil
 }
 
-func loadDeveloperDocOr(rel, fallback string) string {
-	payload, err := readDeveloperDocFile(rel)
-	if err != nil || len(bytes.TrimSpace(payload)) == 0 {
-		return fallback
+// developerSkillMarkdown 只返回编译进二进制的正式 SKILL。
+// 磁盘上的 docs/developer 或三行 stub 不能覆盖下载结果。
+func developerSkillMarkdown() string {
+	payload, err := developerEmbedFS.ReadFile(embeddedDeveloperSkillPath)
+	if err != nil || !developerSkillIsActionable(payload) {
+		return ""
+	}
+	if strings.TrimSpace(string(payload)) == developerSkillStubSentence {
+		return ""
 	}
 	return string(payload)
 }
 
-func developerSkillMarkdown() string {
-	if dir := findDeveloperDocsDir(); dir != "" {
-		candidates := []string{
-			filepath.Join(filepath.Dir(filepath.Dir(dir)), "developer-skills", "auth-pro-plugin-template", "SKILL.md"),
-			filepath.Join(dir, "SKILL.md"),
-		}
-		for _, candidate := range candidates {
-			if payload, err := os.ReadFile(candidate); err == nil && bytes.Contains(payload, []byte("kind")) {
-				if bytes.Contains(payload, []byte("name: auth-pro-plugin-template")) {
-					return string(payload)
-				}
-			}
-		}
-		if payload, err := os.ReadFile(candidates[0]); err == nil && len(payload) > 0 {
-			return string(payload)
+func developerSkillIsActionable(payload []byte) bool {
+	if len(payload) < 800 {
+		return false
+	}
+	text := string(payload)
+	if strings.Contains(text, developerSkillStubSentence) {
+		return false
+	}
+	for _, needle := range []string{
+		"name: auth-pro-plugin-template",
+		"sha256sum",
+		"zip -X",
+		"stylePreset",
+		"cartoon-blue",
+		"fintech-gold",
+		"primaryColor",
+		"backgroundColor",
+		"textColor",
+		"schemaVersion",
+		"template.json",
+		"plugin.json",
+		"primaryAction",
+		"downloadUrl",
+		"templateUrl",
+		"登记（中文标签",
+	} {
+		if !strings.Contains(text, needle) {
+			return false
 		}
 	}
-	return developerSkillFallback()
+	return true
 }
 
-func developerStarterReadme() string {
-	return `# AuthPro 源站开发者入门包
+const developerSkillStubSentence = "template.json 必须包含 kind: template。插件自定义分类会出现在应用商店筛选页签。"
 
-本包给插件 / 首页模板作者使用，不是管理端按应用下载的 AuthPro 客户端 SDK ZIP。
-
-源站只保存元数据与外部下载地址（HTTPS URL + sha256），不存储 ZIP。
-
-## 目录
-
-| 路径 | 说明 |
-| --- | --- |
-| ` + "`docs/charter.md`" + ` | 开发者章程。交给 AI 的唯一规范 |
-| ` + "`plugin-example/`" + ` | 可过硬校验的 plugin.json |
-| ` + "`template-example/`" + ` | 可过硬校验的整站 template.json（含登录动作，不要加 index.html） |
-| ` + "`SKILL.md`" + ` | AI 操作清单 |
-
-## 步骤
-
-1. 按章程改清单，在示例目录内用 zip 打包，使清单位于 ZIP 根目录。
-2. sha256sum 整个 ZIP，放到自己的 HTTPS 空间。
-3. 开发者面板「登记插件」或「登记模板」：手写标识，填地址和校验码，再提交审核。
-
-公开目录：` + "`/software-source/{app_key}/index.json`" + `。
-`
-}
-
-func developerExamplePluginJSON() string {
-	return `{
-  "kind": "plugin",
-  "id": "demo-widget",
-  "name": "演示插件",
-  "version": "1.0.0",
-  "description": "AuthPro 源站开发者入门示例插件，仅用于演示清单字段。",
-  "author": {
-    "name": "示例作者",
-    "url": "https://example.com",
-    "email": "author@example.com"
-  },
-  "category": "other",
-  "icon": "ri:puzzle-line"
-}
-`
-}
-
-func developerExamplePluginReadme() string {
-	return `# 插件示例
-
-把本目录打成 ZIP 后，plugin.json 必须出现在压缩包根目录或一层子目录。
-
-源站硬校验会拒绝：非 ZIP、超过 20 MiB、路径穿越、缺少必填字段、id/version 格式错误。失败不写库。
-
-提交到源站时请另外提供：
-
-- downloadUrl：HTTPS 外部地址（源站不托管这个 ZIP）
-- sha256：整个 ZIP 的 64 位十六进制
-- appId：目标应用（目录按应用隔离）
-`
-}
-
-func developerExampleTemplateJSON() string {
-	return `{
-  "kind": "template",
-  "id": "demo-home",
-  "templateKey": "demo-home",
-  "name": "演示首页",
-  "version": "1.0.0",
-  "description": "AuthPro 源站声明式整站模板，含登录入口与能力卡片。",
-  "schemaVersion": 1,
-  "author": { "name": "示例作者" },
-  "category": "home-template",
-  "stylePreset": "cartoon-blue",
-  "theme": {
-    "primaryColor": "#168fe5",
-    "backgroundColor": "#f1faff",
-    "textColor": "#15334a"
-  },
-  "hero": {
-    "badge": "授权服务",
-    "title": "专业授权服务",
-    "highlight": "清晰可查",
-    "description": "查看授权状态与有效期。登录由站点打开，模板不保存密码。",
-    "primaryAction": { "label": "进入用户中心", "type": "login" },
-    "secondaryAction": { "label": "用户登录", "type": "login" }
-  },
-  "features": [
-    { "icon": "ri:shield-check-line", "title": "安全验证", "description": "授权状态经过校验，账户与服务信息清晰可查。" },
-    { "icon": "ri:refresh-line", "title": "实时同步", "description": "授权期限和使用状态及时更新。" },
-    { "icon": "ri:customer-service-2-line", "title": "用户中心", "description": "从首页打开登录框，进入用户中心。" }
-  ],
-  "footer": { "text": "安全、稳定的软件授权服务" }
-}
-`
-}
-
-func developerExampleTemplateReadme() string {
-	return `# 整站模板示例
-
-清单必须是 template.json，且必须包含 "kind": "template"。
-schemaVersion 必须为数字 1，必须有 hero.title。
-登录入口是 hero.primaryAction.type = "login"。启用后宿主登录弹窗跟随 stylePreset 与 theme.primaryColor、theme.backgroundColor、theme.textColor。禁止 scripts，不要放入 index.html 或 login.html。
-
-提交元数据时填写 templateUrl 和整个 ZIP 的 sha256。
-`
-}
-
-func developerDocsIndexFallback() string {
-	return "# AuthPro 源站开发者文档\n\n唯一规范是 charter.md。\n"
-}
-
-func developerCharterFallback() string {
-	return "# AuthPro 源站开发者章程\n\ntemplate.json 必须包含 kind: template、schemaVersion 1、hero.title，以及 hero.primaryAction.type=login。启用后宿主登录弹窗跟随 stylePreset 与 theme.primaryColor、theme.backgroundColor、theme.textColor。禁止 scripts、index.html 与 login.html。plugin.json 的 kind 只能是 plugin 或省略。\n"
-}
-
-func developerPluginPackageFallback() string {
-	return "# 插件开发指南\n\nplugin.json 可选 kind=plugin。登记包不是多页 HTML。自定义插件分类（如标识 template、名称「模板」）会出现在应用商店筛选页签。\n"
-}
-
-func developerTemplatePackageFallback() string {
-	return "# 首页模板开发指南\n\ntemplate.json 必须包含 kind: template。category 省略自动绑定 home-template。启用后宿主登录弹窗跟随 stylePreset 与 theme.primaryColor、theme.backgroundColor、theme.textColor。不要写 login.html。\n"
-}
-
-func developerPackagingFallback() string {
-	return "# 打包与上传规范\n\nZIP 硬校验失败即拒绝。源站不存储源码。\n"
-}
-
-func developerValidationFallback() string {
-	return "# 校验失败说明\n\ntemplate.json 缺少 kind 返回 field=kind rule=required。\n"
-}
-
-func developerVersionsFallback() string {
-	return "# 更新与多版本\n\n已发布版本不可改包地址，请新增版本。\n"
-}
-
-func developerReviewCatalogFallback() string {
-	return "# 审核、目录与广告申请\n\ndraft → review → approved → published。广告申请独立状态机。\n"
-}
-
-func developerSkillFallback() string {
-	return `---
-name: auth-pro-plugin-template
-description: Use when creating AuthPro source-station plugins or home templates.
----
-
-# AuthPro 源站插件 / 模板
-
-template.json 必须包含 kind: template。插件自定义分类会出现在应用商店筛选页签。
-`
-}
+var errMissingEmbeddedDeveloperDoc = errors.New("embedded developer docs missing")
