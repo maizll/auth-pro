@@ -9,8 +9,8 @@ import (
 )
 
 // developerEmbedFS 是 docs/developer 与 AI Skill 的编译期副本。
-// 宝塔在线更新只替换 frontend 文件和 backend/auth_pro，工作目录通常是数据目录，
-// findDeveloperDocsDir 走不到仓库。发布前由 scripts/sync-developer-embed.sh 同步。
+// 「下载 AI Skill」和「下载入门包 ZIP」只读这里，不读进程工作目录。
+// 宝塔在线更新只替换前端和 backend/auth_pro，发布前由 scripts/sync-developer-embed.sh 同步。
 //
 //go:embed all:developer_embed
 var developerEmbedFS embed.FS

@@ -29,8 +29,8 @@ func TestDeveloperSkillAndStarterIgnoreDiskLayout(t *testing.T) {
 	if skill != string(embeddedSkill) {
 		t.Fatal("skill download did not return the embedded SKILL.md")
 	}
-	if strings.TrimSpace(skill) == strings.TrimSpace(developerSkillStubSentence()) {
-		t.Fatal("skill download still serves the production stub")
+	if strings.Contains(skill, developerSkillStubSentence) {
+		t.Fatal("skill download still contains the production stub sentence")
 	}
 
 	payload, err := buildDeveloperStarterZIP()
@@ -110,6 +110,15 @@ func TestDeveloperSkillAndStarterIgnoreDiskLayout(t *testing.T) {
 			t.Fatalf("template readme missing %q", needle)
 		}
 	}
+	readme := string(found["README.md"])
+	for _, needle := range []string{"docs/charter.md", "sha256sum", "zip -X", "stylePreset", "cartoon-blue", "fintech-gold", "downloadUrl", "templateUrl", "primaryColor"} {
+		if !strings.Contains(readme, needle) {
+			t.Fatalf("starter README missing %q", needle)
+		}
+	}
+	if strings.TrimSpace(readme) == developerSkillStubSentence || strings.Contains(readme, developerSkillStubSentence) {
+		t.Fatal("starter README is the production stub")
+	}
 }
 
 func assertActionableDeveloperSkill(t *testing.T, skill string) {
@@ -140,8 +149,8 @@ func assertActionableDeveloperSkill(t *testing.T, skill string) {
 			t.Fatalf("skill missing %q (len=%d): %s", needle, len(skill), excerpt)
 		}
 	}
-	if strings.Contains(skill, developerSkillStubSentence()) && !strings.Contains(skill, "登记（中文标签") {
-		t.Fatal("skill is still the production stub")
+	if strings.Contains(skill, developerSkillStubSentence) {
+		t.Fatal("skill still contains the production stub sentence")
 	}
 }
 
@@ -216,6 +225,72 @@ func assertTemplateExample(t *testing.T, payload []byte, preset string) {
 	}
 }
 
-func developerSkillStubSentence() string {
-	return "template.json 必须包含 kind: template。插件自定义分类会出现在应用商店筛选页签。"
+func TestDeveloperDownloadsIgnorePoisonedDisk(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	docs := filepath.Join(root, "docs", "developer", "starter", "plugin-example")
+	if err := os.MkdirAll(docs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stub := "---\nname: auth-pro-plugin-template\ndescription: Use when creating AuthPro source-station plugins or home templates.\n---\n\n# AuthPro 源站插件 / 模板\n\n" + developerSkillStubSentence + "\n"
+	if err := os.WriteFile(filepath.Join(root, "docs", "developer", "SKILL.md"), []byte(stub), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "developer", "charter.md"), []byte(developerSkillStubSentence), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docs, "plugin.json"), []byte(`{"kind":"plugin"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	skillDir := filepath.Join(root, "developer-skills", "auth-pro-plugin-template")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	poison := "# 磁盘旧清单\n\nDISK-ONLY-MARKER\n" + strings.Repeat("登记（中文标签 zip -X sha256sum stylePreset cartoon-blue fintech-gold primaryColor backgroundColor textColor schemaVersion template.json plugin.json primaryAction downloadUrl templateUrl\n", 30)
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(poison), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+
+	skill := developerSkillMarkdown()
+	if strings.Contains(skill, "DISK-ONLY-MARKER") || strings.Contains(skill, developerSkillStubSentence) {
+		t.Fatal("disk skill replaced the embedded checklist")
+	}
+	embedded, err := developerEmbedFS.ReadFile(embeddedDeveloperSkillPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skill != string(embedded) {
+		t.Fatal("download did not return the embedded SKILL.md")
+	}
+
+	payload, err := buildDeveloperStarterZIP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range archive.File {
+		reader, openErr := file.Open()
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		body, readErr := io.ReadAll(reader)
+		_ = reader.Close()
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		trimmed := strings.TrimSpace(string(body))
+		if trimmed == developerSkillStubSentence || trimmed == stub || strings.Contains(string(body), "DISK-ONLY-MARKER") {
+			t.Fatalf("%s came from disk instead of embed", file.Name)
+		}
+	}
 }
