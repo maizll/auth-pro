@@ -1,62 +1,34 @@
-# 首页模板开发指南
+# 整站模板
 
-## 1. 概述
+合同全文见 [章程](./charter.md)。登记产物是**一份** `template.json`，不是一组 HTML 页面。宿主用它画出整站公开页和登录框。
 
-| 项 | 说明 |
-| --- | --- |
-| 适用对象 | 编写授权服务首页外观的模板作者 |
-| 前置条件 | 已入驻开发者；明确目标应用；模板为声明式 schema v1 |
-| 与源站关系 | 清单文件必须是 `template.json`。上架后出现在公开目录的 `homeTemplates`，商店页签为「首页模板」 |
-
-**Breaking（2026-09-20）：** `template.json` **必须**包含 `"kind": "template"`。仅有文件名、没有该字段的旧包会被硬校验拒绝。缺省分类自动填充 `home-template`，无需运营手工选分类。
-
-## 2. 目录结构
+## 目录
 
 ```text
 demo-home.zip
-├── template.json
-├── assets/
-│   └── cover.png
-└── …
+└── template.json
 ```
 
-`template.json` 必须在 ZIP 根目录或一层子目录。禁止 `scripts` 字段（包括空数组）。
+不要放入 `index.html`。安装程序见到 `index.html` 会把它当静态入口（schemaVersion 0），与登记时固定提交的 `schemaVersion: 1` 冲突。
 
-## 3. 清单字段表（Manifest）
+## 宿主画出的面
 
-| 字段名 | 类型 | 必填 | 默认 / 自动填充 | 中文说明 | 校验规则 | 示例值 |
-| --- | --- | --- | --- | --- | --- | --- |
-| kind | string | **是** | 无（不再省略） | 包类型标识，用于自动绑定模板分类 | 必须为 `template`；`plugin` 拒绝 | `"template"` |
-| id | string | 与 templateKey 至少一个 | 无 | 模板标识 | 同插件 id | `"demo-home"` |
-| templateKey | string | 与 id 至少一个 | 回退到 id | 兼容旧字段 | 同 id | `"demo-home"` |
-| name | string | 是 | 无 | 展示名称 | 非空，≤100 字 | `"演示首页"` |
-| version | string | 是 | 无 | 版本 | 同插件 version | `"1.0.0"` |
-| description | string | 是 | 无 | 简介 | 非空，≤500 字 | `"入门示例首页模板"` |
-| schemaVersion | number | 是 | 无 | 声明式模板版本 | **必须为 1** | `1` |
-| author | string 或 object | 是 | 无 | 作者 | name 必填 | `{"name":"示例作者"}` |
-| category | string | 否 | **自动 `home-template`** | 模板分类 | 必须是 kind=template 的分类；禁止 payment / realname / other | `"home-template"` |
-| hero.title | string | 是 | 无 | 首页主标题 | 声明式 schema v1 必填 | `"专业授权服务"` |
-| scripts | any | 禁止 | — | 可执行脚本 | 出现即拒绝 | — |
+| 面 | 作者写入 |
+| --- | --- |
+| 顶栏站名 / Logo / 「登录」 | 站名来自系统配置。登录按钮宿主自带 |
+| 主视觉 | `hero.title`（必填）以及 `badge`、`highlight`、`description` |
+| 登录框 | `hero.primaryAction`: `{ "label": "进入用户中心", "type": "login" }`。宿主弹窗负责账号、密码、极验和 token |
+| 能力卡片 | `features` 写 3 条。`fintech-gold` 只显示前 3 条，标准预设最多 12 条 |
+| 页脚 | `footer.text` |
+| `stylePreset: "fintech-gold"` 时的查询区、三步说明、底部行动 | 宿主写死，没有 JSON。查询提交后打开登录框 |
 
-### 合法 / 非法对照
+`stylePreset` 只能是 `cartoon-blue`、`fintech-gold` 或省略。其他值会导致整份模板失效并回退默认首页。
 
-| 字段 | 合法 | 非法 |
-| --- | --- | --- |
-| kind | `"template"` | 省略、`"plugin"`、`"home-template"` |
-| schemaVersion | `1` | `2`、省略、`"1"` 以外的值 |
-| category | 省略（自动 home-template）、自定义模板类 extras | `payment`、`realname`、`other`、插件 extras（如标识为 `template` 但 kind=plugin 的分类） |
-| scripts | 字段不存在 | `[]`、`[{}]` |
+启用后，默认首页上的注册、忘记密码、授权查询、代理商查询、域名查询**不会出现**。不要写 `pages`、`scripts`、`register`。
 
-说明：管理端可以存在**插件类**自定义分类，标识恰好叫 `template`、名称「模板」。那是 plugin.json 的 extras，**不能**写进 template.json 的 category。首页模板始终使用模板类分类（默认 `home-template`）。
+## 清单
 
-## 4. kind / 分类绑定
-
-1. 解析到 `template.json` **或** `kind === "template"` → 强制归入模板类分类。
-2. category 省略 → 自动填充 `home-template`。
-3. plugin.json 不能声明 `kind: "template"`；template.json 不能声明 `kind: "plugin"`。
-4. 插件 extras（即使 key=`template`）出现在商店自己的页签；`template.json` 条目只出现在「首页模板」与 `homeTemplates`。
-
-## 5. 完整示例
+`kind` 必须是 `"template"`。`schemaVersion` 必须是数字 `1`。`category` 写 `home-template`（省略也会自动填这个）。
 
 ```json
 {
@@ -65,51 +37,45 @@ demo-home.zip
   "templateKey": "demo-home",
   "name": "演示首页",
   "version": "1.0.0",
-  "description": "AuthPro 源站开发者入门示例首页模板。",
+  "description": "AuthPro 源站声明式整站模板，含登录入口与能力卡片。",
   "schemaVersion": 1,
-  "author": {
-    "name": "示例作者"
-  },
+  "author": { "name": "示例作者" },
   "category": "home-template",
+  "stylePreset": "cartoon-blue",
+  "theme": {
+    "primaryColor": "#168fe5",
+    "backgroundColor": "#f1faff",
+    "textColor": "#15334a"
+  },
   "hero": {
-    "title": "专业授权服务"
-  }
+    "badge": "授权服务",
+    "title": "专业授权服务",
+    "highlight": "清晰可查",
+    "description": "查看授权状态与有效期。登录由站点打开，模板不保存密码。",
+    "primaryAction": { "label": "进入用户中心", "type": "login" },
+    "secondaryAction": { "label": "用户登录", "type": "login" }
+  },
+  "features": [
+    { "icon": "ri:shield-check-line", "title": "安全验证", "description": "授权状态经过校验，账户与服务信息清晰可查。" },
+    { "icon": "ri:refresh-line", "title": "实时同步", "description": "授权期限和使用状态及时更新。" },
+    { "icon": "ri:customer-service-2-line", "title": "用户中心", "description": "从首页打开登录框，进入用户中心。" }
+  ],
+  "footer": { "text": "安全、稳定的软件授权服务" }
 }
 ```
 
-可复制副本：[`starter/template-example/template.json`](./starter/template-example/template.json)。
+可复制文件：[`starter/template-example/template.json`](./starter/template-example/template.json)。
 
-提交元数据：
+图标用 `ri:` 前缀（`^ri:[a-z0-9-]+$`）。颜色用 `#` 加 3–8 位十六进制。`hero.imageUrl` 只用 `https://` 或省略。
 
-| 字段 | 规则 |
-| --- | --- |
-| appId | 必填 |
-| templateUrl | HTTPS，或相对该应用 index.json 的路径 |
-| sha256 | 64 位十六进制 |
-| schemaVersion | 1 |
+## 打包与登记
 
-## 6. 开发者提交流程
+```bash
+cd docs/developer/starter/template-example
+rm -f /tmp/demo-home.zip
+zip -X -r /tmp/demo-home.zip template.json
+unzip -l /tmp/demo-home.zip
+sha256sum /tmp/demo-home.zip
+```
 
-1. 编写含 `kind: "template"` 的 `template.json`，打 ZIP 并托管。
-2. 开发者面板「我的模板」登记草稿。
-3. 提交审核 → 管理员通过 / 驳回。
-4. 上架后自动进入该应用软件源目录的 `homeTemplates`。
-5. 改包请新增版本，见 [更新与多版本](./versions.md)。
-
-## 7. 常见错误与排查
-
-| 字段 / 规则 | 原因 | 改法 |
-| --- | --- | --- |
-| kind / required | 未写 `kind` | 增加 `"kind": "template"` |
-| kind / mismatch | 写成了 plugin | 改为 template |
-| schemaVersion / format | 不是 1 | 固定为数字 `1` |
-| scripts / forbidden | 含 scripts | 删除该字段 |
-| category / kind | 使用了支付/实名/其他或插件 extras | 省略 category 或使用 `home-template` |
-
-## 8. 变更记录
-
-| 日期 | 变更 | 兼容性 |
-| --- | --- | --- |
-| 2026-09-20 | 上架后自动进入该应用软件源目录（`homeTemplates`） | 旧消费者兼容 |
-| 2026-09-20 | **要求** `kind: "template"` | **Breaking**：旧 template.json 缺 kind 会被拒绝 |
-| 2026-09-20 | category 省略自动绑定 `home-template` | 兼容；无需手工选分类 |
+开发者面板 → 我的模板 → **登记模板**。分类选「首页模板」（`home-template`）。标识手改成 `demo-home`。模板地址填该 ZIP 的 `https://`（或符合章程的相对路径）。校验码填 sha256。简介与清单 `description` 保持一致。

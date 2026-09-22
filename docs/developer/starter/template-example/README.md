@@ -1,16 +1,16 @@
-# 首页模板示例
+# 整站模板示例
 
-首页模板清单必须是 `template.json`，且**必须**包含 `"kind": "template"`（2026-09-20 breaking）。缺省分类自动绑定 `home-template`。
+本目录只有 `template.json`。这是声明式整站：主视觉、登录动作（`type: "login"`）、三条能力、页脚。宿主负责画出登录框。不要再加 `index.html` 或 `scripts`。
 
-硬性规则：
+`kind` 必须是 `template`，`schemaVersion` 必须是数字 `1`。
 
-- `kind` 必须为 `template`
-- schemaVersion 必须为 1
-- 必须有 hero.title
-- 禁止 scripts 字段
-- id 或 templateKey 至少一个，格式同插件 id
-- 不能使用 payment / realname / other，也不能使用插件 extras（即使其标识叫 `template`）
+```bash
+rm -f /tmp/demo-home.zip
+zip -X -r /tmp/demo-home.zip template.json
+unzip -l /tmp/demo-home.zip
+sha256sum /tmp/demo-home.zip
+```
 
-提交元数据时填写 templateUrl（HTTPS 或相对路径）和 ZIP/文件的 sha256。
+登记模板时：标识填 `demo-home`，分类选「首页模板」，模板地址填这个 ZIP 的 https 地址，校验码填 sha256。
 
-完整规范：`docs/developer/template-package.md`。
+规范：[章程](../../charter.md)。

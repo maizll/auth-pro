@@ -3,11 +3,10 @@
     <el-card shadow="never" class="docs-hero mb-4">
       <div class="docs-hero-row">
         <div>
-          <p class="docs-kicker">Developer Handbook</p>
-          <h1 class="docs-title">源站开发文档</h1>
+          <h1 class="docs-title">源站开发章程</h1>
           <p class="docs-lead">
-            面向插件与首页模板作者的企业级规范。源站（Software Source Station）只登记元数据与外部地址，不存储
-            ZIP。按左侧章节阅读；starter 示例与硬校验保持同步。
+            按章程生成可登记的插件包和整站模板。源站只登记外链和校验码，不保存
+            ZIP。模板是一份 template.json：主视觉、登录入口、能力卡片和页脚都要写上。
           </p>
         </div>
         <div class="header-actions">
@@ -24,7 +23,7 @@
         :closable="false"
         show-icon
         class="mt-4"
-        title="Breaking（2026-09-20）：template.json 必须包含 kind: &quot;template&quot;，否则上传硬校验失败。插件自定义分类（例如标识 template、名称「模板」）会出现在应用商店二级筛选，但不会进入首页模板。"
+        title="登记模板只上传 template.json。必须写 kind: template、schemaVersion: 1、hero.title，以及 primaryAction.type = login。不要把 index.html 打进同一个 ZIP。"
       />
     </el-card>
 
@@ -58,6 +57,7 @@
   import { computed, ref } from 'vue'
   import { marked } from 'marked'
   import { ElMessage } from 'element-plus'
+  import charterDoc from '@developer-docs/charter.md?raw'
   import pluginDoc from '@developer-docs/plugin-package.md?raw'
   import templateDoc from '@developer-docs/template-package.md?raw'
   import packagingDoc from '@developer-docs/packaging.md?raw'
@@ -88,12 +88,13 @@
   }
 
   const chapters: DocChapter[] = [
-    chapter('plugin', '01', '插件开发指南', pluginDoc),
-    chapter('template', '02', '首页模板开发指南', templateDoc),
-    chapter('packaging', '03', '打包与上传规范', packagingDoc),
-    chapter('validation', '04', '校验失败说明', validationDoc),
-    chapter('versions', '05', '更新与多版本', versionsDoc),
-    chapter('review', '06', '审核、目录与广告', reviewDoc)
+    chapter('charter', '00', '开发者章程', charterDoc),
+    chapter('plugin', '01', '插件清单', pluginDoc),
+    chapter('template', '02', '整站模板', templateDoc),
+    chapter('packaging', '03', '打包与登记', packagingDoc),
+    chapter('validation', '04', '拒绝与改法', validationDoc),
+    chapter('versions', '05', '新版本', versionsDoc),
+    chapter('review', '06', '审核之后', reviewDoc)
   ]
 
   const activeId = ref(chapters[0].id)
@@ -134,14 +135,6 @@
     justify-content: space-between;
     gap: 16px;
     flex-wrap: wrap;
-  }
-
-  .docs-kicker {
-    margin: 0 0 6px;
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--el-color-primary);
   }
 
   .docs-title {
