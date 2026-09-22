@@ -73,6 +73,7 @@ func developerStarterFiles() map[string]string {
 		"README.md":                                        developerStarterReadme(),
 		"SKILL.md":                                         skill,
 		"docs/README.md":                                   loadDeveloperDocOr("README.md", developerDocsIndexFallback()),
+		"docs/charter.md":                                  loadDeveloperDocOr("charter.md", developerCharterFallback()),
 		"docs/plugin-package.md":                           loadDeveloperDocOr("plugin-package.md", developerPluginPackageFallback()),
 		"docs/template-package.md":                         loadDeveloperDocOr("template-package.md", developerTemplatePackageFallback()),
 		"docs/packaging.md":                                loadDeveloperDocOr("packaging.md", developerPackagingFallback()),
@@ -118,27 +119,26 @@ func developerSkillMarkdown() string {
 func developerStarterReadme() string {
 	return `# AuthPro 源站开发者入门包
 
-本包给**插件 / 首页模板作者**使用，不是管理端按应用下载的 AuthPro 客户端 SDK ZIP。
+本包给插件 / 首页模板作者使用，不是管理端按应用下载的 AuthPro 客户端 SDK ZIP。
 
-源站只保存元数据与外部下载地址（HTTPS URL + sha256），**不存储源码或 ZIP 内容**。
+源站只保存元数据与外部下载地址（HTTPS URL + sha256），不存储 ZIP。
 
 ## 目录
 
 | 路径 | 说明 |
 | --- | --- |
-| ` + "`plugin-example/`" + ` | 合规插件包示例（含 plugin.json，可选 kind=plugin） |
-| ` + "`template-example/`" + ` | 合规首页模板示例（含 template.json，**必须** kind=template） |
-| ` + "`docs/`" + ` | 企业级中文规范：插件、模板、打包、校验失败、多版本、审核与广告 |
-| ` + "`SKILL.md`" + ` | 给 Cursor / 其他 AI 编码工具安装的 Skill |
+| ` + "`docs/charter.md`" + ` | 开发者章程。交给 AI 的唯一规范 |
+| ` + "`plugin-example/`" + ` | 可过硬校验的 plugin.json |
+| ` + "`template-example/`" + ` | 可过硬校验的整站 template.json（含登录动作，不要加 index.html） |
+| ` + "`SKILL.md`" + ` | AI 操作清单 |
 
-## 建议流程
+## 步骤
 
-1. 按示例改清单，打成 ZIP（清单位于根目录或一层子目录）。
-2. 把 ZIP 放到你自己的 HTTPS 空间，计算 64 位 sha256。
-3. 登录开发者面板，绑定目标应用，填写元数据并提交审核。
-4. 公开目录按应用隔离：` + "`/software-source/{app_key}/index.json`" + `。上架后自动进入该应用软件源目录。弃用后会从公开软件源目录清除，不再展示。自定义插件分类会出现在应用商店筛选页签。
+1. 按章程改清单，在示例目录内用 zip 打包，使清单位于 ZIP 根目录。
+2. sha256sum 整个 ZIP，放到自己的 HTTPS 空间。
+3. 开发者面板「登记插件」或「登记模板」：手写标识，填地址和校验码，再提交审核。
 
-完整规则见 ` + "`docs/`" + `。机器可读 schema：` + "`GET /software-source/package-schema.json`" + `。
+公开目录：` + "`/software-source/{app_key}/index.json`" + `。
 `
 }
 
@@ -180,38 +180,51 @@ func developerExampleTemplateJSON() string {
   "templateKey": "demo-home",
   "name": "演示首页",
   "version": "1.0.0",
-  "description": "AuthPro 源站开发者入门示例首页模板。",
+  "description": "AuthPro 源站声明式整站模板，含登录入口与能力卡片。",
   "schemaVersion": 1,
-  "author": {
-    "name": "示例作者"
-  },
+  "author": { "name": "示例作者" },
   "category": "home-template",
+  "stylePreset": "cartoon-blue",
+  "theme": {
+    "primaryColor": "#168fe5",
+    "backgroundColor": "#f1faff",
+    "textColor": "#15334a"
+  },
   "hero": {
-    "title": "专业授权服务"
-  }
+    "badge": "授权服务",
+    "title": "专业授权服务",
+    "highlight": "清晰可查",
+    "description": "查看授权状态与有效期。登录由站点打开，模板不保存密码。",
+    "primaryAction": { "label": "进入用户中心", "type": "login" },
+    "secondaryAction": { "label": "用户登录", "type": "login" }
+  },
+  "features": [
+    { "icon": "ri:shield-check-line", "title": "安全验证", "description": "授权状态经过校验，账户与服务信息清晰可查。" },
+    { "icon": "ri:refresh-line", "title": "实时同步", "description": "授权期限和使用状态及时更新。" },
+    { "icon": "ri:customer-service-2-line", "title": "用户中心", "description": "从首页打开登录框，进入用户中心。" }
+  ],
+  "footer": { "text": "安全、稳定的软件授权服务" }
 }
 `
 }
 
 func developerExampleTemplateReadme() string {
-	return `# 首页模板示例
+	return `# 整站模板示例
 
-首页模板清单必须是 template.json，且必须包含 "kind": "template"。
+清单必须是 template.json，且必须包含 "kind": "template"。
+schemaVersion 必须为数字 1，必须有 hero.title。
+登录入口是 hero.primaryAction.type = "login"。禁止 scripts，不要放入 index.html。
 
-硬性规则：
-
-- kind 必须为 template
-- schemaVersion 必须为 1
-- 必须有 hero.title
-- 禁止 scripts 字段
-- id 或 templateKey 至少一个，格式同插件 id
-
-提交元数据时填写 templateUrl 和 sha256。
+提交元数据时填写 templateUrl 和整个 ZIP 的 sha256。
 `
 }
 
 func developerDocsIndexFallback() string {
-	return "# AuthPro 源站开发者文档\n\n见插件开发指南、首页模板开发指南、打包与上传规范、校验失败说明、更新与多版本、审核与广告。\n"
+	return "# AuthPro 源站开发者文档\n\n唯一规范是 charter.md。\n"
+}
+
+func developerCharterFallback() string {
+	return "# AuthPro 源站开发者章程\n\ntemplate.json 必须包含 kind: template、schemaVersion 1、hero.title，以及 hero.primaryAction.type=login。禁止 scripts 与 index.html。plugin.json 的 kind 只能是 plugin 或省略。\n"
 }
 
 func developerPluginPackageFallback() string {

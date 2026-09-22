@@ -1,31 +1,22 @@
-# AuthPro 源站开发者文档
+# 源站开发者文档
 
-本文档面向**插件（Plugin）与首页模板（Home Template）作者**，以及需要在开发者面板提交广告申请的合作方。它不是管理端「按应用下载的 AuthPro 客户端 SDK」说明。
+唯一规范是 [开发者章程](./charter.md)。插件与首页模板都按它生成、打包、登记。
 
-源站（Software Source Station）只登记**元数据 + 外部地址**，不存储 ZIP 或源码。公开目录按应用隔离：
-
-```text
-GET /software-source/{app_key}/index.json
-```
-
-取消开发者会删除资格记录；审核通过/拒绝后不保留申请单。
-
-未带应用标识的 `/software-source/index.json` 返回空目录，不要当作默认软件源。管理员上架后条目自动进入该应用软件源目录。弃用后会从公开软件源目录清除，不再展示；下架同样从目录移除。
-
-## 文档目录
-
-| 章节 | 说明 |
+| 文件 | 用途 |
 | --- | --- |
-| [插件开发指南](./plugin-package.md) | plugin.json 字段、分类、完整示例 |
-| [支付渠道插件](./payment-channel-plugin.md) | 支付 SPI、官方支付宝当面付参考实现 |
-| [首页模板开发指南](./template-package.md) | template.json、`kind: "template"`、自动绑定首页模板 |
-| [打包与上传规范](./packaging.md) | ZIP 布局、硬校验、登记流程 |
-| [校验失败说明](./validation.md) | 错误字段 / 规则 → 原因与改法 |
-| [更新与多版本](./versions.md) | 版本状态、latest、已发布版本不可改地址 |
-| [审核、目录与广告](./review-and-catalog.md) | 提交流程、应用隔离、广告申请、规范变更记录 |
+| [章程](./charter.md) | 交给 AI 的合同：整站模板（含登录入口）、插件清单、ZIP、登记表单、拒绝原因 |
+| [插件清单](./plugin-package.md) | `plugin.json` 骨架与打包命令 |
+| [整站模板](./template-package.md) | `template.json` 整站骨架（登录动作、能力卡片、页脚） |
+| [打包与登记](./packaging.md) | ZIP 命令、sha256、表单中文标签对照 |
+| [拒绝与改法](./validation.md) | `error.field` / `error.rule` |
+| [新版本](./versions.md) | 「版本」抽屉 |
+| [审核之后](./review-and-catalog.md) | 状态与管理员操作 |
 
-机器可读 schema：`GET /software-source/package-schema.json`。
+示例（必须能过硬校验）：
 
-入门示例：[`starter/plugin-example/`](./starter/plugin-example/)、[`starter/template-example/`](./starter/template-example/)。按示例打的包必须能通过上传硬校验。
+- [`starter/plugin-example/`](./starter/plugin-example/)
+- [`starter/template-example/`](./starter/template-example/)
 
-本文档只覆盖第三方开发者需要使用的清单、公开目录、上传校验与提交流程；源站内部实现与仅管理员使用的接口不在此展开。
+AI 步骤：[SKILL.md](../../developer-skills/auth-pro-plugin-template/SKILL.md)。
+
+支付渠道在包合同之外还要服务端 Channel，见 [payment-channel-plugin.md](./payment-channel-plugin.md)。

@@ -1,85 +1,21 @@
-# 审核、目录与广告申请
+# 审核之后
 
-## 1. 概述
+开发者提交后，管理员在源站软件目录看到标识、名称、分类、版本、下载地址、SHA256。管理员审核时不会重新下载 ZIP。
 
-| 项 | 说明 |
-| --- | --- |
-| 适用对象 | 开发者（提交）与源站管理员（审核、上架、广告） |
-| 前置条件 | 开发者已入驻；广告申请走独立状态机 |
-| 与源站关系 | 目录项按 `appId` 隔离；广告对全站客户端投放，不按应用拆目录 |
-
-## 2. 目录结构（公开 index）
-
-```json
-{
-  "name": "…",
-  "appKey": "app-a",
-  "plugins": [{ "id": "demo-widget", "category": "other" }],
-  "homeTemplates": [{ "id": "demo-home", "category": "home-template" }],
-  "categories": [
-    { "key": "payment", "label": "支付", "kind": "plugin", "builtin": true },
-    { "key": "template", "label": "模板", "kind": "plugin", "builtin": false }
-  ]
-}
-```
-
-`plugins` / `homeTemplates` 拆分数组是为了兼容旧消费者。`categories` 含内置 + extras，供应用商店生成二级筛选页签。
-
-## 3. 清单字段表（状态）
-
-| 字段名 | 类型 | 必填 | 默认 / 自动填充 | 中文说明 | 校验规则 | 示例值 |
-| --- | --- | --- | --- | --- | --- | --- |
-| status | string | 系统 | draft | 目录项状态 | 见下表流转 | `"published"` |
-| reviewNote | string | 否 | 空 | 审核说明 | ≤500 字 | `"请补 sha256"` |
-
-| 状态 | 含义 |
-| --- | --- |
-| draft | 草稿，可改元数据 |
-| review | 已提交，等待管理员 |
-| approved | 审核通过，尚未出现在公开目录 |
-| published | 已上架，写入该应用 index.json |
-| hidden | 已下架；不会远程卸载已安装实例 |
-| rejected | 已驳回，可改后再提交 |
-| deprecated | 已弃用。弃用后会从公开软件源目录、管理端默认目录和开发者默认列表清除；`status=deprecated` 可查历史 |
-
-广告申请：`pending` → `approved` / `rejected`。通过后才生成真实投放记录。
-
-## 4. kind / 分类绑定
-
-- 内置：payment、realname、other、home-template。
-- extras 示例（产品复现）：名称「模板」、标识 `template`、清单 plugin.json。该分类出现在商店筛选中；其插件待在 `plugins`。
-- `template.json` + `kind: "template"` 只进入「首页模板」/`homeTemplates`。
-
-## 5. 完整示例
-
-开发者入驻复用代理商账号。取消开发者会删除资格记录；审核通过/拒绝后不保留申请单。目录登记必须选应用。广告申请填写标题、图片、链接与广告位（首页横幅 / 侧栏 / 弹窗）。广告图支持开发者面板本地上传（PNG / JPEG / GIF / WebP，小于 2MB，`POST /advertisements/image`）或粘贴 `https://` 外链；不接受 `http://` 或任意本地路径。
-
-## 6. 开发者提交流程
-
-1. **登记**：开发者面板创建草稿（插件 / 模板 / 广告申请）。
-2. **草稿**：可改元数据；上架所需的 URL 与 sha256 可稍后补。
-3. **提交审核**：目录项进入 review；广告进入 pending。
-4. **通过 / 驳回**：管理员操作；驳回后可修改再提交。审核结论写入站内通知（开发者/代理顶栏铃铛），不发邮件。
-5. **上架 / 更新版本**：仅目录项。上架后自动进入该应用软件源目录（公开 `index.json` 的 `plugins` / `homeTemplates`），无需再手工发布目录；改元数据、换 latest、下架或弃用会同步增删改同一份目录。弃用后会从公开软件源目录清除，不再展示。之后用「版本」发新包。
-
-## 7. 常见错误与排查
-
-| 现象 | 原因 | 改法 |
+| 状态值 | 界面 | 接下来 |
 | --- | --- | --- |
-| 公开目录看不到条目 | 未 published 或 app_key 不匹配 | 确认上架与 URL |
-| 广告申请提示图片地址不合法 | 填了 http://、相对路径或未上传的本地文件 | 使用「本地上传」，或粘贴 https:// 外链 |
-| 商店没有「模板」页签 | 软件源未刷新，或 index 未带 extras | 刷新软件源；确认公开 index 的 `categories` 含该分类 |
-| 广告通过了但看不见 | 未生成投放或时段/权重不符 | 在源站广告投放中核对记录 |
+| `draft` | 草稿 | 开发者可编辑、提交审核 |
+| `review` | 待审核 | 管理员 **通过** 或 **驳回** |
+| `approved` | 已通过 | 尚未公开。管理员 **上架** |
+| `published` | 已上架 | 写入该应用 `GET /software-source/{app_key}/index.json` |
+| `rejected` | 已驳回 | 看「审核说明」，改完再提交 |
+| `hidden` | 已下架 | 公开目录移除，已安装副本还在 |
+| `deprecated` | 已弃用 | 公开目录清除 |
 
-## 8. 变更记录
+上架缺少地址或校验码：`上架需要 64 位 sha256 和外部下载/模板地址`。
 
-| 日期 | 变更 | 兼容性 |
-| --- | --- | --- |
-| 2026-09-20 | 广告申请支持开发者本地上传图片，或继续粘贴 https:// 外链 | 旧 https 外链兼容 |
-| 2026-09-20 | 启动时清掉 `source_developer_applications` 的冻结/取消/已通过/已拒绝入驻单与 `source_developers.enabled=0` 资格；列表只保留待审核申请和启用中的开发者 | 启动后旧冻结行消失 |
-| 2026-09-20 | 审核结论写入四端站内通知铃铛；第三方无需新接口 | 旧消费者兼容 |
-| 2026-09-20 | 弃用后会从公开软件源目录、管理端默认目录和开发者默认列表清除；`status=deprecated` 可查历史 | 旧消费者兼容 |
-| 2026-09-20 | 弃用后会从公开软件源目录清除，不再展示；弃用唯一/当前 latest 已发布版本同样清出目录 | 旧消费者兼容 |
-| 2026-09-20 | 上架后自动进入该应用软件源目录；下架/弃用/改元数据/换 latest/改分类同步更新同一份公开 index | 旧消费者兼容 |
-| 2026-09-20 | extras 写入 index.categories，应用商店按此做二级筛选；公开 index 仍拆 plugins / homeTemplates | 旧消费者兼容 |
-| 2026-09-20 | template.json 强制 `kind: "template"`，自动绑定 home-template | **Breaking**（仅模板清单） |
+插件进入 `plugins`，分类决定商店页签（支付 / 实名认证 / 其他，或源站额外配置的插件分类）。模板进入 `homeTemplates`，页签是「首页模板」（`home-template`）。插件即使分类 key 叫 `template`，也不会进首页模板。
+
+驳回说明显示在登记抽屉：`审核说明：…`。
+
+换包走 [新版本](./versions.md)，不要改已发布版本的地址。

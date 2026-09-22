@@ -2,7 +2,7 @@
 
 本文面向要为 AuthPro 增加支付渠道的开发者。参考实现：仓库内官方插件 [`plugins/alipay-f2f/`](../../plugins/alipay-f2f/) + `backend/payment/alipayf2f`。
 
-商店 ZIP 的 `plugin.json` 规则仍以 [插件开发指南](./plugin-package.md) 为准。支付渠道 **额外** 需要编译进后端的 Channel 实现；下载的 ZIP 不会执行代码。
+商店 ZIP 的 `plugin.json` 以 [开发者章程](./charter.md) 为准。支付渠道 **额外** 需要编译进后端的 Channel 实现；下载的 ZIP 不会执行代码。
 
 ## 1. 你要交付的三块
 

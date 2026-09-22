@@ -4,13 +4,50 @@
   "templateKey": "demo-home",
   "name": "演示首页",
   "version": "1.0.0",
-  "description": "AuthPro 源站开发者入门示例首页模板。",
+  "description": "AuthPro 源站声明式整站模板，含登录入口与能力卡片。",
   "schemaVersion": 1,
   "author": {
     "name": "示例作者"
   },
   "category": "home-template",
+  "stylePreset": "cartoon-blue",
+  "theme": {
+    "primaryColor": "#168fe5",
+    "backgroundColor": "#f1faff",
+    "textColor": "#15334a"
+  },
   "hero": {
-    "title": "专业授权服务"
+    "badge": "授权服务",
+    "title": "专业授权服务",
+    "highlight": "清晰可查",
+    "description": "查看授权状态与有效期。登录由站点打开，模板不保存密码。",
+    "primaryAction": {
+      "label": "进入用户中心",
+      "type": "login"
+    },
+    "secondaryAction": {
+      "label": "用户登录",
+      "type": "login"
+    }
+  },
+  "features": [
+    {
+      "icon": "ri:shield-check-line",
+      "title": "安全验证",
+      "description": "授权状态经过校验，账户与服务信息清晰可查。"
+    },
+    {
+      "icon": "ri:refresh-line",
+      "title": "实时同步",
+      "description": "授权期限和使用状态及时更新。"
+    },
+    {
+      "icon": "ri:customer-service-2-line",
+      "title": "用户中心",
+      "description": "从首页打开登录框，进入用户中心。"
+    }
+  ],
+  "footer": {
+    "text": "安全、稳定的软件授权服务"
   }
 }

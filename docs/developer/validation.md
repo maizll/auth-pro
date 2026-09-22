@@ -1,8 +1,6 @@
-# 校验失败说明
+# 拒绝与改法
 
-## 1. 概述
-
-硬校验（Hard Validation）在解析 ZIP 或登记元数据时执行。响应形如：
+ZIP 失败响应：
 
 ```json
 {
@@ -12,61 +10,69 @@
 }
 ```
 
-`field` 为字段名，`rule` 为规则码，`msg` 为中文说明。按「原因 → 改法」处理，不要绕过校验。
+失败不写库。先改包或表单，再解析或保存。
 
-## 2. 目录结构相关失败
+## ZIP
 
-| field | rule | 原因 | 改法 |
-| --- | --- | --- | --- |
-| file | required | 未上传或空文件 | 选择 ZIP |
-| file | require_zip | 不是 ZIP | 重新打包 |
-| file | max_size | 超过 20 MiB | 压缩或删减资源 |
-| file | zip_layout | 穿越 / 符号链接 / 空包 / 仅 __MACOSX | 按打包规范重建 |
-| plugin.json / template.json | require_manifest | 找不到对应清单 | 放到根目录或一层子目录 |
-| plugin.json / template.json | json / encoding | 非法 JSON 或非 UTF-8 | 另存为 UTF-8 JSON |
+| field | rule | 改法 |
+| --- | --- | --- |
+| `file` | `required` | 上传非空 ZIP |
+| `file` | `require_zip` | 用 `zip` 打包，确认文件以 `PK` 开头 |
+| `file` | `max_size` | 压到 20 MiB 以内 |
+| `file` | `zip_layout` | 去掉 `..`、反斜杠、符号链接、空包、重复路径。见 msg 冒号后的原文 |
+| `plugin.json` | `require_manifest` | 插件分类的包要有 `plugin.json`，放根目录或一层子目录 |
+| `template.json` | `require_manifest` | 模板分类的包要有 `template.json`，同样深度 |
+| `plugin.json` | `json` / `encoding` | UTF-8 JSON |
+| `template.json` | `json` / `encoding` | 同上。`schemaVersion` 不要写成字符串 `"1"` |
+| `kind` | `required` | 模板加上 `"kind": "template"` |
+| `kind` | `mismatch` | 插件清单不要写 `template`，模板清单不要写 `plugin` |
+| `kind` | `invalid` | 只能是 `plugin` 或 `template` |
+| `id` | `required` / `format` | 2–59 位小写字母、数字、连字符 |
+| `name` / `version` / `description` | `required` | 补字段。版本匹配 `^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$` |
+| `author` / `author.name` | `required` | `"author": { "name": "示例作者" }` 或 `"author": "示例作者"` |
+| `schemaVersion` | `required` / `format` | 数字 `1` |
+| `hero.title` | `required` | `"hero": { "title": "..." }` |
+| `scripts` | `forbidden` | 删除 `scripts`，不要留空数组 |
+| `category` | `kind` / `unknown` | 插件用 `payment`/`realname`/`other`。模板用 `home-template` 或省略 |
 
-## 3. 清单字段失败
-
-| field | rule | 原因 | 改法 |
-| --- | --- | --- | --- |
-| kind | required | template.json 未写 kind | 增加 `"kind": "template"` |
-| kind | mismatch | 清单与 kind 交叉（plugin.json 写 template，或相反） | 清单文件与 kind 对齐 |
-| kind | invalid | kind 不是 plugin / template | 按包类型填写 |
-| id | required / format | 缺 id 或格式非法 | 2–59 位小写字母、数字、连字符 |
-| name / version / description / author | required | 缺必填 | 按字段表补全 |
-| schemaVersion | required / format | 模板不是 1 | 写数字 `1` |
-| scripts | forbidden | 模板含 scripts | 删除字段 |
-| category | kind / format / unknown | 跨 kind 或未配置 | 插件用插件分类；模板用 home-template 或省略以自动填充 |
-| sha256 | — | 非 64 位十六进制 | 重算 |
-| downloadUrl / templateUrl | — | 协议或路径非法 | 插件必须 HTTPS |
-
-## 4. kind / 分类绑定
-
-- 模板缺 kind：**拒绝**（breaking）。
-- 模板缺 category：**自动 `home-template`**，不是错误。
-- 自定义插件分类（如 id=`template`、名称「模板」）必须先在源站「管理分类」添加，再用于 plugin.json / 登记。未配置会报「未知分类」。
-- 该 extras 出现在商店筛选页签；不要与 `home-template` 混淆。
-
-## 5. 完整示例
-
-错误响应对照：
+常见 msg：
 
 | msg | 改法 |
 | --- | --- |
 | `template.json 缺少 kind（必须为 template）` | 写入 kind |
-| `该分类属于首页模板，不能用于插件包` | 插件改用 payment/realname/other/extras |
-| `该分类属于插件，不能用于首页模板包` | 模板改用 home-template 或省略 |
+| `该分类属于首页模板，不能用于插件包` | 插件改分类 |
+| `该分类属于插件，不能用于首页模板包` | 模板改 `home-template` |
+| `未知分类，请先在目录分类中配置` | 改用内置分类 |
+| `压缩包必须包含 plugin.json 或 template.json` | 补清单 |
 
-## 6. 开发者提交流程
+## 登记接口
 
-校验失败时状态不会前进。先修正 ZIP 或表单，再重新解析 / 保存草稿 / 提交审核。
+这些响应通常只有 `msg`：
 
-## 7. 常见错误与排查
+| msg | 改法 |
+| --- | --- |
+| `插件标识不合法` / `模板标识不合法` | 改标识格式 |
+| `不能覆盖内置插件标识` | 换 id |
+| `必须是 https:// 外部地址，源站不保存插件或模板源码` | 插件改用 https |
+| `templateUrl 须为 https:// 或相对路径（如 templates/clean-home.json）` | 去掉前导 `/` 和 `..` |
+| `地址不合法` | https 路径里不要 `..` |
+| `sha256 必须是 64 位十六进制` | 对整个 ZIP 重算 |
+| `版本号不合法` | 改版本格式 |
+| `schemaVersion 必须为 1` | 登记 JSON 里用数字 1 |
+| `必须绑定应用` / `应用不存在` | 重选应用 |
+| `上架需要 64 位 sha256 和外部下载/模板地址` | 管理员上架前补齐。开发者应在提交审核前就填好 |
+| `已发布版本不可改包地址，请创建新版本` | 走「版本」 |
+| `当前状态不允许该操作` | 只有草稿和已驳回能再提交 |
+| `软件源模板目录与 ZIP 入口类型不一致，请重新发布` | 登记包去掉 `index.html`，只留 `template.json` |
+| `软件源模板 ZIP 的 SHA256 校验失败` | 登记的校验码不是当前文件，重新 `sha256sum` |
+| `plugin.json 的插件 ID 必须与软件源一致` | 清单 `id` 改成登记标识 |
 
-优先看 `error.field` + `error.rule`，再对照第 3 节。复制 starter 示例是最快的基线。
+界面校验（请求还没发出）：
 
-## 8. 变更记录
-
-| 日期 | 变更 | 兼容性 |
-| --- | --- | --- |
-| 2026-09-20 | template.json 缺少 kind 返回 field=kind, rule=required | **Breaking** |
+| 原文 | 改法 |
+| --- | --- |
+| `标识只能用小写字母、数字和连字符，至少 2 位` | 手写标识 |
+| `下载地址须为 https 开头的外链` | 插件地址 |
+| `模板地址须为 https 开头，或相对路径如 templates/demo-home.json` | 模板地址 |
+| `校验码须为 64 位十六进制` | 重算 |
+| `提交审核前请先填写下载地址和校验码` | 两项都填再点提交审核 |
