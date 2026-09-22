@@ -20,6 +20,7 @@
 
 - 发明校验器不读的字段：`pages`、`routes`、`loginPage`、`register`、`scripts`、自定义接口。
 - 在模板里请求 `POST /api/user-panel/login`、保存 `user_panel_token`、写密码。登录框由**宿主**打开。
+- 另写 `login.html`、`register.html`、`forgot-password.html` 或任何登录页。首页和宿主登录框共用 `stylePreset` 与 `theme`，不要再做一套页面。
 - 登记包里同时放 `index.html` 和 `template.json`。安装时优先 `index.html`，目录记成 `schemaVersion: 0`，和登记接口固定提交的 `schemaVersion: 1` 冲突，安装报「软件源模板目录与 ZIP 入口类型不一致」。
 - 使用内置插件标识：`epay`、`epay-v2`、`alipay-f2f`、`alipay-realname`、`kuaitong-realname`、`tencent-realname`、`xiaomu-realname`。服务端返回「不能覆盖内置插件标识」。
 - 把 ZIP 当文件上传到开发者面板。面板没有文件框。
@@ -130,7 +131,7 @@ demo-widget.zip
 | --- | --- | --- |
 | 顶栏：站名、Logo、「登录」 | 站名/Logo 来自系统配置。登录按钮宿主固定存在 | 不写 |
 | 主视觉 | `hero` | `title` 必填。写上 `badge`、`highlight`、`description` |
-| 登录框 | 宿主弹窗。账号框、密码框、极验、token、代理升级跳转都在宿主 | `hero.primaryAction.type` 必须是 `"login"`，并写 `label` |
+| 登录框 | 宿主弹窗。账号框、密码框、极验、token、代理升级跳转都在宿主。外观跟首页同一个 `stylePreset` 和 `theme` 三色 | `hero.primaryAction.type` 必须是 `"login"`，并写 `label`。不要写 `login.html` |
 | 能力卡片 | `features` | 写 **3** 条。标准预设最多显示 12 条；`fintech-gold` 只显示前 3 条 |
 | 页脚 | `footer.text`；没有则用站名 | 写 `footer.text` |
 | `fintech-gold` 额外的「快速查询 / 使用链路 / 底部行动 / 登录对话框」 | 宿主写死文案。查询框**不会**调用授权查询接口，提交后打开登录框 | 没有对应 JSON。不要发明 `pages` 去填它们 |
@@ -145,6 +146,17 @@ demo-widget.zip
 | 其他字符串 | 整份文档被宿主判为非法，**回退到默认首页**，等于模板没生效 |
 
 颜色只接受 `#` 加 3–8 位十六进制（如 `#168fe5`）。不合法则用版式默认色。
+
+宿主登录框使用这一份 `stylePreset` 和 `theme`，不另读页面文件：
+
+| `stylePreset` | 登录框 |
+| --- | --- |
+| `cartoon-blue` | 浅色圆角面板、胶囊按钮、主色阴影。主色 / 背景 / 文字来自 `theme` |
+| `fintech-gold` | 金黑对话框。主色、背景、文字与首页同一组变量。顶栏「注册」打开的也是这个登录框 |
+| 省略 | 标准版式首页仍吃 `theme`；登录框保持宿主默认外观 |
+| 未启用远程模板 | 默认首页的登录、注册、忘记密码弹窗保持默认外观，不读模板 |
+
+不要在 ZIP 里放 `login.html`。换登录框外观只改 `stylePreset` 与三色。
 
 图标：写 Remix 名 `ri:` + 小写，例如 `ri:shield-check-line`。不符合 `^ri:[a-z0-9-]+$` 的图标，标准版式会换成 `ri:sparkling-line`。
 
@@ -426,7 +438,7 @@ ZIP 解析失败时响应形如：
 ## 10. 生成顺序（给 AI）
 
 1. 判定要插件还是模板。不要两种清单放进同一个 ZIP。
-2. 按第 4 或第 5 节写出完整 JSON。模板必须含登录动作、3 条能力、页脚、`stylePreset`。
+2. 按第 4 或第 5 节写出完整 JSON。模板必须含登录动作、3 条能力、页脚、`stylePreset`。登录框由宿主按 `stylePreset` 绘制，不要写 `login.html`。
 3. 按第 7 节打包，记下 sha256 与 `unzip -l`。
 4. 给出登记表：应用（向作者要）、分类、名称、**手写标识**、版本、地址、校验码、简介。作者用登录名，不要从 JSON 再填一遍。
 5. 说明：先保存草稿，地址和校验码齐了再提交审核。更新走「版本」，不改已发布地址。

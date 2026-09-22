@@ -63,6 +63,32 @@ export function isHomeTemplateStylePreset(value: unknown): value is HomeTemplate
   return value === 'cartoon-blue' || value === 'fintech-gold'
 }
 
+export function resolveHomeTemplatePreset(value: unknown): HomeTemplateStylePreset | 'standard' {
+  return isHomeTemplateStylePreset(value) ? value : 'standard'
+}
+
+/** 首页与宿主登录框共用的主题变量。 */
+export function homeTemplateThemeStyle(
+  document: Pick<HomeTemplateDocument, 'stylePreset' | 'theme'>
+): Record<string, string> {
+  const preset = resolveHomeTemplatePreset(document.stylePreset)
+  const defaults =
+    preset === 'fintech-gold'
+      ? { primary: '#f0b90b', background: '#0b0e11', text: '#f5f5f5' }
+      : { primary: '#4d6bfe', background: '#f7f8fc', text: '#172033' }
+  const primary = safeTemplateColor(document.theme?.primaryColor, defaults.primary)
+  const background = safeTemplateColor(document.theme?.backgroundColor, defaults.background)
+  const text = safeTemplateColor(document.theme?.textColor, defaults.text)
+  return {
+    '--remote-primary': primary,
+    '--remote-background': background,
+    '--remote-text': text,
+    '--gold': primary,
+    '--page-bg': background,
+    '--text': text
+  }
+}
+
 export function safeTemplateColor(value: string | undefined, fallback: string): string {
   return value && /^#[0-9a-f]{3,8}$/i.test(value) ? value : fallback
 }

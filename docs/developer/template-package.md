@@ -17,7 +17,7 @@ demo-home.zip
 | --- | --- |
 | 顶栏站名 / Logo / 「登录」 | 站名来自系统配置。登录按钮宿主自带 |
 | 主视觉 | `hero.title`（必填）以及 `badge`、`highlight`、`description` |
-| 登录框 | `hero.primaryAction`: `{ "label": "进入用户中心", "type": "login" }`。宿主弹窗负责账号、密码、极验和 token |
+| 登录框 | `hero.primaryAction`: `{ "label": "进入用户中心", "type": "login" }`。宿主弹窗负责账号、密码、极验和 token，并用同一份 `stylePreset` / `theme` 上色。不要写 `login.html` |
 | 能力卡片 | `features` 写 3 条。`fintech-gold` 只显示前 3 条，标准预设最多 12 条 |
 | 页脚 | `footer.text` |
 | `stylePreset: "fintech-gold"` 时的查询区、三步说明、底部行动 | 宿主写死，没有 JSON。查询提交后打开登录框 |

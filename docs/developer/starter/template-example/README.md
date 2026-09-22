@@ -1,6 +1,6 @@
 # 整站模板示例
 
-本目录只有 `template.json`。这是声明式整站：主视觉、登录动作（`type: "login"`）、三条能力、页脚。宿主负责画出登录框。不要再加 `index.html` 或 `scripts`。
+本目录只有 `template.json`。这是声明式整站：主视觉、登录动作（`type: "login"`）、三条能力、页脚、`stylePreset` 与 `theme`。宿主用同一份 `stylePreset` 画首页和登录框（`cartoon-blue` 为浅色胶囊，`fintech-gold` 为金黑）。不要再加 `index.html`、`login.html` 或 `scripts`。
 
 `kind` 必须是 `template`，`schemaVersion` 必须是数字 `1`。
 

@@ -46,6 +46,17 @@ test('未启用远程模板时渲染默认首页并保持 URL', async ({ page })
     page.getByRole('heading', { name: '让每一份软件授权 清晰、安全、可管理' })
   ).toBeVisible()
   await expect(page).toHaveURL('http://127.0.0.1:4175/user/login')
+
+  await page.locator('.header-login').click()
+  const dialog = page.locator('.home-auth-dialog')
+  await expect(dialog).toBeVisible()
+  await expect(page.locator('.remote-login-dialog')).toHaveCount(0)
+  await dialog.getByText('立即注册', { exact: true }).click()
+  await expect(dialog.getByRole('heading', { name: '注册新用户' })).toBeVisible()
+  await dialog.getByText('返回登录', { exact: true }).click()
+  await dialog.getByText('忘记密码？', { exact: true }).click()
+  await expect(dialog.getByRole('heading', { name: '找回密码' })).toBeVisible()
+  await expect(dialog).toHaveCSS('background-color', 'rgb(255, 255, 255)')
 })
 
 test('活动模板改变页面内容但不改变 URL', async ({ page }) => {
@@ -76,6 +87,13 @@ test('活动模板改变页面内容但不改变 URL', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '远程首页已启用 URL 保持不变' })).toBeVisible()
   await expect(page.locator('.license-home')).toHaveCount(0)
   await expect(page).toHaveURL('http://127.0.0.1:4175/user/login')
+
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  const dialog = page.locator('.el-dialog.remote-login-dialog--standard')
+  await expect(dialog).toBeVisible()
+  await expect(dialog).not.toHaveClass(/cartoon-blue|fintech-gold/)
+  await expect(dialog).not.toHaveCSS('border-radius', '28px')
+  await expect(dialog).not.toHaveCSS('border-radius', '7px')
 })
 
 test('活动模板格式错误时自动回退默认首页', async ({ page }) => {
@@ -148,7 +166,49 @@ for (const template of [
     ).toBeVisible()
     await expect(page.locator('.license-home')).toHaveCount(0)
     await expect(page).toHaveURL('http://127.0.0.1:4175/user/login')
+
+    await page.getByRole('button', { name: '登录', exact: true }).click()
+    if (template.stylePreset === 'cartoon-blue') {
+      const home = page.locator('.remote-home--cartoon-blue')
+      const dialog = page.locator('.el-dialog.remote-login-dialog--cartoon-blue')
+      await expect(dialog).toBeVisible()
+      const homePrimary = await cssVar(home, '--remote-primary')
+      const dialogPrimary = await cssVar(dialog, '--remote-primary')
+      expect(homePrimary.toLowerCase()).toBe('#168fe5')
+      expect(dialogPrimary.toLowerCase()).toBe(homePrimary.toLowerCase())
+      await expect(dialog.locator('.login-submit')).toHaveCSS(
+        'background-color',
+        'rgb(22, 143, 229)'
+      )
+      await expect(dialog).toHaveCSS('border-radius', '28px')
+      await expect(dialog.locator('.el-input__wrapper').first()).toHaveCSS('border-radius', '999px')
+      await expect(dialog.getByRole('heading', { name: '用户登录' })).toBeVisible()
+    } else {
+      const home = page.locator('.gold-home')
+      const dialog = page.locator('dialog.remote-login-dialog--fintech-gold')
+      await expect(dialog).toBeVisible()
+      const homeGold = await cssVar(home, '--gold')
+      const dialogGold = await cssVar(dialog, '--gold')
+      expect(homeGold.toLowerCase()).toBe('#f3ba2f')
+      expect(dialogGold.toLowerCase()).toBe(homeGold.toLowerCase())
+      expect(await cssVar(dialog, '--text')).toBe(await cssVar(home, '--text'))
+      expect(await cssVar(dialog, '--page-bg')).toBe(await cssVar(home, '--page-bg'))
+      await expect(dialog).toHaveCSS('color', 'rgb(244, 246, 250)')
+      const submitImage = await dialog
+        .locator('.login-submit')
+        .evaluate((el) => getComputedStyle(el).backgroundImage)
+      expect(submitImage.replace(/\s+/g, '')).toMatch(/243,186,47/)
+      await dialog.locator('.modal-close').click()
+      await expect(dialog).not.toBeVisible()
+      await page.getByRole('button', { name: '注册', exact: true }).click()
+      await expect(dialog).toBeVisible()
+      expect((await cssVar(dialog, '--gold')).toLowerCase()).toBe('#f3ba2f')
+    }
   })
+}
+
+function cssVar(locator: ReturnType<Page['locator']>, name: string) {
+  return locator.evaluate((el, prop) => getComputedStyle(el).getPropertyValue(prop).trim(), name)
 }
 
 test('未知风格预设自动回退默认首页', async ({ page }) => {
@@ -254,7 +314,10 @@ test('静态 ZIP 首页不叠加浮动按钮并保留沙箱与系统登录', asy
   const frame = page.frameLocator('iframe[title="自定义首页模板"]')
   await expect(frame.getByRole('heading', { name: 'ZIP 静态脚本已运行' })).toBeVisible()
   await expect(frame.locator('body')).toHaveAttribute('data-token', 'must-stay-private')
-  await expect(page.locator('.static-home iframe')).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin')
+  await expect(page.locator('.static-home iframe')).toHaveAttribute(
+    'sandbox',
+    'allow-scripts allow-same-origin'
+  )
   await expect(page.locator('.static-home-actions')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '使用默认首页', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '登录用户中心', exact: true })).toHaveCount(0)

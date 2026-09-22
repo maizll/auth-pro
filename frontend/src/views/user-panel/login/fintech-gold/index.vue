@@ -241,7 +241,8 @@
 
     <dialog
       ref="loginDialog"
-      class="login-dialog"
+      class="login-dialog remote-login-dialog remote-login-dialog--fintech-gold"
+      :style="themeStyle"
       aria-labelledby="login-title"
       aria-describedby="login-description"
       @click.self="closeLogin"
@@ -301,7 +302,7 @@
   import { computed, reactive, ref } from 'vue'
   import AppIcon from './AppIcon.vue'
   import GlassCard from './GlassCard.vue'
-  import { safeTemplateColor, type HomeTemplateDocument } from '../home-template'
+  import { homeTemplateThemeStyle, type HomeTemplateDocument } from '../home-template'
 
   defineOptions({ name: 'FintechGoldHome' })
   const props = defineProps<{
@@ -342,11 +343,7 @@
       ? props.document.features.slice(0, 3)
       : fallbackFeatures
   )
-  const themeStyle = computed(() => ({
-    '--gold': safeTemplateColor(props.document.theme?.primaryColor, '#f0b90b'),
-    '--page-bg': safeTemplateColor(props.document.theme?.backgroundColor, '#0b0e11'),
-    '--text': safeTemplateColor(props.document.theme?.textColor, '#f5f5f5')
-  }))
+  const themeStyle = computed(() => homeTemplateThemeStyle(props.document))
   const steps = [
     {
       icon: 'user-round-plus',
@@ -423,8 +420,9 @@
     --edge-highlight-opacity: 0.12;
   }
 
-  /* Derived here so the API-provided theme colors also reach cards and icons. */
-  .gold-home {
+  /* Derived here so the API-provided theme colors also reach cards, icons, and the login dialog. */
+  .gold-home,
+  .login-dialog {
     --text-muted: color-mix(in srgb, var(--text) 66%, var(--page-bg));
     --text-subtle: color-mix(in srgb, var(--text) 54%, var(--page-bg));
     --line: color-mix(in srgb, var(--text) 10%, transparent);
