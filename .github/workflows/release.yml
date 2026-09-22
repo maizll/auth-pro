@@ -75,10 +75,9 @@ jobs:
           AUTO_PRO_UPDATE_RELEASES_URL: 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/releases.json'
           AUTO_PRO_REQUIRE_GIT_RELEASE_NOTES: '1'
           AUTO_PRO_RELEASE_NOTES: |
-            用户端「购买授权」整页重排：BizAppSelect 选应用，四段卡片流程，支付接口不变。
-            「我的工单」未读徽标改为行内显示，不再被菜单顶边裁成半个。
-            管理端铃铛未读红点完整显示在图标右上角，不再被顶栏切半。
-            管理端通知下拉紧贴铃铛并限制在后台主区域内。
+            用户端、代理端手机导航可收起：窄屏侧栏改为抽屉，遮罩/换页/关闭/Esc 均可关闭。
+            购买授权、开通授权、工单等页在约 375px 下减少横向撑出。
+            宽屏侧栏折叠后真正收到约 64px。
         run: ./scripts/build-release.sh '${{ steps.version.outputs.value }}'
 
       - name: Run backend tests
