@@ -5,7 +5,7 @@
 ## 标准目录
 
 ```text
-auth_pro-full-v1.4.8.tar.gz
+auth_pro-full-v1.4.9.tar.gz
 ├── index.html
 ├── version.json
 ├── favicon.ico
@@ -48,7 +48,7 @@ auth_pro-full-v1.4.8.tar.gz
 
 ## 版本号单一信源
 
-仓库根目录 `VERSION`（当前 `1.4.8`）是产品线默认版本：
+仓库根目录 `VERSION`（当前 `1.4.9`）是产品线默认版本：
 
 - 后端 `auto_pro/config.AppVersion` 仓库默认与 `VERSION` 一致；`./scripts/build-release.sh` / `.ps1` 无参数时读该文件，并用 `-ldflags` 注入 `AppVersion` / `BuildTime`。
 - 前端 `VITE_VERSION` 与 `vite.config.ts` 的 `version.json` 同样对齐 `VERSION`；发布脚本会把参数版本写入 `VITE_VERSION`。
@@ -61,14 +61,14 @@ macOS / Linux：
 
 ```bash
 ./scripts/build-release.sh          # 使用根目录 VERSION
-./scripts/build-release.sh 1.4.8
+./scripts/build-release.sh 1.4.9
 ```
 
 Windows PowerShell：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1 -Version 1.4.8
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1 -Version 1.4.9
 ```
 
 输出文件固定为：
@@ -86,14 +86,14 @@ release/packages/releases.json
 推送 `vX.Y.Z` 标签后由 `.github/workflows/release.yml` 构建并上传。不要删除历史 Releases，也不要 force-push 标签。
 
 ```bash
-git tag v1.4.8
-git push origin v1.4.8
+git tag v1.4.9
+git push origin v1.4.9
 ```
 
 每个 Release 必须包含：
 
 ```text
-auth_pro-full-v1.4.8.tar.gz
+auth_pro-full-v1.4.9.tar.gz
 latest.json
 releases.json
 ```
