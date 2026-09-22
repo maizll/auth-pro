@@ -75,9 +75,8 @@ jobs:
           AUTO_PRO_UPDATE_RELEASES_URL: 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/releases.json'
           AUTO_PRO_REQUIRE_GIT_RELEASE_NOTES: '1'
           AUTO_PRO_RELEASE_NOTES: |
-            用户端、代理端手机导航可收起：窄屏侧栏改为抽屉，遮罩/换页/关闭/Esc 均可关闭。
-            购买授权、开通授权、工单等页在约 375px 下减少横向撑出。
-            宽屏侧栏折叠后真正收到约 64px。
+            用户端、代理端顶栏路径强制单行，末级过长省略。
+            窄屏隐藏「站点名 /」前缀，只显示当前页名，避免换行。
         run: ./scripts/build-release.sh '${{ steps.version.outputs.value }}'
 
       - name: Run backend tests
