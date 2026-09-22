@@ -619,18 +619,18 @@
   // 工具栏：左侧筛选，右侧兑换入口
   .licenses-toolbar {
     display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
     margin-bottom: 16px;
   }
 
   .toolbar-filters {
     display: flex;
-    align-items: center;
-    gap: 10px;
     flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
   }
 
   .filter-keyword {
@@ -647,58 +647,58 @@
 
   .redeem-btn {
     display: inline-flex;
-    align-items: center;
     gap: 5px;
+    align-items: center;
   }
 
   // 表格细节
   .licenses-table {
     :deep(.el-table__header th) {
-      background: var(--el-fill-color-light);
-      color: var(--el-text-color-secondary);
       font-weight: 600;
+      color: var(--el-text-color-secondary);
+      background: var(--el-fill-color-light);
     }
   }
 
   .target-cell {
     display: flex;
-    align-items: center;
     gap: 8px;
+    align-items: center;
     min-width: 0;
   }
 
   .target-icon {
     display: inline-flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
     width: 26px;
     height: 26px;
-    border-radius: 8px;
-    flex-shrink: 0;
-    background: var(--el-color-primary-light-9);
     color: var(--el-color-primary);
+    background: var(--el-color-primary-light-9);
+    border-radius: 8px;
   }
 
   .target-icon-wildcard {
-    background: var(--el-color-success-light-9);
     color: var(--el-color-success);
+    background: var(--el-color-success-light-9);
   }
 
   .target-icon-ip {
-    background: var(--el-color-warning-light-9);
     color: var(--el-color-warning);
+    background: var(--el-color-warning-light-9);
   }
 
   .target-icon-key {
-    background: var(--el-color-info-light-9);
     color: var(--el-color-info);
+    background: var(--el-color-info-light-9);
   }
 
   .target-value {
     overflow: hidden;
+    color: var(--el-text-color-primary);
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--el-text-color-primary);
 
     &.mono {
       font-family: 'Roboto Mono', monospace;
@@ -747,7 +747,7 @@
     min-width: 360px;
   }
 
-  @media (max-width: 768px) {
+  @media (width <= 768px) {
     .licenses-card {
       padding: 14px;
     }
@@ -763,12 +763,17 @@
     }
 
     .redeem-btn {
-      width: 100%;
       justify-content: center;
+      width: 100%;
     }
 
     .pagination-wrapper {
       justify-content: center;
+    }
+
+    .license-key-result {
+      min-width: 0;
+      max-width: 100%;
     }
   }
 </style>

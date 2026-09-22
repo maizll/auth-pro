@@ -253,26 +253,31 @@
 </script>
 
 <style scoped lang="scss">
+  .panel-ticket-center {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .ticket-card {
     padding: 20px;
+    overflow: hidden;
     background: var(--el-bg-color);
     border-radius: 12px !important;
-    overflow: hidden;
   }
 
   .ticket-toolbar {
     display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
     margin-bottom: 16px;
   }
 
   .toolbar-filters {
     display: flex;
-    align-items: center;
     gap: 10px;
+    align-items: center;
   }
 
   .filter-select {
@@ -281,38 +286,38 @@
 
   .create-btn {
     display: inline-flex;
-    align-items: center;
     gap: 5px;
+    align-items: center;
   }
 
   .ticket-table {
     :deep(.el-table__header th) {
-      background: var(--el-fill-color-light);
-      color: var(--el-text-color-secondary);
       font-weight: 600;
+      color: var(--el-text-color-secondary);
+      background: var(--el-fill-color-light);
     }
   }
 
   .title-cell {
     display: flex;
-    align-items: center;
     gap: 8px;
+    align-items: center;
     min-width: 0;
   }
 
   .unread-dot {
+    flex-shrink: 0;
     width: 8px;
     height: 8px;
-    border-radius: 50%;
     background: var(--el-color-danger);
-    flex-shrink: 0;
+    border-radius: 50%;
   }
 
   .title-text {
     overflow: hidden;
+    color: var(--el-text-color-primary);
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--el-text-color-primary);
   }
 
   .mono {
@@ -330,14 +335,19 @@
     margin-top: 16px;
   }
 
-  @media (max-width: 768px) {
+  @media (width <= 768px) {
     .ticket-card {
       padding: 14px;
     }
 
-    .create-btn {
+    .toolbar-filters,
+    .filter-select {
       width: 100%;
+    }
+
+    .create-btn {
       justify-content: center;
+      width: 100%;
     }
 
     .pagination-wrapper {

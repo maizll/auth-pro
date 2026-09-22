@@ -1,13 +1,44 @@
 <template>
-  <div class="agent-panel-layout">
-    <!-- 侧边栏 -->
-    <aside class="panel-sidebar">
+  <div
+    class="agent-panel-layout"
+    :class="{ 'is-nav-open': isMobile && navOpen, 'is-collapsed': menuCollapsed }"
+  >
+    <button
+      v-if="isMobile"
+      type="button"
+      class="panel-nav-mask"
+      :class="{ 'is-visible': navOpen }"
+      aria-label="关闭导航"
+      :tabindex="navOpen ? 0 : -1"
+      @click="closeNav"
+    />
+    <aside
+      id="panel-sidebar"
+      class="panel-sidebar"
+      :inert="isMobile && !navOpen"
+      :aria-hidden="isMobile && !navOpen"
+    >
       <div class="sidebar-header">
         <img :src="resolvedLogo" class="brand-logo" alt="logo" />
-        <span class="brand-text" v-show="!collapsed">{{ siteName }}</span>
+        <span class="brand-text" v-show="!menuCollapsed">{{ siteName }}</span>
+        <button
+          v-if="isMobile"
+          type="button"
+          class="sidebar-close"
+          aria-label="关闭导航"
+          @click="closeNav"
+        >
+          <el-icon :size="18"><iconify-icon icon="ri:close-line" /></el-icon>
+        </button>
       </div>
 
-      <el-menu :default-active="currentRoute" :collapse="collapsed" router class="sidebar-menu">
+      <el-menu
+        :default-active="currentRoute"
+        :collapse="menuCollapsed"
+        router
+        class="sidebar-menu"
+        @select="closeNav"
+      >
         <el-menu-item index="/agent-panel/dashboard">
           <el-icon><iconify-icon icon="ri:dashboard-line" /></el-icon>
           <template #title>概览</template>
@@ -42,7 +73,7 @@
           <template #title>开发者入驻</template>
         </el-menu-item>
       </el-menu>
-      <div v-show="!collapsed" class="sidebar-ad">
+      <div v-show="!menuCollapsed" class="sidebar-ad">
         <ArtAdSlot position="sidebar" height="120px" />
       </div>
     </aside>
@@ -52,9 +83,18 @@
       <!-- 顶栏 -->
       <header class="panel-header">
         <div class="header-left">
-          <el-icon class="collapse-btn" @click="collapsed = !collapsed" :size="18">
-            <iconify-icon :icon="collapsed ? 'ri:menu-unfold-line' : 'ri:menu-fold-line'" />
-          </el-icon>
+          <button
+            type="button"
+            class="collapse-btn"
+            :aria-label="toggleLabel"
+            :aria-expanded="navExpanded"
+            aria-controls="panel-sidebar"
+            @click="toggleNav"
+          >
+            <el-icon :size="18">
+              <iconify-icon :icon="toggleIcon" />
+            </el-icon>
+          </button>
           <el-breadcrumb separator="/">
             <el-breadcrumb-item>{{ siteName }}</el-breadcrumb-item>
             <el-breadcrumb-item>{{ currentTitle }}</el-breadcrumb-item>
@@ -71,7 +111,7 @@
             @click="enterDeveloper"
           >
             <el-icon><iconify-icon icon="ri:code-s-slash-line" /></el-icon>
-            进入开发者端
+            <span class="developer-entry-label">进入开发者端</span>
           </el-button>
           <span class="agent-name">{{ agentName }}</span>
           <el-dropdown trigger="click">
@@ -117,6 +157,7 @@
   import { useSystemConfigStore } from '@/store/modules/system-config'
   import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
   import ArtNotificationBell from '@/components/core/layouts/art-notification/bell.vue'
+  import { usePanelMobileNav } from '@/hooks/core/usePanelMobileNav'
   import {
     enterDeveloperSessionFromAgent,
     fetchSourceDeveloperApplyStatus
@@ -126,7 +167,16 @@
   const router = useRouter()
   const systemConfigStore = useSystemConfigStore()
   const { siteName, resolvedLogo } = storeToRefs(systemConfigStore)
-  const collapsed = ref(false)
+  const {
+    isMobile,
+    navOpen,
+    menuCollapsed,
+    navExpanded,
+    toggleIcon,
+    toggleLabel,
+    toggleNav,
+    closeNav
+  } = usePanelMobileNav()
   const ticketUnread = ref(0)
   const developerApproved = ref(false)
   let ticketUnreadTimer: ReturnType<typeof setInterval> | null = null
@@ -200,11 +250,15 @@
 </script>
 
 <style scoped lang="scss">
+  @use '@/assets/styles/core/panel-shell' as panel;
+
   .agent-panel-layout {
     display: flex;
     height: 100vh;
     overflow: hidden;
     background: var(--el-bg-color);
+
+    @include panel.shell;
   }
 
   .panel-sidebar {
