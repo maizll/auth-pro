@@ -1974,6 +1974,35 @@
   }
 
   @media (width <= 768px) {
+    .steps-bar {
+      gap: 6px;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 12px 0 20px;
+
+      .step {
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+        text-align: center;
+      }
+
+      .step-text {
+        max-width: 4.5em;
+        font-size: 11px;
+        line-height: 1.3;
+        white-space: normal;
+      }
+
+      .step-line {
+        flex: 1 1 12px;
+        width: auto;
+        min-width: 8px;
+        max-width: 36px;
+        margin: 13px 0 0;
+      }
+    }
+
     .app-grid {
       grid-template-columns: 1fr;
     }
@@ -1988,6 +2017,12 @@
 
     .plan-grid {
       grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (width <= 520px) {
+    .plan-grid {
+      grid-template-columns: 1fr;
     }
   }
 </style>
