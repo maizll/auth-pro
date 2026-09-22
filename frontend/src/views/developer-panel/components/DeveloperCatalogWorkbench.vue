@@ -58,8 +58,20 @@
       </el-table>
     </el-card>
 
-    <el-drawer v-model="formVisible" :title="formTitle" size="560px" destroy-on-close>
-      <el-form ref="formRef" :model="form" :rules="formRules" label-width="118px">
+    <el-drawer
+      v-model="formVisible"
+      class="catalog-sheet"
+      :title="formTitle"
+      :size="formDrawerSize"
+      destroy-on-close
+    >
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="formRules"
+        label-width="118px"
+        :label-position="formLabelPosition"
+      >
         <el-form-item label="应用" prop="appId">
           <el-select
             v-model="form.appId"
@@ -205,7 +217,12 @@
       </template>
     </el-drawer>
 
-    <el-drawer v-model="versionVisible" :title="`${currentItem?.name || ''} 版本`" size="720px">
+    <el-drawer
+      v-model="versionVisible"
+      class="catalog-sheet"
+      :title="`${currentItem?.name || ''} 版本`"
+      :size="versionDrawerSize"
+    >
       <div class="table-actions mb-3">
         <el-button type="primary" @click="openVersionForm">新增版本</el-button>
       </div>
@@ -248,12 +265,13 @@
 
       <el-dialog
         v-model="versionFormVisible"
+        class="catalog-sheet"
         title="新增版本"
-        width="480px"
+        :width="versionDialogWidth"
         append-to-body
         destroy-on-close
       >
-        <el-form :model="versionForm" label-width="118px">
+        <el-form :model="versionForm" label-width="118px" :label-position="formLabelPosition">
           <el-form-item label="版本" required>
             <el-input v-model="versionForm.version" placeholder="1.0.1" />
           </el-form-item>
@@ -295,7 +313,7 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, reactive, ref, watch } from 'vue'
+  import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import type { FormInstance, FormRules } from 'element-plus'
   import { ElMessage } from 'element-plus'
@@ -334,8 +352,20 @@
     kind: 'plugin' | 'template'
   }>()
 
+  const NARROW_QUERY = '(max-width: 768px)'
   const route = useRoute()
   const router = useRouter()
+  const isNarrow = ref(typeof window !== 'undefined' && window.matchMedia(NARROW_QUERY).matches)
+  let narrowMedia: MediaQueryList | null = null
+
+  function syncNarrow(event?: MediaQueryListEvent) {
+    isNarrow.value = event ? event.matches : !!narrowMedia?.matches
+  }
+
+  const formDrawerSize = computed(() => (isNarrow.value ? '100%' : '560px'))
+  const versionDrawerSize = computed(() => (isNarrow.value ? '100%' : '720px'))
+  const versionDialogWidth = computed(() => (isNarrow.value ? '92%' : '480px'))
+  const formLabelPosition = computed(() => (isNarrow.value ? 'top' : 'right'))
   const loading = ref(false)
   const saving = ref(false)
   const hashing = ref<'form' | 'version' | ''>('')
@@ -891,10 +921,17 @@
   }
 
   onMounted(async () => {
+    narrowMedia = window.matchMedia(NARROW_QUERY)
+    syncNarrow()
+    narrowMedia.addEventListener('change', syncNarrow)
     await loadAll()
     if (route.query.create === '1') {
       openEdit()
     }
+  })
+
+  onBeforeUnmount(() => {
+    narrowMedia?.removeEventListener('change', syncNarrow)
   })
 </script>
 
@@ -932,6 +969,17 @@
 
     .el-input {
       flex: 1;
+      min-width: 0;
+    }
+  }
+
+  @media (width <= 768px) {
+    .checksum-row {
+      flex-wrap: wrap;
+    }
+
+    :deep(.el-form-item__content) {
+      min-width: 0;
     }
   }
 
@@ -970,5 +1018,45 @@
 
   .mb-3 {
     margin-bottom: 12px;
+  }
+</style>
+
+<style lang="scss">
+  /* 登记插件 / 登记模板抽屉，以及新增版本信息弹框。弹层挂在 body 上，手机宽度写在这里。 */
+  @media (width <= 768px) {
+    .el-drawer.catalog-sheet {
+      max-width: 100vw !important;
+    }
+
+    .el-drawer.catalog-sheet .el-drawer__body {
+      min-height: 0;
+      max-height: calc(100dvh - 140px);
+      overflow-y: auto;
+    }
+
+    .el-dialog.catalog-sheet {
+      display: flex;
+      flex-direction: column;
+      width: 92% !important;
+      max-width: calc(100vw - 16px) !important;
+      max-height: calc(100dvh - 32px);
+      margin: 16px auto !important;
+      overflow: hidden;
+    }
+
+    .el-dialog.catalog-sheet .el-dialog__body {
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: calc(100dvh - 180px);
+      overflow-y: auto;
+    }
+
+    .el-drawer.catalog-sheet .el-drawer__footer,
+    .el-dialog.catalog-sheet .el-dialog__footer {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
   }
 </style>
