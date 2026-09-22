@@ -75,8 +75,9 @@ jobs:
           AUTO_PRO_UPDATE_RELEASES_URL: 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/releases.json'
           AUTO_PRO_REQUIRE_GIT_RELEASE_NOTES: '1'
           AUTO_PRO_RELEASE_NOTES: |
-            开发者端「登记插件」「登记模板」抽屉窄屏铺满宽度，内容区内滚，底栏按钮可点。
-            「新增版本」弹框窄屏适宽。
+            登录弹窗跟随已启用首页模板：stylePreset 为 cartoon-blue / fintech-gold，颜色取 theme.primaryColor、backgroundColor、textColor。
+            开发文档：首页模板与插件改为作者体例长指南，并同步到开发者面板，侧栏按 ## 章节展开。
+            文档补上源站开发者章程（整站模板与插件登记）。
         run: ./scripts/build-release.sh '${{ steps.version.outputs.value }}'
 
       - name: Run backend tests
