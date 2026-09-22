@@ -6,7 +6,8 @@
           <h1 class="docs-title">源站开发章程</h1>
           <p class="docs-lead">
             按章程生成可登记的插件包和整站模板。源站只登记外链和校验码，不保存
-            ZIP。模板是一份 template.json：主视觉、登录入口、能力卡片和页脚都要写上。
+            ZIP。模板是一份 template.json。启用后，宿主登录弹窗跟随
+            stylePreset，以及 theme.primaryColor、theme.backgroundColor、theme.textColor。
           </p>
         </div>
         <div class="header-actions">
@@ -23,7 +24,7 @@
         :closable="false"
         show-icon
         class="mt-4"
-        title="登记模板只上传 template.json。必须写 kind: template、schemaVersion: 1、hero.title，以及 primaryAction.type = login。不要把 index.html 打进同一个 ZIP。"
+        title="登记模板只上传 template.json。必须写 kind: template、schemaVersion: 1、hero.title，以及 hero.primaryAction.type = login。启用后登录弹窗跟随 stylePreset 与 theme 三色（primaryColor、backgroundColor、textColor），不要写 login.html，也不要把 index.html 打进同一个 ZIP。"
       />
     </el-card>
 

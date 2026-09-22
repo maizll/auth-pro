@@ -23,7 +23,7 @@ description: Use when creating, packaging, validating, or submitting AuthPro sou
 | 面 | 写进 JSON |
 | --- | --- |
 | 主视觉 | `hero.title` 必填；加上 `badge`、`highlight`、`description` |
-| 登录框 | `hero.primaryAction.type` = `"login"`，并写 `label`。登录 UI 是宿主弹窗 |
+| 登录框 | `hero.primaryAction.type` = `"login"`，并写 `label`。登录 UI 是宿主弹窗，外观跟随 `stylePreset` 与 `theme`（`cartoon-blue` 浅色胶囊，`fintech-gold` 金黑）。不要写 `login.html` |
 | 能力 | `features` 恰好 3 条，图标 `ri:` 前缀 |
 | 页脚 | `footer.text` |
 | 版式 | `stylePreset` 为 `cartoon-blue` 或 `fintech-gold` |
@@ -132,7 +132,7 @@ sha256sum /tmp/demo-home.zip
 2. 完整 JSON
 3. `zip` / `unzip -l` / `sha256sum` 命令
 4. 上表每一栏的值
-5. 一句话：源站不存 ZIP；登录框由宿主打开；模板包内不要 `index.html`
+5. 一句话：源站不存 ZIP；登录框由宿主按 `stylePreset` 打开（与首页同一套颜色和圆角）；模板包内不要 `index.html` 或 `login.html`
 
 ## 被拒绝时
 

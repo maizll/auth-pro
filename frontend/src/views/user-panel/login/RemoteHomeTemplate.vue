@@ -73,9 +73,13 @@
     </footer>
   </div>
 
+  <!-- 登录框挂到这里，才能继承首页同一套 stylePreset 变量。 -->
+  <div class="remote-auth-theme" :class="dialogPresetClass" :style="themeStyle" />
+
   <ElDialog
     v-model="loginVisible"
     width="min(460px, calc(100vw - 28px))"
+    append-to=".remote-auth-theme"
     :class="['remote-login-dialog', dialogPresetClass]"
     :style="themeStyle"
     destroy-on-close
@@ -117,8 +121,8 @@
   import { useGeetestLoginCaptcha } from '@/utils/geetest'
   import {
     type HomeTemplateDocument,
-    isHomeTemplateStylePreset,
-    safeTemplateColor,
+    homeTemplateThemeStyle,
+    resolveHomeTemplatePreset,
     safeTemplateIcon,
     safeTemplateImageURL
   } from './home-template'
@@ -165,14 +169,8 @@
     password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
   }
 
-  const themeStyle = computed(() => ({
-    '--remote-primary': safeTemplateColor(props.document.theme?.primaryColor, '#4d6bfe'),
-    '--remote-background': safeTemplateColor(props.document.theme?.backgroundColor, '#f7f8fc'),
-    '--remote-text': safeTemplateColor(props.document.theme?.textColor, '#172033')
-  }))
-  const stylePreset = computed(() =>
-    isHomeTemplateStylePreset(props.document.stylePreset) ? props.document.stylePreset : 'standard'
-  )
+  const themeStyle = computed(() => homeTemplateThemeStyle(props.document))
+  const stylePreset = computed(() => resolveHomeTemplatePreset(props.document.stylePreset))
   const presetClass = computed(() => `remote-home--${stylePreset.value}`)
   const dialogPresetClass = computed(() => `remote-login-dialog--${stylePreset.value}`)
   const heroImage = computed(() =>
@@ -684,41 +682,143 @@
     }
   }
 
-  :global(.el-dialog.remote-login-dialog--cartoon-blue) {
-    border-radius: 28px !important;
+  .remote-auth-theme {
+    /* 仅作挂载点。弹层是 position:fixed，并继承这里的主题变量。 */
   }
 
-  :global(.remote-login-dialog--cartoon-blue .el-input__wrapper),
-  :global(.remote-login-dialog--cartoon-blue .el-button) {
-    border-radius: 999px;
+  .remote-auth-theme.remote-login-dialog--cartoon-blue,
+  .remote-auth-theme.remote-login-dialog--fintech-gold {
+    --el-color-primary: var(--remote-primary);
+    --el-color-primary-light-3: color-mix(in srgb, var(--remote-primary) 72%, white);
+    --el-color-primary-light-5: color-mix(in srgb, var(--remote-primary) 50%, white);
+    --el-color-primary-light-7: color-mix(in srgb, var(--remote-primary) 32%, white);
+    --el-color-primary-light-8: color-mix(in srgb, var(--remote-primary) 20%, white);
+    --el-color-primary-light-9: color-mix(in srgb, var(--remote-primary) 10%, white);
+    --el-color-primary-dark-2: color-mix(in srgb, var(--remote-primary) 82%, black);
+    --el-text-color-primary: var(--remote-text);
+    --el-text-color-regular: color-mix(in srgb, var(--remote-text) 78%, transparent);
+    --el-text-color-secondary: color-mix(in srgb, var(--remote-text) 62%, transparent);
+    --el-border-color: color-mix(in srgb, var(--remote-text) 16%, transparent);
   }
 
-  :global(.el-dialog.remote-login-dialog--fintech-gold) {
-    color: #f4f6fa;
-    background: #11151c;
-    border: 1px solid #2b313d;
-    border-radius: 7px !important;
+  .remote-auth-theme.remote-login-dialog--cartoon-blue {
+    :deep(.el-dialog) {
+      color: var(--remote-text);
+      background:
+        radial-gradient(
+          circle at 12% 0%,
+          color-mix(in srgb, var(--remote-primary) 16%, white) 0 90px,
+          transparent 140px
+        ),
+        #fff;
+      border: 1px solid color-mix(in srgb, var(--remote-text) 8%, transparent);
+      border-radius: 28px !important;
+      box-shadow: 0 30px 80px color-mix(in srgb, var(--remote-primary) 22%, transparent);
+    }
+
+    :deep(.el-dialog__header) {
+      padding: 22px 28px 8px !important;
+      margin-right: 0;
+    }
+
+    :deep(.el-dialog__body) {
+      padding: 4px 28px 28px !important;
+    }
+
+    :deep(.el-dialog__headerbtn) {
+      top: 18px;
+      right: 18px;
+      color: color-mix(in srgb, var(--remote-text) 55%, transparent);
+    }
+
+    :deep(.dialog-brand img) {
+      padding: 4px;
+      background: #fff;
+      border-radius: 50%;
+      box-shadow: 0 8px 24px color-mix(in srgb, var(--remote-primary) 18%, transparent);
+    }
+
+    :deep(h2) {
+      color: var(--remote-text);
+      letter-spacing: -0.5px;
+    }
+
+    :deep(.dialog-subtitle) {
+      color: color-mix(in srgb, var(--remote-text) 66%, transparent);
+    }
+
+    :deep(.el-input__wrapper),
+    :deep(.el-button) {
+      border-radius: 999px;
+    }
+
+    :deep(.el-button--primary) {
+      --el-button-bg-color: var(--remote-primary);
+      --el-button-border-color: var(--remote-primary);
+      --el-button-hover-bg-color: color-mix(in srgb, var(--remote-primary) 88%, white);
+      --el-button-hover-border-color: color-mix(in srgb, var(--remote-primary) 88%, white);
+      --el-button-active-bg-color: color-mix(in srgb, var(--remote-primary) 86%, black);
+      --el-button-active-border-color: color-mix(in srgb, var(--remote-primary) 86%, black);
+
+      box-shadow: 0 10px 24px color-mix(in srgb, var(--remote-primary) 24%, transparent);
+    }
   }
 
-  :global(.remote-login-dialog--fintech-gold .el-dialog__title),
-  :global(.remote-login-dialog--fintech-gold h2) {
-    color: #f4f6fa;
-  }
+  .remote-auth-theme.remote-login-dialog--fintech-gold {
+    :deep(.el-dialog) {
+      color: var(--remote-text);
+      background: color-mix(in srgb, var(--remote-background) 88%, var(--remote-text));
+      border: 1px solid color-mix(in srgb, var(--remote-primary) 28%, transparent);
+      border-radius: 7px !important;
+      box-shadow: 18px 18px 0 color-mix(in srgb, var(--remote-primary) 8%, transparent);
+    }
 
-  :global(.remote-login-dialog--fintech-gold .el-input__wrapper) {
-    background: #090b10;
-    border-radius: 3px;
-    box-shadow: 0 0 0 1px #343b47 inset;
-  }
+    :deep(.el-dialog__header) {
+      padding: 20px 24px 4px !important;
+      margin-right: 0;
+    }
 
-  :global(.remote-login-dialog--fintech-gold .el-input__inner) {
-    color: #f4f6fa;
-  }
+    :deep(.el-dialog__body) {
+      padding: 4px 24px 24px !important;
+    }
 
-  :global(.remote-login-dialog--fintech-gold .el-button) {
-    color: #090b10;
-    background: var(--remote-primary);
-    border-color: var(--remote-primary);
-    border-radius: 3px;
+    :deep(.el-dialog__title),
+    :deep(h2),
+    :deep(.dialog-brand) {
+      color: var(--remote-text);
+    }
+
+    :deep(.dialog-subtitle) {
+      color: color-mix(in srgb, var(--remote-text) 66%, var(--remote-background));
+    }
+
+    :deep(.el-dialog__headerbtn) {
+      color: color-mix(in srgb, var(--remote-text) 70%, transparent);
+    }
+
+    :deep(.el-input__wrapper) {
+      background: var(--remote-background);
+      border-radius: 3px;
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--remote-text) 16%, transparent) inset;
+    }
+
+    :deep(.el-input__inner) {
+      color: var(--remote-text);
+    }
+
+    :deep(.el-button) {
+      border-radius: 3px;
+    }
+
+    :deep(.el-button--primary) {
+      --el-button-text-color: var(--remote-background);
+      --el-button-hover-text-color: var(--remote-background);
+      --el-button-bg-color: var(--remote-primary);
+      --el-button-border-color: var(--remote-primary);
+      --el-button-hover-bg-color: color-mix(in srgb, var(--remote-primary) 86%, white);
+      --el-button-hover-border-color: color-mix(in srgb, var(--remote-primary) 86%, white);
+
+      color: var(--remote-background);
+    }
   }
 </style>
