@@ -131,7 +131,7 @@ demo-widget.zip
 | --- | --- | --- |
 | 顶栏：站名、Logo、「登录」 | 站名/Logo 来自系统配置。登录按钮宿主固定存在 | 不写 |
 | 主视觉 | `hero` | `title` 必填。写上 `badge`、`highlight`、`description` |
-| 登录框 | 宿主弹窗。账号框、密码框、极验、token、代理升级跳转都在宿主。外观跟首页同一个 `stylePreset` 和 `theme` 三色 | `hero.primaryAction.type` 必须是 `"login"`，并写 `label`。不要写 `login.html` |
+| 登录框 | 宿主弹窗。账号、密码、极验、token、代理升级跳转都在宿主。启用本模板后，弹窗版式跟首页同一个 `stylePreset`，颜色跟 `theme.primaryColor`、`theme.backgroundColor`、`theme.textColor` | `hero.primaryAction.type` 必须是 `"login"`，并写 `label`。不要写 `login.html` |
 | 能力卡片 | `features` | 写 **3** 条。标准预设最多显示 12 条；`fintech-gold` 只显示前 3 条 |
 | 页脚 | `footer.text`；没有则用站名 | 写 `footer.text` |
 | `fintech-gold` 额外的「快速查询 / 使用链路 / 底部行动 / 登录对话框」 | 宿主写死文案。查询框**不会**调用授权查询接口，提交后打开登录框 | 没有对应 JSON。不要发明 `pages` 去填它们 |
@@ -145,18 +145,34 @@ demo-widget.zip
 | 省略 | 按标准版式画 |
 | 其他字符串 | 整份文档被宿主判为非法，**回退到默认首页**，等于模板没生效 |
 
-颜色只接受 `#` 加 3–8 位十六进制（如 `#168fe5`）。不合法则用版式默认色。
+### 5.1.1 登录弹窗主题合同
 
-宿主登录框使用这一份 `stylePreset` 和 `theme`，不另读页面文件：
+模板**启用**后，宿主用同一份字段画首页和登录弹窗。作者不另写页面。字段名如下（与宿主读取的 JSON 一致）：
 
-| `stylePreset` | 登录框 |
+| 字段 | 合法值 | 宿主怎么用 |
+| --- | --- | --- |
+| `stylePreset` | `cartoon-blue`、`fintech-gold`，或省略 | 选择首页和登录弹窗版式。其他字符串整份模板失效，回退默认首页 |
+| `theme.primaryColor` | `#` 加 3–8 位十六进制 | 主色。写入 `--remote-primary`。`fintech-gold` 同时写入 `--gold` |
+| `theme.backgroundColor` | 同上 | 背景。写入 `--remote-background`。`fintech-gold` 同时写入 `--page-bg` |
+| `theme.textColor` | 同上 | 文字。写入 `--remote-text`。`fintech-gold` 同时写入 `--text` |
+
+颜色不匹配 `^#[0-9a-fA-F]{3,8}$` 时，该字段被忽略，改用宿主默认值，上传不会因此拒绝：
+
+| `stylePreset` | `primaryColor` | `backgroundColor` | `textColor` |
+| --- | --- | --- | --- |
+| `fintech-gold` | `#f0b90b` | `#0b0e11` | `#f5f5f5` |
+| `cartoon-blue` 或省略 | `#4d6bfe` | `#f7f8fc` | `#172033` |
+
+版式：
+
+| `stylePreset` | 登录弹窗 |
 | --- | --- |
-| `cartoon-blue` | 浅色圆角面板、胶囊按钮、主色阴影。主色 / 背景 / 文字来自 `theme` |
-| `fintech-gold` | 金黑对话框。主色、背景、文字与首页同一组变量。顶栏「注册」打开的也是这个登录框 |
-| 省略 | 标准版式首页仍吃 `theme`；登录框保持宿主默认外观 |
-| 未启用远程模板 | 默认首页的登录、注册、忘记密码弹窗保持默认外观，不读模板 |
+| `cartoon-blue` | 浅色圆角面板、胶囊按钮。主色是 `theme.primaryColor` |
+| `fintech-gold` | 金黑对话框，三色与首页相同。顶栏「注册」打开的是这个登录弹窗 |
+| 省略 | 不换圆趣或金黑外形。登录按钮仍使用 `theme.primaryColor`（写入 `--remote-primary`） |
+| 未启用远程模板 | 默认首页的登录、注册、忘记密码不读上述字段，保持宿主默认弹窗 |
 
-不要在 ZIP 里放 `login.html`。换登录框外观只改 `stylePreset` 与三色。
+不要在 ZIP 里放 `login.html`。换登录弹窗外观只改 `stylePreset` 与 `theme` 这三个颜色字段。
 
 图标：写 Remix 名 `ri:` + 小写，例如 `ri:shield-check-line`。不符合 `^ri:[a-z0-9-]+$` 的图标，标准版式会换成 `ri:sparkling-line`。
 
@@ -244,7 +260,7 @@ iframe 里的静态页若要打开登录，只能 `postMessage({ type: 'auth-pro
 }
 ```
 
-换 `fintech-gold` 时只改 `stylePreset` 与三色（主色建议 `#f0b90b`，背景 `#0b0e11`，文字 `#f5f5f5`）。能力卡片仍用 `ri:` 图标。不要为金黑版式再写一套页面文件。
+换 `fintech-gold` 时只改 `stylePreset`，以及 `theme.primaryColor`、`theme.backgroundColor`、`theme.textColor`（建议 `#f0b90b`、`#0b0e11`、`#f5f5f5`）。能力卡片仍用 `ri:` 图标。不要为金黑版式再写一套页面文件，也不要写 `login.html`。
 
 ## 6. 登记表单
 

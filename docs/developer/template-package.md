@@ -17,7 +17,7 @@ demo-home.zip
 | --- | --- |
 | 顶栏站名 / Logo / 「登录」 | 站名来自系统配置。登录按钮宿主自带 |
 | 主视觉 | `hero.title`（必填）以及 `badge`、`highlight`、`description` |
-| 登录框 | `hero.primaryAction`: `{ "label": "进入用户中心", "type": "login" }`。宿主弹窗负责账号、密码、极验和 token，并用同一份 `stylePreset` / `theme` 上色。不要写 `login.html` |
+| 登录框 | `hero.primaryAction`: `{ "label": "进入用户中心", "type": "login" }`。宿主弹窗负责账号、密码、极验和 token。启用后外观跟随 `stylePreset` 与 `theme.primaryColor`、`theme.backgroundColor`、`theme.textColor`。不要写 `login.html` |
 | 能力卡片 | `features` 写 3 条。`fintech-gold` 只显示前 3 条，标准预设最多 12 条 |
 | 页脚 | `footer.text` |
 | `stylePreset: "fintech-gold"` 时的查询区、三步说明、底部行动 | 宿主写死，没有 JSON。查询提交后打开登录框 |
@@ -25,6 +25,19 @@ demo-home.zip
 `stylePreset` 只能是 `cartoon-blue`、`fintech-gold` 或省略。其他值会导致整份模板失效并回退默认首页。
 
 启用后，默认首页上的注册、忘记密码、授权查询、代理商查询、域名查询**不会出现**。不要写 `pages`、`scripts`、`register`。
+
+## 登录弹窗主题
+
+模板启用后，宿主登录弹窗与首页共用下面这些字段。不要写 `login.html`。
+
+| 字段 | 写什么 | 宿主变量 |
+| --- | --- | --- |
+| `stylePreset` | `cartoon-blue` 或 `fintech-gold`。省略则不换这两套外形 | 版式 |
+| `theme.primaryColor` | `#` 加 3–8 位十六进制，例如 `#168fe5` | `--remote-primary`；`fintech-gold` 同时是 `--gold` |
+| `theme.backgroundColor` | 同上，例如 `#f1faff` | `--remote-background`；`fintech-gold` 同时是 `--page-bg` |
+| `theme.textColor` | 同上，例如 `#15334a` | `--remote-text`；`fintech-gold` 同时是 `--text` |
+
+`cartoon-blue` 是浅色圆角、胶囊按钮。`fintech-gold` 是金黑对话框，顶栏「注册」打开的也是这个登录弹窗。省略 `stylePreset` 时外形保持宿主默认，登录按钮仍用 `theme.primaryColor`。颜色非法则忽略该字段：`fintech-gold` 默认 `#f0b90b` / `#0b0e11` / `#f5f5f5`，其余默认 `#4d6bfe` / `#f7f8fc` / `#172033`。未启用模板时，默认首页的登录、注册、忘记密码不读这些字段。
 
 ## 清单
 
