@@ -1,12 +1,44 @@
 <template>
-  <div class="developer-panel-layout">
-    <aside class="panel-sidebar">
+  <div
+    class="developer-panel-layout"
+    :class="{ 'is-nav-open': isMobile && navOpen, 'is-collapsed': menuCollapsed }"
+  >
+    <button
+      v-if="isMobile"
+      type="button"
+      class="panel-nav-mask"
+      :class="{ 'is-visible': navOpen }"
+      aria-label="关闭导航"
+      :tabindex="navOpen ? 0 : -1"
+      @click="closeNav"
+    />
+    <aside
+      id="panel-sidebar"
+      class="panel-sidebar"
+      :inert="isMobile && !navOpen"
+      :aria-hidden="isMobile && !navOpen"
+    >
       <div class="sidebar-header">
         <img :src="resolvedLogo" class="brand-logo" alt="logo" />
-        <span class="brand-text" v-show="!collapsed">源站开发者</span>
+        <span class="brand-text" v-show="!menuCollapsed">源站开发者</span>
+        <button
+          v-if="isMobile"
+          type="button"
+          class="sidebar-close"
+          aria-label="关闭导航"
+          @click="closeNav"
+        >
+          <el-icon :size="18"><iconify-icon icon="ri:close-line" /></el-icon>
+        </button>
       </div>
 
-      <el-menu :default-active="currentRoute" :collapse="collapsed" router class="sidebar-menu">
+      <el-menu
+        :default-active="currentRoute"
+        :collapse="menuCollapsed"
+        router
+        class="sidebar-menu"
+        @select="closeNav"
+      >
         <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
           <el-icon><iconify-icon :icon="item.icon" /></el-icon>
           <template #title>{{ item.title }}</template>
@@ -17,9 +49,18 @@
     <div class="panel-main">
       <header class="panel-header">
         <div class="header-left">
-          <el-icon class="collapse-btn" :size="18" @click="collapsed = !collapsed">
-            <iconify-icon :icon="collapsed ? 'ri:menu-unfold-line' : 'ri:menu-fold-line'" />
-          </el-icon>
+          <button
+            type="button"
+            class="collapse-btn"
+            :aria-label="toggleLabel"
+            :aria-expanded="navExpanded"
+            aria-controls="panel-sidebar"
+            @click="toggleNav"
+          >
+            <el-icon :size="18">
+              <iconify-icon :icon="toggleIcon" />
+            </el-icon>
+          </button>
           <el-breadcrumb separator="/">
             <el-breadcrumb-item>{{ siteName }}</el-breadcrumb-item>
             <el-breadcrumb-item>{{ currentTitle }}</el-breadcrumb-item>
@@ -53,12 +94,13 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, ref } from 'vue'
+  import { computed, onMounted } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { Icon as IconifyIcon } from '@iconify/vue'
   import { useSystemConfigStore } from '@/store/modules/system-config'
   import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
   import ArtNotificationBell from '@/components/core/layouts/art-notification/bell.vue'
+  import { usePanelMobileNav } from '@/hooks/core/usePanelMobileNav'
   import {
     DEVELOPER_INFO_KEY,
     DEVELOPER_TOKEN_KEY,
@@ -69,7 +111,16 @@
   const router = useRouter()
   const systemConfigStore = useSystemConfigStore()
   const { siteName, resolvedLogo } = storeToRefs(systemConfigStore)
-  const collapsed = ref(false)
+  const {
+    isMobile,
+    navOpen,
+    menuCollapsed,
+    navExpanded,
+    toggleIcon,
+    toggleLabel,
+    toggleNav,
+    closeNav
+  } = usePanelMobileNav()
 
   const currentRoute = computed(() => route.path)
   const menuItems = [
@@ -115,22 +166,26 @@
 </script>
 
 <style scoped lang="scss">
+  @use '@/assets/styles/core/panel-shell' as panel;
+
   .developer-panel-layout {
     display: flex;
     height: 100vh;
     overflow: hidden;
     background: var(--el-bg-color);
+
+    @include panel.shell;
   }
 
   .panel-sidebar {
-    width: 220px;
-    background: var(--el-bg-color);
     display: flex;
     flex-direction: column;
-    transition: width 0.3s;
     flex-shrink: 0;
+    width: 220px;
+    background: var(--el-bg-color);
     border-right: 1px solid var(--el-border-color-lighter);
     box-shadow: 2px 0 8px rgb(0 0 0 / 3%);
+    transition: width 0.3s;
 
     .sidebar-header {
       display: flex;
@@ -141,10 +196,10 @@
       border-bottom: 1px solid var(--el-border-color-lighter);
 
       .brand-logo {
+        flex-shrink: 0;
         width: 32px;
         height: 32px;
         border-radius: 6px;
-        flex-shrink: 0;
       }
 
       .brand-text {
@@ -197,7 +252,6 @@
 
       .collapse-btn {
         color: var(--el-text-color-secondary);
-        cursor: pointer;
         transition: color 0.2s;
 
         &:hover {

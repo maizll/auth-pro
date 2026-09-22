@@ -14,7 +14,7 @@ import {
 const MOBILE_QUERY = `(max-width: ${PANEL_MOBILE_MAX_WIDTH}px)`
 
 /**
- * 用户端 / 代理端共用的侧栏开关。
+ * 用户端 / 代理端 / 开发者端共用的侧栏开关。
  * 窄屏抽屉打开时锁住 body 滚动，并在路由变化、Esc、遮罩点击时关闭。
  */
 export function usePanelMobileNav() {
