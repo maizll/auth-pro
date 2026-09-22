@@ -43,6 +43,52 @@
     display: none;
   }
 
+  // 顶栏路径：所有路由共用，始终单行；窄屏可提前省略，不挤右侧操作。
+  .panel-header {
+    .header-left {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .header-right {
+      flex-shrink: 0;
+    }
+
+    :deep(.el-breadcrumb) {
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      white-space: nowrap;
+
+      .el-breadcrumb__item {
+        display: inline-flex;
+        flex-shrink: 0;
+        align-items: center;
+        float: none;
+
+        .el-breadcrumb__inner {
+          white-space: nowrap;
+        }
+
+        &:last-child {
+          flex-shrink: 1;
+          min-width: 0;
+          overflow: hidden;
+
+          .el-breadcrumb__inner {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+        }
+      }
+    }
+  }
+
   &.is-collapsed {
     .panel-sidebar {
       width: 64px;
@@ -168,9 +214,11 @@
         display: none;
       }
 
+      // 窄屏只保留当前页标题，隐藏「站点名 /」前缀，避免换行。
       :deep(.el-breadcrumb) {
-        min-width: 0;
-        overflow: hidden;
+        .el-breadcrumb__item:first-child {
+          display: none;
+        }
       }
     }
 
