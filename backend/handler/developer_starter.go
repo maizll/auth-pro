@@ -150,7 +150,9 @@ func developerExamplePluginJSON() string {
   "version": "1.0.0",
   "description": "AuthPro 源站开发者入门示例插件，仅用于演示清单字段。",
   "author": {
-    "name": "示例作者"
+    "name": "示例作者",
+    "url": "https://example.com",
+    "email": "author@example.com"
   },
   "category": "other",
   "icon": "ri:puzzle-line"
@@ -228,7 +230,7 @@ func developerCharterFallback() string {
 }
 
 func developerPluginPackageFallback() string {
-	return "# 插件开发指南\n\nplugin.json 可选 kind=plugin。自定义插件分类（如标识 template、名称「模板」）会出现在应用商店筛选页签。\n"
+	return "# 插件开发指南\n\nplugin.json 可选 kind=plugin。登记包不是多页 HTML。自定义插件分类（如标识 template、名称「模板」）会出现在应用商店筛选页签。\n"
 }
 
 func developerTemplatePackageFallback() string {
