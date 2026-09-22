@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION_FILE="$ROOT_DIR/VERSION"
-DEFAULT_VERSION="1.4.9"
+DEFAULT_VERSION="1.4.10"
 if [[ -f "$VERSION_FILE" ]]; then
   DEFAULT_VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
 fi
