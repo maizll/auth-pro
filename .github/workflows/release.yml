@@ -75,7 +75,8 @@ jobs:
           AUTO_PRO_UPDATE_RELEASES_URL: 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/releases.json'
           AUTO_PRO_REQUIRE_GIT_RELEASE_NOTES: '1'
           AUTO_PRO_RELEASE_NOTES: |
-            开发者端窄屏导航改为抽屉：可汉堡打开，遮罩/换页/关闭/Esc 收起（与用户端、代理端一致）。
+            开发者端「登记插件」「登记模板」抽屉窄屏铺满宽度，内容区内滚，底栏按钮可点。
+            「新增版本」弹框窄屏适宽。
         run: ./scripts/build-release.sh '${{ steps.version.outputs.value }}'
 
       - name: Run backend tests
