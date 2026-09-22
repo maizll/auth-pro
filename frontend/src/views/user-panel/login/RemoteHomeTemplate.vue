@@ -14,6 +14,7 @@
     :site-name="siteName"
     :site-subtitle="siteSubtitle"
     :login-action="loginAccount"
+    :preview="preview"
   />
   <div v-else class="remote-home" :class="presetClass" :style="themeStyle">
     <header class="remote-header">
@@ -22,7 +23,7 @@
           <img :src="resolvedLogo" alt="网站 Logo" />
           <strong>{{ siteName }}</strong>
         </div>
-        <ElButton type="primary" @click="openLogin">登录</ElButton>
+        <ElButton type="primary" data-testid="template-login" @click="openLogin">登录</ElButton>
       </div>
     </header>
 
@@ -74,12 +75,12 @@
   </div>
 
   <!-- 登录框挂到这里，才能继承首页同一套 stylePreset 变量。 -->
-  <div class="remote-auth-theme" :class="dialogPresetClass" :style="themeStyle" />
+  <div ref="authThemeEl" class="remote-auth-theme" :class="dialogPresetClass" :style="themeStyle" />
 
   <ElDialog
     v-model="loginVisible"
     width="min(460px, calc(100vw - 28px))"
-    append-to=".remote-auth-theme"
+    :append-to="dialogAppendTo"
     :class="['remote-login-dialog', dialogPresetClass]"
     :style="themeStyle"
     destroy-on-close
@@ -87,8 +88,14 @@
     <template #header>
       <div class="dialog-brand"><img :src="resolvedLogo" alt="网站 Logo" />{{ siteName }}</div>
     </template>
-    <h2>用户登录</h2>
-    <p class="dialog-subtitle">登录后查看并管理您的授权</p>
+    <h2 data-testid="login-host-hint">用户登录</h2>
+    <p class="dialog-subtitle">
+      {{
+        preview
+          ? '示意：启用后由宿主打开。圆角和颜色跟随 stylePreset 与 theme.primaryColor、backgroundColor、textColor。模板不提交密码。'
+          : '登录后查看并管理您的授权'
+      }}
+    </p>
     <ElForm ref="loginFormRef" :model="loginForm" :rules="loginRules" @submit.prevent>
       <ElFormItem prop="username">
         <ElInput v-model="loginForm.username" size="large" placeholder="手机号 / 邮箱 / 用户ID" />
@@ -111,7 +118,7 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+  import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { ElMessage, type FormRules } from 'element-plus'
   import { Icon as IconifyIcon } from '@iconify/vue'
@@ -129,7 +136,7 @@
 
   defineOptions({ name: 'RemoteHomeTemplate' })
 
-  const props = defineProps<{ document: HomeTemplateDocument; staticEntryUrl?: string }>()
+  const props = defineProps<{ document: HomeTemplateDocument; staticEntryUrl?: string; preview?: boolean }>()
   const staticFrame = ref<HTMLIFrameElement>()
 
   function handleTemplateMessage(event: MessageEvent) {
@@ -151,6 +158,14 @@
 
   const currentYear = new Date().getFullYear()
   const loginVisible = ref(false)
+  const authThemeEl = ref<HTMLElement>()
+  // 选择器在组件自己挂上文档之前解析不到。挂载后再把弹层挪进主题节点。
+  const dialogAppendTo = ref<HTMLElement | string>('body')
+  onMounted(() => {
+    nextTick(() => {
+      if (authThemeEl.value?.isConnected) dialogAppendTo.value = authThemeEl.value
+    })
+  })
 
   // 极验行为验证：启用后登录前弹出滑块验证
   const {
@@ -238,7 +253,13 @@
     throw new Error(response.msg || '登录失败')
   }
 
+  const preview = computed(() => props.preview === true)
+
   function handleLogin() {
+    if (preview.value) {
+      ElMessage.info('预览不提交密码。启用后由宿主按 stylePreset 与 theme 打开这个登录框。')
+      return
+    }
     loginFormRef.value?.validate(async (valid: boolean) => {
       if (!valid || loading.value) return
       loading.value = true
