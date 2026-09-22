@@ -1,9 +1,21 @@
 package handler
 
 import (
+	"embed"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 )
+
+// developerEmbedFS 是 docs/developer 与 AI Skill 的编译期副本。
+// 宝塔在线更新只替换 frontend 文件和 backend/auth_pro，工作目录通常是数据目录，
+// findDeveloperDocsDir 走不到仓库。发布前由 scripts/sync-developer-embed.sh 同步。
+//
+//go:embed all:developer_embed
+var developerEmbedFS embed.FS
+
+const embeddedDeveloperSkillPath = "developer_embed/skill/SKILL.md"
 
 func findDeveloperDocsDir() string {
 	wd, err := os.Getwd()
@@ -31,4 +43,12 @@ func readDeveloperDocFile(rel string) ([]byte, error) {
 		return nil, os.ErrNotExist
 	}
 	return os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+}
+
+func readEmbeddedDeveloperDoc(rel string) ([]byte, error) {
+	clean := path.Clean(rel)
+	if clean == "." || clean == "/" || strings.HasPrefix(clean, "..") || strings.Contains(clean, `\`) {
+		return nil, os.ErrNotExist
+	}
+	return developerEmbedFS.ReadFile("developer_embed/docs/" + clean)
 }

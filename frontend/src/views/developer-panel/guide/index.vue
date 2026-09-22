@@ -29,6 +29,8 @@
       />
     </el-card>
 
+    <StarterPreview />
+
     <el-card shadow="never" class="docs-shell">
       <div class="docs-layout">
         <aside class="docs-sidebar" aria-label="开发文档目录">
@@ -85,6 +87,7 @@
     downloadSourceDeveloperSkill,
     downloadSourceDeveloperStarter
   } from '@/api/source-developer'
+  import StarterPreview from './StarterPreview.vue'
 
   defineOptions({ name: 'DeveloperPanelGuide' })
 
