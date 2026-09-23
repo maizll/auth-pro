@@ -7,7 +7,6 @@ import {
   stripDemoMenus
 } from './menu-title'
 
-assert.equal(resolveMenuTitle('menus.system.monitor'), '定时任务 / 系统监控')
 assert.equal(resolveMenuTitle('menus.integration.store'), '应用商店')
 assert.equal(resolveMenuTitle('menus.integration.update'), '在线更新')
 assert.equal(resolveMenuTitle('menus.integration.title'), '接入开发')

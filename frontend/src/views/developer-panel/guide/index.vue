@@ -7,7 +7,7 @@
           <p class="docs-lead">
             按章程生成可登记的插件包和整站模板。登记包根目录是
             <code>plugin.json</code> 或 <code>template.json</code>（schemaVersion 1，kind 为
-            template）。登记时可以上传 ZIP（本站托管并填写地址与校验码），也可以填外部 HTTPS。启用模板后，宿主登录弹窗跟随
+            template）。源站只登记外链和校验码，不保存 ZIP。启用模板后，宿主登录弹窗跟随
             stylePreset，以及 theme.primaryColor、theme.backgroundColor、theme.textColor。
           </p>
         </div>
@@ -28,8 +28,6 @@
         title='登记模板只上传 template.json。必须写 kind: "template"、schemaVersion: 1、hero.title，以及 hero.primaryAction.type = "login"。启用后登录弹窗跟随 stylePreset（cartoon-blue / fintech-gold）与 theme.primaryColor、theme.backgroundColor、theme.textColor。不要写 login.html，也不要把 index.html 打进同一个 ZIP。插件登记包是 plugin.json。'
       />
     </el-card>
-
-    <StarterPreview />
 
     <el-card shadow="never" class="docs-shell">
       <div class="docs-layout">
@@ -87,7 +85,6 @@
     downloadSourceDeveloperSkill,
     downloadSourceDeveloperStarter
   } from '@/api/source-developer'
-  import StarterPreview from './StarterPreview.vue'
 
   defineOptions({ name: 'DeveloperPanelGuide' })
 

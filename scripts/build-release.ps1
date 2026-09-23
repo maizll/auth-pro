@@ -10,7 +10,7 @@ if ([string]::IsNullOrWhiteSpace($Version) -and (Test-Path $VersionFile)) {
   $Version = (Get-Content -LiteralPath $VersionFile -Raw).Trim()
 }
 if ([string]::IsNullOrWhiteSpace($Version)) {
-  $Version = '1.5.0'
+  $Version = '1.4.10'
 }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
   throw "Version must match X.Y.Z: $Version"
@@ -72,15 +72,6 @@ if ($BackendStaticDir -notlike "$Root*") {
 New-Item -ItemType Directory -Force -Path $BackendStaticDir | Out-Null
 Get-ChildItem -LiteralPath $BackendStaticDir -Force | Remove-Item -Recurse -Force
 Copy-Item -Path (Join-Path $FrontendDist '*') -Destination $BackendStaticDir -Recurse -Force
-
-Write-Host "[3/5] Syncing embedded developer docs and building Linux backend..."
-$EmbedDir = Join-Path $BackendDir 'handler\developer_embed'
-if (Test-Path -LiteralPath $EmbedDir) {
-  Remove-Item -LiteralPath $EmbedDir -Recurse -Force
-}
-New-Item -ItemType Directory -Force -Path (Join-Path $EmbedDir 'skill'), (Join-Path $EmbedDir 'docs') | Out-Null
-Copy-Item -Path (Join-Path $Root 'docs\developer\*') -Destination (Join-Path $EmbedDir 'docs') -Recurse -Force
-Copy-Item -Path (Join-Path $Root 'developer-skills\auth-pro-plugin-template\SKILL.md') -Destination (Join-Path $EmbedDir 'skill\SKILL.md') -Force
 
 Write-Host "[3/5] Building Linux backend..."
 $BuildTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")

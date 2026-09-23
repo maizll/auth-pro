@@ -2,7 +2,7 @@
 
 本文件是插件与首页模板的**唯一规范**。交给 AI 时，只给这一份，外加 `starter/` 里的两份清单。AI 按本文生成的 ZIP 必须能通过源站硬校验，并且能填进开发者面板「登记插件」「登记模板」。
 
-登记有两种包来源，源站都不执行包内代码。上传 ZIP 时，校验通过后由本站保存文件，并自动填写地址和 SHA256；地址形如 `/api/v1/public/source-packages/<sha256>.zip`。外部 HTTPS 仍可登记，提交审核时检查可达、是不是 ZIP、校验码是否一致。不合规上传返回 `code: 400` 与 `error.field` / `error.rule`，不写库、不留文件。定时任务只巡检外链，失败则从软件源目录下架并通知开发者；本站托管的包不参与这次巡检。
+源站不保存 ZIP，也不执行包内代码。面板只登记元数据 + 外链 + SHA256。包放在作者自己的 HTTPS 空间。管理员「上传 ZIP」走同一套硬校验：失败返回 `code: 400` 与 `error.field` / `error.rule`，不写库、不留临时文件。
 
 机器可读字段摘要：`GET /software-source/package-schema.json`。与本文冲突时，以校验器和宿主渲染代码为准。
 
@@ -283,12 +283,10 @@ iframe 里的静态页若要打开登录，只能 `postMessage({ type: 'auth-pro
 
 地址规则：
 
-- 包来源选「上传 ZIP」时，`POST /api/v1/source/developer/packages/upload`（multipart 字段 `file`）把合规 ZIP 存到本站，响应里的 `url` 与 `sha256` 填进地址和校验码。本站地址以 `/api/v1/public/source-packages/` 开头。
-- 包来源选「外部 HTTPS」时，插件地址必须是 `https://`。否则：`必须是 https:// 外部地址，源站不保存插件或模板源码`。界面：`下载地址须为 https 开头的外链`。
-- 模板外链可以是 `https://`，或相对路径（不以 `/` 开头、不含 `..`、匹配 `^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`）。界面：`模板地址须为 https 开头，或相对路径如 templates/demo-home.json`。
+- 插件「下载地址」必须是 `https://`。否则：`必须是 https:// 外部地址，源站不保存插件或模板源码`。界面：`下载地址须为 https 开头的外链`。
+- 模板「模板地址」是 `https://`，或相对路径（不以 `/` 开头、不含 `..`、匹配 `^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`）。界面：`模板地址须为 https 开头，或相对路径如 templates/demo-home.json`。服务端：`templateUrl 须为 https:// 或相对路径（如 templates/clean-home.json）`。
 - 路径里带 `..` 的 https 地址：`地址不合法`。
 - 「自动计算」只对 https 外链发起浏览器请求。跨域失败时用本地 `sha256sum`，提示：`浏览器无法直接读取该地址`。
-- 提交审核时，外链会由服务端下载：不可达返回 `外链不可达`，不是 ZIP 返回 `外链不是 ZIP`，校验码不符返回 `外链内容与 sha256 不一致`。本站托管地址只核对本地文件。
 
 ### 6.2 高级选项（默认折叠）
 
@@ -326,11 +324,9 @@ iframe 里的静态页若要打开登录，只能 `postMessage({ type: 'auth-pro
 
 提交审核：`POST /api/v1/source/developer/plugins/{id}/submit` 或 `.../templates/{id}/submit`。
 
-成功文案：`插件草稿已保存` / `模板草稿已保存` / `已提交审核`。上传成功：`ZIP 已保存到本站，地址和校验码已生成`。
+成功文案：`插件元数据已保存（源站不存储源码）` / `模板元数据已保存（源站不存储源码）` / `已提交审核`。
 
-外链在**提交审核**时由服务端下载并核对 sha256。草稿保存不访问外链。安装侧仍会再验一次：`软件源模板 ZIP 的 SHA256 校验失败`。插件安装若包内 `id` 不一致：`plugin.json 的插件 ID 必须与软件源一致`。
-
-已上架的外部 HTTPS 由「系统设置 → 定时任务 / 系统监控」里的外链健康检查定期复查。失败则条目改为下架（`hidden`），公开 `index.json` 不再列出，并给开发者发「外链失效已下架」。本站托管地址跳过这项检查。
+服务端**不会**下载 URL 来核对 sha256。对不上的校验和会在应用侧安装时失败：`软件源模板 ZIP 的 SHA256 校验失败`。插件安装若包内 `id` 不一致：`plugin.json 的插件 ID 必须与软件源一致`。
 
 ## 7. 打包与自检
 
@@ -355,8 +351,6 @@ zip -X -r /tmp/demo-home.zip template.json
 unzip -l /tmp/demo-home.zip
 sha256sum /tmp/demo-home.zip
 ```
-
-`template.json` 是 `cartoon-blue`。金黑完整清单是同目录 `template.fintech-gold.json`（`stylePreset: fintech-gold`，`theme.primaryColor` / `backgroundColor` / `textColor`）。登记前改名为 `template.json` 再打包。一个 ZIP 只放一份清单。
 
 自检（不代替服务端，但能在上传前挡住章程禁止项）：
 

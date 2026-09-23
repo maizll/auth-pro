@@ -12,8 +12,7 @@
 | 界面标签 | 键 | 规则 |
 | --- | --- | --- |
 | 版本 | `version` | 新号，如 `1.0.1`。格式同清单 version |
-| 包来源 | — | 上传新 ZIP，或填写外部 HTTPS |
-| 下载地址 / 模板地址 | `downloadUrl` / `templateUrl` | 上传后自动填写；外链为新 ZIP 的地址 |
+| 下载地址 / 模板地址 | `downloadUrl` / `templateUrl` | 新 ZIP |
 | 校验码 (SHA256) | `sha256` | 必填 |
 | 更新说明 | `changelog` | 可空，≤2000 |
 

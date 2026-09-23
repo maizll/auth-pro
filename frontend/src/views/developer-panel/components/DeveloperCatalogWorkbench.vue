@@ -6,8 +6,8 @@
           <div>
             <span class="card-title">{{ title }}（共 {{ items.length }} 条）</span>
             <p class="card-hint">
-              可以上传 ZIP，由本站保存并自动填写地址和校验码；也可以登记外部
-              HTTPS。外链在提交审核时检查能否下载、是不是 ZIP、校验码是否一致。本站托管的包不参与外链巡检。
+              源站只登记名称和下载地址，不代存
+              ZIP。先选应用，填名称和地址即可；校验码没有的话可以先存草稿。
             </p>
           </div>
           <el-button type="primary" @click="openEdit()">{{ createLabel }}</el-button>
@@ -125,34 +125,11 @@
           <el-input v-model="form.version" :disabled="!canEditPackage" placeholder="1.0.0" />
           <p class="field-help">首次发布用 1.0.0 即可，以后改这里或在「版本」里新增。</p>
         </el-form-item>
-        <el-form-item label="包来源">
-          <el-radio-group
-            v-model="form.packageSource"
-            :disabled="!canEditPackage"
-            @change="onPackageSourceChange('form')"
-          >
-            <el-radio value="upload">上传 ZIP（本站托管）</el-radio>
-            <el-radio value="external">外部 HTTPS</el-radio>
-          </el-radio-group>
-          <p class="field-help">{{ packageSourceHelp }}</p>
-        </el-form-item>
-        <el-form-item v-if="form.packageSource === 'upload'" label="ZIP 文件">
-          <el-upload
-            :auto-upload="false"
-            :show-file-list="false"
-            accept=".zip,application/zip"
-            :disabled="!canEditPackage || uploading"
-            :on-change="(file) => handlePackageFile('form', file)"
-          >
-            <el-button :loading="uploading" :disabled="!canEditPackage">选择 ZIP</el-button>
-          </el-upload>
-          <p class="field-help">上传后自动填写地址和 SHA256。不合规的包不会保存。</p>
-        </el-form-item>
         <el-form-item :label="locationLabel" prop="location">
           <el-input
             v-model="form.location"
-            :disabled="!canEditPackage || form.packageSource === 'upload'"
-            :placeholder="form.packageSource === 'upload' ? '上传 ZIP 后自动填写' : locationPlaceholder"
+            :disabled="!canEditPackage"
+            :placeholder="locationPlaceholder"
           />
           <p class="field-help">{{ locationHelp }}</p>
         </el-form-item>
@@ -160,11 +137,10 @@
           <div class="checksum-row">
             <el-input
               v-model="form.sha256"
-              :disabled="!canEditPackage || form.packageSource === 'upload'"
+              :disabled="!canEditPackage"
               placeholder="64 位十六进制，可稍后补"
             />
             <el-button
-              v-if="form.packageSource === 'external'"
               :disabled="!canEditPackage || !canAutoHash(form.location)"
               :loading="hashing === 'form'"
               @click="handleAutoHash('form')"
@@ -172,13 +148,7 @@
               自动计算
             </el-button>
           </div>
-          <p class="field-help">
-            {{
-              form.packageSource === 'upload'
-                ? '由本站按 ZIP 内容计算，不能手改。'
-                : '64位，可用 sha256sum 计算；粘贴下载后也可稍后补'
-            }}
-          </p>
+          <p class="field-help">64位，可用 sha256sum 计算；粘贴下载后也可稍后补</p>
         </el-form-item>
         <el-form-item label="简介" prop="description">
           <el-input
@@ -305,43 +275,14 @@
           <el-form-item label="版本" required>
             <el-input v-model="versionForm.version" placeholder="1.0.1" />
           </el-form-item>
-          <el-form-item label="包来源">
-            <el-radio-group
-              v-model="versionForm.packageSource"
-              @change="onPackageSourceChange('version')"
-            >
-              <el-radio value="upload">上传 ZIP（本站托管）</el-radio>
-              <el-radio value="external">外部 HTTPS</el-radio>
-            </el-radio-group>
-          </el-form-item>
-          <el-form-item v-if="versionForm.packageSource === 'upload'" label="ZIP 文件">
-            <el-upload
-              :auto-upload="false"
-              :show-file-list="false"
-              accept=".zip,application/zip"
-              :disabled="uploading"
-              :on-change="(file) => handlePackageFile('version', file)"
-            >
-              <el-button :loading="uploading">选择 ZIP</el-button>
-            </el-upload>
-          </el-form-item>
           <el-form-item :label="locationLabel" required>
-            <el-input
-              v-model="versionForm.location"
-              :disabled="versionForm.packageSource === 'upload'"
-              :placeholder="versionForm.packageSource === 'upload' ? '上传 ZIP 后自动填写' : locationPlaceholder"
-            />
-            <p class="field-help">{{ versionLocationHelp }}</p>
+            <el-input v-model="versionForm.location" :placeholder="locationPlaceholder" />
+            <p class="field-help">{{ locationHelp }}</p>
           </el-form-item>
           <el-form-item label="校验码 (SHA256)" required>
             <div class="checksum-row">
-              <el-input
-                v-model="versionForm.sha256"
-                :disabled="versionForm.packageSource === 'upload'"
-                placeholder="64 位十六进制"
-              />
+              <el-input v-model="versionForm.sha256" placeholder="64 位十六进制" />
               <el-button
-                v-if="versionForm.packageSource === 'external'"
                 :disabled="!canAutoHash(versionForm.location)"
                 :loading="hashing === 'version'"
                 @click="handleAutoHash('version')"
@@ -349,13 +290,7 @@
                 自动计算
               </el-button>
             </div>
-            <p class="field-help">
-              {{
-                versionForm.packageSource === 'upload'
-                  ? '由本站按 ZIP 内容计算。'
-                  : '64位，可用 sha256sum 计算后粘贴。提交审核时会核对文件。'
-              }}
-            </p>
+            <p class="field-help">64位，可用 sha256sum 计算后粘贴</p>
           </el-form-item>
           <el-form-item label="更新说明">
             <el-input
@@ -380,7 +315,7 @@
 <script setup lang="ts">
   import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
-  import type { FormInstance, FormRules, UploadFile } from 'element-plus'
+  import type { FormInstance, FormRules } from 'element-plus'
   import { ElMessage } from 'element-plus'
   import { SOURCE_ITEM_STATUS, SOURCE_VERSION_STATUS } from '@/api/source-station'
   import {
@@ -400,7 +335,6 @@
     upsertSourceDeveloperPluginVersion,
     upsertSourceDeveloperTemplate,
     upsertSourceDeveloperTemplateVersion,
-    uploadSourceDeveloperPackage,
     type SourceDeveloperCatalogApp,
     type SourceDeveloperCatalogItem,
     type SourceDeveloperCategory,
@@ -410,7 +344,6 @@
     CATALOG_ID_PATTERN,
     SHA256_HEX_PATTERN,
     isHttpsLocation,
-    isStationPackageLocation,
     isTemplateLocation,
     suggestCatalogSlug
   } from '@/utils/form/catalog-slug'
@@ -436,7 +369,6 @@
   const loading = ref(false)
   const saving = ref(false)
   const hashing = ref<'form' | 'version' | ''>('')
-  const uploading = ref(false)
   const items = ref<SourceDeveloperCatalogItem[]>([])
   const apps = ref<SourceDeveloperCatalogApp[]>([])
   const categories = ref<SourceDeveloperCategory[]>([])
@@ -462,17 +394,10 @@
     icon: 'ri:puzzle-line',
     location: '',
     sha256: '',
-    packageSource: 'external' as 'upload' | 'external',
     authorName: '',
     changelog: ''
   })
-  const versionForm = reactive({
-    version: '',
-    location: '',
-    sha256: '',
-    changelog: '',
-    packageSource: 'external' as 'upload' | 'external'
-  })
+  const versionForm = reactive({ version: '', location: '', sha256: '', changelog: '' })
 
   const title = computed(() => (props.kind === 'template' ? '我的模板' : '我的插件'))
   const createLabel = computed(() => (props.kind === 'template' ? '登记模板' : '登记插件'))
@@ -483,19 +408,11 @@
   )
   const locationLabel = computed(() => (props.kind === 'template' ? '模板地址' : '下载地址'))
   const locationPlaceholder = 'https://你的文件地址.zip'
-  const packageSourceHelp = computed(() =>
+  const locationHelp = computed(() =>
     props.kind === 'template'
-      ? '上传 ZIP 由本站托管；外部地址可以是 HTTPS，或相对路径如 templates/demo-home.json。'
-      : '上传 ZIP 由本站托管并生成地址；外部地址必须是 HTTPS。'
+      ? '填 HTTPS 外链；也可以填相对路径，例如 templates/demo-home.json。源站不代存文件。'
+      : '填 HTTPS 外链。源站不代存 ZIP，请把文件放到你自己的空间。'
   )
-  function locationHelpFor(source: 'upload' | 'external') {
-    if (source === 'upload') return '本站地址由上传结果填入，定时巡检不会把这类地址下架。'
-    return props.kind === 'template'
-      ? '填 HTTPS 外链，或相对路径例如 templates/demo-home.json。提交审核时会下载 HTTPS 并核对 ZIP 与校验码。'
-      : '填 HTTPS 外链。提交审核时会下载并核对是不是 ZIP、校验码是否一致。'
-  }
-  const locationHelp = computed(() => locationHelpFor(form.packageSource))
-  const versionLocationHelp = computed(() => locationHelpFor(versionForm.packageSource))
   const categoryOptions = computed(() =>
     categories.value.filter((item) => item.kind === props.kind)
   )
@@ -542,14 +459,6 @@
               return
             }
             callback()
-            return
-          }
-          if (isStationPackageLocation(raw)) {
-            callback()
-            return
-          }
-          if (form.packageSource === 'upload') {
-            callback(new Error('请先上传 ZIP'))
             return
           }
           const ok = props.kind === 'template' ? isTemplateLocation(raw) : isHttpsLocation(raw)
@@ -746,7 +655,6 @@
     form.icon = defaultIcon()
     form.location = ''
     form.sha256 = ''
-    form.packageSource = 'external'
     form.authorName = currentDeveloperName()
     form.changelog = ''
   }
@@ -770,7 +678,6 @@
       form.icon = row.icon || defaultIcon()
       form.location = (props.kind === 'template' ? row.templateUrl : row.downloadUrl) || ''
       form.sha256 = row.sha256 || ''
-      form.packageSource = isStationPackageLocation(form.location) ? 'upload' : 'external'
       form.authorName = row.author?.name || currentDeveloperName()
       form.changelog = row.changelog || ''
     } else {
@@ -785,65 +692,7 @@
     versionForm.location = ''
     versionForm.sha256 = ''
     versionForm.changelog = ''
-    versionForm.packageSource = 'external'
     versionFormVisible.value = true
-  }
-
-  function onPackageSourceChange(target: 'form' | 'version') {
-    const bucket = target === 'form' ? form : versionForm
-    if (bucket.packageSource === 'upload' && !isStationPackageLocation(bucket.location)) {
-      bucket.location = ''
-      bucket.sha256 = ''
-    }
-    if (bucket.packageSource === 'external' && isStationPackageLocation(bucket.location)) {
-      bucket.location = ''
-      bucket.sha256 = ''
-    }
-  }
-
-  async function handlePackageFile(target: 'form' | 'version', upload: UploadFile) {
-    const selected = upload.raw
-    if (!selected || uploading.value) return
-    uploading.value = true
-    try {
-      const data = new FormData()
-      data.append('file', selected)
-      data.append('kind', props.kind)
-      const res = await uploadSourceDeveloperPackage(data)
-      const body = unwrapCode(res)
-      if (!body) return
-      if (body.code !== 200 || !body.data?.url || !body.data.sha256) {
-        ElMessage.error(body.msg || '上传失败')
-        return
-      }
-      const manifest = body.data
-      if (target === 'form') {
-        form.packageSource = 'upload'
-        form.location = manifest.url
-        form.sha256 = manifest.sha256
-        if (!isEdit.value) {
-          if (!form.name.trim() && manifest.name) form.name = manifest.name
-          if (!idManuallyEdited.value && manifest.id) {
-            form.id = manifest.id
-            idManuallyEdited.value = true
-          }
-          if (manifest.version) form.version = manifest.version
-          if (!form.description.trim() && manifest.description) form.description = manifest.description
-          if (manifest.category) form.category = manifest.category
-          if (props.kind === 'plugin' && manifest.icon) form.icon = manifest.icon
-        }
-      } else {
-        versionForm.packageSource = 'upload'
-        versionForm.location = manifest.url
-        versionForm.sha256 = manifest.sha256
-        if (!versionForm.version.trim() && manifest.version) versionForm.version = manifest.version
-      }
-      ElMessage.success('已上传，地址和校验码已填入')
-    } catch {
-      ElMessage.error('上传失败')
-    } finally {
-      uploading.value = false
-    }
   }
 
   async function handleAutoHash(target: 'form' | 'version') {
@@ -1002,10 +851,9 @@
       return
     }
     const locationOk =
-      isStationPackageLocation(versionForm.location) ||
-      (props.kind === 'template'
+      props.kind === 'template'
         ? isTemplateLocation(versionForm.location)
-        : isHttpsLocation(versionForm.location))
+        : isHttpsLocation(versionForm.location)
     if (!locationOk) {
       ElMessage.warning(
         props.kind === 'template'
@@ -1050,7 +898,6 @@
       versionForm.location = ''
       versionForm.sha256 = ''
       versionForm.changelog = ''
-      versionForm.packageSource = 'external'
       await openVersions(currentItem.value)
     } finally {
       versionSaving.value = false
@@ -1115,12 +962,6 @@
     color: var(--el-text-color-secondary);
   }
 
-  :deep(.el-radio) {
-    height: auto;
-    margin-right: 16px;
-    white-space: normal;
-  }
-
   .checksum-row {
     display: flex;
     gap: 8px;
@@ -1137,17 +978,8 @@
       flex-wrap: wrap;
     }
 
-    :deep(.el-form-item) {
-      margin-bottom: 8px;
-    }
-
     :deep(.el-form-item__content) {
       min-width: 0;
-    }
-
-    .field-help {
-      margin-top: 2px;
-      line-height: 1.35;
     }
   }
 
@@ -1193,17 +1025,12 @@
   /* 登记插件 / 登记模板抽屉，以及新增版本信息弹框。弹层挂在 body 上，手机宽度写在这里。 */
   @media (width <= 768px) {
     .el-drawer.catalog-sheet {
-      display: flex;
-      flex-direction: column;
-      width: 100% !important;
       max-width: 100vw !important;
-      height: 100dvh !important;
-      max-height: 100dvh !important;
     }
 
     .el-drawer.catalog-sheet .el-drawer__body {
-      flex: 1 1 auto;
       min-height: 0;
+      max-height: calc(100dvh - 140px);
       overflow-y: auto;
     }
 

@@ -107,7 +107,7 @@ Get-FileHash ..\demo-widget.zip -Algorithm SHA256
 zip -r ../demo-widget.zip plugin.json
 ```
 
-`sha256` 针对整个 ZIP，64 位十六进制。可以在登记表单上传 ZIP，由源站托管并回填 `downloadUrl` 与 `sha256`；也可以把文件放到自己的 HTTPS 空间。外链 `downloadUrl` 必须是 `https://`，不能写相对路径。提交审核时外链会被下载核对。
+`sha256` 针对整个 ZIP，64 位十六进制。文件放到自己的 HTTPS 空间。`downloadUrl` 必须是 `https://`，不能写相对路径。
 
 ## 3. 登记表单对照
 
@@ -120,7 +120,7 @@ zip -r ../demo-widget.zip plugin.json
 | 名称 | `name` | 必填，≤100 字 |
 | 标识 | `id` | 2–59 位小写字母、数字、连字符。新建时按名称生成，提交后不可改 |
 | 版本 | `version` | 首次可用 `1.0.0` |
-| 下载地址 | `downloadUrl` | 草稿可空。上传 ZIP 后自动填本站地址；外链提交审核前必填且必须 `https://` |
+| 下载地址 | `downloadUrl` | 草稿可空。提交审核前必填，必须 `https://` |
 | 校验码 (SHA256) | `sha256` | 草稿可空。提交审核前必填，64 位十六进制 |
 | 简介 | `description` | 表单可空。ZIP 硬校验要求清单内非空 |
 | 作者 | `author.name` | 表单锁定为当前开发者名称 |

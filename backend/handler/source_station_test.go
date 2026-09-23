@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -28,7 +27,6 @@ func sourceStationRouter(t *testing.T) (*gin.Engine, *memorySourceStore) {
 	notes := newMemoryNotificationStore()
 	t.Cleanup(SetSourceStationStoreForTest(store))
 	t.Cleanup(SetNotificationStoreForTest(notes))
-	installExampleExternalPackageStub(t)
 	router := gin.New()
 	RegisterSourceStationRoutes(router, router.Group("/api"))
 	RegisterNotificationRoutes(router.Group("/api"))
@@ -37,33 +35,6 @@ func sourceStationRouter(t *testing.T) (*gin.Engine, *memorySourceStore) {
 	router.GET("/api/advertisements", PublicAdvertisements)
 	router.GET("/api/v1/public/advertisements", PublicLocalAdvertisements)
 	return router, store
-}
-
-// 既有用例使用 cdn.example.com 占位地址。提交审核会真实校验外链，这里只放行测试占位域名。
-func installExampleExternalPackageStub(t *testing.T) {
-	t.Helper()
-	previous := verifyExternalPackage
-	verifyExternalPackage = func(ctx context.Context, rawURL, sha string) error {
-		parsed, err := url.Parse(strings.TrimSpace(rawURL))
-		if err == nil {
-			host := parsed.Hostname()
-			if host == "cdn.example.com" || host == "example.com" {
-				if err := validateSHA256(sha); err != nil {
-					return err
-				}
-				return nil
-			}
-		}
-		return verifyExternalPackageHTTP(ctx, rawURL, sha)
-	}
-	t.Cleanup(func() { verifyExternalPackage = previous })
-}
-
-func useExternalPackageClientForTest(t *testing.T, client *http.Client) {
-	t.Helper()
-	previous := externalPackageClient
-	externalPackageClient = client
-	t.Cleanup(func() { externalPackageClient = previous })
 }
 
 func sourceJSON(t *testing.T, router http.Handler, method, path, token, body string) *httptest.ResponseRecorder {

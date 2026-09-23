@@ -105,14 +105,12 @@ func sourcePackageSchemaDocument() gin.H {
 	return gin.H{
 		"gate": "fail-closed：不合规 ZIP 一律拒绝，不写库、不推 Release、不保留临时文件",
 		"upload": gin.H{
-			"parse":            "POST /api/v1/source/admin/packages/parse",
-			"publish":          "POST /api/v1/source/admin/packages/publish",
-			"developerUpload":  "POST /api/v1/source/developer/packages/upload：校验通过后把 ZIP 存到本站，并返回地址与 sha256。不合规包不落盘。",
-			"schema":           "GET /api/v1/source/admin/packages/schema 与 GET /software-source/package-schema.json",
-			"file":             "multipart 字段 file，必须是 ZIP，≤ 20 MiB",
-			"kind":             "可选 plugin | template；缺省时按包内清单文件名识别。template.json 必须自带 kind=template；plugin.json 若填写 kind 必须为 plugin",
-			"category":         "可选。与清单 kind 对应：插件分类不可用于模板，模板分类不可用于插件。模板缺省自动绑定 home-template。",
-			"externalOnSubmit": "外链 HTTPS 在提交审核时检查可达、ZIP 魔数与 sha256。本站托管地址不发外网请求。",
+			"parse":    "POST /api/v1/source/admin/packages/parse",
+			"publish":  "POST /api/v1/source/admin/packages/publish",
+			"schema":   "GET /api/v1/source/admin/packages/schema 与 GET /software-source/package-schema.json",
+			"file":     "multipart 字段 file，必须是 ZIP，≤ 20 MiB",
+			"kind":     "可选 plugin | template；缺省时按包内清单文件名识别。template.json 必须自带 kind=template；plugin.json 若填写 kind 必须为 plugin",
+			"category": "可选。与清单 kind 对应：插件分类不可用于模板，模板分类不可用于插件。模板缺省自动绑定 home-template。",
 		},
 		"zip": gin.H{
 			"required":             true,

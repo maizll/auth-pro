@@ -563,7 +563,7 @@ Compress-Archive -Path template.json, assets -DestinationPath ..\demo-home.zip -
 Get-FileHash ..\demo-home.zip -Algorithm SHA256
 ```
 
-`sha256` 是**整个 ZIP** 的 64 位十六进制。可以在登记表单上传 ZIP，由源站托管并回填地址与校验码；也可以把 ZIP 放到自己的 HTTPS 空间。提交审核时外链会被下载核对。
+`sha256` 是**整个 ZIP** 的 64 位十六进制。把 ZIP 放到自己的 HTTPS 空间。源站不保存 ZIP。
 
 最小包可以只有 `template.json`。有封面图时再加 `assets/`。
 
@@ -678,5 +678,5 @@ POST /api/system/home-templates/upload
 - 不要在模板里保存密码或 `user_panel_token`。
 - 公开查询结果不要展示授权密钥、绑定目标和余额。
 - 页面提示优先用接口返回的 `msg`。
-- 上传的 ZIP 由本站托管。外链用 HTTPS，或相对该应用目录的路径。外链巡检失败会下架，本站托管地址除外。
+- 源站不保存 ZIP。地址用 HTTPS，或相对该应用目录的路径。
 - 改包请新增版本，见 [更新与多版本](./versions.md)。

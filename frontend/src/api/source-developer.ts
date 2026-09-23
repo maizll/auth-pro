@@ -380,28 +380,6 @@ export function createSourceDeveloperAdApplication(payload: SourceDeveloperAdApp
   )
 }
 
-export interface SourceDeveloperPackageUpload {
-  url: string
-  sha256: string
-  kind: string
-  id: string
-  name: string
-  version: string
-  description?: string
-  category?: string
-  icon?: string
-  schemaVersion?: number
-  stored: boolean
-}
-
-export function uploadSourceDeveloperPackage(data: FormData) {
-  return axios.post<{ code: number; msg: string; data: SourceDeveloperPackageUpload }>(
-    `${BASE}/packages/upload`,
-    data,
-    developerConfig()
-  )
-}
-
 export function uploadSourceDeveloperAdvertisementImage(data: FormData) {
   return axios.post<{ code: number; msg: string; data: { url: string } }>(
     `${BASE}/advertisements/image`,

@@ -75,10 +75,9 @@ jobs:
           AUTO_PRO_UPDATE_RELEASES_URL: 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/releases.json'
           AUTO_PRO_REQUIRE_GIT_RELEASE_NOTES: '1'
           AUTO_PRO_RELEASE_NOTES: |
-            开发者登记可以上传 ZIP：源站保存文件并回填地址与 SHA256；外部 HTTPS 仍然保留，提交审核时检查可达、ZIP 与校验码。
-            定时任务只巡检外链。失败则从软件源目录下架并通知开发者。本站托管的上传不参与巡检。
-            管理端新增「定时任务 / 系统监控」，进程内执行外链健康、授权校验、支付回调路由、在线更新源和磁盘用量五项任务。
-            开发者 Skill 与入门包 ZIP 编译进二进制（#65）。开发文档页用同一份示例渲染正式首页，预览登录只打开宿主登录框。
+            登录弹窗跟随已启用首页模板：stylePreset 为 cartoon-blue / fintech-gold，颜色取 theme.primaryColor、backgroundColor、textColor。
+            开发文档：首页模板与插件改为作者体例长指南，并同步到开发者面板，侧栏按 ## 章节展开。
+            文档补上源站开发者章程（整站模板与插件登记）。
         run: ./scripts/build-release.sh '${{ steps.version.outputs.value }}'
 
       - name: Run backend tests
