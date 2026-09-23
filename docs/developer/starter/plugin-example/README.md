@@ -9,6 +9,6 @@ unzip -l /tmp/demo-widget.zip
 sha256sum /tmp/demo-widget.zip
 ```
 
-登记插件时：标识填 `demo-widget`，分类选「其他」，下载地址填这个 ZIP 的 https 地址，校验码填 sha256，简介与清单 `description` 相同。
+登记插件时：标识填 `demo-widget`，分类选「其他」。包来源可以上传这个 ZIP（本站回填地址和校验码），或填写外部 HTTPS 并粘贴 sha256。简介与清单 `description` 相同。
 
 规范：[章程](../../charter.md)。

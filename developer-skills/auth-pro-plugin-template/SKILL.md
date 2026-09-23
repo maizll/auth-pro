@@ -7,7 +7,7 @@ description: Use when creating, packaging, validating, or submitting AuthPro sou
 
 按仓库 `docs/developer/charter.md` 生成包。本章是操作清单。不要写介绍。不要发明章程之外的字段。
 
-源站不接收 ZIP 文件。产出：清单 JSON、ZIP 布局、sha256 命令、登记表单要填的中文栏。
+产出：清单 JSON、ZIP 布局、sha256 命令、登记表单要填的中文栏。登记可以上传 ZIP（本站托管，自动填地址和 sha256），也可以填外部 HTTPS（提交审核时核对可达、ZIP 与 sha256）。
 
 ## 先选一种
 
@@ -104,7 +104,7 @@ sha256sum /tmp/demo-home.zip
 
 ## 登记（中文标签 → 键）
 
-面板：**登记插件** / **登记模板**。没有文件上传。
+面板：**登记插件** / **登记模板**。包来源选「上传 ZIP（本站托管）」或「外部 HTTPS」。
 
 默认栏：
 
@@ -115,8 +115,9 @@ sha256sum /tmp/demo-home.zip
 | 名称 | `name` | 与清单相同 |
 | 标识 | `id` | 手写，等于清单 `id`。不要用中文名自动生成的标识。模板同时写 `templateKey` |
 | 版本 | `version` | `1.0.0` |
-| 下载地址 | `downloadUrl` | 仅插件。`https://` ZIP |
-| 模板地址 | `templateUrl` | 仅模板。`https://` ZIP |
+| 包来源 | — | 上传 ZIP，或外部 HTTPS |
+| 下载地址 | `downloadUrl` | 仅插件。上传后自动填；外链为 `https://` ZIP |
+| 模板地址 | `templateUrl` | 仅模板。上传后自动填；外链为 `https://` ZIP |
 | 校验码 (SHA256) | `sha256` | 上一步输出 |
 | 简介 | `description` | 与清单相同 |
 
@@ -132,7 +133,7 @@ sha256sum /tmp/demo-home.zip
 2. 完整 JSON
 3. `zip` / `unzip -l` / `sha256sum` 命令
 4. 上表每一栏的值
-5. 一句话：源站不存 ZIP；登录框由宿主按 `stylePreset` 打开（与首页同一套颜色和圆角）；模板包内不要 `index.html` 或 `login.html`
+5. 一句话：上传的 ZIP 由本站托管，外链在提交时校验；登录框由宿主按 `stylePreset` 打开（与首页同一套颜色和圆角）；模板包内不要 `index.html` 或 `login.html`
 
 ## 被拒绝时
 

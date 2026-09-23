@@ -18,7 +18,12 @@ sha256sum /tmp/package.zip
 
 ## 登记表单
 
-面板没有文件上传框。先把 ZIP 放到 `https://`，再打开 **登记插件** 或 **登记模板**。
+打开 **登记插件** 或 **登记模板**，包来源二选一：
+
+- **上传 ZIP（本站托管）**：选择 ZIP。校验通过后源站保存文件，并自动填写地址和 SHA256。公开地址是 `/api/v1/public/source-packages/<sha256>.zip`。
+- **外部 HTTPS**：自己把 ZIP 放到 `https://`，填写地址和校验码。提交审核时源站会下载并核对可达性、ZIP 和 sha256。
+
+本站托管的包在提交时只核对本地文件。
 
 ### 默认显示
 
@@ -29,8 +34,9 @@ sha256sum /tmp/package.zip
 | 名称 | `name` | 必填，与清单一致 |
 | 标识 | `id` | 手写，与清单 `id` 一致。模板同时作为 `templateKey` |
 | 版本 | `version` | 默认 `1.0.0` |
-| 下载地址 | `downloadUrl` | 插件必填，`https://` |
-| 模板地址 | `templateUrl` | 模板必填。`https://` 或相对路径 `templates/demo-home.json` |
+| 包来源 | — | 上传 ZIP，或外部 HTTPS |
+| 下载地址 | `downloadUrl` | 插件。上传后自动填本站地址；外链必须 `https://` |
+| 模板地址 | `templateUrl` | 模板。上传后自动填本站地址；外链为 `https://` 或相对路径 `templates/demo-home.json` |
 | 校验码 (SHA256) | `sha256` | 必填，64 位十六进制，对整个 ZIP |
 | 简介 | `description` | 界面可空。ZIP 内必填 |
 
@@ -42,7 +48,7 @@ sha256sum /tmp/package.zip
 | 图标 | `icon` | 仅插件，缺省 `ri:puzzle-line` |
 | 更新说明 | `changelog` | 可空，≤2000 |
 
-草稿可以后补地址和校验码。**提交审核** 会检查这两项。界面原文：`提交审核前请先填写下载地址和校验码`（模板为「模板地址」）。
+草稿可以后补地址和校验码。**提交审核** 会检查这两项，并对外部 HTTPS 做可达、ZIP、sha256 核对。界面原文：`提交审核前请先填写下载地址和校验码`（模板为「模板地址」）。外链失败时原文为 `外链不可达`、`外链不是 ZIP`、`外链内容与 sha256 不一致`。
 
 「自动计算」只在浏览器能跨域读取 https 文件时成功。失败就粘贴 `sha256sum` 的结果。
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {
   isCatalogSlug,
   isHttpsLocation,
+  isStationPackageLocation,
   isTemplateLocation,
   latinSlugFromName,
   suggestCatalogSlug,
@@ -27,6 +28,11 @@ assert.ok(isCatalogSlug('plugin-abc'))
 assert.equal(isCatalogSlug('P'), false)
 assert.ok(SHA256_HEX_PATTERN.test('a'.repeat(64)))
 assert.equal(SHA256_HEX_PATTERN.test('zz'), false)
+assert.equal(
+  isStationPackageLocation('/api/v1/public/source-packages/' + 'ab'.repeat(32) + '.zip'),
+  true
+)
+assert.equal(isStationPackageLocation('https://cdn.example.com/a.zip'), false)
 assert.equal(isHttpsLocation('https://cdn.example.com/a.zip'), true)
 assert.equal(isHttpsLocation('http://cdn.example.com/a.zip'), false)
 assert.equal(isTemplateLocation('templates/demo-home.json'), true)
