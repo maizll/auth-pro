@@ -14,7 +14,6 @@
     :site-name="siteName"
     :site-subtitle="siteSubtitle"
     :login-action="loginAccount"
-    :preview="preview"
   />
   <div v-else class="remote-home" :class="presetClass" :style="themeStyle">
     <header class="remote-header">
@@ -89,13 +88,7 @@
       <div class="dialog-brand"><img :src="resolvedLogo" alt="网站 Logo" />{{ siteName }}</div>
     </template>
     <h2 data-testid="login-host-hint">用户登录</h2>
-    <p class="dialog-subtitle">
-      {{
-        preview
-          ? '示意：启用后由宿主打开。圆角和颜色跟随 stylePreset 与 theme.primaryColor、backgroundColor、textColor。模板不提交密码。'
-          : '登录后查看并管理您的授权'
-      }}
-    </p>
+    <p class="dialog-subtitle">登录后查看并管理您的授权</p>
     <ElForm ref="loginFormRef" :model="loginForm" :rules="loginRules" @submit.prevent>
       <ElFormItem prop="username">
         <ElInput v-model="loginForm.username" size="large" placeholder="手机号 / 邮箱 / 用户ID" />
@@ -136,7 +129,7 @@
 
   defineOptions({ name: 'RemoteHomeTemplate' })
 
-  const props = defineProps<{ document: HomeTemplateDocument; staticEntryUrl?: string; preview?: boolean }>()
+  const props = defineProps<{ document: HomeTemplateDocument; staticEntryUrl?: string }>()
   const staticFrame = ref<HTMLIFrameElement>()
 
   function handleTemplateMessage(event: MessageEvent) {
@@ -253,13 +246,7 @@
     throw new Error(response.msg || '登录失败')
   }
 
-  const preview = computed(() => props.preview === true)
-
   function handleLogin() {
-    if (preview.value) {
-      ElMessage.info('预览不提交密码。启用后由宿主按 stylePreset 与 theme 打开这个登录框。')
-      return
-    }
     loginFormRef.value?.validate(async (valid: boolean) => {
       if (!valid || loading.value) return
       loading.value = true

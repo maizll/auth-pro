@@ -261,13 +261,7 @@
         </div>
         <span class="section-kicker">ACCOUNT ACCESS</span>
         <h2 id="login-title" data-testid="login-host-hint">登录用户中心</h2>
-        <p id="login-description">
-          {{
-            preview
-              ? '示意：启用后由宿主打开。外观跟随 stylePreset 与 theme.primaryColor、backgroundColor、textColor。模板不提交密码。'
-              : '登录后查看并管理您的授权'
-          }}
-        </p>
+        <p id="login-description">登录后查看并管理您的授权</p>
         <form :aria-busy="loginLoading" @submit.prevent="handleLogin">
           <label for="login-account">账号</label>
           <div class="input-field">
@@ -318,10 +312,8 @@
     siteName: string
     siteSubtitle: string
     loginAction: (account: string, password: string) => Promise<void>
-    preview?: boolean
   }>()
   const template = computed(() => props.document)
-  const preview = computed(() => props.preview === true)
   const menuOpen = ref(false)
   const queryValue = ref('')
   const queryMessage = ref('')
@@ -395,10 +387,6 @@
     openLogin()
   }
   async function handleLogin() {
-    if (preview.value) {
-      loginMessage.value = '预览不提交密码。启用后由宿主按 stylePreset 与 theme 打开这个登录框。'
-      return
-    }
     if (loginLoading.value) return
     loginLoading.value = true
     loginMessage.value = ''
