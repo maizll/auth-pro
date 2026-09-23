@@ -7,7 +7,7 @@
           <p class="docs-lead">
             按章程生成可登记的插件包和整站模板。登记包根目录是
             <code>plugin.json</code> 或 <code>template.json</code>（schemaVersion 1，kind 为
-            template）。源站只登记外链和校验码，不保存 ZIP。启用模板后，宿主登录弹窗跟随
+            template）。登记时可以上传 ZIP（本站托管并填写地址与校验码），也可以填外部 HTTPS。启用模板后，宿主登录弹窗跟随
             stylePreset，以及 theme.primaryColor、theme.backgroundColor、theme.textColor。
           </p>
         </div>

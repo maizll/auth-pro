@@ -288,7 +288,7 @@ func SourceDeveloperUpsertPlugin(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "插件元数据已保存（源站不存储源码）", "data": sourcePluginView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "插件草稿已保存", "data": sourcePluginView(saved)})
 }
 
 func SourceDeveloperSubmitPlugin(c *gin.Context) {
@@ -304,6 +304,10 @@ func SourceDeveloperSubmitPlugin(c *gin.Context) {
 	}
 	if item.DeveloperID != developer.ID {
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": errSourceForbidden.Error()})
+		return
+	}
+	if err := validatePackageForSubmit(sourceKindPlugin, item.DownloadURL, item.SHA256); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
 	saved, err := currentSourceStationStore().SetPluginStatus(item.ID, sourceItemReview, developer.Username, sourceNoteFromBody(c))
@@ -357,7 +361,7 @@ func SourceDeveloperUpsertTemplate(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "模板元数据已保存（源站不存储源码）", "data": sourceTemplateView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "模板草稿已保存", "data": sourceTemplateView(saved)})
 }
 
 func SourceDeveloperSubmitTemplate(c *gin.Context) {
@@ -373,6 +377,10 @@ func SourceDeveloperSubmitTemplate(c *gin.Context) {
 	}
 	if item.DeveloperID != developer.ID {
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": errSourceForbidden.Error()})
+		return
+	}
+	if err := validatePackageForSubmit(sourceKindTemplate, item.TemplateURL, item.SHA256); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
 	saved, err := currentSourceStationStore().SetTemplateStatus(item.ID, sourceItemReview, developer.Username, sourceNoteFromBody(c))
@@ -596,13 +604,17 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 	if _, builtin := findCatalogPlugin(pluginID); builtin {
 		return sourcePlugin{}, errors.New("不能覆盖内置插件标识")
 	}
-	if req.DownloadURL != "" {
-		if err := validatePluginDownloadURL(req.DownloadURL); err != nil {
+	downloadURL, sha256Value, err := normalizePackageLocation(req.DownloadURL, req.SHA256)
+	if err != nil {
+		return sourcePlugin{}, err
+	}
+	if downloadURL != "" {
+		if err := validatePluginDownloadURL(downloadURL); err != nil {
 			return sourcePlugin{}, err
 		}
 	}
-	if req.SHA256 != "" {
-		if err := validateSHA256(req.SHA256); err != nil {
+	if sha256Value != "" {
+		if err := validateSHA256(sha256Value); err != nil {
 			return sourcePlugin{}, err
 		}
 	}
@@ -632,8 +644,8 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 		Description: truncateText(req.Description, 500),
 		Icon:        icon,
 		Version:     version,
-		SHA256:      strings.ToLower(strings.TrimSpace(req.SHA256)),
-		DownloadURL: strings.TrimSpace(req.DownloadURL),
+		SHA256:      sha256Value,
+		DownloadURL: downloadURL,
 		Changelog:   truncateText(req.Changelog, 2000),
 		MinVersion:  truncateText(req.MinVersion, 40),
 		ForceUpdate: req.ForceUpdate,
@@ -660,13 +672,17 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 	if !pluginIDPattern.MatchString(templateKey) {
 		return sourceTemplate{}, errors.New("模板标识不合法")
 	}
-	if req.TemplateURL != "" {
-		if err := validateTemplateLocation(req.TemplateURL); err != nil {
+	templateURL, sha256Value, err := normalizePackageLocation(req.TemplateURL, req.SHA256)
+	if err != nil {
+		return sourceTemplate{}, err
+	}
+	if templateURL != "" {
+		if err := validateTemplateLocation(templateURL); err != nil {
 			return sourceTemplate{}, err
 		}
 	}
-	if req.SHA256 != "" {
-		if err := validateSHA256(req.SHA256); err != nil {
+	if sha256Value != "" {
+		if err := validateSHA256(sha256Value); err != nil {
 			return sourceTemplate{}, err
 		}
 	}
@@ -699,8 +715,8 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 		Description:   truncateText(req.Description, 500),
 		Version:       version,
 		SchemaVersion: schemaVersion,
-		SHA256:        strings.ToLower(strings.TrimSpace(req.SHA256)),
-		TemplateURL:   strings.TrimSpace(req.TemplateURL),
+		SHA256:        sha256Value,
+		TemplateURL:   templateURL,
 		Changelog:     truncateText(req.Changelog, 2000),
 		MinVersion:    truncateText(req.MinVersion, 40),
 		ForceUpdate:   req.ForceUpdate,
@@ -777,7 +793,7 @@ func sourceDeveloperWriteVersion(c *gin.Context, kind string) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本草稿已保存（源站不存储源码）", "data": sourceReleaseView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本草稿已保存", "data": sourceReleaseView(saved)})
 }
 
 func sourceDeveloperSubmitVersion(c *gin.Context, kind string) {
@@ -808,7 +824,17 @@ func sourceDeveloperSubmitVersion(c *gin.Context, kind string) {
 			return
 		}
 	}
-	saved, err := currentSourceStationStore().SetVersionStatus(kind, itemID, strings.TrimSpace(c.Param("version")), sourceVersionPending, developer.Username, sourceNoteFromBody(c))
+	versionName := strings.TrimSpace(c.Param("version"))
+	release, err := currentSourceStationStore().GetVersion(kind, itemID, versionName)
+	if err != nil {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	if err := validatePackageForSubmit(kind, release.Location, release.SHA256); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	saved, err := currentSourceStationStore().SetVersionStatus(kind, itemID, versionName, sourceVersionPending, developer.Username, sourceNoteFromBody(c))
 	if err != nil {
 		writeSourceDeveloperStoreError(c, err)
 		return
@@ -829,6 +855,12 @@ func bindSourceReleaseDraft(c *gin.Context, kind string) (sourceRelease, error) 
 	location := strings.TrimSpace(req.DownloadURL)
 	if kind == sourceKindTemplate {
 		location = strings.TrimSpace(req.TemplateURL)
+	}
+	location, sha256Value, err := normalizePackageLocation(location, req.SHA256)
+	if err != nil {
+		return sourceRelease{}, err
+	}
+	if kind == sourceKindTemplate {
 		if location != "" {
 			if err := validateTemplateLocation(location); err != nil {
 				return sourceRelease{}, err
@@ -839,8 +871,8 @@ func bindSourceReleaseDraft(c *gin.Context, kind string) (sourceRelease, error) 
 			return sourceRelease{}, err
 		}
 	}
-	if req.SHA256 != "" {
-		if err := validateSHA256(req.SHA256); err != nil {
+	if sha256Value != "" {
+		if err := validateSHA256(sha256Value); err != nil {
 			return sourceRelease{}, err
 		}
 	}
@@ -849,7 +881,7 @@ func bindSourceReleaseDraft(c *gin.Context, kind string) (sourceRelease, error) 
 		Version:   version,
 		Changelog: truncateText(req.Changelog, 2000),
 		Location:  location,
-		SHA256:    strings.ToLower(strings.TrimSpace(req.SHA256)),
+		SHA256:    sha256Value,
 		Status:    sourceVersionDraft,
 	}, nil
 }

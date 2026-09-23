@@ -11,7 +11,7 @@ sha256sum /tmp/demo-widget.zip
 
 `unzip -l` 里应看到 `plugin.json`。sha256 是整个 ZIP 的 64 位十六进制。
 
-登记插件（面板没有文件上传）：
+登记插件（可上传 ZIP，或填外部 HTTPS）：
 
 | 标签 | 键 | 示例 |
 | --- | --- | --- |
@@ -20,7 +20,8 @@ sha256sum /tmp/demo-widget.zip
 | 名称 | `name` | 演示插件 |
 | 标识 | `id` | `demo-widget`，手写，等于清单 `id` |
 | 版本 | `version` | `1.0.0` |
-| 下载地址 | `downloadUrl` | 这个 ZIP 的 `https://` 地址 |
+| 包来源 | — | 上传这个 ZIP，或外部 HTTPS |
+| 下载地址 | `downloadUrl` | 上传后自动填写；外链则是这个 ZIP 的 `https://` 地址 |
 | 校验码 (SHA256) | `sha256` | 上一步输出 |
 | 简介 | `description` | 与清单相同 |
 
