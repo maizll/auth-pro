@@ -111,6 +111,27 @@ async function mockDeveloperAPIs(page: Page) {
       })
       return
     }
+    if (pathname === '/api/v1/source/developer/packages/upload') {
+      const sha = 'ab'.repeat(32)
+      await route.fulfill({
+        status: 200,
+        json: {
+          code: 200,
+          msg: 'ZIP 已保存到本站，地址和校验码已生成',
+          data: {
+            url: `/api/v1/public/source-packages/${sha}.zip`,
+            sha256: sha,
+            kind: 'plugin',
+            id: 'demo-plugin',
+            name: '演示插件',
+            version: '1.2.0',
+            description: '上传回填',
+            stored: true
+          }
+        }
+      })
+      return
+    }
     await route.fulfill({ status: 200, json: { code: 200, msg: '', data: {} } })
   })
 }
@@ -223,6 +244,30 @@ test.describe('developer-panel catalog dialogs on phone', () => {
     await settleOverlay(versionDialog)
     await expectInsideViewport(page, versionDialog)
     await expectInsideViewport(page, versionDialog.getByRole('button', { name: '保存草稿' }))
+  })
+
+  test('上传 ZIP 后回填地址和校验码，外链才显示自动计算', async ({ page }) => {
+    await openCatalog(page, '/developer-panel/plugins', 1280)
+    await page.getByRole('button', { name: '登记插件' }).click()
+    const formDrawer = page.locator('.el-drawer').filter({ hasText: '登记插件' })
+    await settleOverlay(formDrawer)
+
+    await expect(formDrawer.getByRole('button', { name: '自动计算' })).toBeVisible()
+    await formDrawer.getByText('上传 ZIP（本站托管）', { exact: true }).click()
+    await expect(formDrawer.getByRole('button', { name: '选择 ZIP' })).toBeVisible()
+    await expect(formDrawer.getByRole('button', { name: '自动计算' })).toHaveCount(0)
+
+    await formDrawer.locator('input[type="file"]').setInputFiles({
+      name: 'demo-plugin.zip',
+      mimeType: 'application/zip',
+      buffer: Buffer.from('PK\x03\x04demo')
+    })
+    const sha = 'ab'.repeat(32)
+    await expect(formDrawer.locator('input[placeholder="上传 ZIP 后自动填写"]')).toHaveValue(
+      `/api/v1/public/source-packages/${sha}.zip`
+    )
+    await expect(formDrawer.locator('input[placeholder="64 位十六进制，可稍后补"]')).toHaveValue(sha)
+    await expect(formDrawer.locator('input[placeholder="上传 ZIP 后自动填写"]')).toBeDisabled()
   })
 
   test('宽屏登记抽屉保持 560px', async ({ page }) => {
