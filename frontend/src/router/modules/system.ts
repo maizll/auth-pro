@@ -60,17 +60,6 @@ export const systemRoutes: AppRouteRecord = {
       }
     },
     {
-      path: 'monitor',
-      name: 'SystemMonitor',
-      component: '/system/monitor',
-      meta: {
-        title: 'menus.system.monitor',
-        icon: 'ri:pulse-line',
-        keepAlive: true,
-        roles: ['R_SUPER']
-      }
-    },
-    {
       path: 'mail-config',
       name: 'MailConfig',
       component: '/system/mail-config',

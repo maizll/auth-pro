@@ -56,7 +56,6 @@ var menuTitleZH = map[string]string{
 	"menus.system.menu":                "菜单管理",
 	"menus.system.config":              "系统配置",
 	"menus.system.epayConfig":          "支付配置",
-	"menus.system.monitor":             "定时任务 / 系统监控",
 	"menus.system.paymentOrders":       "订单列表",
 	"menus.system.mailConfig":          "邮件配置",
 	"menus.system.mailLogs":            "邮件日志",

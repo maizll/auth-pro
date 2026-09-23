@@ -7,7 +7,7 @@
             <span class="card-title">{{ title }}（共 {{ items.length }} 条）</span>
             <p class="card-hint">
               可以上传 ZIP，由本站保存并自动填写地址和校验码；也可以登记外部
-              HTTPS。外链在提交审核时检查能否下载、是不是 ZIP、校验码是否一致。本站托管的包不参与外链巡检。
+              HTTPS。外链在提交审核时检查能否下载、是不是 ZIP、校验码是否一致。上架后不再定时复查。
             </p>
           </div>
           <el-button type="primary" @click="openEdit()">{{ createLabel }}</el-button>
@@ -489,7 +489,7 @@
       : '上传 ZIP 由本站托管并生成地址；外部地址必须是 HTTPS。'
   )
   function locationHelpFor(source: 'upload' | 'external') {
-    if (source === 'upload') return '本站地址由上传结果填入，定时巡检不会把这类地址下架。'
+    if (source === 'upload') return '本站地址由上传结果填入。'
     return props.kind === 'template'
       ? '填 HTTPS 外链，或相对路径例如 templates/demo-home.json。提交审核时会下载 HTTPS 并核对 ZIP 与校验码。'
       : '填 HTTPS 外链。提交审核时会下载并核对是不是 ZIP、校验码是否一致。'

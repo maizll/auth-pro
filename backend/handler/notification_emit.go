@@ -129,24 +129,6 @@ func notifyCatalogReviewed(developerID int64, kind, itemID, name, status string)
 		title, body, link, event, kind, itemID)
 }
 
-func notifyExternalPackageDelisted(developerID int64, kind, itemID, name, link, reason string) {
-	if developerID <= 0 {
-		return
-	}
-	label := "插件"
-	if kind == sourceKindTemplate {
-		label = "模板"
-	}
-	if strings.TrimSpace(name) == "" {
-		name = itemID
-	}
-	body := name + " 的外链无法访问或校验失败，已从软件源目录下架。"
-	if strings.TrimSpace(reason) != "" {
-		body += "原因：" + truncateText(reason, 180)
-	}
-	notifyDeveloperOwner(developerID, notificationTabMessage, label+"外链失效已下架", body, link, "external_package_delisted", kind, itemID)
-}
-
 func notifyCatalogVersionSubmitted(kind, itemID, version string) {
 	label := "插件版本"
 	if kind == sourceKindTemplate {

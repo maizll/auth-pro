@@ -143,6 +143,17 @@ func TestMenuSeedSQLMatchesProductSpec(t *testing.T) {
 	}
 }
 
+func TestProductMenuSpecOmitsSystemMonitor(t *testing.T) {
+	for _, spec := range productMenuSpecs() {
+		if spec.Name == "SystemMonitor" || spec.Component == "/system/monitor" || spec.Title == "menus.system.monitor" {
+			t.Fatalf("system monitor menu must be removed, found %+v", spec)
+		}
+	}
+	if strings.Contains(menuSeedSQL, "SystemMonitor") || strings.Contains(menuSeedSQL, "/system/monitor") || strings.Contains(menuSeedSQL, "menus.system.monitor") {
+		t.Fatal("menu seed must not insert the system monitor page")
+	}
+}
+
 func TestProductMenuSpecKeepsSinglePaymentConfigEntry(t *testing.T) {
 	epay := 0
 	for _, spec := range productMenuSpecs() {

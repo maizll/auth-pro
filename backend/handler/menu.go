@@ -417,6 +417,24 @@ func cleanupPurchaseLimitCampaignMenu(db *sql.DB) {
 	_, _ = db.Exec("DELETE FROM menus WHERE id = 213 OR name = 'PurchaseLimitCampaigns'")
 }
 
+// removeSystemMonitorMenu 删除「定时任务 / 系统监控」。
+// 页面、接口和进程内调度已移除；老库里的菜单行和角色绑定一并清掉。
+func removeSystemMonitorMenu(db *sql.DB) {
+	_, _ = db.Exec(`
+		DELETE rm FROM role_menus rm
+		INNER JOIN menus m ON m.id = rm.menu_id
+		WHERE m.name = 'SystemMonitor'
+			OR m.path IN ('monitor', '/system/monitor')
+			OR m.component = '/system/monitor'
+	`)
+	_, _ = db.Exec(`
+		DELETE FROM menus
+		WHERE name = 'SystemMonitor'
+			OR path IN ('monitor', '/system/monitor')
+			OR component = '/system/monitor'
+	`)
+}
+
 // removeAlipayF2FConfigMenu 删除「支付宝当面付」独立侧栏。
 // 配置已并入 EpayConfig；id 213 也曾被该菜单占用，名称/路径/组件一并清掉，避免老库仍显示。
 func removeAlipayF2FConfigMenu(db *sql.DB) {
