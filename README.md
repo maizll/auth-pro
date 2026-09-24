@@ -287,6 +287,27 @@ releases.json
 
 生产环境推荐同源部署：解压发布包到宝塔网站根（`index.html` 与 `backend/auth_pro` 同包），由 Go 后端统一提供**盘上**静态资源和 `/api` 接口。`backend/static` 的 `go:embed` 只用于开发/引导（`AUTO_PRO_ALLOW_EMBEDDED_FRONTEND=1`），生产缺盘上前端不会静默回退。这样可以减少跨域配置，并保持授权校验、管理后台和前端页面的一致部署入口。详见 [PACKAGING.md](./PACKAGING.md)。
 
+### 宝塔一键安装 / 升级
+
+GitHub Release 的 `auth_pro-full-vX.Y.Z.tar.gz` 根目录带有 `baota-install.sh`、`baota-upgrade.sh` 和 `baota-lib.sh`。先在面板创建网站和空 MySQL，再把压缩包解压到网站根。
+
+```bash
+cd /www/wwwroot/example.com
+tar -xzf auth_pro-full-vX.Y.Z.tar.gz
+bash baota-install.sh
+```
+
+已安装站点不要覆盖解压。先停止进程守护，再升级（会备份 `db.json`、`install.lock` 和其它运行数据）：
+
+```bash
+bash baota-upgrade.sh \
+  --site-root /www/wwwroot/example.com \
+  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \
+  --stop-port --no-start
+```
+
+进程守护的启动命令用 `backend/start.sh`，运行目录用 `backend/`。Nginx 反代到 `127.0.0.1:19127`，并合入 `backend/baota-nginx.snippet.conf`，避免直接访问 `/backend`、`db.json`、`install.lock`。建站、数据库、证书和守护开关仍在面板里操作。步骤和备份位置见 [PACKAGING.md](./PACKAGING.md)。
+
 ## 自托管软件源与广告
 
 本分叉默认**不连接** `plug.91ani.cn`，仓库中也不再内置官方目录 Key。
