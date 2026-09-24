@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -1525,77 +1526,15 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			return err
 		}
 	}
-	alters := []string{
-		"ALTER TABLE source_catalog_plugins ADD COLUMN download_url VARCHAR(500) NOT NULL DEFAULT '' AFTER sha256",
-		"ALTER TABLE source_catalog_plugins ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'draft' AFTER download_url",
-		"ALTER TABLE source_catalog_plugins ADD COLUMN review_note VARCHAR(500) NOT NULL DEFAULT '' AFTER status",
-		"ALTER TABLE source_catalog_plugins ADD COLUMN reviewed_by VARCHAR(50) NOT NULL DEFAULT '' AFTER review_note",
-		"ALTER TABLE source_catalog_templates ADD COLUMN template_url VARCHAR(500) NOT NULL DEFAULT '' AFTER sha256",
-		"ALTER TABLE source_catalog_templates ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'draft' AFTER template_url",
-		"ALTER TABLE source_catalog_templates ADD COLUMN review_note VARCHAR(500) NOT NULL DEFAULT '' AFTER status",
-		"ALTER TABLE source_catalog_templates ADD COLUMN reviewed_by VARCHAR(50) NOT NULL DEFAULT '' AFTER review_note",
-		"ALTER TABLE source_catalog_plugins DROP COLUMN file_path",
-		"ALTER TABLE source_catalog_plugins DROP COLUMN published",
-		"ALTER TABLE source_catalog_templates DROP COLUMN file_path",
-		"ALTER TABLE source_catalog_templates DROP COLUMN preview_path",
-		"ALTER TABLE source_catalog_templates DROP COLUMN preview_content_type",
-		"ALTER TABLE source_catalog_templates DROP COLUMN format",
-		"ALTER TABLE source_catalog_templates DROP COLUMN published",
-		"ALTER TABLE source_catalog_plugins ADD COLUMN latest_version VARCHAR(40) NOT NULL DEFAULT '' AFTER version",
-		"ALTER TABLE source_catalog_plugins ADD COLUMN min_version VARCHAR(40) NOT NULL DEFAULT '' AFTER latest_version",
-		"ALTER TABLE source_catalog_plugins ADD COLUMN force_update TINYINT(1) NOT NULL DEFAULT 0 AFTER min_version",
-		"ALTER TABLE source_catalog_plugins ADD COLUMN changelog VARCHAR(2000) NOT NULL DEFAULT '' AFTER download_url",
-		"ALTER TABLE source_catalog_templates ADD COLUMN latest_version VARCHAR(40) NOT NULL DEFAULT '' AFTER version",
-		"ALTER TABLE source_catalog_templates ADD COLUMN min_version VARCHAR(40) NOT NULL DEFAULT '' AFTER latest_version",
-		"ALTER TABLE source_catalog_templates ADD COLUMN force_update TINYINT(1) NOT NULL DEFAULT 0 AFTER min_version",
-		"ALTER TABLE source_catalog_templates ADD COLUMN changelog VARCHAR(2000) NOT NULL DEFAULT '' AFTER template_url",
-		"ALTER TABLE source_catalog_templates ADD COLUMN category VARCHAR(30) NOT NULL DEFAULT 'home-template' AFTER developer_id",
-		"ALTER TABLE source_catalog_plugins ADD COLUMN app_id BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER developer_id",
-		"ALTER TABLE source_catalog_templates ADD COLUMN app_id BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER developer_id",
-		"ALTER TABLE source_catalog_plugins ADD KEY idx_source_catalog_plugin_app (app_id, status)",
-		"ALTER TABLE source_catalog_templates ADD KEY idx_source_catalog_template_app (app_id, status)",
-		"ALTER TABLE source_developer_applications ADD COLUMN agent_id BIGINT UNSIGNED DEFAULT NULL AFTER id",
-		"ALTER TABLE source_developers ADD COLUMN agent_id BIGINT UNSIGNED DEFAULT NULL AFTER application_id",
-		"ALTER TABLE source_developer_applications MODIFY username VARCHAR(100) NOT NULL",
-		"ALTER TABLE source_developers MODIFY username VARCHAR(100) NOT NULL",
-		"ALTER TABLE source_developer_applications ADD UNIQUE KEY uk_source_developer_application_agent (agent_id)",
-		"ALTER TABLE source_developers ADD UNIQUE KEY uk_source_developer_agent (agent_id)",
-	}
-	for _, statement := range alters {
-		_, _ = db.Exec(statement)
-	}
-	_, _ = db.Exec(`INSERT IGNORE INTO source_catalog_plugin_versions
-		(plugin_id, version, changelog, download_url, sha256, status, created_at, updated_at)
-		SELECT id, IF(version='', '0.0.0', version), '', download_url, sha256,
-			CASE status WHEN 'published' THEN 'published' WHEN 'review' THEN 'pending' WHEN 'deprecated' THEN 'deprecated' ELSE 'draft' END,
-			created_at, updated_at FROM source_catalog_plugins`)
-	_, _ = db.Exec(`INSERT IGNORE INTO source_catalog_template_versions
-		(template_id, version, changelog, template_url, sha256, status, created_at, updated_at)
-		SELECT id, IF(version='', '0.0.0', version), '', template_url, sha256,
-			CASE status WHEN 'published' THEN 'published' WHEN 'review' THEN 'pending' WHEN 'deprecated' THEN 'deprecated' ELSE 'draft' END,
-			created_at, updated_at FROM source_catalog_templates`)
-	_, _ = db.Exec(`UPDATE source_catalog_plugins SET latest_version=version WHERE status='published' AND latest_version=''`)
-	_, _ = db.Exec(`UPDATE source_catalog_templates SET category='home-template' WHERE category='' OR category IS NULL`)
-	_, _ = db.Exec(`UPDATE source_catalog_templates SET latest_version=version WHERE status='published' AND latest_version=''`)
-	_, _ = db.Exec(`UPDATE source_catalog_plugins p JOIN (SELECT id FROM apps ORDER BY id ASC LIMIT 1) a SET p.app_id=a.id WHERE p.app_id=0`)
-	_, _ = db.Exec(`UPDATE source_catalog_templates t JOIN (SELECT id FROM apps ORDER BY id ASC LIMIT 1) a SET t.app_id=a.id WHERE t.app_id=0`)
-	_, _ = db.Exec(`UPDATE source_developers d
-		INNER JOIN agents a ON a.email = d.email AND d.email <> ''
-		LEFT JOIN source_developers taken ON taken.agent_id = a.id AND taken.id <> d.id
-		SET d.agent_id = a.id
-		WHERE d.agent_id IS NULL AND taken.id IS NULL`)
-	_, _ = db.Exec(`UPDATE source_developer_applications app
-		INNER JOIN agents a ON a.email = app.email AND app.email <> ''
-		LEFT JOIN source_developer_applications taken ON taken.agent_id = a.id AND taken.id <> app.id
-		SET app.agent_id = a.id
-		WHERE app.agent_id IS NULL AND taken.id IS NULL`)
-	_, _ = db.Exec(`INSERT IGNORE INTO roles (role_name, role_code, description, discount, enabled)
-		VALUES (?, ?, '软件源开发者，可提交插件与首页模板元数据', 10.0, 1)`,
-		sourceDeveloperRoleName, sourceDeveloperRoleCode)
-	if err := mysqlPurgeInactiveDeveloperQualifications(db); err != nil {
+	if err := ensureSourceStationMigrations(db); err != nil {
 		return err
 	}
-	return nil
+	if _, err := db.Exec(`INSERT IGNORE INTO roles (role_name, role_code, description, discount, enabled)
+		VALUES (?, ?, '软件源开发者，可提交插件与首页模板元数据', 10.0, 1)`,
+		sourceDeveloperRoleName, sourceDeveloperRoleCode); err != nil {
+		return fmt.Errorf("ensure developer role: %w", err)
+	}
+	return mysqlPurgeInactiveDeveloperQualifications(db)
 }
 
 func mysqlPurgeInactiveDeveloperQualifications(db *sql.DB) error {

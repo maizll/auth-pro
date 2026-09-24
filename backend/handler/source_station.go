@@ -280,8 +280,8 @@ func localSourceAdvertisements(position string) []advertisementRecord {
 	return normalizeAdvertisements(records, position, time.Now())
 }
 
-func EnsureSourceStationSchema() {
-	_ = currentSourceStationStore().Ensure()
+func EnsureSourceStationSchema() error {
+	return currentSourceStationStore().Ensure()
 }
 
 var relativeTemplateURLPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`)
