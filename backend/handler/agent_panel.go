@@ -2,6 +2,7 @@ package handler
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -1168,17 +1169,16 @@ func AgentPanelPurchase(c *gin.Context) {
 		}
 		txRemark = fmt.Sprintf("配额支付开通 %s - %s 授权", appName, planName)
 	default:
-		newBalance = balance - cost
-		result, err := tx.Exec("UPDATE agents SET balance = ? WHERE id = ? AND balance >= ?", newBalance, agentID, cost)
+		deducted, err := deductPurchaseBalance(tx, "agents", int64(agentID), cost)
+		if errors.Is(err, errPurchaseBalanceInsufficient) {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "余额不足"})
+			return
+		}
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "扣款失败"})
 			return
 		}
-		rowsAffected, _ := result.RowsAffected()
-		if rowsAffected == 0 {
-			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "余额不足"})
-			return
-		}
+		newBalance = deducted
 		chargeAmount = -cost
 		txRemark = fmt.Sprintf("开通 %s - %s 授权", appName, planName)
 	}
