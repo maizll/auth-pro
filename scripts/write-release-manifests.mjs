@@ -190,7 +190,7 @@ const latest = {
     url: packageUrl,
     sha256: packageSha256,
     size: packageSize,
-    signature: ''
+    signature: `sha256:${packageSha256.toLowerCase()}`
   },
   actions: {
     updateFrontend: true,

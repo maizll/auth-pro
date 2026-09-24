@@ -123,6 +123,7 @@ jobs:
             if (latest.package?.fileName !== expectedName) throw new Error("latest.json package name mismatch")
             if (!new RegExp(`/releases/download/v${version}/${expectedName}$`).test(latest.package?.url || "")) throw new Error("latest.json package URL mismatch")
             if (latest.package?.sha256 !== actualSha256) throw new Error("latest.json SHA256 mismatch")
+            if (latest.package?.signature !== `sha256:${actualSha256}`) throw new Error("latest.json signature mismatch")
             if (latest.package?.size !== packageData.length) throw new Error("latest.json size mismatch")
             if (inner.version !== version || inner.frontendDir !== "." || inner.backendFile !== "backend/auth_pro") throw new Error("package manifest mismatch")
             if (!Array.isArray(latest.notes) || latest.notes.length === 0 || latest.notes.some((note) => typeof note !== "string" || !note.trim())) throw new Error("latest.json release notes missing")
