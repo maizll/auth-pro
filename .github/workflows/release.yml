@@ -74,10 +74,16 @@ jobs:
           AUTO_PRO_UPDATE_PACKAGE_BASE_URL: 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}'
           AUTO_PRO_UPDATE_RELEASES_URL: 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/releases.json'
           AUTO_PRO_REQUIRE_GIT_RELEASE_NOTES: '1'
-          AUTO_PRO_RELEASE_NOTES: |
-            开发者登记可以上传 ZIP：源站保存文件并回填地址与 SHA256；外部 HTTPS 仍然保留，提交审核时检查可达、ZIP 与校验码。本站托管包只核对本地文件。
-            本版在 v1.4.10 上干净重写，不包含管理端定时任务 / 系统监控，也不包含开发者文档页的插件/模板可视化预览。
-        run: ./scripts/build-release.sh '${{ steps.version.outputs.value }}'
+        # 发布说明以仓库 docs/release-notes-<version>.txt 为准；缺文件时回退到 git 提交说明。
+        run: |
+          set -euo pipefail
+          VERSION='${{ steps.version.outputs.value }}'
+          NOTES_FILE="docs/release-notes-${VERSION}.txt"
+          if [[ -f "$NOTES_FILE" ]]; then
+            AUTO_PRO_RELEASE_NOTES="$(cat "$NOTES_FILE")"
+            export AUTO_PRO_RELEASE_NOTES
+          fi
+          ./scripts/build-release.sh "$VERSION"
 
       - name: Run backend tests
         working-directory: backend
