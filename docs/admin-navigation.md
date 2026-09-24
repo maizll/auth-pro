@@ -7,5 +7,5 @@
 - 列表和表单展示中文标题。库里若仍是 `menus.*` 键会解析成中文；保存时写入管理员输入的中文，侧栏用同一标题。
 - 保存（新建/编辑/删除）后侧栏和菜单 store 会立即刷新，不必清浏览器缓存。标题、排序、上级马上生效。若新建页面打开 404，硬刷新一次即可。
 - 结果页/异常页是模板演示项，默认隐藏，也不出现在菜单管理里，避免误改。
-- `router/modules` 仍用于注册页面组件；frontend 模式只留给本地对照 Art Design Pro 模板演示（`frontend/.env.development` 临时设 `VITE_ACCESS_MODE=frontend`）。
+- `router/modules` 仍用于注册页面组件；frontend 模式只留给本地对照静态路由（`frontend/.env.development` 临时设 `VITE_ACCESS_MODE=frontend`），不要当作产品默认。
 - 已有部署升级后，首次拉取菜单会按 `menus.name` upsert 工作流分组（授权 → 代理 → 源站 → 风控 → 客户服务 → 接入 → 系统），不会重复插行。超级管理员会补齐缺失的 `role_menus`。应用商店/在线更新会从「接入开发」下提升为一级。之后再改标题/排序会保留，不会被每次请求覆盖。
