@@ -3,7 +3,9 @@ package handler
 import (
 	"crypto/rand"
 	"database/sql"
+	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"net"
 	"net/http"
@@ -1002,14 +1004,55 @@ func LicenseToggle(c *gin.Context) {
 		dbStatus = "revoked"
 	}
 
-	_, err = db.Exec("UPDATE licenses SET status = ? WHERE id = ?", dbStatus, id)
+	result, err := db.Exec(
+		"UPDATE licenses SET status = ? WHERE id = ? AND status <> ?",
+		dbStatus, id, dbStatus,
+	)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "操作失败"})
 		return
 	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "操作失败"})
+		return
+	}
+	// 授权不存在，或状态与请求相同：保持「操作成功」，但不重复通知。
+	if affected == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "操作成功"})
+		return
+	}
 
-	// TODO(v1.4.x): after SELECT owner_type/owner_id/license_no, call notifyLicenseStatusChanged.
+	var ownerType, licenseNo, appName string
+	var ownerID int64
+	err = db.QueryRow(`
+		SELECT l.owner_type, l.owner_id, l.license_no, COALESCE(a.app_name, '')
+		FROM licenses l
+		LEFT JOIN apps a ON a.id = l.app_id
+		WHERE l.id = ?
+	`, id).Scan(&ownerType, &ownerID, &licenseNo, &appName)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			log.Printf("license status notify lookup failed: id=%s err=%v", id, err)
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "操作成功"})
+		return
+	}
+	notifyLicenseStatusChanged(ownerType, ownerID, licenseNo, appName, licenseStatusNoticeText(dbStatus))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "操作成功"})
+}
+
+func licenseStatusNoticeText(status string) string {
+	switch status {
+	case "active":
+		return "正常"
+	case "revoked":
+		return "已禁用"
+	case "expired":
+		return "已过期"
+	default:
+		return status
+	}
 }
 
 // LicenseDelete 删除授权

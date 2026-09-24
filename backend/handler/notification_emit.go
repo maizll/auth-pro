@@ -340,8 +340,8 @@ func notifyLicenseExpired(ownerType string, ownerID int64, licenseNo, appName st
 	notifyOwner(ownerType, ownerID, notificationTabNotice, "授权已过期", body, link, "license_expired", "license", licenseNo)
 }
 
-// TODO(v1.4.x): call from LicenseToggle / LicenseDelete after loading owner_type,
-// owner_id, license_no. Toggle currently only updates status and has no owner query.
+// LicenseToggle calls this after the stored status actually changes.
+// LicenseDelete still does not notify.
 func notifyLicenseStatusChanged(ownerType string, ownerID int64, licenseNo, appName, status string) {
 	title := "授权状态已变更"
 	body := sourceFirstNonEmpty(appName, "应用") + " 授权 " + licenseNo + " 现为 " + sourceFirstNonEmpty(status, "已更新")
