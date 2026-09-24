@@ -470,7 +470,9 @@ func main() {
 		if err := ensureLicenseSiteLimitSchema(db); err != nil {
 			log.Printf("ensure license site limit schema failed: %v", err)
 		}
-		handler.EnsureSourceStationSchema()
+		if err := handler.EnsureSourceStationSchema(); err != nil {
+			log.Fatalf("ensure source station schema failed: %v", err)
+		}
 		handler.EnsureNotificationSchema()
 		handler.BackfillLicensePurchaseTransactions(db)
 	}()
