@@ -58,6 +58,18 @@ func TestPublishedTemplateLifecycleHTTP(t *testing.T) {
 	if err := ensurePluginStorage(db); err != nil {
 		t.Fatal(err)
 	}
+	aligned, err := db.Exec(`
+		UPDATE admins a
+		JOIN roles r ON r.role_code = 'R_SUPER'
+		SET a.enabled = 1, a.role_id = r.id
+		WHERE a.id = 1
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if affected, err := aligned.RowsAffected(); err != nil || affected != 1 {
+		t.Fatalf("admin id 1 must be an enabled R_SUPER for live session checks, updated %d (%v)", affected, err)
+	}
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	admin := router.Group("/api/system/home-templates", middleware.JWTAuth(), middleware.RequireAdmin(), middleware.RequireSuperAdmin())
@@ -155,7 +167,7 @@ func TestPublishedTemplateLifecycleHTTP(t *testing.T) {
 		for _, auth := range []struct {
 			token string
 			code  int
-		}{{"", 401}, {sign("R_ADMIN"), 403}} {
+		}{{"", 401}, {sign("R_ADMIN"), 401}} {
 			body, _, status := request(method, consumer.URL+"/api/system/home-templates/1/"+action, auth.token, "", nil)
 			checkCode(body, auth.code)
 			if auth.code == 401 && status != http.StatusUnauthorized {

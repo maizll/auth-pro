@@ -10,8 +10,8 @@ import (
 	"auto_pro/middleware"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -90,18 +90,24 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// refresh token (7天)
+	// refreshToken 与访问令牌分开标记。前端目前只保存该字段，请求仍使用 access token。
+	// 不在这里提供换发接口；typ=refresh 会被 JWTAuth 拒绝，因此不能把 7 天令牌当作 Bearer。
 	refreshClaims := &middleware.Claims{
 		UserID:   id,
 		Username: req.UserName,
 		Role:     "admin",
 		RoleCode: roleCode,
+		Typ:      middleware.TokenTypeRefresh,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(7 * 24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
 	}
-	refreshToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString(middleware.JWTSecret())
+	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString(middleware.JWTSecret())
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "message": "生成token失败"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
