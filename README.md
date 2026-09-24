@@ -2,8 +2,6 @@
 
 ## 核心功能
 
-- 公益开源交流群：169484041。
-
 `auth_pro` 是一个授权管理与反盗版后台系统，包含后台管理端、代理端、用户端和授权校验 API。项目采用前后端分离开发，生产环境可将前端产物内嵌到 Go 后端统一部署。
 
 ## 核心功能
@@ -104,7 +102,7 @@ pnpm dev
 3. 创建管理员账号。
 4. 进入后台管理系统。
 
-**侧栏导航以「系统 → 菜单管理」为准。** 生产与默认构建使用 `VITE_ACCESS_MODE=backend`，侧栏树来自 `GET /api/system/menus`。改标题、排序、显隐请在后台改菜单，不要再改 `frontend/src/router/modules` 来调整产品信息架构。`router/modules` 仍只负责注册页面组件。本地对照 Art Design Pro 模板演示时，可在 `frontend/.env.development` 临时设 `VITE_ACCESS_MODE=frontend`。
+**侧栏导航以「系统 → 菜单管理」为准。** 生产与默认构建使用 `VITE_ACCESS_MODE=backend`，侧栏树来自 `GET /api/system/menus`。改标题、排序、显隐请在后台改菜单，不要再改 `frontend/src/router/modules` 来调整产品信息架构。`router/modules` 仍只负责注册页面组件。本地需要对照前端静态路由时，可在 `frontend/.env.development` 临时设 `VITE_ACCESS_MODE=frontend`，不要把它当作产品默认。
 
 ## 首页模板与软件源
 

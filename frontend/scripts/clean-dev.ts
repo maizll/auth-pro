@@ -93,7 +93,7 @@ function createModernBanner() {
     fmt.gradient('  ║                                                                  ║')
   )
   console.log(
-    `  ║               ${icons.rocket} ${fmt.title('ART DESIGN PRO')} ${fmt.subtitle('· 代码精简程序')} ${icons.magic}                ║`
+    `  ║               ${icons.rocket} ${fmt.title('AUTH PRO')} ${fmt.subtitle('· 代码精简程序')} ${icons.magic}                ║`
   )
   console.log(
     `  ║               ${fmt.dim('为项目移除演示数据，快速切换至开发模式')}             ║`
@@ -510,7 +510,6 @@ async function cleanFastEnterComponent() {
  * 快速入口配置
  * 包含：应用列表、快速链接等配置
  */
-import { WEB_LINKS } from '@/utils/constants'
 import type { FastEnterConfig } from '@/types/config'
 
 const fastEnterConfig: FastEnterConfig = {
@@ -528,31 +527,22 @@ const fastEnterConfig: FastEnterConfig = {
       routeName: 'Console'
     },
     {
-      name: '官方文档',
-      description: '使用指南与开发文档',
+      name: '开发文档',
+      description: '站内接入与开发说明',
       icon: 'ri:bill-line',
       iconColor: '#ffb100',
       enabled: true,
       order: 2,
-      link: WEB_LINKS.DOCS
+      routeName: 'DeveloperDoc'
     },
     {
-      name: '技术支持',
-      description: '技术支持与问题反馈',
-      icon: 'ri:user-location-line',
+      name: '工单',
+      description: '站内问题反馈',
+      icon: 'ri:question-answer-line',
       iconColor: '#ff6b6b',
       enabled: true,
       order: 3,
-      link: WEB_LINKS.COMMUNITY
-    },
-    {
-      name: '哔哩哔哩',
-      description: '技术分享与交流',
-      icon: 'ri:bilibili-line',
-      iconColor: '#FB7299',
-      enabled: true,
-      order: 4,
-      link: WEB_LINKS.BILIBILI
+      routeName: 'TicketManage'
     }
   ],
   // 快速链接
