@@ -133,7 +133,6 @@ func main() {
 		userAuth := api.Group("/user-panel")
 		{
 			userAuth.POST("/login", handler.UserLogin)
-			userAuth.GET("/license-query", handler.PublicUserLicenseQuery)
 			userAuth.GET("/agent-query", handler.PublicAgentQuery)
 			userAuth.GET("/target-query", handler.PublicTargetQuery)
 			userAuth.POST("/register/email-code", handler.UserSendRegisterEmailCode)
@@ -163,6 +162,7 @@ func main() {
 		{
 			userSecured.GET("/dashboard", handler.UserDashboard)
 			userSecured.GET("/licenses", handler.UserLicenseList)
+			userSecured.GET("/license-query", handler.UserOwnLicenseQuery)
 			userSecured.POST("/cards/redeem", handler.UserLicenseCardRedeem)
 			userSecured.PUT("/licenses/:id/target", handler.UserLicenseUpdateTarget)
 			userSecured.POST("/licenses/:id/refresh-key", handler.UserLicenseRefreshKey)

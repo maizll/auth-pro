@@ -19,6 +19,90 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
+const (
+	// licenseVerifyRateAttempts 是同一 IP + app_key 在滑动窗口内允许的公开校验次数。
+	// 业务常在每次请求里校验。1200 次/分钟挡住空转把 verify_logs 打满，同时给单台应用服务器留出余量。
+	licenseVerifyRateAttempts = 1200
+	licenseVerifyRateWindow   = time.Minute
+	licenseVerifyRatePruneAt  = 1024
+)
+
+type licenseVerifyRateLimiter struct {
+	mu     sync.Mutex
+	limit  int
+	window time.Duration
+	hits   map[string][]time.Time
+}
+
+func newLicenseVerifyRateLimiter(limit int, window time.Duration) *licenseVerifyRateLimiter {
+	return &licenseVerifyRateLimiter{limit: limit, window: window, hits: make(map[string][]time.Time)}
+}
+
+// allow 按时间戳做滑动窗口，超限的请求不记入窗口，避免拒绝本身把窗口永远撑满。
+func (limiter *licenseVerifyRateLimiter) allow(key string, now time.Time) bool {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	if len(limiter.hits) > licenseVerifyRatePruneAt {
+		limiter.pruneExpired(now)
+	}
+	cutoff := now.Add(-limiter.window)
+	kept := make([]time.Time, 0, limiter.limit)
+	for _, hit := range limiter.hits[key] {
+		if hit.After(cutoff) {
+			kept = append(kept, hit)
+		}
+	}
+	if len(kept) >= limiter.limit {
+		if len(kept) == 0 {
+			delete(limiter.hits, key)
+		} else {
+			limiter.hits[key] = kept
+		}
+		return false
+	}
+	limiter.hits[key] = append(kept, now)
+	return true
+}
+
+func (limiter *licenseVerifyRateLimiter) pruneExpired(now time.Time) {
+	cutoff := now.Add(-limiter.window)
+	for key, hits := range limiter.hits {
+		kept := hits[:0]
+		for _, hit := range hits {
+			if hit.After(cutoff) {
+				kept = append(kept, hit)
+			}
+		}
+		if len(kept) == 0 {
+			delete(limiter.hits, key)
+			continue
+		}
+		limiter.hits[key] = kept
+	}
+}
+
+func licenseVerifyRateKey(clientIP, appKey string) string {
+	return clientIP + "\x00" + appKey
+}
+
+var licenseVerifyLimiter = newLicenseVerifyRateLimiter(licenseVerifyRateAttempts, licenseVerifyRateWindow)
+
+func licenseVerifyUnsignedFailure(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"code": 403,
+		"msg":  "授权校验失败",
+		"data": gin.H{"result": "fail", "reason": "verify_failed"},
+	})
+}
+
+func licenseVerifyRateLimited(c *gin.Context) {
+	c.JSON(http.StatusTooManyRequests, gin.H{
+		"code": 429,
+		"msg":  "请求过于频繁，请稍后再试",
+		"data": gin.H{"result": "fail", "reason": "rate_limited"},
+	})
+}
+
 type licenseVerifyRequest struct {
 	AppKey      string `json:"appKey" binding:"required"`
 	Domain      string `json:"domain"`
@@ -94,6 +178,14 @@ func LicenseVerify(c *gin.Context) {
 	req.ServerIP = normalizeLicenseServerIP(rawServerIP)
 	req.LicenseKey = rawLicenseKey
 	req.Sign = strings.ToLower(strings.TrimSpace(req.Sign))
+	if req.AppKey == "" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误", "data": gin.H{"result": "fail", "reason": "bad_request"}})
+		return
+	}
+	if !licenseVerifyLimiter.allow(licenseVerifyRateKey(c.ClientIP(), req.AppKey), time.Now()) {
+		licenseVerifyRateLimited(c)
+		return
+	}
 
 	db, err := config.DB()
 	if err != nil {
@@ -110,9 +202,17 @@ func LicenseVerify(c *gin.Context) {
 	var licenseRequired bool
 	err = db.QueryRow("SELECT id, app_name, app_secret, license_required FROM apps WHERE app_key = ? AND enabled = 1", req.AppKey).Scan(&appID, &appName, &appSecret, &licenseRequired)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "应用不存在或已禁用", "data": gin.H{"result": "fail", "reason": "app_not_found"}})
+		licenseVerifyUnsignedFailure(c)
 		return
 	}
+
+	signVersion, signValid := licenseVerifySignValid(req, appSecret, rawDomain, rawServerIP, rawLicenseKey)
+	if !signValid {
+		writeVerifyLog(db, sql.NullInt64{}, appID, req.Domain, req.ServerIP, c.ClientIP(), "fail", "invalid_sign", c.GetHeader("User-Agent"))
+		licenseVerifyUnsignedFailure(c)
+		return
+	}
+	req.SignVersion = signVersion
 
 	if req.Timestamp <= 0 || absInt64(time.Now().Unix()-req.Timestamp) > 600 {
 		writeVerifyLog(db, sql.NullInt64{}, appID, req.Domain, req.ServerIP, c.ClientIP(), "fail", "invalid_timestamp", c.GetHeader("User-Agent"))
@@ -126,14 +226,6 @@ func LicenseVerify(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "授权目标不能为空", "data": gin.H{"result": "fail", "reason": "empty_target"}})
 		return
 	}
-
-	signVersion, signValid := licenseVerifySignValid(req, appSecret, rawDomain, rawServerIP, rawLicenseKey)
-	if !signValid {
-		writeVerifyLog(db, sql.NullInt64{}, appID, req.Domain, req.ServerIP, c.ClientIP(), "fail", "invalid_sign", c.GetHeader("User-Agent"))
-		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "签名错误", "data": gin.H{"result": "fail", "reason": "invalid_sign"}})
-		return
-	}
-	req.SignVersion = signVersion
 
 	if isLicenseTargetBlacklisted(db, appID, req.Domain, req.ServerIP) {
 		writeVerifyLog(db, sql.NullInt64{}, appID, req.Domain, req.ServerIP, c.ClientIP(), "blacklisted", "target_blacklisted", c.GetHeader("User-Agent"))

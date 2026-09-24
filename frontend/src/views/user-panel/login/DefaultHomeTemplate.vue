@@ -155,30 +155,19 @@
               <div v-if="queryMode === 'license'" key="license" class="query-switch-face">
                 <div class="query-panel">
                   <div class="query-input-row">
-                    <el-input
-                      v-model="licenseQueryAccount"
-                      size="large"
-                      clearable
-                      placeholder="请输入用户账号或注册邮箱"
-                      @keyup.enter="handleLicenseQuery"
-                    >
-                      <template #prefix>
-                        <IconifyIcon icon="ri:user-search-line" />
-                      </template>
-                    </el-input>
                     <el-button
                       type="primary"
                       size="large"
                       :loading="licenseQueryLoading"
                       @click="handleLicenseQuery"
                     >
-                      <IconifyIcon icon="ri:search-line" />
-                      立即查询
+                      <IconifyIcon icon="ri:shield-user-line" />
+                      查看我的授权
                     </el-button>
                   </div>
                   <div class="query-security-tip">
                     <IconifyIcon icon="ri:information-line" />
-                    查询结果仅展示授权概况，不展示授权密钥、绑定目标或账户隐私信息。
+                    需要登录用户中心。只能查看当前账号自己的授权，不能按他人账号或邮箱查询。
                   </div>
 
                   <div v-if="licenseQuerySearched" class="query-results">
@@ -238,8 +227,8 @@
 
                     <div v-else class="query-empty">
                       <span><IconifyIcon icon="ri:inbox-2-line" /></span>
-                      <strong>暂未查询到授权记录</strong>
-                      <p>请确认账号或邮箱输入正确，也可以登录用户中心查看完整信息。</p>
+                      <strong>当前账号暂无授权记录</strong>
+                      <p>登录后这里只显示你自己的授权。完整信息可在用户中心查看。</p>
                       <el-button plain @click="openAuthDialog('login')">前往登录</el-button>
                     </div>
                   </div>
@@ -834,7 +823,6 @@
   const hideAnnouncementToday = ref(false)
   const ANNOUNCEMENT_HIDE_DATE_KEY = 'user-panel-announcement-hidden-date'
 
-  const licenseQueryAccount = ref('')
   const licenseQueryLoading = ref(false)
   const licenseQuerySearched = ref(false)
   const licenseQueryList = ref<PublicLicenseItem[]>([])
@@ -878,29 +866,49 @@
   }
 
   async function handleLicenseQuery() {
-    const account = licenseQueryAccount.value.trim()
-    if (!account) {
-      ElMessage.warning('请输入用户账号或注册邮箱')
+    const token = localStorage.getItem('user_panel_token') || ''
+    if (!token) {
+      licenseQueryList.value = []
+      licenseQueryTotal.value = 0
+      licenseQuerySearched.value = false
+      ElMessage.warning('请先登录，登录后只能查看自己的授权')
+      openAuthDialog('login')
       return
     }
 
     licenseQueryLoading.value = true
     try {
       const { data } = await axios.get('/api/user-panel/license-query', {
-        params: { account, page: 1, pageSize: 50 }
+        params: { page: 1, pageSize: 50 },
+        headers: { Authorization: `Bearer ${token}` }
       })
       if (data.code === 200) {
         licenseQueryList.value = Array.isArray(data.data?.list) ? data.data.list : []
         licenseQueryTotal.value = Number(data.data?.total || 0)
         licenseQuerySearched.value = true
+      } else if (data.code === 401) {
+        licenseQueryList.value = []
+        licenseQueryTotal.value = 0
+        licenseQuerySearched.value = false
+        ElMessage.warning(data.msg || '请先登录，登录后只能查看自己的授权')
+        openAuthDialog('login')
       } else {
         licenseQueryList.value = []
         licenseQueryTotal.value = 0
         licenseQuerySearched.value = false
         ElMessage.error(data.msg || '授权查询失败')
       }
-    } catch {
-      ElMessage.error('网络错误，请稍后重试')
+    } catch (error) {
+      const status = axios.isAxiosError(error) ? error.response?.status : 0
+      licenseQueryList.value = []
+      licenseQueryTotal.value = 0
+      licenseQuerySearched.value = false
+      if (status === 401) {
+        ElMessage.warning('请先登录，登录后只能查看自己的授权')
+        openAuthDialog('login')
+      } else {
+        ElMessage.error('网络错误，请稍后重试')
+      }
     } finally {
       licenseQueryLoading.value = false
     }

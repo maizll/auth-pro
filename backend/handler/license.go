@@ -322,16 +322,13 @@ func UserLicenseQuery(c *gin.Context) {
 	})
 }
 
-// PublicUserLicenseQuery 首页按用户账号或邮箱查询公开授权概况。
-func PublicUserLicenseQuery(c *gin.Context) {
-	account := strings.TrimSpace(c.Query("account"))
-	if account == "" {
-		account = strings.TrimSpace(c.Query("email"))
-	}
-	if account == "" {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请输入用户账号或邮箱"})
+// UserOwnLicenseQuery 登录用户查看自己的授权概况。忽略 account/email，避免按他人账号枚举。
+func UserOwnLicenseQuery(c *gin.Context) {
+	if c.GetString("role") != "user" || c.GetUint("user_id") == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "请先登录"})
 		return
 	}
+	userID := c.GetUint("user_id")
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
@@ -348,14 +345,13 @@ func PublicUserLicenseQuery(c *gin.Context) {
 		return
 	}
 
-	const userCondition = "l.owner_type = 'user' AND (u.nickname = ? OR u.email = ?)"
-	queryArgs := []any{account, strings.ToLower(account)}
+	const userCondition = "l.owner_type = 'user' AND l.owner_id = ?"
+	queryArgs := []any{userID}
 
 	var total int64
 	countSQL := `
 		SELECT COUNT(*)
 		FROM licenses l
-		JOIN users u ON u.id = l.owner_id
 		WHERE ` + userCondition
 	if err := db.QueryRowContext(c.Request.Context(), countSQL, queryArgs...).Scan(&total); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "查询授权数量失败"})
@@ -371,7 +367,6 @@ func PublicUserLicenseQuery(c *gin.Context) {
 		       END,
 		       l.started_at, l.expired_at
 		FROM licenses l
-		JOIN users u ON u.id = l.owner_id
 		LEFT JOIN apps a ON a.id = l.app_id
 		LEFT JOIN license_plans p ON p.id = l.plan_id
 		WHERE ` + userCondition + `

@@ -1,5 +1,12 @@
 <template>
   <div class="alert-center">
+    <el-alert
+      class="mb-4"
+      type="info"
+      :closable="false"
+      show-icon
+      title="通知渠道尚未接入。这里不会发邮件或 Webhook，校验失败也不会自动写入本列表。盗版命中请到盗版追踪查看。"
+    />
     <!-- 统计概览 -->
     <el-row :gutter="16" class="mb-4">
       <el-col :xs="12" :sm="6">
@@ -70,7 +77,6 @@
             <el-button plain :disabled="!selectedRows.length" @click="handleBatchHandle">
               批量标记已处理 ({{ selectedRows.length }})
             </el-button>
-            <el-button type="primary" plain @click="handleSettingsOpen">通知设置</el-button>
           </div>
         </div>
       </template>
@@ -143,62 +149,6 @@
         />
       </div>
     </el-card>
-
-    <!-- 通知设置弹窗 -->
-    <el-dialog v-model="settingsVisible" title="告警通知设置" width="560px" destroy-on-close>
-      <el-form label-width="120px">
-        <el-divider content-position="left">通知渠道</el-divider>
-        <el-form-item label="站内信">
-          <el-switch v-model="notifySettings.inApp" />
-        </el-form-item>
-        <el-form-item label="邮件通知">
-          <el-switch v-model="notifySettings.email" />
-          <el-input
-            v-if="notifySettings.email"
-            v-model="notifySettings.emailAddress"
-            placeholder="接收邮箱"
-            style="width: 250px; margin-left: 12px"
-          />
-        </el-form-item>
-        <el-form-item label="Webhook">
-          <el-switch v-model="notifySettings.webhook" />
-          <el-input
-            v-if="notifySettings.webhook"
-            v-model="notifySettings.webhookUrl"
-            placeholder="https://your-server.com/hook"
-            style="width: 300px; margin-left: 12px"
-          />
-        </el-form-item>
-
-        <el-divider content-position="left">触发规则</el-divider>
-        <el-form-item label="盗版异常">
-          <el-switch v-model="notifySettings.rules.piracy" />
-          <span class="rule-desc">短时间内大量拒绝请求时触发</span>
-        </el-form-item>
-        <el-form-item label="授权到期">
-          <el-switch v-model="notifySettings.rules.expire" />
-          <el-input-number
-            v-model="notifySettings.rules.expireDays"
-            :min="1"
-            :max="30"
-            style="width: 100px; margin-left: 12px"
-          />
-          <span class="rule-desc">天前提醒</span>
-        </el-form-item>
-        <el-form-item label="余额不足">
-          <el-switch v-model="notifySettings.rules.balance" />
-          <span class="rule-desc">代理商余额低于阈值时通知管理员</span>
-        </el-form-item>
-        <el-form-item label="配额耗尽">
-          <el-switch v-model="notifySettings.rules.quota" />
-          <span class="rule-desc">代理商配额使用超过 90% 时触发</span>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="settingsVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSaveSettings">保存设置</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -208,7 +158,6 @@
   import request from '@/utils/http'
 
   const loading = ref(false)
-  const settingsVisible = ref(false)
   const selectedRows = ref<any[]>([])
 
   const stats = reactive({ unhandled: 0, today: 0, week: 0, handled: 0 })
@@ -236,21 +185,6 @@
   > = { pending: 'warning', handled: 'success', ignored: 'info' } as const
 
   const tableData = ref<any[]>([])
-
-  const notifySettings = reactive({
-    inApp: true,
-    email: true,
-    emailAddress: 'admin@example.com',
-    webhook: false,
-    webhookUrl: '',
-    rules: {
-      piracy: true,
-      expire: true,
-      expireDays: 7,
-      balance: true,
-      quota: true
-    }
-  })
 
   async function loadStats() {
     const data = await request.get<any>({ url: '/api/piracy/alert/stats' })
@@ -305,15 +239,6 @@
 
   function handleViewTarget(row: any) {
     ElMessage.info(`查看关联对象: ${row.target}`)
-  }
-
-  function handleSettingsOpen() {
-    settingsVisible.value = true
-  }
-
-  function handleSaveSettings() {
-    ElMessage.success('通知设置已保存')
-    settingsVisible.value = false
   }
 
   onMounted(() => {
@@ -420,11 +345,5 @@
   }
   .text-success {
     color: var(--el-color-success);
-  }
-
-  .rule-desc {
-    font-size: 12px;
-    color: var(--el-text-color-secondary);
-    margin-left: 8px;
   }
 </style>
