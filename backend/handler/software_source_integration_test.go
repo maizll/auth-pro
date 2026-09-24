@@ -80,7 +80,7 @@ func TestSoftwareSourceHTTPIntegration(t *testing.T) {
 	pluginFixture := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/index.json":
-			_, _ = fmt.Fprintf(response, `{"name":"Authorization Plugin Source","plugins":[{"id":"p4-demo-plugin","category":"other","name":"P4 Demo Plugin","description":"授权本地插件源测试","version":"1.0.0","downloadUrl":"http://%s/plugin.pkg"}],"homeTemplates":[]}`, request.Host)
+			_, _ = fmt.Fprintf(response, `{"name":"Authorization Plugin Source","plugins":[{"id":"p4-demo-plugin","category":"other","name":"P4 Demo Plugin","description":"授权本地插件源测试","version":"1.0.0","downloadUrl":"http://%s/plugin.pkg","sha256":"%s"}],"homeTemplates":[]}`, request.Host, sha256Hex(pluginPackage))
 		case "/plugin.pkg":
 			_, _ = response.Write(pluginPackage)
 		default:

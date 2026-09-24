@@ -111,7 +111,7 @@ pnpm dev
 - JSON 清单 URL，须按应用隔离，例如 `https://example.com/software-source/{app_key}/index.json` 或 `https://example.com/software-source/index.json?app_key={app_key}`（兼容 `/auth-pro/{app_key}/index.json`）。未带 `app_key` 的 `/software-source/index.json` 返回空目录，不会混入其它应用的插件。
 - Git 仓库 URL，例如 `https://git.example.com/team/auth-pro-templates.git`。服务端需要在 `PATH` 中安装 `git`，仓库根目录必须包含 `index.json`。
 
-软件源允许使用内网地址。请仅添加可信仓库：服务端会拉取清单和模板文件，但声明式模板不会执行仓库中的 JavaScript。清单缓存 5 分钟；可在软件源管理中手动刷新，源暂时不可用时会保留已有缓存并显示错误状态。
+软件源可以指向管理员亲手写上的内网地址。主机是字面量回环、RFC1918 或 IPv6 唯一本地地址时（例如 `http://127.0.0.1:19127/...`、`http://192.168.1.10/index.json`），该源的清单和插件包可以走 HTTP，也可以访问回环和私网。主机名一律按公网处理，不会因为解析到内网就被当成内网源。链路本地（`169.254.0.0/16`、`fe80::/10`）、运营商级 NAT（`100.64.0.0/10`）和云元数据（`169.254.169.254`、`metadata.google.internal` 等）始终拒绝。请仅添加可信仓库：服务端会拉取清单和模板文件，但声明式模板不会执行仓库中的 JavaScript。清单缓存 5 分钟；可在软件源管理中手动刷新，源暂时不可用时会保留已有缓存并显示错误状态。
 
 现有 `plugins` 字段保持兼容，首页模板通过 `homeTemplates` 声明：
 
@@ -426,7 +426,7 @@ curl -s -H "Authorization: Bearer <admin-jwt>" \
 
 ### ZIP 插件的自动安装
 
-软件源 `plugins[].downloadUrl` 应指向有效 ZIP（URL 扩展名不限）。点击「下载并安装」后，后端自动解压至服务端数据目录的 `plugins/<插件ID>/`，写入安装状态并在本地插件列表显示。包可直接包含文件，也可额外套一层目录；可选 `plugin.json` 中的 `id` 必须与软件源一致。
+软件源 `plugins[].downloadUrl` 应指向有效 ZIP（URL 扩展名不限），并且清单必须带 64 位 `sha256`。点击「下载并安装」后，后端先下载再计算 SHA256，与清单不一致、或远程 HTTP(S) 包没有 `sha256` 时拒绝安装，已有插件目录保持不变。公网源的下载地址必须是 HTTPS；每次重定向都会重新检查主机，并拨号到已经检查过的 IP。解析到回环、私网、链路本地或云元数据时不会读取响应体。只有上面说的字面量内网源，才允许 HTTP 和私网地址。通过校验后自动解压至服务端数据目录的 `plugins/<插件ID>/`，写入安装状态并在本地插件列表显示。包可直接包含文件，也可额外套一层目录；可选 `plugin.json` 中的 `id` 必须与软件源一致。
 
 只有成功解压、校验并登记的目录才算已安装。旧版只保存了 `plugin.pkg` 的目录可以重新点击下载，失败不会破坏旧文件。插件安装不自动切换支付/实名认证服务商，也不会执行 `install.sh`、可执行文件或热加载 Go 代码；未包含在当前服务端代码中的插件显示为已安装资源，启用其业务能力仍需部署相应运行实现。
 
