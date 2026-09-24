@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -45,13 +46,31 @@ func JWTSecret() []byte {
 	return ephemeralSecret
 }
 
+const (
+	// TokenTypeRefresh 标记只能用于换发访问令牌的 JWT，不能当作接口 Bearer。
+	TokenTypeRefresh = "refresh"
+	// TokenActImpersonation 标记超级管理员代登录签发的用户/代理令牌。
+	TokenActImpersonation = "impersonation"
+)
+
 type Claims struct {
-	UserID   uint   `json:"user_id"`
-	Username string `json:"username"`
-	Role     string `json:"role"`
-	RoleCode string `json:"role_code,omitempty"`
+	UserID     uint   `json:"user_id"`
+	Username   string `json:"username"`
+	Role       string `json:"role"`
+	RoleCode   string `json:"role_code,omitempty"`
+	Typ        string `json:"typ,omitempty"`
+	Act        string `json:"act,omitempty"`
+	OperatorID uint   `json:"operator_id,omitempty"`
 	jwt.RegisteredClaims
 }
+
+// adminSessionQuery 在每次管理接口请求时复查账号是否仍启用、角色是否仍与令牌一致。
+const adminSessionQuery = `
+	SELECT a.enabled, COALESCE(r.role_code, '')
+	FROM admins a
+	LEFT JOIN roles r ON r.id = a.role_id
+	WHERE a.id = ?
+`
 
 func JWTAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -87,16 +106,39 @@ func JWTAuth() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		if claims.Typ == TokenTypeRefresh {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "刷新令牌不能用于接口访问"})
+			c.Abort()
+			return
+		}
 
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)
 		c.Set("role", claims.Role)
 		c.Set("role_code", claims.RoleCode)
+		if claims.Act != "" {
+			c.Set("act", claims.Act)
+		}
+		if claims.OperatorID != 0 {
+			c.Set("operator_id", claims.OperatorID)
+		}
 		if claims.IssuedAt != nil {
 			c.Set("token_issued_at", claims.IssuedAt.Time)
 		}
 		c.Next()
 	}
+}
+
+// ImpersonationOperatorID 返回代登录令牌里的真实管理员 ID，供后续审计读取。
+func ImpersonationOperatorID(c *gin.Context) (uint, bool) {
+	if c.GetString("act") != TokenActImpersonation {
+		return 0, false
+	}
+	id := c.GetUint("operator_id")
+	if id == 0 {
+		return 0, false
+	}
+	return id, true
 }
 
 func activeUserRejection(enabled bool, accountStatus string, convertedAgentID sql.NullInt64) (string, bool) {
@@ -152,10 +194,43 @@ func RequireActiveUser() gin.HandlerFunc {
 }
 
 // RequireAdmin 仅允许管理员角色访问，需置于 JWTAuth 之后。
+// 每次请求复查 admins.enabled 与当前 role_code。禁用、账号消失，或令牌角色与库中不一致时拒绝，
+// 避免停用或降权后旧令牌继续可用。
 func RequireAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetString("role") != "admin" {
 			c.JSON(http.StatusOK, gin.H{"code": 403, "message": "无权限访问"})
+			c.Abort()
+			return
+		}
+
+		db, err := config.DB()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "管理员状态校验失败"})
+			c.Abort()
+			return
+		}
+
+		var enabled sql.NullBool
+		var roleCode string
+		err = db.QueryRow(adminSessionQuery, c.GetUint("user_id")).Scan(&enabled, &roleCode)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "管理员账户不存在或已失效"})
+			c.Abort()
+			return
+		case err != nil:
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "管理员状态校验失败"})
+			c.Abort()
+			return
+		}
+		if !enabled.Valid || !enabled.Bool {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "管理员账户已禁用"})
+			c.Abort()
+			return
+		}
+		if roleCode != c.GetString("role_code") {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "管理员权限已变更，请重新登录"})
 			c.Abort()
 			return
 		}

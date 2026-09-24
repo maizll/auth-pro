@@ -20,9 +20,10 @@ const (
 )
 
 var (
-	dbPool    *sql.DB
-	dbPoolDSN string
-	dbPoolMu  sync.Mutex
+	dbPool     *sql.DB
+	dbPoolDSN  string
+	dbOverride *sql.DB
+	dbPoolMu   sync.Mutex
 )
 
 // DB 返回进程级共享的数据库连接池。
@@ -32,11 +33,27 @@ var (
 //
 // 调用方不得关闭返回的 *sql.DB，它由本包持有并在整个进程生命周期内复用。
 func DB() (*sql.DB, error) {
+	dbPoolMu.Lock()
+	if dbOverride != nil {
+		pool := dbOverride
+		dbPoolMu.Unlock()
+		return pool, nil
+	}
+	dbPoolMu.Unlock()
+
 	cfg, err := LoadDBConfig()
 	if err != nil {
 		return nil, err
 	}
 	return dbPoolFor(GetDSN(cfg))
+}
+
+// SetDBOverrideForTest 让 DB 返回调用方提供的连接，供测试替换驱动。
+// 传入 nil 恢复为按配置建池。连接的关闭仍由调用方负责。
+func SetDBOverrideForTest(db *sql.DB) {
+	dbPoolMu.Lock()
+	defer dbPoolMu.Unlock()
+	dbOverride = db
 }
 
 func dbPoolFor(dsn string) (*sql.DB, error) {

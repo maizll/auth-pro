@@ -24,6 +24,7 @@ var sourceTestAgentSeq atomic.Uint64
 func sourceStationRouter(t *testing.T) (*gin.Engine, *memorySourceStore) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
+	installStaticAdminSessionDB(t)
 	store := newMemorySourceStore()
 	notes := newMemoryNotificationStore()
 	t.Cleanup(SetSourceStationStoreForTest(store))
