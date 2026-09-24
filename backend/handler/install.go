@@ -3,12 +3,13 @@ package handler
 import (
 	"database/sql"
 	_ "embed"
+	"errors"
 	"net/http"
 
 	"auto_pro/config"
 
 	"github.com/gin-gonic/gin"
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -17,6 +18,11 @@ var schemaSQL string
 
 //go:embed menu_seed.sql
 var menuSeedSQL string
+
+// openInstallDatabase 供测试替换，生产环境仍打开 MySQL。
+var openInstallDatabase = func(dsn string) (*sql.DB, error) {
+	return sql.Open("mysql", dsn)
+}
 
 type dbRequest struct {
 	Host     string `json:"host"`
@@ -57,7 +63,7 @@ func InstallTestDB(c *gin.Context) {
 	}
 
 	dsn := cfg.Username + ":" + cfg.Password + "@tcp(" + cfg.Host + ":" + cfg.Port + ")/" + cfg.Database + "?charset=utf8mb4&parseTime=True&loc=Local"
-	db, err := sql.Open("mysql", dsn)
+	db, err := openInstallDatabase(dsn)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "message": "连接失败: " + err.Error()})
 		return
@@ -89,12 +95,22 @@ func InstallInitTables(c *gin.Context) {
 	}
 
 	dsn := config.GetDSN(cfg)
-	db, err := sql.Open("mysql", dsn)
+	db, err := openInstallDatabase(dsn)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "message": "连接失败: " + err.Error()})
 		return
 	}
 	defer db.Close()
+
+	occupied, err := installDatabaseHasData(db)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "无法确认数据库是否已有数据，已拒绝初始化"})
+		return
+	}
+	if occupied {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "数据库已有业务数据，拒绝重新初始化"})
+		return
+	}
 
 	if _, err := db.Exec(schemaSQL); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "message": "建表失败: " + err.Error()})
@@ -131,12 +147,22 @@ func InstallCreateAdmin(c *gin.Context) {
 	}
 
 	dsn := config.GetDSN(cfg)
-	db, err := sql.Open("mysql", dsn)
+	db, err := openInstallDatabase(dsn)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "message": "连接失败: " + err.Error()})
 		return
 	}
 	defer db.Close()
+
+	occupied, err := installDatabaseHasData(db)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "无法确认数据库是否已有数据，已拒绝创建管理员"})
+		return
+	}
+	if occupied {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "系统已存在管理员或业务数据，拒绝重复创建超级管理员"})
+		return
+	}
 
 	// 插入默认角色（先建角色，管理员需要引用 role_id=1）
 	_, _ = db.Exec(`INSERT IGNORE INTO roles (id, role_name, role_code, description, discount, enabled) VALUES
@@ -183,4 +209,41 @@ func InstallCreateAdmin(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "安装完成"})
+}
+
+// installDataTables 是安装写接口用来判断「库里已经有本系统数据」的表。
+// 空库（表不存在，或这些表都是 0 行）仍走原来的建表和创建首个管理员流程。
+var installDataTables = []string{
+	"admins",
+	"users",
+	"agents",
+	"apps",
+	"licenses",
+	"license_plans",
+	"transactions",
+	"license_purchase_orders",
+}
+
+// installDatabaseHasData 在锁文件丢失时阻止清库和再造超级管理员。
+// 只要 admins 或业务表里已有行，就视为已经安装。探测失败时返回错误，调用方必须拒绝写操作。
+func installDatabaseHasData(db *sql.DB) (bool, error) {
+	for _, table := range installDataTables {
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM `" + table + "`").Scan(&count)
+		if err != nil {
+			if isMissingInstallTable(err) {
+				continue
+			}
+			return false, err
+		}
+		if count > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func isMissingInstallTable(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1146
 }

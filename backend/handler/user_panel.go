@@ -2,6 +2,7 @@ package handler
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -933,9 +934,12 @@ func UserPurchase(c *gin.Context) {
 		return
 	}
 
-	// 扣减余额
-	newBalance := balance - cost
-	_, err = tx.Exec("UPDATE users SET balance = ? WHERE id = ? AND balance >= ?", newBalance, userID, cost)
+	// 在本事务内锁行并按增量扣款，不能回写事务外读到的绝对余额。
+	newBalance, err := deductPurchaseBalance(tx, "users", int64(userID), cost)
+	if errors.Is(err, errPurchaseBalanceInsufficient) {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "余额不足"})
+		return
+	}
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "扣款失败"})
 		return

@@ -37,6 +37,7 @@ type purchaseLicenseTypeTestState struct {
 	execQueries           []string
 	execArgs              [][]driver.NamedValue
 	failTransactionInsert bool
+	rejectBalanceDeduct   bool
 	purchasePayChannel    string
 	purchasePayMethod     string
 	purchaseTradeNo       string
@@ -48,7 +49,11 @@ type purchaseLicenseTypeTestState struct {
 type purchaseLicenseTypeTestDriver struct{}
 type purchaseLicenseTypeTestConn struct{ state *purchaseLicenseTypeTestState }
 type purchaseLicenseTypeTestTx struct{ state *purchaseLicenseTypeTestState }
-type purchaseLicenseTypeTestResult struct{ id int64 }
+type purchaseLicenseTypeTestResult struct {
+	id      int64
+	rows    int64
+	rowsSet bool
+}
 type purchaseLicenseTypeTestRows struct {
 	columns []string
 	values  [][]driver.Value
@@ -231,6 +236,9 @@ func (conn *purchaseLicenseTypeTestConn) ExecContext(_ context.Context, query st
 	if conn.state.failTransactionInsert && strings.Contains(query, "INSERT INTO transactions") {
 		return nil, errors.New("forced transaction insert failure")
 	}
+	if conn.state.rejectBalanceDeduct && strings.Contains(query, "UPDATE") && strings.Contains(query, "balance") {
+		return purchaseLicenseTypeTestResult{id: 1, rows: 0, rowsSet: true}, nil
+	}
 	return purchaseLicenseTypeTestResult{id: 1}, nil
 }
 
@@ -247,11 +255,19 @@ func (tx *purchaseLicenseTypeTestTx) Rollback() error {
 	return nil
 }
 func (result purchaseLicenseTypeTestResult) LastInsertId() (int64, error) {
+	if result.id == 0 {
+		return 1, nil
+	}
 	return result.id, nil
 }
-func (purchaseLicenseTypeTestResult) RowsAffected() (int64, error) { return 1, nil }
-func (rows purchaseLicenseTypeTestRows) Columns() []string         { return rows.columns }
-func (purchaseLicenseTypeTestRows) Close() error                   { return nil }
+func (result purchaseLicenseTypeTestResult) RowsAffected() (int64, error) {
+	if !result.rowsSet {
+		return 1, nil
+	}
+	return result.rows, nil
+}
+func (rows purchaseLicenseTypeTestRows) Columns() []string { return rows.columns }
+func (purchaseLicenseTypeTestRows) Close() error           { return nil }
 func (rows *purchaseLicenseTypeTestRows) Next(dest []driver.Value) error {
 	if rows.index >= len(rows.values) {
 		return io.EOF
@@ -862,7 +878,7 @@ func TestBalancePurchasesPersistPricingSnapshot(t *testing.T) {
 			expectedBuyer:      purchaseAudienceUser,
 			expectedBase:       "10.00",
 			expectedDiscount:   "3.00",
-			expectedDebitQuery: "UPDATE users SET balance",
+			expectedDebitQuery: "UPDATE users SET balance = balance - ?",
 		},
 		{
 			name:               "agent",
@@ -876,7 +892,7 @@ func TestBalancePurchasesPersistPricingSnapshot(t *testing.T) {
 			expectedBuyer:      purchaseAudienceAgent,
 			expectedBase:       "8.00",
 			expectedDiscount:   "1.00",
-			expectedDebitQuery: "UPDATE agents SET balance",
+			expectedDebitQuery: "UPDATE agents SET balance = balance - ?",
 		},
 	}
 

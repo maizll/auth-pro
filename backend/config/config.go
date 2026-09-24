@@ -144,6 +144,13 @@ func CreateLockFile() error {
 	return os.WriteFile(GetLockPath(), []byte("installed"), 0644)
 }
 
+// ClearCachedDBConfig 丢掉内存中的数据库配置缓存。安装测试用它避免把临时配置泄漏到后续用例。
+func ClearCachedDBConfig() {
+	mu.Lock()
+	dbConfig = nil
+	mu.Unlock()
+}
+
 // SaveDBConfig 保存数据库配置
 func SaveDBConfig(cfg *DBConfig) error {
 	mu.Lock()
