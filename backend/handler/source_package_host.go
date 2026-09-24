@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -231,28 +230,24 @@ func verifyExternalPackageHTTP(ctx context.Context, rawURL, sha string) error {
 	if err := validateSHA256(sha); err != nil {
 		return err
 	}
-	reqCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, strings.TrimSpace(rawURL), nil)
+	payload, err := safeHTTPGet(ctx, rawURL, safeFetchOptions{
+		AllowPrivate: false,
+		RequireHTTPS: true,
+		MaxBytes:     pluginPackageMaxSize,
+		Timeout:      20 * time.Second,
+		MaxRedirects: defaultSafeRedirects,
+		UserAgent:    "auth-pro-package-check",
+		Accept:       "application/zip,*/*",
+		BaseClient:   externalPackageClient,
+	})
 	if err != nil {
-		return errors.New("外链地址不合法")
-	}
-	req.Header.Set("User-Agent", "auth-pro-package-check")
-	req.Header.Set("Accept", "application/zip,*/*")
-	resp, err := externalHTTPClient().Do(req)
-	if err != nil {
+		if isSafeFetchPolicyError(err) {
+			return err
+		}
+		if errors.Is(err, errSafeTooLarge) {
+			return errors.New("外链 ZIP 超过 20 MiB")
+		}
 		return errors.New("外链不可达")
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return errors.New("外链不可达")
-	}
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, pluginPackageMaxSize+1))
-	if err != nil {
-		return errors.New("读取外链失败")
-	}
-	if int64(len(payload)) > pluginPackageMaxSize {
-		return errors.New("外链 ZIP 超过 20 MiB")
 	}
 	if !isZipPayload(payload) {
 		return errors.New("外链不是 ZIP")
@@ -262,22 +257,4 @@ func verifyExternalPackageHTTP(ctx context.Context, rawURL, sha string) error {
 		return errors.New("外链内容与 sha256 不一致")
 	}
 	return nil
-}
-
-func externalHTTPClient() *http.Client {
-	if externalPackageClient != nil {
-		return externalPackageClient
-	}
-	return &http.Client{
-		Timeout: 20 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 3 {
-				return errors.New("重定向过多")
-			}
-			if req.URL == nil || !strings.EqualFold(req.URL.Scheme, "https") {
-				return errors.New("外链重定向离开 https")
-			}
-			return nil
-		},
-	}
 }

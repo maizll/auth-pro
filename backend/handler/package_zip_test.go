@@ -3,6 +3,7 @@ package handler
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -103,7 +104,7 @@ func TestPluginZIPDownloadInstallsAndKeepsLastGoodVersion(t *testing.T) {
 	archive := makeTestZIP(t, testZIPEntry{name: "dist/plugin.json", data: `{"id":"demo-plugin"}`}, testZIPEntry{name: "dist/assets/data.txt", data: "installed"})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(archive) }))
 	defer server.Close()
-	payload, err := downloadPluginPackage(server.URL + "/plugin.zip")
+	payload, err := downloadPluginPackage(context.Background(), server.URL+"/plugin.zip", sha256Hex(archive), true)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,7 +2,9 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,6 +41,7 @@ type remotePluginEntry struct {
 	Version     string         `json:"version"`
 	Author      templateAuthor `json:"author"`
 	DownloadURL string         `json:"downloadUrl"`
+	SHA256      string         `json:"sha256"`
 }
 
 type remotePluginIndex struct {
@@ -89,7 +92,7 @@ func fetchPluginSourceManifest(ctx context.Context, rawURL string) (*remotePlugi
 	}
 	preferGit := looksLikeGitRepositoryURL(rawURL)
 	if !preferGit {
-		payload, err := fetchPluginHTTP(ctx, rawURL, pluginManifestMaxSize, 10*time.Second)
+		payload, err := fetchPluginHTTP(ctx, rawURL, pluginManifestMaxSize, 10*time.Second, pluginSourceAllowsPrivate(rawURL))
 		if err == nil {
 			index, parseErr := parsePluginSourceManifest(payload)
 			if parseErr == nil {
@@ -384,6 +387,8 @@ func AdminPluginDownload(c *gin.Context) {
 		return
 	}
 	downloadURL := ""
+	sourceURL := ""
+	expectedSHA := ""
 	var metadata pluginInfo
 	for _, source := range sources {
 		index, _ := loadPluginSourceIndex(c.Request.Context(), db, source, false)
@@ -393,6 +398,8 @@ func AdminPluginDownload(c *gin.Context) {
 		for _, plugin := range index.Plugins {
 			if plugin.ID == pluginID {
 				downloadURL = strings.TrimSpace(plugin.DownloadURL)
+				expectedSHA = plugin.SHA256
+				sourceURL = source.URL
 				metadata = pluginInfo{ID: plugin.ID, Category: plugin.Category, Name: plugin.Name,
 					Description: plugin.Description, Icon: plugin.Icon, Version: plugin.Version,
 					Author: plugin.Author, Source: source.Name, DownloadURL: downloadURL}
@@ -410,13 +417,12 @@ func AdminPluginDownload(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "未在任何软件源中找到该插件或插件未提供下载地址"})
 		return
 	}
-	payload, err := downloadPluginPackage(downloadURL)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "下载失败：" + err.Error()})
-		return
-	}
-	if err := installPluginZIP(payload, metadata); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "插件安装失败：" + err.Error()})
+	if err := downloadAndInstallPluginPackage(c.Request.Context(), downloadURL, expectedSHA, pluginSourceAllowsPrivate(sourceURL), metadata); err != nil {
+		code := 500
+		if isPluginPackageReject(err) {
+			code = 400
+		}
+		c.JSON(http.StatusOK, gin.H{"code": code, "msg": "下载失败：" + err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "插件已下载、解压并安装"})
@@ -448,33 +454,69 @@ func AdminPluginSourceRefresh(c *gin.Context) {
 	}})
 }
 
-func downloadPluginPackage(rawURL string) ([]byte, error) {
-	payload, err := fetchPluginHTTP(context.Background(), rawURL, pluginPackageMaxSize, 30*time.Second)
+func downloadAndInstallPluginPackage(ctx context.Context, rawURL, expectedSHA string, allowPrivate bool, plugin pluginInfo) error {
+	payload, err := downloadPluginPackage(ctx, rawURL, expectedSHA, allowPrivate)
 	if err != nil {
+		return err
+	}
+	return installPluginZIP(payload, plugin)
+}
+
+func isPluginPackageReject(err error) bool {
+	return errors.Is(err, errPluginSHAMissing) || errors.Is(err, errPluginSHAMismatch) || errors.Is(err, errSafeTooLarge) || isSafeFetchPolicyError(err)
+}
+
+func downloadPluginPackage(ctx context.Context, rawURL, expectedSHA string, allowPrivate bool) ([]byte, error) {
+	expectedSHA = strings.ToLower(strings.TrimSpace(expectedSHA))
+	if expectedSHA == "" {
+		return nil, errPluginSHAMissing
+	}
+	if err := validateSHA256(expectedSHA); err != nil {
 		return nil, err
+	}
+	payload, err := safeHTTPGet(ctx, rawURL, safeFetchOptions{
+		AllowPrivate: allowPrivate,
+		RequireHTTPS: !allowPrivate,
+		MaxBytes:     pluginPackageMaxSize,
+		Timeout:      30 * time.Second,
+		MaxRedirects: defaultSafeRedirects,
+	})
+	if err != nil {
+		return nil, wrapPluginNetError(err)
 	}
 	if len(payload) == 0 {
 		return nil, errors.New("插件包为空")
 	}
+	sum := sha256.Sum256(payload)
+	if hex.EncodeToString(sum[:]) != expectedSHA {
+		return nil, errPluginSHAMismatch
+	}
 	return payload, nil
 }
 
-func fetchPluginHTTP(ctx context.Context, rawURL string, maxBytes int64, timeout time.Duration) ([]byte, error) {
-	requestCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, rawURL, nil)
+func fetchPluginHTTP(ctx context.Context, rawURL string, maxBytes int64, timeout time.Duration, allowPrivate bool) ([]byte, error) {
+	payload, err := safeHTTPGet(ctx, rawURL, safeFetchOptions{
+		AllowPrivate: allowPrivate,
+		RequireHTTPS: false,
+		MaxBytes:     maxBytes,
+		Timeout:      timeout,
+		MaxRedirects: defaultSafeRedirects,
+	})
 	if err != nil {
-		return nil, err
+		return nil, wrapPluginNetError(err)
 	}
-	response, err := (&http.Client{Timeout: timeout}).Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("连接失败：%w", err)
+	return payload, nil
+}
+
+func wrapPluginNetError(err error) error {
+	if err == nil || isPluginPackageReject(err) {
+		return err
 	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("下载地址返回状态码 %d", response.StatusCode)
+	var status *safeStatusError
+	if errors.As(err, &status) {
+		return err
 	}
-	return readPluginReader(response.Body, maxBytes)
+	return fmt.Errorf("连接失败：%w", err)
 }
 
 func withPluginRepository(ctx context.Context, rawURL string, action func(string) error) error {

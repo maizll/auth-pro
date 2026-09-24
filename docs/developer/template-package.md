@@ -563,7 +563,7 @@ Compress-Archive -Path template.json, assets -DestinationPath ..\demo-home.zip -
 Get-FileHash ..\demo-home.zip -Algorithm SHA256
 ```
 
-`sha256` 是**整个 ZIP** 的 64 位十六进制。可以在登记表单上传 ZIP，由源站托管并回填地址与校验码；也可以把 ZIP 放到自己的 HTTPS 空间。提交审核时外链会被下载核对。
+`sha256` 是**整个 ZIP** 的 64 位十六进制。可以在登记表单上传 ZIP，由源站托管并回填地址与校验码；也可以把 ZIP 放到自己的 HTTPS 空间。提交审核时外链会被下载核对，并且必须解析到公网地址。回环、私网、链路本地和云元数据会被拒绝。本站托管 ZIP 只核对本地文件。
 
 最小包可以只有 `template.json`。有封面图时再加 `assets/`。
 

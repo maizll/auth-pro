@@ -7,7 +7,7 @@ description: Use when creating, packaging, validating, or submitting AuthPro sou
 
 按仓库 `docs/developer/charter.md` 生成包。本章是操作清单。不要写介绍。不要发明章程之外的字段。
 
-产出：清单 JSON、ZIP 布局、sha256 命令、登记表单要填的中文栏。登记可以上传 ZIP（本站托管，自动填地址和 sha256），也可以填外部 HTTPS（提交审核时核对可达、ZIP 与 sha256）。
+产出：清单 JSON、ZIP 布局、sha256 命令、登记表单要填的中文栏。登记可以上传 ZIP（本站托管，自动填地址和 sha256），也可以填外部 HTTPS（提交审核时核对可达、ZIP、sha256，且必须是公网地址）。
 
 ## 先选一种
 
@@ -146,6 +146,8 @@ sha256sum /tmp/demo-home.zip
 | `require_manifest` | 清单放到 ZIP 根目录 |
 | `zip_layout` | 按打包命令重打，去掉 `..` 和反斜杠 |
 | `sha256 必须是 64 位十六进制` | 对 ZIP 重算 |
+| `拒绝访问非公网地址` | 外链改成公网 HTTPS，或改上传 ZIP |
+| `拒绝访问链路本地或云元数据地址` | 不要指向链路本地或云元数据 |
 | `下载地址须为 https 开头的外链` | 换 https |
 | `标识不合法` / 太短 | 手写 id |
 | `不能覆盖内置插件标识` | 换 id |

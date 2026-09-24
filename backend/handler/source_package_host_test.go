@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -100,6 +101,30 @@ func TestDeveloperSubmitValidatesExternalZip(t *testing.T) {
 	client := server.Client()
 	client.Timeout = 0
 	useExternalPackageClientForTest(t, client)
+	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicIP := net.ParseIP("8.8.8.8")
+	installSafeFetchHooks(t, func(_ context.Context, host string) ([]net.IP, error) {
+		if ip := net.ParseIP(host); ip != nil {
+			return []net.IP{ip}, nil
+		}
+		if host == "pkg.example.com" {
+			return []net.IP{publicIP}, nil
+		}
+		return nil, errSafeBadURL
+	}, func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, _, splitErr := net.SplitHostPort(address)
+		if splitErr != nil {
+			return nil, splitErr
+		}
+		if host == publicIP.String() {
+			return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+		}
+		return nil, errSafePrivateAddress
+	})
+	server.URL = "https://pkg.example.com:" + port
 
 	save := func(id, url, sum string) {
 		t.Helper()
