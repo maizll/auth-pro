@@ -19,6 +19,11 @@ import (
 var staticFS embed.FS
 
 func main() {
+	// 历史安装可能把数据库口令写成 0644。进程起来先收紧，不等到下次保存配置。
+	if err := config.EnsureDBConfigPermissions(); err != nil {
+		log.Printf("tighten db.json permissions failed: %v", err)
+	}
+
 	r := gin.Default()
 	appStoreServer := appstore.NewServer(handler.NewAppStoreTemplateRepository())
 

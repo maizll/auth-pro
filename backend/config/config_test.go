@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -263,4 +264,92 @@ func TestResolveFrontendRootEmbedOnlyWhenOptedIn(t *testing.T) {
 	if root.ApplyDir == "" {
 		t.Fatal("embed mode still needs a disk apply target for updates")
 	}
+}
+
+func TestSaveDBConfigFileMode(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AUTO_PRO_DATA_DIR", dir)
+	ClearCachedDBConfig()
+	t.Cleanup(ClearCachedDBConfig)
+
+	previous := syscall.Umask(0o022)
+	t.Cleanup(func() { syscall.Umask(previous) })
+
+	if err := SaveDBConfig(&DBConfig{
+		Host: "127.0.0.1", Port: "3306", Database: "auto_pro",
+		Username: "app", Password: "secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "db.json")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("db.json mode = %#o, want 0600", info.Mode().Perm())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"password": "secret"`) {
+		t.Fatalf("db.json = %s", data)
+	}
+
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveDBConfig(&DBConfig{
+		Host: "127.0.0.1", Port: "3306", Database: "auto_pro",
+		Username: "app", Password: "rotated",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	info, err = os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("rewritten db.json mode = %#o, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestEnsureDBConfigPermissions(t *testing.T) {
+	t.Run("missing file", func(t *testing.T) {
+		t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+		if err := EnsureDBConfigPermissions(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("tightens existing file", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("AUTO_PRO_DATA_DIR", dir)
+		path := filepath.Join(dir, "db.json")
+		payload := []byte(`{"password":"secret"}`)
+		if err := os.WriteFile(path, payload, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := EnsureDBConfigPermissions(); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("db.json mode = %#o, want 0600", info.Mode().Perm())
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != string(payload) {
+			t.Fatalf("db.json content changed: %s", data)
+		}
+	})
 }

@@ -99,12 +99,35 @@ func TestValidateOnlineUpdateManifest(t *testing.T) {
 		}
 	})
 
-	t.Run("trusted Gitee package when update URL is Gitee", func(t *testing.T) {
-		t.Setenv("AUTO_PRO_UPDATE_URL", "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest")
+	t.Run("historical Gitee fork under default source", func(t *testing.T) {
+		t.Setenv("AUTO_PRO_UPDATE_URL", "")
 		manifest := validOnlineUpdateManifestForTest()
 		manifest.Package.URL = "https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz"
+		if err := validateOnlineUpdateManifest(manifest); err == nil {
+			t.Fatal("historical Gitee fork package was accepted under the default update source")
+		}
+	})
+
+	t.Run("configured Gitee mirror package", func(t *testing.T) {
+		t.Setenv("AUTO_PRO_UPDATE_URL", "https://gitee.com/api/v5/repos/acme/auth-pro-mirror/releases/latest")
+		manifest := validOnlineUpdateManifestForTest()
+		manifest.Package.URL = "https://gitee.com/acme/auth-pro-mirror/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz"
 		if err := validateOnlineUpdateManifest(manifest); err != nil {
-			t.Fatalf("explicit Gitee source should still trust that repo: %v", err)
+			t.Fatalf("explicit Gitee mirror package was rejected: %v", err)
+		}
+		manifest.Package.URL = "https://gitee.com/Acme/Auth-Pro-Mirror/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz"
+		if err := validateOnlineUpdateManifest(manifest); err != nil {
+			t.Fatalf("same Gitee repository with different case was rejected: %v", err)
+		}
+		for _, packageURL := range []string{
+			"https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz",
+			"https://gitee.com/other/repo/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz",
+			"http://gitee.com/acme/auth-pro-mirror/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz",
+		} {
+			manifest.Package.URL = packageURL
+			if err := validateOnlineUpdateManifest(manifest); err == nil {
+				t.Fatalf("package URL %q was accepted for the configured mirror", packageURL)
+			}
 		}
 	})
 
@@ -140,7 +163,8 @@ func TestValidateOnlineUpdateManifest(t *testing.T) {
 }
 
 func TestOnlineUpdateGiteeRedirectPolicy(t *testing.T) {
-	initialURL := "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest"
+	t.Setenv("AUTO_PRO_UPDATE_URL", "https://gitee.com/api/v5/repos/acme/auth-pro-mirror/releases/latest")
+	initialURL := "https://gitee.com/api/v5/repos/acme/auth-pro-mirror/releases/latest"
 	client, err := newOnlineUpdateHTTPClient(initialURL, time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -148,8 +172,8 @@ func TestOnlineUpdateGiteeRedirectPolicy(t *testing.T) {
 	via := []*http.Request{{URL: mustParseOnlineUpdateTestURL(t, initialURL)}}
 
 	for name, target := range map[string]string{
-		"Gitee release path":    "https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/latest.json",
-		"Gitee attachment path": "https://gitee.com/Zcy-sa/auth-pro/attach_files/123/download/latest.json",
+		"Gitee release path":    "https://gitee.com/acme/auth-pro-mirror/releases/download/v1.0.1/latest.json",
+		"Gitee attachment path": "https://gitee.com/acme/auth-pro-mirror/attach_files/123/download/latest.json",
 		"Gitee asset storage":   "https://foruda.gitee.com/attach_file/123/latest.json?token=test",
 	} {
 		t.Run("allows "+name, func(t *testing.T) {
@@ -160,9 +184,10 @@ func TestOnlineUpdateGiteeRedirectPolicy(t *testing.T) {
 	}
 
 	for name, target := range map[string]string{
-		"HTTP downgrade":          "http://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/latest.json",
+		"HTTP downgrade":          "http://gitee.com/acme/auth-pro-mirror/releases/download/v1.0.1/latest.json",
 		"non-standard HTTPS port": "https://foruda.gitee.com:8443/attach_file/123/latest.json",
 		"another repository":      "https://gitee.com/another/repository/releases/download/v1.0.1/latest.json",
+		"historical fork":         "https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/latest.json",
 		"untrusted storage host":  "https://example.com/update.tar.gz",
 	} {
 		t.Run("rejects "+name, func(t *testing.T) {
@@ -174,13 +199,46 @@ func TestOnlineUpdateGiteeRedirectPolicy(t *testing.T) {
 }
 
 func TestFetchGiteeLatestManifestURL(t *testing.T) {
+	t.Setenv("AUTO_PRO_UPDATE_URL", "https://gitee.com/api/v5/repos/acme/auth-pro-mirror/releases/latest")
 	originalTransport := http.DefaultTransport
 	http.DefaultTransport = onlineUpdateRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		var payload string
 		switch request.URL.Path {
-		case "/api/v5/repos/Zcy-sa/auth-pro/releases/latest":
+		case "/api/v5/repos/acme/auth-pro-mirror/releases/latest":
 			payload = `{"id":123}`
-		case "/api/v5/repos/Zcy-sa/auth-pro/releases/123/attach_files":
+		case "/api/v5/repos/acme/auth-pro-mirror/releases/123/attach_files":
+			payload = `[{"name":"latest.json","browser_download_url":"https://gitee.com/acme/auth-pro-mirror/releases/download/v1.2.3/latest.json"}]`
+		default:
+			return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Header: make(http.Header), Request: request}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(payload)),
+			Header:     make(http.Header),
+			Request:    request,
+		}, nil
+	})
+	defer func() { http.DefaultTransport = originalTransport }()
+
+	got, err := fetchGiteeLatestManifestURL("https://gitee.com/api/v5/repos/acme/auth-pro-mirror/releases/latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://gitee.com/acme/auth-pro-mirror/releases/download/v1.2.3/latest.json"
+	if got != want {
+		t.Fatalf("manifest URL = %q, want %q", got, want)
+	}
+}
+
+func TestFetchGiteeLatestManifestURLRejectsOtherRepositoryAttachment(t *testing.T) {
+	t.Setenv("AUTO_PRO_UPDATE_URL", "https://gitee.com/api/v5/repos/acme/auth-pro-mirror/releases/latest")
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = onlineUpdateRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var payload string
+		switch request.URL.Path {
+		case "/api/v5/repos/acme/auth-pro-mirror/releases/latest":
+			payload = `{"id":123}`
+		case "/api/v5/repos/acme/auth-pro-mirror/releases/123/attach_files":
 			payload = `[{"name":"latest.json","browser_download_url":"https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.2.3/latest.json"}]`
 		default:
 			return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Header: make(http.Header), Request: request}, nil
@@ -194,13 +252,8 @@ func TestFetchGiteeLatestManifestURL(t *testing.T) {
 	})
 	defer func() { http.DefaultTransport = originalTransport }()
 
-	got, err := fetchGiteeLatestManifestURL("https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.2.3/latest.json"
-	if got != want {
-		t.Fatalf("manifest URL = %q, want %q", got, want)
+	if _, err := fetchGiteeLatestManifestURL("https://gitee.com/api/v5/repos/acme/auth-pro-mirror/releases/latest"); err == nil {
+		t.Fatal("historical Gitee fork attachment was accepted for a different mirror")
 	}
 }
 
@@ -224,13 +277,42 @@ func TestParseOnlineUpdateURLAllowsCustomHTTPSMirrorPort(t *testing.T) {
 }
 
 func TestParseOnlineUpdateURLRejectsUntrustedGiteePaths(t *testing.T) {
+	t.Setenv("AUTO_PRO_UPDATE_URL", "")
 	for _, value := range []string{
 		"https://gitee.com/another/repository/releases/download/v1.0.1/latest.json",
 		"https://gitee.com/Zcy-sa/auth-pro/raw/master/latest.json",
+		"https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/latest.json",
+		"https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest",
+		"https://gitee.com/Zcy-sa/auth-pro/attach_files/123/download/latest.json",
 		"https://gitee.com:8443/Zcy-sa/auth-pro/releases/download/v1.0.1/latest.json",
 	} {
 		if _, err := parseOnlineUpdateURL(value); err == nil {
 			t.Fatalf("untrusted Gitee URL %q was accepted", value)
+		}
+	}
+}
+
+func TestParseOnlineUpdateURLAcceptsConfiguredGiteeMirror(t *testing.T) {
+	t.Setenv("AUTO_PRO_UPDATE_URL", "https://gitee.com/acme/auth-pro-mirror/releases/download/v1.0.1/latest.json")
+	for _, value := range []string{
+		"https://gitee.com/acme/auth-pro-mirror/releases/download/v1.0.1/latest.json",
+		"https://gitee.com/acme/auth-pro-mirror/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz",
+		"https://gitee.com/acme/auth-pro-mirror/attach_files/123/download/latest.json",
+		"https://gitee.com/api/v5/repos/acme/auth-pro-mirror/releases/latest",
+		"https://gitee.com/api/v5/repos/Acme/Auth-Pro-Mirror/releases/123/attach_files",
+	} {
+		if _, err := parseOnlineUpdateURL(value); err != nil {
+			t.Fatalf("configured Gitee mirror URL %q was rejected: %v", value, err)
+		}
+	}
+	for _, value := range []string{
+		"https://gitee.com/Zcy-sa/auth-pro/releases/download/v1.0.1/latest.json",
+		"https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest",
+		"https://gitee.com/other/repo/releases/download/v1.0.1/latest.json",
+		"http://gitee.com/acme/auth-pro-mirror/releases/download/v1.0.1/latest.json",
+	} {
+		if _, err := parseOnlineUpdateURL(value); err == nil {
+			t.Fatalf("Gitee URL %q was accepted for a different configured mirror", value)
 		}
 	}
 }
@@ -409,7 +491,7 @@ func TestOnlineUpdateHistory(t *testing.T) {
 }
 
 func TestOnlineUpdateHistoryRejectsCrossOriginURL(t *testing.T) {
-	t.Setenv("AUTO_PRO_UPDATE_URL", "https://gitee.com/api/v5/repos/Zcy-sa/auth-pro/releases/latest")
+	t.Setenv("AUTO_PRO_UPDATE_URL", "https://gitee.com/api/v5/repos/acme/auth-pro-mirror/releases/latest")
 	manifest := validOnlineUpdateManifestForTest()
 	manifest.ReleasesURL = "https://mirror.example.com/releases.json"
 	if _, err := resolveOnlineUpdateReleasesURL(manifest); err == nil {

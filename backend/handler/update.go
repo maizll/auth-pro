@@ -33,9 +33,6 @@ const (
 	maxOnlineUpdatePackageSize  = int64(512 << 20)
 	githubUpdateRepositoryPath  = "/maizll/auth-pro/releases/"
 	githubUpdateAPIReleasesPath = "/repos/maizll/auth-pro/releases"
-	giteeUpdateRepositoryPath   = "/zcy-sa/auth-pro/releases/"
-	giteeUpdateAttachmentPath   = "/zcy-sa/auth-pro/attach_files/"
-	giteeUpdateAPIReleasesPath  = "/api/v5/repos/zcy-sa/auth-pro/releases/"
 )
 
 var onlineUpdateVersionPattern = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
@@ -318,24 +315,104 @@ func isGitHubReleaseAssetHost(hostname string) bool {
 	return strings.EqualFold(hostname, "release-assets.githubusercontent.com")
 }
 
+// Gitee 不是默认更新源。只有 AUTO_PRO_UPDATE_URL 显式指向某个 Gitee 仓库的
+// Release、附件或 API 地址时，才信任同一 owner/repo 的 HTTPS 地址。
+type giteeRepository struct {
+	owner string
+	repo  string
+}
+
+func (repo giteeRepository) matches(other giteeRepository) bool {
+	return strings.EqualFold(repo.owner, other.owner) && strings.EqualFold(repo.repo, other.repo)
+}
+
+func configuredGiteeRepository() (giteeRepository, bool) {
+	parsed, err := url.Parse(strings.TrimSpace(config.GetUpdateManifestURL()))
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Host == "" {
+		return giteeRepository{}, false
+	}
+	if parsed.Port() != "" && parsed.Port() != "443" {
+		return giteeRepository{}, false
+	}
+	return giteeRepositoryFromURL(parsed)
+}
+
+func giteeUpdateSegments(parsed *url.URL) []string {
+	if parsed == nil {
+		return nil
+	}
+	raw := parsed.EscapedPath()
+	if decoded, err := url.PathUnescape(raw); err == nil {
+		raw = decoded
+	}
+	raw = strings.Trim(raw, "/")
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, "/")
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return nil
+		}
+	}
+	return parts
+}
+
+func giteeRepositoryFromURL(parsed *url.URL) (giteeRepository, bool) {
+	if parsed == nil || !strings.EqualFold(parsed.Hostname(), "gitee.com") {
+		return giteeRepository{}, false
+	}
+	parts := giteeUpdateSegments(parsed)
+	if len(parts) >= 6 &&
+		strings.EqualFold(parts[0], "api") &&
+		strings.EqualFold(parts[1], "v5") &&
+		strings.EqualFold(parts[2], "repos") &&
+		strings.EqualFold(parts[5], "releases") {
+		return giteeRepository{owner: parts[3], repo: parts[4]}, true
+	}
+	if len(parts) >= 3 && (strings.EqualFold(parts[2], "releases") || strings.EqualFold(parts[2], "attach_files")) {
+		return giteeRepository{owner: parts[0], repo: parts[1]}, true
+	}
+	return giteeRepository{}, false
+}
+
+func matchingConfiguredGitee(parsed *url.URL) ([]string, bool) {
+	repo, ok := giteeRepositoryFromURL(parsed)
+	if !ok {
+		return nil, false
+	}
+	configured, allowed := configuredGiteeRepository()
+	if !allowed || !repo.matches(configured) {
+		return nil, false
+	}
+	return giteeUpdateSegments(parsed), true
+}
+
 func isGiteeRepositoryReleaseURL(parsed *url.URL) bool {
-	return parsed != nil && strings.EqualFold(parsed.Hostname(), "gitee.com") &&
-		strings.HasPrefix(strings.ToLower(parsed.EscapedPath()), giteeUpdateRepositoryPath)
+	parts, ok := matchingConfiguredGitee(parsed)
+	return ok && len(parts) >= 3 && strings.EqualFold(parts[2], "releases")
 }
 
 func isGiteeRepositoryAttachmentURL(parsed *url.URL) bool {
-	return parsed != nil && strings.EqualFold(parsed.Hostname(), "gitee.com") &&
-		strings.HasPrefix(strings.ToLower(parsed.EscapedPath()), giteeUpdateAttachmentPath)
+	parts, ok := matchingConfiguredGitee(parsed)
+	return ok && len(parts) >= 3 && strings.EqualFold(parts[2], "attach_files")
 }
 
 func isGiteeRepositoryAPIURL(parsed *url.URL) bool {
-	return parsed != nil && strings.EqualFold(parsed.Hostname(), "gitee.com") &&
-		strings.HasPrefix(strings.ToLower(parsed.EscapedPath()), giteeUpdateAPIReleasesPath)
+	parts, ok := matchingConfiguredGitee(parsed)
+	return ok && len(parts) >= 6 &&
+		strings.EqualFold(parts[0], "api") &&
+		strings.EqualFold(parts[1], "v5") &&
+		strings.EqualFold(parts[2], "repos") &&
+		strings.EqualFold(parts[5], "releases")
 }
 
 func isGiteeLatestReleaseAPIURL(parsed *url.URL) bool {
-	return isGiteeRepositoryAPIURL(parsed) &&
-		strings.TrimSuffix(strings.ToLower(parsed.EscapedPath()), "/") == strings.TrimSuffix(giteeUpdateAPIReleasesPath, "/")+"/latest"
+	if !isGiteeRepositoryAPIURL(parsed) {
+		return false
+	}
+	parts := giteeUpdateSegments(parsed)
+	return len(parts) == 7 && strings.EqualFold(parts[6], "latest")
 }
 
 func isGiteeRepositoryUpdateURL(parsed *url.URL) bool {
@@ -511,8 +588,17 @@ func fetchGiteeLatestManifestURL(releaseURL string) (string, error) {
 		return "", errors.New("Gitee 最新发行版数据格式不正确")
 	}
 
-	parsedReleaseURL, _ := url.Parse(releaseURL)
-	attachmentsURL := fmt.Sprintf("%s://%s/api/v5/repos/Zcy-sa/auth-pro/releases/%d/attach_files", parsedReleaseURL.Scheme, parsedReleaseURL.Host, release.ID)
+	parsedReleaseURL, err := url.Parse(releaseURL)
+	if err != nil {
+		return "", errors.New("Gitee 更新地址格式不正确")
+	}
+	repo, ok := giteeRepositoryFromURL(parsedReleaseURL)
+	if !ok || parsedReleaseURL.Scheme == "" || parsedReleaseURL.Host == "" {
+		return "", errors.New("Gitee 更新地址不属于受信任的发布仓库")
+	}
+	attachmentsURL := fmt.Sprintf("%s://%s/api/v5/repos/%s/%s/releases/%d/attach_files",
+		parsedReleaseURL.Scheme, parsedReleaseURL.Host,
+		url.PathEscape(repo.owner), url.PathEscape(repo.repo), release.ID)
 	attachmentsClient, err := newOnlineUpdateHTTPClient(attachmentsURL, 15*time.Second)
 	if err != nil {
 		return "", err
@@ -881,7 +967,6 @@ func validateOnlineUpdateManifest(manifest *onlineUpdateManifest) error {
 	}
 	return nil
 }
-
 
 func evaluateOnlineUpdateCheck(currentVersion string, manifest *onlineUpdateManifest) (bool, string, error, bool) {
 	return evaluateOnlineUpdateCheckForRuntime(currentVersion, manifest, runtime.GOOS, runtime.GOARCH)

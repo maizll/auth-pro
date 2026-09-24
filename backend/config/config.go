@@ -162,7 +162,32 @@ func SaveDBConfig(cfg *DBConfig) error {
 	}
 
 	dbConfig = cfg
-	return os.WriteFile(getConfigPath(), data, 0644)
+	path := getConfigPath()
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+	// WriteFile 不会改已存在文件的权限；再 chmod 一次，避免历史 0644 在覆盖写入后仍然对外可读。
+	return os.Chmod(path, 0o600)
+}
+
+// EnsureDBConfigPermissions 把已存在的 db.json 收紧为仅所有者可读写。
+// 启动时调用。文件不存在时不创建。
+func EnsureDBConfigPermissions() error {
+	path := getConfigPath()
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return nil
+	}
+	if info.Mode().Perm() == 0o600 {
+		return nil
+	}
+	return os.Chmod(path, 0o600)
 }
 
 // LoadDBConfig 加载数据库配置
