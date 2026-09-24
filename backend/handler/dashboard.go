@@ -385,7 +385,6 @@ func dashboardTodos(db *sql.DB) []dashboardTodoItem {
 		{Title: "今日验证失败", Value: dashboardInt(db, "SELECT COUNT(*) FROM verify_logs WHERE result IN ('fail', 'expired', 'blacklisted') AND DATE(created_at) = CURDATE()"), Level: "danger", Desc: "关注异常域名、过期授权和黑名单命中"},
 		{Title: "余额不足代理商", Value: dashboardInt(db, "SELECT COUNT(*) FROM agents WHERE enabled = 1 AND balance < 100"), Level: "warning", Desc: "余额低于 100 元可能影响开通授权"},
 		{Title: "禁用账号", Value: dashboardInt(db, "SELECT (SELECT COUNT(*) FROM agents WHERE enabled = 0) + (SELECT COUNT(*) FROM users WHERE enabled = 0)"), Level: "info", Desc: "包含禁用代理商和禁用用户"},
-		{Title: "待处理盗版告警", Value: dashboardInt(db, "SELECT COUNT(*) FROM piracy_alerts WHERE status = 'pending'"), Level: "danger", Desc: "需要在反盗版模块确认"},
 	}
 }
 
@@ -487,11 +486,6 @@ func dashboardRiskAlerts(db *sql.DB) []dashboardTodoItem {
 		items = append(items, dashboardTodoItem{Title: "代理商余额不足", Value: lowBalanceAgents, Level: "warning", Desc: "余额低于 100 元，可能影响开通授权"})
 	}
 
-	pendingAlerts := dashboardInt(db, "SELECT COUNT(*) FROM piracy_alerts WHERE status = 'pending'")
-	if pendingAlerts > 0 {
-		items = append(items, dashboardTodoItem{Title: "待处理盗版告警", Value: pendingAlerts, Level: "danger", Desc: "请到反盗版模块确认处理"})
-	}
-
 	disabledAccounts := dashboardInt(db, "SELECT (SELECT COUNT(*) FROM agents WHERE enabled = 0) + (SELECT COUNT(*) FROM users WHERE enabled = 0)")
 	if disabledAccounts > 0 {
 		items = append(items, dashboardTodoItem{Title: "禁用账号", Value: disabledAccounts, Level: "info", Desc: "包含禁用代理商和禁用用户"})
@@ -507,6 +501,6 @@ func dashboardQuickEntries() []dashboardQuickEntry {
 		{Title: "应用管理", Desc: "维护应用和密钥", Path: "/license/apps", Icon: "ri:apps-2-line", Type: "warning"},
 		{Title: "交易流水", Desc: "查看充值和消费记录", Path: "/agent/recharge", Icon: "ri:bill-line", Type: "danger"},
 		{Title: "验证日志", Desc: "排查授权验证异常", Path: "/license/logs", Icon: "ri:file-search-line", Type: "info"},
-		{Title: "盗版告警", Desc: "处理风险告警", Path: "/piracy/alerts", Icon: "ri:alarm-warning-line", Type: "danger"},
+		{Title: "盗版告警", Desc: "查看告警列表", Path: "/piracy/alerts", Icon: "ri:alarm-warning-line", Type: "danger"},
 	}
 }

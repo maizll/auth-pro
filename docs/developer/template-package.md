@@ -428,20 +428,20 @@ Content-Type: application/json
 
 ## 8. 授权查询
 
-内置默认首页无需登录即可按用户昵称或注册邮箱查询授权概况。声明式模板的查询入口若需要登录，由宿主登录框接管（`fintech-gold` 的查询框会打开登录）。不要在模板里展示授权密钥。
+必须携带用户登录令牌，并且只返回该用户自己的授权。未登录返回 HTTP 401。`account`、`email` 会被忽略，不能按昵称或邮箱枚举他人购买记录。内置默认首页的「查看我的授权」在没有 `user_panel_token` 时打开登录框。声明式模板（如 `fintech-gold`）的查询入口仍由宿主登录框接管。不要在模板里展示授权密钥。
 
 ```http
 GET /api/user-panel/license-query
+Authorization: Bearer <用户 accessToken>
 ```
 
 ```text
-account   用户昵称或注册邮箱，必填。也接受旧参数名 email
 page      页码，默认 1
 pageSize  每页数量，默认 10，最大 50
 ```
 
 ```text
-/api/user-panel/license-query?account=user@example.com&page=1&pageSize=10
+/api/user-panel/license-query?page=1&pageSize=10
 ```
 
 ```json

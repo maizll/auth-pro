@@ -338,16 +338,16 @@ Content-Type: application/json
 
 ## 6. 授权查询
 
-首页无需登录即可按用户账号或注册邮箱查询授权概况。
+必须登录用户中心后查看**当前账号自己的**授权概况。未登录返回 HTTP 401。`account`、`email` 会被忽略，不能用来查询别人的授权。
 
 ```http
 GET /api/user-panel/license-query
+Authorization: Bearer <用户 accessToken>
 ```
 
 请求参数：
 
 ```text
-account   用户账号或注册邮箱，必填
 page      页码，通常为 1
 pageSize  每页数量，通常为 50
 ```
@@ -355,7 +355,7 @@ pageSize  每页数量，通常为 50
 示例：
 
 ```text
-/api/user-panel/license-query?account=user@example.com&page=1&pageSize=50
+/api/user-panel/license-query?page=1&pageSize=50
 ```
 
 成功响应示例：
@@ -504,7 +504,7 @@ target   域名或 IP 地址，必填
 | 注册用户 | `POST /api/user-panel/register` |
 | 申请密码重置 | `POST /api/user-panel/forgot-password` |
 | 提交新密码 | `POST /api/user-panel/reset-password` |
-| 授权查询 | `GET /api/user-panel/license-query` |
+| 授权查询 | `GET /api/user-panel/license-query`（需用户登录，只返回自己的授权） |
 | 代理商查询 | `GET /api/user-panel/agent-query` |
 | 域名/IP 查询 | `GET /api/user-panel/target-query` |
 
