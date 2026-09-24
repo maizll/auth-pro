@@ -111,4 +111,15 @@ https://github.com/maizll/auth-pro/releases/latest/download/latest.json
 
 ## 完整性边界
 
-当前更新链路校验压缩包大小和 SHA256，不校验离线数字签名。SHA256 可以发现下载损坏，但仓库或 Release 发布权限一旦被攻破，攻击者仍可同时替换更新包和校验值。请严格控制仓库管理员、私人令牌和 Release 发布权限。
+在线更新同时核对两件事：
+
+1. 压缩包大小和 SHA256。SHA256 可以发现下载损坏。
+2. `latest.json` 的 `package.signature` 必须是 `sha256:<64 位十六进制>`，并且与包的 SHA256 一致。应用更新时，客户端再向固定地址 `https://api.github.com/repos/maizll/auth-pro/releases/tags/vX.Y.Z` 读取同名附件的 `digest`。摘要缺失、与本地哈希不一致，或清单签名为空/错误，都会拒绝安装。
+
+因此只改镜像上的 `latest.json`（同时改下载地址和 SHA256）不能通过应用。自定义 `AUTO_PRO_UPDATE_URL` 仍可作为 HTTPS 镜像，但包内容必须与 `maizll/auth-pro` 上该版本附件的 GitHub 摘要一致，并且应用时要能访问 `api.github.com`。
+
+发布脚本会把 `package.signature` 写成 `sha256:` 加包的 SHA256。GitHub 上传附件后计算的 `digest` 与这个值相同。下一次打 `vX.Y.Z` 标签发布时会带上该字段。签名为空的历史 `latest.json` 不能被已包含本校验的实例继续在线安装。
+
+非 `current` 符号链接的网站目录会先把新前端复制到同级暂存目录，再改名切换；拷贝失败不会改正在服务的目录。名为 `current` 或本身是符号链接的安装仍写入 `releases/<版本>` 后切换链接。后端二进制仍先复制到 `*.next.<时间>`，再 `mv` 覆盖原文件。
+
+仓库或 Release 发布权限一旦被攻破，攻击者仍可上传新的附件并由 GitHub 计算新摘要。请严格控制仓库管理员、私人令牌和 Release 发布权限。

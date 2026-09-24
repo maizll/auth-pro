@@ -36,6 +36,7 @@ const (
 )
 
 var onlineUpdateVersionPattern = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
+var onlineUpdateDigestPattern = regexp.MustCompile(`(?i)^sha256:[a-f0-9]{64}$`)
 
 type onlineUpdatePackage struct {
 	OS        string `json:"os"`
@@ -108,6 +109,13 @@ type onlineUpdateStore struct {
 }
 
 var updateStore = &onlineUpdateStore{jobs: make(map[string]*onlineUpdateJob)}
+
+// 应用阶段的下载和摘要查询可以在测试里替换。默认仍走真实下载，
+// 并用钉死的 GitHub Release API 核对附件 digest。
+var (
+	downloadOnlineUpdatePackageForApply = downloadOnlineUpdatePackage
+	fetchOnlineUpdateAssetDigest        = fetchGitHubReleaseAssetDigest
+)
 
 var updateReleasesCache struct {
 	mu    sync.Mutex
@@ -965,7 +973,54 @@ func validateOnlineUpdateManifest(manifest *onlineUpdateManifest) error {
 	if manifest.Package.Size > maxOnlineUpdatePackageSize {
 		return errors.New("更新包超过 512MB 限制")
 	}
+	if err := validateOnlineUpdateSignature(manifest); err != nil {
+		return err
+	}
+	if err := requireOnlineUpdatePackageFileName(manifest.Version, manifest.Package.FileName); err != nil {
+		return err
+	}
 	return nil
+}
+
+func onlineUpdatePackageFileName(version string) (string, error) {
+	parts, ok := parseOnlineUpdateVersion(version)
+	if !ok || len(parts) != 3 {
+		return "", errors.New("更新包版本号无法用于核对 GitHub 发布摘要")
+	}
+	return fmt.Sprintf("auth_pro-full-v%d.%d.%d.tar.gz", parts[0], parts[1], parts[2]), nil
+}
+
+func requireOnlineUpdatePackageFileName(version, fileName string) error {
+	expected, err := onlineUpdatePackageFileName(version)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(fileName) != expected {
+		return errors.New("更新包文件名与版本不一致")
+	}
+	return nil
+}
+
+// validateOnlineUpdateSignature 要求清单签名等于 sha256:<包哈希>。
+// 这个字段和 SHA256 在同一份 JSON 里，不能单独当作防篡改；应用时还要对照
+// maizll/auth-pro 发行版附件上由 GitHub 计算的 digest。
+func validateOnlineUpdateSignature(manifest *onlineUpdateManifest) error {
+	if manifest == nil {
+		return errors.New("更新包缺少独立签名")
+	}
+	signature := strings.TrimSpace(manifest.Package.Signature)
+	if signature == "" {
+		return errors.New("更新包缺少独立签名")
+	}
+	expected := onlineUpdateSignatureForSHA256(manifest.Package.SHA256)
+	if !onlineUpdateDigestPattern.MatchString(signature) || !strings.EqualFold(signature, expected) {
+		return errors.New("更新包签名与 SHA256 不一致")
+	}
+	return nil
+}
+
+func onlineUpdateSignatureForSHA256(sum string) string {
+	return "sha256:" + strings.ToLower(strings.TrimSpace(sum))
 }
 
 func evaluateOnlineUpdateCheck(currentVersion string, manifest *onlineUpdateManifest) (bool, string, error, bool) {
@@ -1296,17 +1351,21 @@ func executeOnlineUpdate(jobID string, manifest *onlineUpdateManifest) error {
 	if !manifest.Actions.UpdateFrontend || !manifest.Actions.UpdateBackend {
 		return errors.New("方案二要求更新包同时包含前端和后端")
 	}
-	if manifest.Package.Signature != "" {
-		appendOnlineUpdateLog(jobID, "检测到签名字段，当前版本使用 SHA256 校验")
+	if err := validateOnlineUpdateSignature(manifest); err != nil {
+		return err
 	}
 
 	updateOnlineUpdateProgress(jobID, 5, "正在准备更新")
 	appendOnlineUpdateLog(jobID, "开始下载更新包")
 	updateOnlineUpdateProgress(jobID, 10, "开始下载更新包")
-	packagePath, err := downloadOnlineUpdatePackage(jobID, manifest)
+	packagePath, err := downloadOnlineUpdatePackageForApply(jobID, manifest)
 	if err != nil {
 		return err
 	}
+	if err := verifyDownloadedOnlineUpdatePackage(manifest, packagePath); err != nil {
+		return err
+	}
+	appendOnlineUpdateLog(jobID, "已核对更新包签名与 GitHub 发布资产摘要")
 	appendOnlineUpdateLog(jobID, "更新包下载完成")
 	updateOnlineUpdateProgress(jobID, 50, "更新包下载完成")
 
@@ -1463,6 +1522,131 @@ func downloadOnlineUpdatePackageWithClient(jobID string, manifest *onlineUpdateM
 		return "", fmt.Errorf("更新包 SHA256 不一致，期望 %s，实际 %s", manifest.Package.SHA256, actualSHA256)
 	}
 	return target, nil
+}
+
+func verifyDownloadedOnlineUpdatePackage(manifest *onlineUpdateManifest, packagePath string) error {
+	sum, err := hashOnlineUpdateFile(packagePath)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(sum, manifest.Package.SHA256) {
+		return fmt.Errorf("更新包 SHA256 不一致，期望 %s，实际 %s", manifest.Package.SHA256, sum)
+	}
+	if !strings.EqualFold(strings.TrimSpace(manifest.Package.Signature), onlineUpdateSignatureForSHA256(sum)) {
+		return errors.New("更新包签名与 SHA256 不一致")
+	}
+	return confirmOnlineUpdateTrustedDigest(manifest.Version, manifest.Package.FileName, sum)
+}
+
+func hashOnlineUpdateFile(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("读取更新包失败：%w", err)
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", fmt.Errorf("读取更新包失败：%w", err)
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func confirmOnlineUpdateTrustedDigest(version, fileName, actualSHA256 string) error {
+	if err := requireOnlineUpdatePackageFileName(version, fileName); err != nil {
+		return err
+	}
+	digest, err := fetchOnlineUpdateAssetDigest(version, fileName)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(strings.TrimSpace(digest), onlineUpdateSignatureForSHA256(actualSHA256)) {
+		return errors.New("更新包签名与 GitHub 发布资产摘要不一致")
+	}
+	return nil
+}
+
+func onlineUpdateGitHubReleaseTagURL(version string) (string, error) {
+	parts, ok := parseOnlineUpdateVersion(version)
+	if !ok || len(parts) != 3 {
+		return "", errors.New("更新包版本号无法用于核对 GitHub 发布摘要")
+	}
+	return fmt.Sprintf("https://api.github.com/repos/maizll/auth-pro/releases/tags/v%d.%d.%d", parts[0], parts[1], parts[2]), nil
+}
+
+func safeOnlineUpdateAssetName(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	return !strings.ContainsAny(name, `/\`)
+}
+
+func fetchGitHubReleaseAssetDigest(version, fileName string) (string, error) {
+	if !safeOnlineUpdateAssetName(fileName) {
+		return "", errors.New("更新包文件名无法用于核对 GitHub 发布摘要")
+	}
+	rawURL, err := onlineUpdateGitHubReleaseTagURL(version)
+	if err != nil {
+		return "", err
+	}
+	client, err := newOnlineUpdateHTTPClient(rawURL, 15*time.Second)
+	if err != nil {
+		return "", err
+	}
+	request, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("Cache-Control", "no-cache")
+	request.Header.Set("User-Agent", "auth_pro-updater/"+config.AppVersion)
+
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("核对 GitHub 发布资产摘要失败：%w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub 发布资产摘要接口返回状态码 %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 2<<20))
+	if err != nil {
+		return "", errors.New("读取 GitHub 发布资产摘要失败")
+	}
+	return gitHubReleaseAssetDigest(body, fileName)
+}
+
+func gitHubReleaseAssetDigest(body []byte, fileName string) (string, error) {
+	var release struct {
+		Assets []struct {
+			Name   string `json:"name"`
+			Digest string `json:"digest"`
+		} `json:"assets"`
+	}
+	if err := json.Unmarshal(body, &release); err != nil {
+		return "", errors.New("GitHub 发布资产摘要格式不正确")
+	}
+	found := ""
+	for _, asset := range release.Assets {
+		if asset.Name != fileName {
+			continue
+		}
+		digest := strings.TrimSpace(asset.Digest)
+		if !onlineUpdateDigestPattern.MatchString(digest) {
+			return "", errors.New("GitHub 发布资产缺少摘要")
+		}
+		if found == "" {
+			found = digest
+			continue
+		}
+		if !strings.EqualFold(found, digest) {
+			return "", errors.New("GitHub 发布资产摘要不一致")
+		}
+	}
+	if found == "" {
+		return "", errors.New("GitHub 发布资产缺少更新包")
+	}
+	return found, nil
 }
 
 func extractOnlineUpdatePackage(jobID string, packagePath string) (string, error) {
@@ -1733,6 +1917,11 @@ func writeOnlineUpdateScript(jobID string, stagingDir string, pkg *extractedOnli
 	script := fmt.Sprintf(`#!/bin/sh
 set -u
 
+FRONTEND_ONLY=0
+if [ "${1:-}" = "--frontend-only" ]; then
+  FRONTEND_ONLY=1
+fi
+
 APP_PID=%d
 APP_BIN=%s
 NEW_BIN=%s
@@ -1754,17 +1943,18 @@ finish_job() {
   mv -f "$JOB_RESULT.tmp" "$JOB_RESULT"
 }
 
-sleep 2
+if [ "$FRONTEND_ONLY" != "1" ]; then
+  sleep 2
+fi
 TS=$(date '+%%Y%%m%%d%%H%%M%%S')
 USE_SYSTEMD=0
 if command -v systemctl >/dev/null 2>&1 && systemctl cat "$SERVICE_NAME" >/dev/null 2>&1; then
   USE_SYSTEMD=1
 fi
 
-FRONTEND_MODE="inplace"
+FRONTEND_MODE=""
 PREV_FRONTEND_TARGET=""
 FRONTEND_BACKUP=""
-FRONTEND_ROOT=""
 TARGET_RELEASE=""
 if [ ! -d "$FRONTEND_CURRENT" ] && [ ! -L "$FRONTEND_CURRENT" ]; then
   log "frontend directory not found: $FRONTEND_CURRENT"
@@ -1779,7 +1969,13 @@ if [ -L "$FRONTEND_CURRENT" ] || [ "$(basename "$FRONTEND_CURRENT")" = "current"
   TARGET_RELEASE="$RELEASES/$VERSION"
   mkdir -p "$RELEASES" || { finish_job failed; exit 1; }
   rm -rf "$TARGET_RELEASE"
-  cp -a "$FRONTEND_SOURCE" "$TARGET_RELEASE" || { finish_job failed; exit 1; }
+  cp -a "$FRONTEND_SOURCE" "$TARGET_RELEASE" || { rm -rf "$TARGET_RELEASE"; finish_job failed; exit 1; }
+  if [ ! -f "$TARGET_RELEASE/index.html" ]; then
+    rm -rf "$TARGET_RELEASE"
+    log "staged frontend missing index.html"
+    finish_job failed
+    exit 1
+  fi
   if [ -L "$FRONTEND_CURRENT" ]; then
     PREV_FRONTEND_TARGET=$(readlink "$FRONTEND_CURRENT" || true)
     rm -f "$FRONTEND_CURRENT"
@@ -1787,30 +1983,53 @@ if [ -L "$FRONTEND_CURRENT" ] || [ "$(basename "$FRONTEND_CURRENT")" = "current"
     FRONTEND_BACKUP="$FRONT_ROOT/current.backup.$TS"
     mv "$FRONTEND_CURRENT" "$FRONTEND_BACKUP" || { finish_job failed; exit 1; }
   fi
-  ln -s "$TARGET_RELEASE" "$FRONTEND_CURRENT" || { finish_job failed; exit 1; }
+  ln -s "$TARGET_RELEASE" "$FRONTEND_CURRENT" || {
+    if [ -n "$PREV_FRONTEND_TARGET" ]; then
+      ln -s "$PREV_FRONTEND_TARGET" "$FRONTEND_CURRENT" || true
+    elif [ -n "$FRONTEND_BACKUP" ] && [ -d "$FRONTEND_BACKUP" ]; then
+      mv "$FRONTEND_BACKUP" "$FRONTEND_CURRENT" || true
+    fi
+    finish_job failed
+    exit 1
+  }
   log "frontend release switched to $TARGET_RELEASE"
 else
-  FRONTEND_ROOT="$FRONTEND_CURRENT"
-  FRONTEND_BACKUP="${FRONTEND_ROOT}.backup.$TS"
-  mkdir -p "$FRONTEND_BACKUP" || { finish_job failed; exit 1; }
-  for item in index.html version.json favicon.ico manifest.json; do
-    if [ -e "$FRONTEND_ROOT/$item" ] || [ -L "$FRONTEND_ROOT/$item" ]; then
-      cp -a "$FRONTEND_ROOT/$item" "$FRONTEND_BACKUP/" || { finish_job failed; exit 1; }
-    fi
-  done
-  if [ -d "$FRONTEND_SOURCE/assets" ]; then
-    mkdir -p "$FRONTEND_ROOT/assets" || { finish_job failed; exit 1; }
-    cp -a "$FRONTEND_SOURCE/assets/." "$FRONTEND_ROOT/assets/" || { finish_job failed; exit 1; }
+  FRONTEND_MODE="rename"
+  STAGING="${FRONTEND_CURRENT}.staging.$TS"
+  FRONTEND_BACKUP="${FRONTEND_CURRENT}.backup.$TS"
+  rm -rf "$STAGING"
+  cp -a "$FRONTEND_SOURCE" "$STAGING" || {
+    rm -rf "$STAGING"
+    log "frontend staging copy failed"
+    finish_job failed
+    exit 1
+  }
+  if [ ! -f "$STAGING/index.html" ]; then
+    rm -rf "$STAGING"
+    log "staged frontend missing index.html"
+    finish_job failed
+    exit 1
   fi
-  for item in favicon.ico manifest.json version.json; do
-    if [ -f "$FRONTEND_SOURCE/$item" ]; then
-      cp "$FRONTEND_SOURCE/$item" "$FRONTEND_ROOT/$item.next.$TS" || { finish_job failed; exit 1; }
-      mv -f "$FRONTEND_ROOT/$item.next.$TS" "$FRONTEND_ROOT/$item" || { finish_job failed; exit 1; }
-    fi
-  done
-  cp "$FRONTEND_SOURCE/index.html" "$FRONTEND_ROOT/index.html.next.$TS" || { finish_job failed; exit 1; }
-  mv -f "$FRONTEND_ROOT/index.html.next.$TS" "$FRONTEND_ROOT/index.html" || { finish_job failed; exit 1; }
-  log "frontend files switched in place at $FRONTEND_ROOT"
+  mv "$FRONTEND_CURRENT" "$FRONTEND_BACKUP" || {
+    rm -rf "$STAGING"
+    log "frontend live directory could not be moved aside"
+    finish_job failed
+    exit 1
+  }
+  mv "$STAGING" "$FRONTEND_CURRENT" || {
+    mv "$FRONTEND_BACKUP" "$FRONTEND_CURRENT" || true
+    rm -rf "$STAGING"
+    log "frontend staged directory could not be switched into place"
+    finish_job failed
+    exit 1
+  }
+  log "frontend switched by rename at $FRONTEND_CURRENT"
+fi
+
+if [ "$FRONTEND_ONLY" = "1" ]; then
+  log "frontend switch completed"
+  finish_job success
+  exit 0
 fi
 
 BACKUP_BIN="$APP_BIN.backup.$TS"
@@ -1818,6 +2037,22 @@ APP_STAGE="$APP_BIN.next.$TS"
 STARTED_PID=""
 
 rollback_frontend() {
+  if [ "$FRONTEND_MODE" = "rename" ]; then
+    if [ -d "$FRONTEND_BACKUP" ]; then
+      FAILED_FRONTEND="${FRONTEND_CURRENT}.failed.$TS"
+      if [ -e "$FRONTEND_CURRENT" ] || [ -L "$FRONTEND_CURRENT" ]; then
+        mv "$FRONTEND_CURRENT" "$FAILED_FRONTEND" || true
+      fi
+      if ! mv "$FRONTEND_BACKUP" "$FRONTEND_CURRENT"; then
+        if [ -e "$FAILED_FRONTEND" ] || [ -L "$FAILED_FRONTEND" ]; then
+          mv "$FAILED_FRONTEND" "$FRONTEND_CURRENT" || true
+        fi
+      else
+        rm -rf "$FAILED_FRONTEND"
+      fi
+    fi
+    return
+  fi
   if [ "$FRONTEND_MODE" = "release" ]; then
     if [ -n "$PREV_FRONTEND_TARGET" ]; then
       rm -f "$FRONTEND_CURRENT"
@@ -1826,16 +2061,7 @@ rollback_frontend() {
       rm -f "$FRONTEND_CURRENT"
       mv "$FRONTEND_BACKUP" "$FRONTEND_CURRENT"
     fi
-    return
   fi
-  for item in index.html version.json favicon.ico manifest.json; do
-    if [ -e "$FRONTEND_BACKUP/$item" ] || [ -L "$FRONTEND_BACKUP/$item" ]; then
-      cp -a "$FRONTEND_BACKUP/$item" "$FRONTEND_ROOT/$item.rollback.$TS" || true
-      mv -f "$FRONTEND_ROOT/$item.rollback.$TS" "$FRONTEND_ROOT/$item" || true
-    else
-      rm -f "$FRONTEND_ROOT/$item"
-    fi
-  done
 }
 
 if [ ! -f "$NEW_BIN" ]; then

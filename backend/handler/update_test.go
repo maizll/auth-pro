@@ -1,6 +1,11 @@
 package handler
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -28,12 +33,13 @@ func validOnlineUpdateManifestForTest() *onlineUpdateManifest {
 		Channel:    "stable",
 		MinVersion: "0.0.0",
 		Package: onlineUpdatePackage{
-			OS:       runtime.GOOS,
-			Arch:     runtime.GOARCH,
-			FileName: "auth_pro-full-v1.0.1.tar.gz",
-			URL:      "https://github.com/maizll/auth-pro/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz",
-			SHA256:   strings.Repeat("a", 64),
-			Size:     1024,
+			OS:        runtime.GOOS,
+			Arch:      runtime.GOARCH,
+			FileName:  "auth_pro-full-v1.0.1.tar.gz",
+			URL:       "https://github.com/maizll/auth-pro/releases/download/v1.0.1/auth_pro-full-v1.0.1.tar.gz",
+			SHA256:    strings.Repeat("a", 64),
+			Signature: "sha256:" + strings.Repeat("a", 64),
+			Size:      1024,
 		},
 		Actions: onlineUpdateActions{
 			UpdateFrontend: true,
@@ -724,15 +730,20 @@ func TestWriteOnlineUpdateScriptSupportsWebsiteRoot(t *testing.T) {
 	}
 	script := string(data)
 	for _, expected := range []string{
-		`FRONTEND_MODE="inplace"`,
-		`cp -a "$FRONTEND_SOURCE/assets/." "$FRONTEND_ROOT/assets/"`,
+		`FRONTEND_MODE="rename"`,
+		`cp -a "$FRONTEND_SOURCE" "$STAGING"`,
+		`mv "$STAGING" "$FRONTEND_CURRENT"`,
 		`mv -f "$APP_STAGE" "$APP_BIN"`,
 		`finish_job success`,
 		`rollback_frontend`,
+		`if [ "$FRONTEND_ONLY" = "1" ]; then`,
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("generated script missing %q", expected)
 		}
+	}
+	if strings.Contains(script, `cp -a "$FRONTEND_SOURCE/assets/." "$FRONTEND_ROOT/assets/"`) {
+		t.Fatal("generated script still copies assets into the live frontend directory")
 	}
 	if output, err := exec.Command(shell, "-n", scriptPath).CombinedOutput(); err != nil {
 		t.Fatalf("generated script syntax error: %v\n%s", err, output)
@@ -740,5 +751,488 @@ func TestWriteOnlineUpdateScriptSupportsWebsiteRoot(t *testing.T) {
 
 	if config.GetDataDir() != dataDir {
 		t.Fatalf("unexpected data directory: %s", config.GetDataDir())
+	}
+}
+
+func TestValidateOnlineUpdateManifestRejectsMissingOrWrongSignature(t *testing.T) {
+	t.Run("missing", func(t *testing.T) {
+		manifest := validOnlineUpdateManifestForTest()
+		manifest.Package.Signature = "  "
+		err := validateOnlineUpdateManifest(manifest)
+		if err == nil || !strings.Contains(err.Error(), "缺少独立签名") {
+			t.Fatalf("missing signature was accepted: %v", err)
+		}
+	})
+
+	t.Run("wrong", func(t *testing.T) {
+		manifest := validOnlineUpdateManifestForTest()
+		manifest.Package.Signature = "sha256:" + strings.Repeat("b", 64)
+		err := validateOnlineUpdateManifest(manifest)
+		if err == nil || !strings.Contains(err.Error(), "签名与 SHA256 不一致") {
+			t.Fatalf("wrong signature was accepted: %v", err)
+		}
+	})
+
+	t.Run("unrelated asset name", func(t *testing.T) {
+		manifest := validOnlineUpdateManifestForTest()
+		manifest.Package.FileName = "latest.json"
+		err := validateOnlineUpdateManifest(manifest)
+		if err == nil || !strings.Contains(err.Error(), "文件名与版本不一致") {
+			t.Fatalf("digest for another asset was accepted: %v", err)
+		}
+	})
+}
+
+func TestExecuteOnlineUpdateRejectsMissingSignature(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	restore := stubOnlineUpdateApply(t, func(string, *onlineUpdateManifest) (string, error) {
+		t.Fatal("download started without a signature")
+		return "", nil
+	}, func(string, string) (string, error) {
+		t.Fatal("digest lookup started without a signature")
+		return "", nil
+	})
+	defer restore()
+
+	manifest := validOnlineUpdateManifestForTest()
+	manifest.Package.Signature = ""
+	err := executeOnlineUpdate("job-missing-signature", manifest)
+	if err == nil || !strings.Contains(err.Error(), "缺少独立签名") {
+		t.Fatalf("missing signature was applied: %v", err)
+	}
+}
+
+func TestExecuteOnlineUpdateRejectsWrongSignature(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	restore := stubOnlineUpdateApply(t, func(string, *onlineUpdateManifest) (string, error) {
+		t.Fatal("download started with a wrong signature")
+		return "", nil
+	}, func(string, string) (string, error) {
+		t.Fatal("digest lookup started with a wrong signature")
+		return "", nil
+	})
+	defer restore()
+
+	manifest := validOnlineUpdateManifestForTest()
+	manifest.Package.Signature = "sha256:" + strings.Repeat("b", 64)
+	err := executeOnlineUpdate("job-wrong-signature", manifest)
+	if err == nil || !strings.Contains(err.Error(), "签名与 SHA256 不一致") {
+		t.Fatalf("wrong signature was applied: %v", err)
+	}
+}
+
+func TestExecuteOnlineUpdateRejectsMismatchedGitHubDigest(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	body := []byte("package-bytes-not-a-tar")
+	sum := sha256.Sum256(body)
+	hexSum := hex.EncodeToString(sum[:])
+	packagePath := filepath.Join(t.TempDir(), "pkg.tar.gz")
+	if err := os.WriteFile(packagePath, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := signedOnlineUpdateManifest(hexSum, int64(len(body)))
+	lookedUp := false
+	restore := stubOnlineUpdateApply(t, func(string, *onlineUpdateManifest) (string, error) {
+		return packagePath, nil
+	}, func(version, fileName string) (string, error) {
+		lookedUp = true
+		if version != manifest.Version || fileName != manifest.Package.FileName {
+			t.Fatalf("digest lookup = %s %s", version, fileName)
+		}
+		return "sha256:" + strings.Repeat("c", 64), nil
+	})
+	defer restore()
+
+	err := executeOnlineUpdate("job-digest-mismatch", manifest)
+	if err == nil || !strings.Contains(err.Error(), "GitHub 发布资产摘要不一致") {
+		t.Fatalf("mismatched GitHub digest was applied: %v", err)
+	}
+	if !lookedUp {
+		t.Fatal("apply did not check the GitHub release asset digest")
+	}
+}
+
+func TestExecuteOnlineUpdateAcceptsMatchingGitHubDigestBeforeExtract(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	body := []byte("package-bytes-not-a-tar")
+	sum := sha256.Sum256(body)
+	hexSum := hex.EncodeToString(sum[:])
+	packagePath := filepath.Join(t.TempDir(), "pkg.tar.gz")
+	if err := os.WriteFile(packagePath, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := signedOnlineUpdateManifest(hexSum, int64(len(body)))
+	restore := stubOnlineUpdateApply(t, func(string, *onlineUpdateManifest) (string, error) {
+		return packagePath, nil
+	}, func(string, string) (string, error) {
+		return "sha256:" + hexSum, nil
+	})
+	defer restore()
+
+	err := executeOnlineUpdate("job-digest-match", manifest)
+	if err == nil || strings.Contains(err.Error(), "签名") || strings.Contains(err.Error(), "摘要") {
+		t.Fatalf("matching GitHub digest was rejected: %v", err)
+	}
+	if !strings.Contains(err.Error(), "tar.gz") {
+		t.Fatalf("expected extract to run after signature verification, got %v", err)
+	}
+}
+
+func TestGitHubReleaseAssetDigest(t *testing.T) {
+	const digest = "sha256:61fc6304d53c5e7dd7a8aad205ce1ce6e75fc1ce9075ac9bc1fb6a140fedf6b4"
+	body := []byte(`{"assets":[{"name":"latest.json","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"name":"auth_pro-full-v1.5.2.tar.gz","digest":"` + digest + `"}]}`)
+	got, err := gitHubReleaseAssetDigest(body, "auth_pro-full-v1.5.2.tar.gz")
+	if err != nil || got != digest {
+		t.Fatalf("gitHubReleaseAssetDigest() = %q, %v", got, err)
+	}
+
+	if _, err := gitHubReleaseAssetDigest(body, "missing.tar.gz"); err == nil {
+		t.Fatal("missing asset was accepted")
+	}
+	empty := []byte(`{"assets":[{"name":"auth_pro-full-v1.5.2.tar.gz","digest":""}]}`)
+	if _, err := gitHubReleaseAssetDigest(empty, "auth_pro-full-v1.5.2.tar.gz"); err == nil || !strings.Contains(err.Error(), "缺少摘要") {
+		t.Fatalf("empty digest error = %v", err)
+	}
+	wrong := []byte(`{"assets":[{"name":"auth_pro-full-v1.5.2.tar.gz","digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]}`)
+	if _, err := gitHubReleaseAssetDigest(wrong, "auth_pro-full-v1.5.2.tar.gz"); err != nil {
+		t.Fatal(err)
+	}
+
+	rawURL, err := onlineUpdateGitHubReleaseTagURL("v1.5.2")
+	if err != nil || rawURL != "https://api.github.com/repos/maizll/auth-pro/releases/tags/v1.5.2" {
+		t.Fatalf("digest URL = %q, %v", rawURL, err)
+	}
+	if _, err := onlineUpdateGitHubReleaseTagURL("1.5.2/../../other"); err == nil {
+		t.Fatal("unsafe version was accepted in the digest URL")
+	}
+	if safeOnlineUpdateAssetName("../latest.json") || safeOnlineUpdateAssetName("dir/pkg.tar.gz") {
+		t.Fatal("unsafe asset name was accepted")
+	}
+}
+
+func TestExtractOnlineUpdatePackageRejectsTraversalAndSymlink(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AUTO_PRO_DATA_DIR", dataDir)
+	outside := filepath.Join(dataDir, "outside.txt")
+
+	t.Run("parent path", func(t *testing.T) {
+		packagePath := writeOnlineUpdateTar(t, tarEntry{name: "../outside.txt", body: "escaped"})
+		if _, err := extractOnlineUpdatePackage("slip-parent", packagePath); err == nil {
+			t.Fatal("parent path was extracted")
+		}
+		if _, err := os.Stat(outside); !os.IsNotExist(err) {
+			t.Fatalf("escaped file exists: %v", err)
+		}
+	})
+
+	t.Run("absolute path", func(t *testing.T) {
+		packagePath := writeOnlineUpdateTar(t, tarEntry{name: "/tmp/auth-pro-update-escape.txt", body: "escaped"})
+		if _, err := extractOnlineUpdatePackage("slip-absolute", packagePath); err == nil {
+			t.Fatal("absolute path was extracted")
+		}
+	})
+
+	t.Run("symlink", func(t *testing.T) {
+		packagePath := writeOnlineUpdateTar(t, tarEntry{name: "link", body: "../outside.txt", typeflag: tar.TypeSymlink})
+		if _, err := extractOnlineUpdatePackage("slip-symlink", packagePath); err == nil {
+			t.Fatal("symlink was extracted")
+		}
+		linkPath := filepath.Join(config.GetUpdateDir(), "slip-symlink", "staging", "link")
+		if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
+			t.Fatalf("symlink was created: %v", err)
+		}
+	})
+}
+
+func TestOnlineUpdateFrontendCopyFailurePreservesLiveTree(t *testing.T) {
+	shell, err := exec.LookPath("/bin/sh")
+	if err != nil {
+		t.Skip("/bin/sh is not available")
+	}
+	root := t.TempDir()
+	liveDir := filepath.Join(root, "site")
+	sourceDir := filepath.Join(root, "incoming")
+	dataDir := filepath.Join(root, "data")
+	writeFrontendTree(t, liveDir, "old-index", "old-asset")
+	writeFrontendTree(t, sourceDir, "new-index", "new-asset")
+	if err := os.WriteFile(filepath.Join(sourceDir, "assets", "extra.js"), []byte("extra"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTO_PRO_DATA_DIR", dataDir)
+	t.Setenv("AUTO_PRO_SERVICE_NAME", "auth_pro_test")
+
+	scriptPath := writeFrontendSwitchScript(t, sourceDir, liveDir, "1.2.3")
+	script, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireFrontendOnlyGuard(t, string(script))
+
+	wrapperDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(wrapperDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	wrapper := `#!/bin/sh
+live=$ONLINE_UPDATE_LIVE_DIR
+dest=
+for arg in "$@"; do
+  case "$arg" in
+    -*) ;;
+    *) dest=$arg ;;
+  esac
+done
+case "$dest" in
+  "$live"|"$live"/*)
+    /bin/cp "$@"
+    echo "copy into live frontend failed" >&2
+    exit 1
+    ;;
+  "$live".staging.*)
+    /bin/cp "$@"
+    echo "staging copy failed" >&2
+    exit 1
+    ;;
+esac
+exec /bin/cp "$@"
+`
+	if err := os.WriteFile(filepath.Join(wrapperDir, "cp"), []byte(wrapper), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(shell, scriptPath, "--frontend-only")
+	cmd.Env = append(os.Environ(),
+		"PATH="+wrapperDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"ONLINE_UPDATE_LIVE_DIR="+liveDir,
+	)
+	output, runErr := cmd.CombinedOutput()
+	if runErr == nil {
+		t.Fatalf("copy failure was treated as success\n%s", output)
+	}
+	assertFrontendTree(t, liveDir, "old-index", "old-asset")
+	if _, err := os.Stat(filepath.Join(liveDir, "assets", "extra.js")); !os.IsNotExist(err) {
+		t.Fatalf("new asset leaked into the live tree: %v", err)
+	}
+	if info, err := os.Lstat(liveDir); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("live frontend is no longer a directory: %v", err)
+	}
+	for _, pattern := range []string{liveDir + ".backup.*", liveDir + ".staging.*"} {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(matches) != 0 {
+			t.Fatalf("failed copy left %v", matches)
+		}
+	}
+}
+
+func TestOnlineUpdateFrontendRenameSwitch(t *testing.T) {
+	shell, err := exec.LookPath("/bin/sh")
+	if err != nil {
+		t.Skip("/bin/sh is not available")
+	}
+	root := t.TempDir()
+	liveDir := filepath.Join(root, "site")
+	sourceDir := filepath.Join(root, "incoming")
+	dataDir := filepath.Join(root, "data")
+	writeFrontendTree(t, liveDir, "old-index", "old-asset")
+	writeFrontendTree(t, sourceDir, "new-index", "new-asset")
+	if err := os.WriteFile(filepath.Join(sourceDir, "assets", "extra.js"), []byte("extra"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTO_PRO_DATA_DIR", dataDir)
+	t.Setenv("AUTO_PRO_SERVICE_NAME", "auth_pro_test")
+
+	scriptPath := writeFrontendSwitchScript(t, sourceDir, liveDir, "1.2.3")
+	script, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireFrontendOnlyGuard(t, string(script))
+	if output, err := exec.Command(shell, scriptPath, "--frontend-only").CombinedOutput(); err != nil {
+		t.Fatalf("frontend switch failed: %v\n%s", err, output)
+	}
+
+	assertFrontendTree(t, liveDir, "new-index", "new-asset")
+	extra, err := os.ReadFile(filepath.Join(liveDir, "assets", "extra.js"))
+	if err != nil || string(extra) != "extra" {
+		t.Fatalf("switched frontend missing new asset: %q %v", extra, err)
+	}
+	backups, err := filepath.Glob(liveDir + ".backup.*")
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("previous frontend backup = %v, %v", backups, err)
+	}
+	assertFrontendTree(t, backups[0], "old-index", "old-asset")
+	if _, err := os.Stat(filepath.Join(backups[0], "assets", "extra.js")); !os.IsNotExist(err) {
+		t.Fatalf("previous frontend contains the new asset: %v", err)
+	}
+}
+
+func TestOnlineUpdateSymlinkReleaseSwitch(t *testing.T) {
+	shell, err := exec.LookPath("/bin/sh")
+	if err != nil {
+		t.Skip("/bin/sh is not available")
+	}
+	root := t.TempDir()
+	frontRoot := filepath.Join(root, "frontend")
+	previous := filepath.Join(frontRoot, "releases", "1.0.0")
+	current := filepath.Join(frontRoot, "current")
+	sourceDir := filepath.Join(root, "incoming")
+	dataDir := filepath.Join(root, "data")
+	writeFrontendTree(t, previous, "old-index", "old-asset")
+	if err := os.Symlink(previous, current); err != nil {
+		t.Fatal(err)
+	}
+	writeFrontendTree(t, sourceDir, "new-index", "new-asset")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTO_PRO_DATA_DIR", dataDir)
+	t.Setenv("AUTO_PRO_SERVICE_NAME", "auth_pro_test")
+
+	scriptPath := writeFrontendSwitchScript(t, sourceDir, current, "1.2.3")
+	script, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireFrontendOnlyGuard(t, string(script))
+	if output, err := exec.Command(shell, scriptPath, "--frontend-only").CombinedOutput(); err != nil {
+		t.Fatalf("symlink switch failed: %v\n%s", err, output)
+	}
+
+	info, err := os.Lstat(current)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("current is no longer a symlink: %v", err)
+	}
+	assertFrontendTree(t, current, "new-index", "new-asset")
+	assertFrontendTree(t, previous, "old-index", "old-asset")
+	target, err := os.Readlink(current)
+	if err != nil || !strings.Contains(target, "1.2.3") {
+		t.Fatalf("current target = %q, %v", target, err)
+	}
+}
+
+func signedOnlineUpdateManifest(hexSum string, size int64) *onlineUpdateManifest {
+	manifest := validOnlineUpdateManifestForTest()
+	manifest.Package.SHA256 = hexSum
+	manifest.Package.Signature = "sha256:" + hexSum
+	manifest.Package.Size = size
+	return manifest
+}
+
+func stubOnlineUpdateApply(t *testing.T, download func(string, *onlineUpdateManifest) (string, error), digest func(string, string) (string, error)) func() {
+	t.Helper()
+	previousDownload := downloadOnlineUpdatePackageForApply
+	previousDigest := fetchOnlineUpdateAssetDigest
+	downloadOnlineUpdatePackageForApply = download
+	fetchOnlineUpdateAssetDigest = digest
+	return func() {
+		downloadOnlineUpdatePackageForApply = previousDownload
+		fetchOnlineUpdateAssetDigest = previousDigest
+	}
+}
+
+type tarEntry struct {
+	name     string
+	body     string
+	typeflag byte
+}
+
+func writeOnlineUpdateTar(t *testing.T, entry tarEntry) string {
+	t.Helper()
+	var buf bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buf)
+	tarWriter := tar.NewWriter(gzipWriter)
+	header := &tar.Header{Name: entry.name, Mode: 0644, Size: int64(len(entry.body))}
+	if entry.typeflag == 0 {
+		header.Typeflag = tar.TypeReg
+	} else {
+		header.Typeflag = entry.typeflag
+	}
+	if header.Typeflag == tar.TypeSymlink {
+		header.Linkname = entry.body
+		header.Size = 0
+	}
+	if err := tarWriter.WriteHeader(header); err != nil {
+		t.Fatal(err)
+	}
+	if header.Typeflag == tar.TypeReg {
+		if _, err := tarWriter.Write([]byte(entry.body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	packagePath := filepath.Join(t.TempDir(), "update.tar.gz")
+	if err := os.WriteFile(packagePath, buf.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return packagePath
+}
+
+func writeFrontendTree(t *testing.T, dir, indexBody, assetBody string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(indexBody), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "assets", "app.js"), []byte(assetBody), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertFrontendTree(t *testing.T, dir, indexBody, assetBody string) {
+	t.Helper()
+	index, err := os.ReadFile(filepath.Join(dir, "index.html"))
+	if err != nil || string(index) != indexBody {
+		t.Fatalf("index.html = %q, %v", index, err)
+	}
+	asset, err := os.ReadFile(filepath.Join(dir, "assets", "app.js"))
+	if err != nil || string(asset) != assetBody {
+		t.Fatalf("assets/app.js = %q, %v", asset, err)
+	}
+}
+
+func writeFrontendSwitchScript(t *testing.T, sourceDir, liveDir, version string) string {
+	t.Helper()
+	stagingDir := filepath.Join(filepath.Dir(sourceDir), "package")
+	if err := os.MkdirAll(filepath.Join(stagingDir, "backend"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stagingDir, "backend", "auth_pro"), []byte("binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath, err := writeOnlineUpdateScript(
+		"U-frontend-"+version,
+		stagingDir,
+		&extractedOnlineUpdateManifest{BackendFile: "backend/auth_pro"},
+		sourceDir,
+		version,
+		liveDir,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return scriptPath
+}
+
+func requireFrontendOnlyGuard(t *testing.T, script string) {
+	t.Helper()
+	guard := strings.Index(script, `if [ "$FRONTEND_ONLY" = "1" ]; then`)
+	kill := strings.Index(script, `kill "$APP_PID"`)
+	if guard < 0 || kill < 0 || guard > kill {
+		t.Fatal("generated script must finish frontend-only before stopping the process")
 	}
 }
