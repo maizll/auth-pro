@@ -15,6 +15,9 @@ auth_pro-full-v1.5.0.tar.gz
 │   └── ...
 ├── backend/
 │   └── auth_pro
+├── scripts/
+│   ├── baota-install.sh
+│   └── baota-upgrade.sh
 └── manifest.json
 ```
 
@@ -39,10 +42,34 @@ auth_pro-full-v1.5.0.tar.gz
 ├── assets/
 ├── backend/
 │   └── auth_pro
+├── scripts/
+│   ├── baota-install.sh
+│   └── baota-upgrade.sh
 └── manifest.json
 ```
 
 这样浏览器请求 `/assets/index-xxxx.js` 时会命中真实文件，不会 fallback 到 `index.html`。
+
+## 宝塔一键安装 / 升级
+
+解压发布包到网站根后，可用包内脚本代替手动 `chmod`、进程守护、Nginx 反代与伪静态配置：
+
+```bash
+# 安装（SITE_ROOT + 可选 PORT，默认 19127）
+bash /www/wwwroot/example.com/scripts/baota-install.sh /www/wwwroot/example.com 19127
+
+# 升级（可选传入新包路径；会备份并保留 db.json / install.lock / jwt.secret）
+bash /www/wwwroot/example.com/scripts/baota-upgrade.sh /www/wwwroot/example.com 19127 /tmp/auth_pro-full-v1.4.2.tar.gz
+```
+
+脚本会：
+
+- 校验 `index.html` 与 `backend/auth_pro` 布局，并为二进制 `chmod +x`
+- 检测端口占用并给出中文处理说明（不自动杀进程、不反复拉起）
+- 打印可粘贴的 Nginx 整站反代 + 拦截 `/backend` 与敏感文件名规则
+- 有 root/sudo 时写入 `auth-pro.service`；否则打印宝塔「进程守护管理器」字段
+- **不会**生成 MySQL 凭据；打开域名走安装向导即可
+- 仓库源文件在 `scripts/baota-install.sh` / `scripts/baota-upgrade.sh`，`build-release` 会打进 `auth_pro-full-*.tar.gz`
 
 **二进制只会从这个盘上目录提供前端。** 解压必须让 `index.html` 落在进程将解析到的根上（宝塔网站根，或 `AUTO_PRO_FRONTEND_DIR` / `data/frontend/current`）。缺文件时进程 **启动失败** 或对页面返回 **503 + 版本号**，不会静默改走 `go:embed static` 里的旧页。开发机引导才可设 `AUTO_PRO_ALLOW_EMBEDDED_FRONTEND=1`。启动日志会打印 `frontend root: mode=disk|embed` 以及 `index.html` 指纹 / 资源名。
 

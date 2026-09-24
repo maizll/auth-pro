@@ -89,7 +89,7 @@ try {
   Pop-Location
 }
 
-Write-Host "[4/5] Writing manifest..."
+Write-Host "[4/5] Writing manifest and Baota helper scripts..."
 $Manifest = @{
   version = $Version
   frontendDir = '.'
@@ -99,6 +99,11 @@ $Manifest = @{
 $ManifestPath = Join-Path $PackageDir 'manifest.json'
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($ManifestPath, $Manifest + [Environment]::NewLine, $Utf8NoBom)
+
+$PackageScriptsDir = Join-Path $PackageDir 'scripts'
+New-Item -ItemType Directory -Force -Path $PackageScriptsDir | Out-Null
+Copy-Item -LiteralPath (Join-Path $Root 'scripts/baota-install.sh') -Destination (Join-Path $PackageScriptsDir 'baota-install.sh') -Force
+Copy-Item -LiteralPath (Join-Path $Root 'scripts/baota-upgrade.sh') -Destination (Join-Path $PackageScriptsDir 'baota-upgrade.sh') -Force
 
 Write-Host "[5/5] Creating tar.gz package and latest.json..."
 if (Test-Path $PackagePath) {
