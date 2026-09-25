@@ -147,12 +147,12 @@ func AdminUserCreate(c *gin.Context) {
 	}
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	
+
 	balance := 0.0
 	if req.Balance != nil {
 		balance = *req.Balance
 	}
-	
+
 	_, err = db.Exec("INSERT INTO users (email, password_hash, nickname, balance) VALUES (?, ?, ?, ?)",
 		req.Email, string(hash), req.Nickname, balance)
 	if err != nil {
@@ -239,6 +239,11 @@ func AdminUserUpdate(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更新失败"})
 		return
+	}
+	if req.Password != "" {
+		if ownerID, convErr := strconv.ParseInt(id, 10, 64); convErr == nil {
+			maybeRevokeBindingsAfterPassword(db, "user", ownerID)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "更新成功"})

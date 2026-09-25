@@ -708,7 +708,7 @@ func (store *memorySourceStore) SetPluginStatus(id, status, actor, note string) 
 		return sourcePlugin{}, errSourceInvalidStatus
 	}
 	if status == sourceItemPublished {
-		if err := paidPublishError(item.PriceCents, item.DownloadURL); err != nil {
+		if err := paidPublishError(item.DeveloperID, item.PriceCents, item.Delivery, item.DownloadURL); err != nil {
 			return sourcePlugin{}, err
 		}
 	}
@@ -716,7 +716,7 @@ func (store *memorySourceStore) SetPluginStatus(id, status, actor, note string) 
 		return sourcePlugin{}, err
 	}
 	item = store.plugins[id]
-	if status == sourceItemPublished && !sourceItemReady(item.SHA256, item.DownloadURL) {
+	if status == sourceItemPublished && item.Delivery != sourceDeliveryBuiltin && !sourceItemReady(item.SHA256, item.DownloadURL) {
 		return sourcePlugin{}, errSourcePublishIncomplete
 	}
 	item.Status = status
@@ -881,7 +881,7 @@ func (store *memorySourceStore) SetTemplateStatus(id, status, actor, note string
 		return sourceTemplate{}, errSourceInvalidStatus
 	}
 	if status == sourceItemPublished {
-		if err := paidPublishError(item.PriceCents, item.TemplateURL); err != nil {
+		if err := paidPublishError(item.DeveloperID, item.PriceCents, item.Delivery, item.TemplateURL); err != nil {
 			return sourceTemplate{}, err
 		}
 	}
@@ -889,7 +889,7 @@ func (store *memorySourceStore) SetTemplateStatus(id, status, actor, note string
 		return sourceTemplate{}, err
 	}
 	item = store.templates[id]
-	if status == sourceItemPublished && !sourceItemReady(item.SHA256, item.TemplateURL) {
+	if status == sourceItemPublished && item.Delivery != sourceDeliveryBuiltin && !sourceItemReady(item.SHA256, item.TemplateURL) {
 		return sourceTemplate{}, errSourcePublishIncomplete
 	}
 	item.Status = status
@@ -1838,7 +1838,7 @@ func (mysqlSourceStore) SetPluginStatus(id, status, actor, note string) (sourceP
 		return sourcePlugin{}, errSourceInvalidStatus
 	}
 	if status == sourceItemPublished {
-		if err := paidPublishError(item.PriceCents, item.DownloadURL); err != nil {
+		if err := paidPublishError(item.DeveloperID, item.PriceCents, item.Delivery, item.DownloadURL); err != nil {
 			return sourcePlugin{}, err
 		}
 	}
@@ -1849,7 +1849,7 @@ func (mysqlSourceStore) SetPluginStatus(id, status, actor, note string) (sourceP
 	if err != nil {
 		return sourcePlugin{}, err
 	}
-	if status == sourceItemPublished && !sourceItemReady(item.SHA256, item.DownloadURL) {
+	if status == sourceItemPublished && item.Delivery != sourceDeliveryBuiltin && !sourceItemReady(item.SHA256, item.DownloadURL) {
 		return sourcePlugin{}, errSourcePublishIncomplete
 	}
 	db, err := config.DB()
@@ -2093,7 +2093,7 @@ func (mysqlSourceStore) SetTemplateStatus(id, status, actor, note string) (sourc
 		return sourceTemplate{}, errSourceInvalidStatus
 	}
 	if status == sourceItemPublished {
-		if err := paidPublishError(item.PriceCents, item.TemplateURL); err != nil {
+		if err := paidPublishError(item.DeveloperID, item.PriceCents, item.Delivery, item.TemplateURL); err != nil {
 			return sourceTemplate{}, err
 		}
 	}
@@ -2104,7 +2104,7 @@ func (mysqlSourceStore) SetTemplateStatus(id, status, actor, note string) (sourc
 	if err != nil {
 		return sourceTemplate{}, err
 	}
-	if status == sourceItemPublished && !sourceItemReady(item.SHA256, item.TemplateURL) {
+	if status == sourceItemPublished && item.Delivery != sourceDeliveryBuiltin && !sourceItemReady(item.SHA256, item.TemplateURL) {
 		return sourceTemplate{}, errSourcePublishIncomplete
 	}
 	db, err := config.DB()

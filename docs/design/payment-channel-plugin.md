@@ -137,6 +137,7 @@ type Channel interface {
 | `UP*` / `LP*` `license_purchase_orders` | `settleLicensePurchaseOrder` | **已接入**（首选） |
 | `UR*` `recharge_orders` | `settleRechargeOrder` | 已接入 |
 | `AU*` `agent_upgrade_orders` | `settleAgentUpgradeOnlinePayment` | 已接入 |
+| `PP*` `store_purchase_orders` | `settleStorePurchaseOrder` | 已接入。易支付 V1、V2 与渠道插件都先按前缀分发，金额不符拒绝，重复回调只入账一次 |
 | 插件权益 SKU | 无表 | **后续**：产品尚未有 `plugin_purchase` |
 
 ## 10. 后续（明确不做）

@@ -1,6 +1,10 @@
 <template>
   <div class="plugin-store">
     <ElCard shadow="never" class="art-table-card">
+      <div class="store-account-bar">
+        <CommercialMark :icon="accountIcon" :text="accountText" :tone="accountTone" />
+        <ElButton type="primary" @click="openCommercialUpgrade">升级商业版</ElButton>
+      </div>
       <div class="store-header">
         <div>
           <h2 class="store-title">应用商店</h2>
@@ -88,6 +92,12 @@
                       >内置</ElTag
                     >
                     <ElTag type="info" size="small" effect="plain">v{{ template.version }}</ElTag>
+                    <CommercialMark
+                      v-if="templateBadge(template)"
+                      :text="templateBadge(template)!.text"
+                      :icon="templateBadge(template)!.icon"
+                      :tone="templateBadge(template)!.tone"
+                    />
                   </div>
                   <p class="plugin-desc">{{ template.description || '暂无模板描述' }}</p>
                   <div class="template-source" :title="template.sourceUrl || template.source">
@@ -146,6 +156,12 @@
                       >官方</ElTag
                     >
                     <ElTag type="info" size="small" effect="plain">v{{ plugin.version }}</ElTag>
+                    <CommercialMark
+                      v-if="pluginBadge(plugin)"
+                      :text="pluginBadge(plugin)!.text"
+                      :icon="pluginBadge(plugin)!.icon"
+                      :tone="pluginBadge(plugin)!.tone"
+                    />
                   </div>
                   <p class="plugin-desc">
                     <template v-if="plugin.homepage">
@@ -287,7 +303,10 @@
 
 <script setup lang="ts">
   import TemplateActions from '@/views/home-template/TemplateActions.vue'
-  import { computed, onMounted, ref } from 'vue'
+  import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
+  import { fetchStoreAccount, fetchStoreCatalog, type StoreAccount, type StoreCatalogItem } from '@/api/store'
+  import { commercialText, openCommercialPrompt, openCommercialUpgrade } from '@/utils/commercial'
+  import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { FolderAdd, Refresh, Search } from '@element-plus/icons-vue'
@@ -468,7 +487,87 @@
     searchTimer = setTimeout(loadPlugins, 400)
   }
 
+  const storeAccount = ref<StoreAccount | null>(null)
+  const catalog = ref<StoreCatalogItem[]>([])
+  const accountUnconfigured = computed(() => storeAccount.value?.reason === 'snapshot_key_unconfigured')
+  const accountWarning = computed(
+    () => !!storeAccount.value && (storeAccount.value.graceWarning || accountUnconfigured.value)
+  )
+  const accountText = computed(() => {
+    const account = storeAccount.value
+    if (!account) return '正在读取版本信息'
+    if (accountUnconfigured.value) return '发行包未配置商店验签公钥，快照一律无效，当前按免费版使用'
+    if (account.domainMismatch) return `授权域名与当前域名不一致（${account.domain || '未绑定'}）`
+    if (account.offlineGrace) return '源站暂时不可达，商业版处于离线宽限'
+    if (account.edition === 'commercial') {
+      return account.permanent ? '商业版 · 永久' : `商业版 · ${formatExpire(account.editionExpireAt)} 到期`
+    }
+    return '免费版'
+  })
+  const accountIcon = computed(() => (accountWarning.value ? 'ri:error-warning-fill' : 'ri:vip-crown-fill'))
+  const accountTone = computed(() =>
+    accountWarning.value ? 'warning' : storeAccount.value?.edition === 'commercial' ? 'ok' : 'crown'
+  )
+
+  function formatExpire(value?: number | null) {
+    if (!value) return '未设置到期时间'
+    return new Date(value * 1000).toLocaleDateString()
+  }
+
+  function badgeFor(ownership?: string, price?: number) {
+    if (!price || price <= 0) return null
+    if (ownership === 'included' || ownership === 'purchased') {
+      return { text: '已包含', icon: 'ri:vip-crown-fill', tone: 'ok' as const }
+    }
+    return { text: '商业版免费', icon: 'ri:vip-crown-fill', tone: 'crown' as const }
+  }
+
+  function pluginBadge(plugin: PluginInfo) {
+    return badgeFor(plugin.ownership, plugin.priceCents)
+  }
+
+  function templateBadge(template: HomeTemplateInfo) {
+    const key = template.catalogId || template.templateId
+    const item = catalog.value.find((row) => row.kind === 'template' && (row.id === key || row.id === String(template.id)))
+    return badgeFor(item?.ownership, item?.priceCents)
+  }
+
+  async function loadStoreAccountBar() {
+    try {
+      storeAccount.value = await fetchStoreAccount()
+      const data = await fetchStoreCatalog()
+      catalog.value = data.list || []
+    } catch {
+      storeAccount.value = {
+        bound: false,
+        account: '',
+        role: '',
+        licenseNo: '',
+        domain: '',
+        requestDomain: '',
+        domainMismatch: false,
+        edition: 'free',
+        permanent: false,
+        features: [],
+        verifiedAt: 0,
+        graceUntil: 0,
+        offlineGrace: false,
+        graceWarning: false,
+        explicitRevoked: false,
+        reason: '',
+        sourceBase: '',
+        siteUrl: '',
+        trustProxy: false,
+        installId: ''
+      }
+    }
+  }
+
   const handleToggle = async (plugin: PluginInfo) => {
+    if (!plugin.enabled && (plugin.priceCents || 0) > 0 && plugin.ownership === 'none') {
+      openCommercialPrompt(commercialText('paid_plugin'), 'paid_plugin')
+      return
+    }
     if (!plugin.enabled) {
       try {
         await ElMessageBox.confirm(
@@ -485,8 +584,8 @@
       await fetchTogglePlugin(plugin.id, !plugin.enabled)
       ElMessage.success(plugin.enabled ? '插件已停用' : `已启用「${plugin.name}」`)
       await loadPlugins()
-    } catch {
-      ElMessage.error('操作失败')
+    } catch (error: any) {
+      if (error?.code !== 402) ElMessage.error(error?.message || '操作失败')
     } finally {
       togglingId.value = ''
     }
@@ -555,7 +654,10 @@
 
   onMounted(() => {
     loadPlugins()
+    loadStoreAccountBar()
+    window.addEventListener('store-account-refresh', loadStoreAccountBar)
   })
+  onBeforeUnmount(() => window.removeEventListener('store-account-refresh', loadStoreAccountBar))
 </script>
 
 <style lang="scss" scoped>
@@ -583,6 +685,18 @@
         height: 100%;
         object-fit: cover;
       }
+    }
+
+    .store-account-bar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding: 10px 12px;
+      background: var(--el-color-warning-light-9);
+      border: 1px solid var(--el-color-warning-light-5);
+      border-radius: 8px;
     }
 
     .store-header {

@@ -37,6 +37,10 @@ func TestMenuWriteGatesUseSeededMenuNames(t *testing.T) {
 		middleware.MenuSourceStationCatalog,
 		middleware.MenuSourceStationAds,
 		middleware.MenuSourceStationSettings,
+		middleware.MenuSourceStationEdition,
+		middleware.MenuSourceStationStoreOrders,
+		middleware.MenuSourceStationStoreLicenses,
+		middleware.MenuSourceStationStoreRevenue,
 	} {
 		if _, ok := seeded[name]; !ok {
 			t.Errorf("menu %q is not in productMenuSpecs", name)

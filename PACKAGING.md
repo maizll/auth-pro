@@ -95,6 +95,31 @@ Nginx 反代到 `127.0.0.1:19127`，并把 `backend/baota-nginx.snippet.conf` �
 - GitHub Actions 打 `vX.Y.Z` 标签时用 tag 注入，覆盖仓库默认。
 - 本地 `go build` 若忘记 `-ldflags`，二进制仍应报 `1.5.x`，不得静默显示 `1.0.0`。
 
+## 商店快照验签公钥
+
+发行包默认不带可用的快照验签公钥，源码里的值是占位符 `PLACEHOLDER_NOT_CONFIGURED`。未替换时，买方站点把快照一律视为无效并保持免费版，源站拒绝签发。私钥不要打进包，也不要写进本文件。
+
+发布前在源站执行 `auth_pro store-keygen`（或 `auth_pro --store-keygen`）。命令把私钥写入该机数据目录 `store/snapshot-ed25519.key`（权限 `0600`），已存在则拒绝覆盖，除非加上 `--force`。标准输出只有公钥的 base64 和一行中文提示。把公钥交给维护者，再嵌入构建：
+
+```bash
+AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY='<打印出的公钥>' ./scripts/build-release.sh
+```
+
+Windows：
+
+```powershell
+$env:AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY = '<打印出的公钥>'
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1
+```
+
+等价的 Go 链接参数（与版本号等其它 `-X` 一起写）：
+
+```bash
+go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出的公钥>" -o auth_pro .
+```
+
+`<打印出的公钥>` 只替换成 `store-keygen` 打印的第一行。打好包后再发布。源站和买方都要装这份带公钥的包，源站同时保留本机私钥文件。
+
 ## 构建命令
 
 macOS / Linux：

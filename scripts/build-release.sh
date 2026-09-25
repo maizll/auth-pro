@@ -26,6 +26,19 @@ UPDATE_PACKAGE_BASE_URL="${AUTO_PRO_UPDATE_PACKAGE_BASE_URL:-https://github.com/
 UPDATE_RELEASES_URL="${AUTO_PRO_UPDATE_RELEASES_URL:-https://github.com/$RELEASE_REPOSITORY/releases/download/v$VERSION/releases.json}"
 BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 LDFLAGS="-s -w -X auto_pro/config.AppVersion=$VERSION -X auto_pro/config.BuildTime=$BUILD_TIME"
+if [[ -n "${AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY:-}" ]]; then
+  if [[ "${AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY}" == "PLACEHOLDER_NOT_CONFIGURED" ]]; then
+    echo "AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY 仍是占位符，请改成源站 store-keygen 打印的公钥" >&2
+    exit 1
+  fi
+  key_bytes="$(printf '%s' "$AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY" | openssl base64 -d -A 2>/dev/null | wc -c | tr -d '[:space:]')"
+  if [[ "$key_bytes" != "32" ]]; then
+    echo "AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY 必须是 32 字节 Ed25519 公钥的标准 base64" >&2
+    exit 1
+  fi
+  LDFLAGS="$LDFLAGS -X auto_pro/handler.embeddedStoreSnapshotPublicKey=${AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY}"
+  printf 'store snapshot public key: embed via ldflags\n'
+fi
 export GOCACHE="${GOCACHE:-$ROOT_DIR/.cache/go-build}"
 mkdir -p "$GOCACHE"
 

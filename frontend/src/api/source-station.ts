@@ -552,6 +552,9 @@ export function fetchSourceAudit(limit = 100) {
 export interface SourceStoreSettings {
   productAppKey: string
   freePlanId: string
+  graceDays?: number
+  revokeOnPasswordChange?: boolean
+  commercialFeatures?: string[]
 }
 
 export function fetchSourceStoreSettings() {

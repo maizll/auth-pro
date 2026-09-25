@@ -88,7 +88,23 @@ try {
   $env:GOOS = 'linux'
   $env:GOARCH = 'amd64'
   $env:CGO_ENABLED = '0'
-  go build -trimpath -ldflags "-s -w -X auto_pro/config.AppVersion=$Version -X auto_pro/config.BuildTime=$BuildTime" -o $BackendBinary .
+  $LdFlags = "-s -w -X auto_pro/config.AppVersion=$Version -X auto_pro/config.BuildTime=$BuildTime"
+  if ($env:AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY) {
+    if ($env:AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY -eq 'PLACEHOLDER_NOT_CONFIGURED') {
+      throw 'AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY 仍是占位符，请改成源站 store-keygen 打印的公钥'
+    }
+    try {
+      $PubBytes = [Convert]::FromBase64String($env:AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY)
+    } catch {
+      throw 'AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY 必须是 32 字节 Ed25519 公钥的标准 base64'
+    }
+    if ($PubBytes.Length -ne 32) {
+      throw 'AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY 必须是 32 字节 Ed25519 公钥的标准 base64'
+    }
+    $LdFlags += " -X auto_pro/handler.embeddedStoreSnapshotPublicKey=$($env:AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY)"
+    Write-Host 'store snapshot public key: embed via ldflags'
+  }
+  go build -trimpath -ldflags $LdFlags -o $BackendBinary .
 } finally {
   Remove-Item Env:GOOS -ErrorAction SilentlyContinue
   Remove-Item Env:GOARCH -ErrorAction SilentlyContinue

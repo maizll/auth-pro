@@ -38,6 +38,13 @@ func ensureSourceStationMigrations(db *sql.DB) error {
 		{sourceMigrationAppIDBackfill, migrateSourceCatalogAppIDBackfill},
 		{sourceMigrationDeveloperAgent, migrateSourceDeveloperAgentBackfill},
 		{sourceMigrationCatalogPrice, migrateSourceCatalogPrice},
+		{storeMigrationBindings, migrateStoreBindings},
+		{storeMigrationEditions, migrateStoreEditions},
+		{storeMigrationOrders, migrateStorePurchaseOrders},
+		{storeMigrationEntitlements, migratePluginEntitlements},
+		{storeMigrationRevenue, migrateStoreRevenueLedger},
+		{storeMigrationLicenseSource, migrateLicenseSourceStoreBind},
+		{storeMigrationDomainChanges, migrateLicenseDomainChanges},
 	}
 	for _, step := range steps {
 		if err := runSourceStationMigration(db, step.name, step.run); err != nil {

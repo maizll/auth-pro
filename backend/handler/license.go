@@ -941,6 +941,14 @@ func LicenseUpdate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
+	if req.Type == "domain" {
+		if licenseID, convErr := strconv.ParseInt(id, 10, 64); convErr == nil {
+			if err := guardProductDomainChange(db, licenseID, req.Domain, true); err != nil {
+				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+				return
+			}
+		}
+	}
 
 	var expiredAt sql.NullTime
 	if req.ExpireAt != "" {
@@ -972,6 +980,11 @@ func LicenseUpdate(c *gin.Context) {
 		}
 		db.Exec("DELETE FROM license_domains WHERE license_id = ?", id)
 		db.Exec("INSERT INTO license_domains (license_id, domain, is_wildcard) VALUES (?, ?, ?)", id, req.Domain, isWildcard)
+	}
+	if req.Type == "domain" {
+		if licenseID, convErr := strconv.ParseInt(id, 10, 64); convErr == nil {
+			finishProductDomainChange(db, licenseID, req.Domain, "admin")
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "更新成功"})

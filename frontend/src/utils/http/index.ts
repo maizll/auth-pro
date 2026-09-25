@@ -20,6 +20,7 @@ import { ApiStatus } from './status'
 import { HttpError, handleError, showError, showSuccess } from './error'
 import { $t } from '@/locales'
 import { BaseResponse } from '@/types'
+import { notifyCommercialRequired } from '@/utils/commercial'
 
 /** 请求配置常量 */
 const REQUEST_TIMEOUT = 15000
@@ -94,6 +95,10 @@ axiosInstance.interceptors.response.use(
     }
     const { code, msg, message } = response.data
     const responseMessage = msg || message
+    if (code === 402) {
+      notifyCommercialRequired(response.data)
+      throw createHttpError(responseMessage || '该功能需要商业版', code)
+    }
     if (code === ApiStatus.success) return response
     if (code === ApiStatus.unauthorized) handleUnauthorizedError(responseMessage)
     throw createHttpError(responseMessage || $t('httpMsg.requestFailed'), code)
@@ -195,7 +200,7 @@ async function request<T = any>(config: ExtendedAxiosRequestConfig): Promise<T> 
 
     return res.data.data as T
   } catch (error) {
-    if (error instanceof HttpError && error.code !== ApiStatus.unauthorized) {
+    if (error instanceof HttpError && error.code !== ApiStatus.unauthorized && error.code !== 402) {
       const showMsg = config.showErrorMessage !== false
       showError(error, showMsg)
     }

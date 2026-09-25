@@ -129,13 +129,7 @@ func settleRegisteredChannelNotify(db *sql.DB, channelID string, result payment.
 	if !result.Success {
 		return errors.New("交易未成功")
 	}
-	if strings.HasPrefix(result.OrderNo, "AU") {
-		return settleAgentUpgradeOnlinePayment(db, result.OrderNo, result.AmountCents, channelID, result.PayType, result.GatewayTradeNo, result.RawPayload)
-	}
-	if err := settleRechargeOrder(db, result.OrderNo, result.AmountCents, result.GatewayTradeNo, result.PayType, result.RawPayload); err == nil {
-		return nil
-	}
-	return settleLicensePurchaseOrder(db, result.OrderNo, result.AmountCents, channelID, result.GatewayTradeNo, result.PayType, result.RawPayload)
+	return dispatchVerifiedOnlinePayment(db, result.OrderNo, result.AmountCents, channelID, result.PayType, result.GatewayTradeNo, result.RawPayload)
 }
 
 // PaymentChannelNotify 支付渠道插件异步通知入口。路径 /api/payment/:channel/notify。

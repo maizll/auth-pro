@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"auto_pro/appstore"
@@ -19,6 +20,8 @@ import (
 var staticFS embed.FS
 
 func main() {
+	handler.DispatchStoreKeygen(os.Args[1:])
+
 	// 历史安装可能把数据库口令写成 0644。进程起来先收紧，不等到下次保存配置。
 	if err := config.EnsureDBConfigPermissions(); err != nil {
 		log.Printf("tighten db.json permissions failed: %v", err)
@@ -154,7 +157,9 @@ func main() {
 
 		// 本实例作为软件源源站：元数据目录、入驻审核、上架/下架、广告 CRUD。
 		handler.RegisterSourceStationRoutes(r, api)
+		handler.RegisterPaidStoreRoutes(r, api)
 		handler.RegisterNotificationRoutes(api)
+		handler.StartStoreSnapshotRefresher()
 
 		// 用户端（需鉴权）
 		userSecured := api.Group("/user-panel")
@@ -387,6 +392,8 @@ func main() {
 			superSecured.PUT("/role/:id", handler.RoleUpdate)
 			superSecured.DELETE("/role/:id", handler.RoleDelete)
 			superSecured.GET("/role/:id/menus", handler.RoleMenus)
+			handler.RegisterBuyerStoreRoutes(superSecured)
+			handler.RegisterPanelStoreRoutes(userSecured, agentSecured)
 			superSecured.PUT("/role/:id/menus", handler.RoleUpdateMenus)
 			// 菜单管理
 			superSecured.GET("/menu/list", handler.MenuManageList)

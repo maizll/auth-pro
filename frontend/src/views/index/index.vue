@@ -21,11 +21,13 @@
 
     <div id="app-global">
       <ArtGlobalComponent />
+      <CommercialHost />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+  import CommercialHost from '@/components/business/commercial/CommercialHost.vue'
   import { useSystemConfigStore } from '@/store/modules/system-config'
   import { useMenuStore } from '@/store/modules/menu'
   import { fetchTicketUnreadCount } from '@/api/ticket'

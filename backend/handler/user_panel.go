@@ -498,6 +498,13 @@ func UserLicenseUpdateTarget(c *gin.Context) {
 		return
 	}
 	req.Target = validatedTarget
+	if licenseType == "domain" {
+		licenseNumeric, _ := strconv.ParseInt(licenseID, 10, 64)
+		if err := guardProductDomainChange(db, licenseNumeric, req.Target, false); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+			return
+		}
+	}
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -526,6 +533,10 @@ func UserLicenseUpdateTarget(c *gin.Context) {
 	if err = tx.Commit(); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "提交失败"})
 		return
+	}
+	if licenseType == "domain" {
+		licenseNumeric, _ := strconv.ParseInt(licenseID, 10, 64)
+		finishProductDomainChange(db, licenseNumeric, req.Target, "user")
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "更新成功"})
@@ -1368,5 +1379,10 @@ func UserChangePassword(c *gin.Context) {
 		return
 	}
 	notifyPasswordChanged(notificationRoleUser, notificationContextUserID(userID))
+	if id, ok := userID.(int64); ok {
+		maybeRevokeBindingsAfterPassword(db, "user", id)
+	} else if id, ok := userID.(uint); ok {
+		maybeRevokeBindingsAfterPassword(db, "user", int64(id))
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "密码修改成功，请重新登录"})
 }

@@ -313,7 +313,7 @@ CREATE TABLE `licenses` (
   `original_price`   DECIMAL(12,2) DEFAULT NULL COMMENT '套餐原价快照',
   `type`             ENUM('domain','wildcard','ip','key') NOT NULL COMMENT '授权类型: domain单域名/wildcard泛域名/ip IP地址/key密钥',
   `status`           ENUM('active','expired','revoked') DEFAULT 'active' COMMENT '状态: active有效/expired已过期/revoked已吊销',
-  `source`           ENUM('admin','agent','user_purchase','card') NOT NULL COMMENT '来源: admin后台开通/agent代理开码/user_purchase用户购买/card卡密兑换',
+  `source`           ENUM('admin','agent','user_purchase','card','store_bind') NOT NULL COMMENT '来源: admin后台开通/agent代理开码/user_purchase用户购买/card卡密兑换/store_bind商店绑定',
   `owner_type`       ENUM('user','agent') NOT NULL COMMENT '持有者类型: user终端用户/agent代理商',
   `owner_id`         BIGINT UNSIGNED NOT NULL COMMENT '持有者ID(对应user或agent的id)',
   `issued_by`        BIGINT UNSIGNED DEFAULT NULL COMMENT '开通操作者ID(admin_id或agent_id)',

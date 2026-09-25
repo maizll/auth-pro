@@ -40,6 +40,8 @@ type pluginInfo struct {
 	Remote      bool           `json:"remote"`      // 仅存在于远程仓库、本地未安装
 	DownloadURL string         `json:"downloadUrl"` // 远程插件包地址（未安装时用于下载）
 	Hidden      bool           `json:"-"`           // 暂时从应用商店隐藏，底层能力与历史状态保留
+	PriceCents  int64          `json:"priceCents,omitempty"`
+	Ownership   string         `json:"ownership,omitempty"`
 }
 
 // pluginCatalog 内置插件清单（代码注册，数据库只持久化启用状态）。
@@ -417,6 +419,9 @@ func AdminPluginToggle(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+	if req.Enabled && rejectPaidPluginEnable(c, id) {
 		return
 	}
 
