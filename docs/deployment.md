@@ -1,6 +1,6 @@
 # 部署手册
 
-当前版本 **1.5.3**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
+当前版本 **1.5.4**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
 
 运行数据目录与进程的工作目录一致。宝塔脚本默认把它放在网站根下的 `backend/`。后端解析数据目录的顺序是：环境变量 `AUTO_PRO_DATA_DIR`，否则在当前工作目录或其子目录 `backend/` 中寻找 `install.lock`、`db.json` 或 `go.mod`，再否则用可执行文件所在目录。
 
@@ -33,7 +33,7 @@ go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出
 
 ```bash
 cd /www/wwwroot/example.com
-tar -xzf auth_pro-full-v1.5.3.tar.gz
+tar -xzf auth_pro-full-v1.5.4.tar.gz
 bash baota-install.sh
 ```
 
@@ -43,7 +43,7 @@ bash baota-install.sh
 AUTH_PRO_YES=1 AUTH_PRO_START=0 \
 bash baota-install.sh \
   --site-root /www/wwwroot/example.com \
-  --package /tmp/auth_pro-full-v1.5.3.tar.gz
+  --package /tmp/auth_pro-full-v1.5.4.tar.gz
 ```
 
 ### 安装脚本会做的事
@@ -80,7 +80,7 @@ bash baota-install.sh \
 ```bash
 bash baota-upgrade.sh \
   --site-root /www/wwwroot/example.com \
-  --package /tmp/auth_pro-full-v1.5.3.tar.gz \
+  --package /tmp/auth_pro-full-v1.5.4.tar.gz \
   --no-start
 ```
 
