@@ -10,7 +10,7 @@ if ([string]::IsNullOrWhiteSpace($Version) -and (Test-Path $VersionFile)) {
   $Version = (Get-Content -LiteralPath $VersionFile -Raw).Trim()
 }
 if ([string]::IsNullOrWhiteSpace($Version)) {
-  $Version = '1.5.3'
+  $Version = '1.5.4'
 }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
   throw "Version must match X.Y.Z: $Version"
