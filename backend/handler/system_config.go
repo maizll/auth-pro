@@ -155,7 +155,13 @@ func ensureSystemConfigStorage(db *sql.DB) error {
 			('captcha', 'geetest_captcha_id', '', '极验验证 ID'),
 			('captcha', 'geetest_captcha_key', '', '极验验证 Key'),
 			('store', 'store_product_app_key', '', '付费目录所属产品应用标识'),
-			('store', 'store_free_plan_id', '', '免费套餐 ID')
+			('store', 'store_free_plan_id', '', '免费套餐 ID'),
+			('store', 'store_grace_days', '7', '付费快照离线宽限天数'),
+			('store', 'store_revoke_on_password_change', '1', '改密码是否撤销站点绑定'),
+			('store', 'store_commercial_features', 'multi_app', '商业版功能键'),
+			('store', 'store_source_base', 'https://auth.maizll.com', '买方商店源站根地址'),
+			('store', 'store_trust_proxy', '0', '绑定域名是否信任反向代理'),
+			('store', 'store_site_url', '', '买方站点公网地址')
 		ON DUPLICATE KEY UPDATE `+"`key`"+` = VALUES(`+"`key`"+`)
 	`, defaultSiteName, defaultSiteSubtitle, installedAt.Format("2006-01-02 15:04:05"))
 	if err == nil {

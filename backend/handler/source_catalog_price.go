@@ -102,14 +102,20 @@ func rejectPaidPriceOnPublicItem(status, latestVersion string, existingPrice, ne
 	return nil
 }
 
-func paidPublishError(price int64, location string) error {
+func paidPublishError(developerID, price int64, delivery, location string) error {
 	if price <= 0 {
+		return nil
+	}
+	if developerID > 0 {
+		return errSourcePaidListingClosed
+	}
+	if delivery == sourceDeliveryBuiltin {
 		return nil
 	}
 	if !isStationHostedPackageURL(location) && !isPrivatePackageRef(location) {
 		return errSourcePaidExternal
 	}
-	return errSourcePaidListingClosed
+	return nil
 }
 
 func rejectPaidExternalLocation(price int64, location string) error {

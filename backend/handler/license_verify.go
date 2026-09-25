@@ -229,7 +229,7 @@ func LicenseVerify(c *gin.Context) {
 
 	if isLicenseTargetBlacklisted(db, appID, req.Domain, req.ServerIP) {
 		writeVerifyLog(db, sql.NullInt64{}, appID, req.Domain, req.ServerIP, c.ClientIP(), "blacklisted", "target_blacklisted", c.GetHeader("User-Agent"))
-		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "授权目标已被拉黑", "data": gin.H{"result": "blacklisted", "reason": "target_blacklisted"}})
+		c.JSON(http.StatusOK, licenseVerifyFailureBody("target_blacklisted"))
 		return
 	}
 
@@ -247,41 +247,25 @@ func LicenseVerify(c *gin.Context) {
 		return
 	}
 
-	license, ok, reason := findMatchedLicense(db, appID, req)
+	license, reason, ok := evaluateLicenseForTarget(db, appID, req.Domain, req.ServerIP, req.LicenseKey, req.SignVersion)
 	if !ok {
-		writeVerifyLog(db, sql.NullInt64{}, appID, req.Domain, req.ServerIP, c.ClientIP(), "fail", reason, c.GetHeader("User-Agent"))
+		logResult := "fail"
+		if reason == "target_blacklisted" {
+			logResult = "blacklisted"
+		}
+		if reason == "license_expired" {
+			logResult = "expired"
+		}
+		licenseID := sql.NullInt64{}
+		if license.ID > 0 {
+			licenseID = sql.NullInt64{Int64: license.ID, Valid: true}
+		}
+		writeVerifyLog(db, licenseID, appID, req.Domain, req.ServerIP, c.ClientIP(), logResult, reason, c.GetHeader("User-Agent"))
 		if reason == "license_not_found" && isPiracyDetectionEnabled() {
 			recordPiracyHit(db, appID, req.Domain, req.ServerIP)
 		}
-		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "授权无效", "data": gin.H{"result": "fail", "reason": reason}})
+		c.JSON(http.StatusOK, licenseVerifyFailureBody(reason))
 		return
-	}
-
-	// 实名认证门槛：应用要求实名且授权归属未实名用户时拒绝
-	if required, verified, err := userRealnameRequired(db, appID, license.ID); err == nil && required && !verified {
-		writeVerifyLog(db, sql.NullInt64{Int64: license.ID, Valid: true}, appID, req.Domain, req.ServerIP, c.ClientIP(), "fail", "realname_required", c.GetHeader("User-Agent"))
-		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "该应用要求实名认证，请先在用户中心完成实名后再安装", "data": gin.H{"result": "fail", "reason": "realname_required"}})
-		return
-	}
-
-	if license.Status == "revoked" {
-		writeVerifyLog(db, sql.NullInt64{Int64: license.ID, Valid: true}, appID, req.Domain, req.ServerIP, c.ClientIP(), "fail", "license_revoked", c.GetHeader("User-Agent"))
-		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "授权已禁用", "data": gin.H{"result": "fail", "reason": "license_revoked"}})
-		return
-	}
-	if license.Status == "expired" || (license.ExpiredAt.Valid && !license.ExpiredAt.Time.After(time.Now())) {
-		writeVerifyLog(db, sql.NullInt64{Int64: license.ID, Valid: true}, appID, req.Domain, req.ServerIP, c.ClientIP(), "expired", "license_expired", c.GetHeader("User-Agent"))
-		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "授权已过期", "data": gin.H{"result": "expired", "reason": "license_expired"}})
-		return
-	}
-
-	if license.Type == "key" {
-		if err := requireKeyLicenseSite(db, license.ID, req.Domain, req.ServerIP, req.SignVersion); err != nil {
-			reason, message := licenseSiteFailure(err)
-			writeVerifyLog(db, sql.NullInt64{Int64: license.ID, Valid: true}, appID, req.Domain, req.ServerIP, c.ClientIP(), "fail", reason, c.GetHeader("User-Agent"))
-			c.JSON(http.StatusOK, gin.H{"code": 403, "msg": message, "data": gin.H{"result": "fail", "reason": reason}})
-			return
-		}
 	}
 
 	writeVerifyLog(db, sql.NullInt64{Int64: license.ID, Valid: true}, appID, req.Domain, req.ServerIP, c.ClientIP(), "pass", "", c.GetHeader("User-Agent"))
@@ -290,6 +274,81 @@ func LicenseVerify(c *gin.Context) {
 		"msg":  "授权有效",
 		"data": licenseVerifySuccessData(appName, license),
 	})
+}
+
+// evaluateLicenseForTarget 复用公开授权校验里「黑名单 → 匹配 → 实名 → 吊销 → 过期 → 密钥站点」的判定。
+// LicenseVerify 与商店状态快照都走这里，避免两套规则漂移。调用方负责写 verify_logs。
+func evaluateLicenseForTarget(db *sql.DB, appID int64, domain, serverIP, licenseKey, signVersion string) (matchedLicense, string, bool) {
+	req := licenseVerifyRequest{Domain: domain, ServerIP: serverIP, LicenseKey: licenseKey, SignVersion: signVersion}
+	if isLicenseTargetBlacklisted(db, appID, domain, serverIP) {
+		return matchedLicense{}, "target_blacklisted", false
+	}
+	license, ok, reason := findMatchedLicense(db, appID, req)
+	if !ok {
+		return matchedLicense{}, reason, false
+	}
+	if required, verified, err := userRealnameRequired(db, appID, license.ID); err == nil && required && !verified {
+		return license, "realname_required", false
+	}
+	if license.Status == "revoked" {
+		return license, "license_revoked", false
+	}
+	if license.Status == "expired" || (license.ExpiredAt.Valid && !license.ExpiredAt.Time.After(time.Now())) {
+		return license, "license_expired", false
+	}
+	if license.Type == "key" {
+		if err := requireKeyLicenseSite(db, license.ID, domain, serverIP, signVersion); err != nil {
+			reason, _ := licenseSiteFailure(err)
+			return license, reason, false
+		}
+	}
+	return license, "", true
+}
+
+func licenseVerifyFailureBody(reason string) gin.H {
+	switch reason {
+	case "target_blacklisted":
+		return gin.H{"code": 403, "msg": "授权目标已被拉黑", "data": gin.H{"result": "blacklisted", "reason": reason}}
+	case "realname_required":
+		return gin.H{"code": 403, "msg": "该应用要求实名认证，请先在用户中心完成实名后再安装", "data": gin.H{"result": "fail", "reason": reason}}
+	case "license_revoked":
+		return gin.H{"code": 403, "msg": "授权已禁用", "data": gin.H{"result": "fail", "reason": reason}}
+	case "license_expired":
+		return gin.H{"code": 403, "msg": "授权已过期", "data": gin.H{"result": "expired", "reason": reason}}
+	default:
+		if _, message := licenseSiteFailure(errors.New(reason)); message != "站点校验失败，请稍后重试" && isLicenseSiteReason(reason) {
+			return gin.H{"code": 403, "msg": message, "data": gin.H{"result": "fail", "reason": reason}}
+		}
+		if message := licenseSiteMessage(reason); message != "" {
+			return gin.H{"code": 403, "msg": message, "data": gin.H{"result": "fail", "reason": reason}}
+		}
+		return gin.H{"code": 403, "msg": "授权无效", "data": gin.H{"result": "fail", "reason": reason}}
+	}
+}
+
+func licenseSiteMessage(reason string) string {
+	switch reason {
+	case "empty_target":
+		return "授权站点不能为空"
+	case "invalid_domain":
+		return "授权域名格式不正确"
+	case "invalid_server_ip":
+		return "服务器 IP 格式不正确"
+	case "signature_upgrade_required":
+		return "新站点首次绑定需要升级 SDK 并使用 v2 签名"
+	case "site_limit_exceeded":
+		return "授权已达到最大站点数"
+	case "site_not_bound":
+		return "当前站点尚未绑定"
+	case "site_check_failed":
+		return "站点校验失败，请稍后重试"
+	default:
+		return ""
+	}
+}
+
+func isLicenseSiteReason(reason string) bool {
+	return licenseSiteMessage(reason) != ""
 }
 
 func licenseSiteFailure(err error) (string, string) {

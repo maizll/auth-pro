@@ -81,6 +81,15 @@
         <el-form-item label="免费套餐 ID">
           <el-input v-model.trim="storeForm.freePlanId" placeholder="可留空，正整数" />
         </el-form-item>
+        <el-form-item label="离线宽限天数">
+          <el-input-number v-model="storeForm.graceDays" :min="1" :max="30" />
+        </el-form-item>
+        <el-form-item label="改密撤销绑定">
+          <el-switch v-model="storeForm.revokeOnPasswordChange" />
+        </el-form-item>
+        <el-form-item label="商业版功能键">
+          <el-input v-model.trim="storeForm.commercialFeatures" placeholder="multi_app" />
+        </el-form-item>
       </el-form>
     </el-card>
   </div>
@@ -115,7 +124,10 @@
   const storeSaving = ref(false)
   const storeForm = reactive({
     productAppKey: '',
-    freePlanId: ''
+    freePlanId: '',
+    graceDays: 7,
+    revokeOnPasswordChange: true,
+    commercialFeatures: 'multi_app'
   })
   const form = reactive({
     provider: 'github',
@@ -163,6 +175,9 @@
       const data = await fetchSourceStoreSettings()
       storeForm.productAppKey = data.productAppKey || ''
       storeForm.freePlanId = data.freePlanId || ''
+      storeForm.graceDays = data.graceDays || 7
+      storeForm.revokeOnPasswordChange = data.revokeOnPasswordChange !== false
+      storeForm.commercialFeatures = (data.commercialFeatures || ['multi_app']).join(',')
     } finally {
       storeLoading.value = false
     }
@@ -181,9 +196,18 @@
     }
     storeSaving.value = true
     try {
-      const data = await saveSourceStoreSettings({ productAppKey: appKey, freePlanId: plan })
+      const data = await saveSourceStoreSettings({
+        productAppKey: appKey,
+        freePlanId: plan,
+        graceDays: storeForm.graceDays,
+        revokeOnPasswordChange: storeForm.revokeOnPasswordChange,
+        commercialFeatures: storeForm.commercialFeatures.split(',').map((item) => item.trim()).filter(Boolean)
+      })
       storeForm.productAppKey = data.productAppKey || ''
       storeForm.freePlanId = data.freePlanId || ''
+      storeForm.graceDays = data.graceDays || 7
+      storeForm.revokeOnPasswordChange = data.revokeOnPasswordChange !== false
+      storeForm.commercialFeatures = (data.commercialFeatures || ['multi_app']).join(',')
       ElMessage.success('已保存商店设置')
     } finally {
       storeSaving.value = false

@@ -5,10 +5,15 @@
   <div class="license-apps-page art-full-height">
     <ElCard class="art-table-card no-search-card" shadow="never">
       <!-- 表格头部 -->
+      <div v-if="showAppLimitBar" class="app-limit-bar">
+        <CommercialMark :text="multiAppText" />
+        <ElButton type="primary" @click="openCommercialUpgrade">升级商业版</ElButton>
+      </div>
       <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
         <template #left>
           <ElSpace wrap>
             <ElButton @click="handleAdd" v-ripple>新增应用</ElButton>
+            <CommercialMark v-if="showCommercialHint" :text="multiAppText" />
           </ElSpace>
         </template>
       </ArtTableHeader>
@@ -114,6 +119,9 @@
 <script setup lang="ts">
   import { useRouter } from 'vue-router'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
+  import { fetchStoreAccount, type StoreAccount } from '@/api/store'
+  import { commercialCopy, openCommercialPrompt, openCommercialUpgrade } from '@/utils/commercial'
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchLicenseAppList,
@@ -221,7 +229,28 @@
     return purchaseLicenseTypeOrder.filter((licenseType) => types.includes(licenseType))
   }
 
+  const storeAccount = ref<StoreAccount | null>(null)
+  const multiAppText = commercialCopy.multi_app
+  const commercialReady = computed(() => {
+    const account = storeAccount.value
+    return !!account && account.edition === 'commercial' && !account.domainMismatch && (account.features || []).includes('multi_app')
+  })
+  const showCommercialHint = computed(() => !commercialReady.value)
+  const showAppLimitBar = computed(() => showCommercialHint.value && (data.value?.length || 0) >= 1)
+
+  onMounted(async () => {
+    try {
+      storeAccount.value = await fetchStoreAccount()
+    } catch {
+      storeAccount.value = null
+    }
+  })
+
   const handleAdd = () => {
+    if (showAppLimitBar.value) {
+      openCommercialPrompt(multiAppText, 'multi_app')
+      return
+    }
     isEdit.value = false
     formData.id = 0
     formData.name = ''
@@ -355,7 +384,18 @@
 
 <style scoped lang="scss">
   .license-apps-page {
-    // 无搜索栏时去掉表格卡片的上间距
+    .app-limit-bar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      background: var(--el-color-warning-light-9);
+      border: 1px solid var(--el-color-warning-light-5);
+      border-radius: 8px;
+    }
+
     .no-search-card {
       margin-top: 0;
     }

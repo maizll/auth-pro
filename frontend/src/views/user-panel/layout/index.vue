@@ -60,6 +60,10 @@
           <el-icon><iconify-icon icon="ri:shopping-cart-2-line" /></el-icon>
           <template #title>购买授权</template>
         </el-menu-item>
+        <el-menu-item index="/user/store">
+          <el-icon><iconify-icon icon="ri:vip-crown-line" /></el-icon>
+          <template #title>已绑定站点</template>
+        </el-menu-item>
         <el-menu-item index="/user/profile">
           <el-icon><iconify-icon icon="ri:settings-3-line" /></el-icon>
           <template #title>个人设置</template>
@@ -235,6 +239,7 @@
     '/user/licenses': '我的授权',
     '/user/tickets': '我的工单',
     '/user/purchase': '购买授权',
+    '/user/store': '已绑定站点',
     '/user/profile': '个人设置',
     '/user/become-agent': '开通代理商'
   }

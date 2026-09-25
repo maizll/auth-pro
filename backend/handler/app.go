@@ -149,6 +149,19 @@ func AppCreate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
+	var appCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM apps`).Scan(&appCount); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取应用数量失败"})
+		return
+	}
+	commercial := false
+	if appCount >= 1 {
+		commercial = buyerFeatureEnabled(c, storeFeatureMultiApp)
+	}
+	if !appCreateDecision(appCount, commercial) {
+		writeEditionRequired(c, storeFeatureMultiApp)
+		return
+	}
 	if err := EnsureAppPurchaseLicenseTypesColumn(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用授权方式失败"})
 		return

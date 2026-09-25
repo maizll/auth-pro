@@ -134,6 +134,9 @@ func remoteSoftwareSourceRefreshWarning(err error) string {
 var listHomeTemplates = listAppStoreTemplates
 
 func AdminHomeTemplateEnable(c *gin.Context) {
+	if rejectPaidTemplateEnable(c, strings.TrimSpace(c.Param("id"))) {
+		return
+	}
 	if err := enableAppStoreTemplate(c.Request.Context(), c.Param("id")); err != nil {
 		writeAppStoreError(c, err)
 		return

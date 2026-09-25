@@ -62,6 +62,46 @@ export const sourceStationRoutes: AppRouteRecord = {
       }
     },
     {
+      path: 'edition',
+      name: 'SourceStationEdition',
+      component: '/source-station/edition',
+      meta: {
+        title: 'menus.sourceStation.edition',
+        icon: 'ri:vip-crown-line',
+        keepAlive: true
+      }
+    },
+    {
+      path: 'store-orders',
+      name: 'SourceStationStoreOrders',
+      component: '/source-station/store-orders',
+      meta: {
+        title: 'menus.sourceStation.storeOrders',
+        icon: 'ri:bill-line',
+        keepAlive: true
+      }
+    },
+    {
+      path: 'store-licenses',
+      name: 'SourceStationStoreLicenses',
+      component: '/source-station/store-licenses',
+      meta: {
+        title: 'menus.sourceStation.storeLicenses',
+        icon: 'ri:key-2-line',
+        keepAlive: true
+      }
+    },
+    {
+      path: 'store-revenue',
+      name: 'SourceStationStoreRevenue',
+      component: '/source-station/store-revenue',
+      meta: {
+        title: 'menus.sourceStation.storeRevenue',
+        icon: 'ri:money-cny-circle-line',
+        keepAlive: true
+      }
+    },
+    {
       path: 'plugins',
       name: 'SourceStationPlugins',
       redirect: '/source-station/packages',

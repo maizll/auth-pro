@@ -42,6 +42,7 @@ type remotePluginEntry struct {
 	Author      templateAuthor `json:"author"`
 	DownloadURL string         `json:"downloadUrl"`
 	SHA256      string         `json:"sha256"`
+	PriceCents  int64          `json:"priceCents"`
 }
 
 type remotePluginIndex struct {
@@ -241,6 +242,7 @@ func AdminPluginList(c *gin.Context) {
 	remote := make([]pluginInfo, 0)
 	sourceOK := make(map[int64]bool)
 	indexes := make([]*remotePluginIndex, 0)
+	prices := map[string]int64{}
 	if sourceFilter != "local" {
 		for _, source := range sources {
 			if sourceFilter != "" && sourceFilter != fmt.Sprintf("%d", source.ID) {
@@ -258,6 +260,9 @@ func AdminPluginList(c *gin.Context) {
 				sourceName = index.Name
 			}
 			for _, item := range index.Plugins {
+				if item.PriceCents > 0 && item.ID != "" {
+					prices[item.ID] = item.PriceCents
+				}
 				if item.ID == "" || localIDs[item.ID] {
 					continue
 				}
@@ -267,13 +272,23 @@ func AdminPluginList(c *gin.Context) {
 				}
 				remote = append(remote, pluginInfo{
 					ID: item.ID, Category: displayPluginCategory(item.Category), Name: item.Name,
-					Description: item.Description, Icon: icon, Version: item.Version,
+					Description: item.Description, Icon: icon, Version: item.Version, PriceCents: item.PriceCents,
 					Author: item.Author, Local: false, Remote: true, Source: sourceName, DownloadURL: item.DownloadURL,
 				})
 			}
+			rememberPaidCatalogFromIndex(index)
 		}
 	}
 	groups := buildPluginStoreGroups(local, remote, indexes, keyword)
+	view := currentBuyerAccess(c)
+	for i := range groups {
+		for j := range groups[i].Plugins {
+			if groups[i].Plugins[j].PriceCents == 0 {
+				groups[i].Plugins[j].PriceCents = prices[groups[i].Plugins[j].ID]
+			}
+			groups[i].Plugins[j].Ownership = ownershipForPrice(groups[i].Plugins[j].PriceCents, view.Edition == storeEditionCommercial, buyerItemEntitled(view, "plugin", groups[i].Plugins[j].ID))
+		}
+	}
 	sourceStates := make([]gin.H, 0, len(sources))
 	for _, source := range sources {
 		state := "unknown"

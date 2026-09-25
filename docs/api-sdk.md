@@ -151,4 +151,4 @@ v2
 {baseUrl}/software-source/{appKey}/index.json
 ```
 
-清单字段见 [软件源清单地址](software-source-client-url.md)。
+清单字段见 [软件源清单地址](software-source-client-url.md)。付费行带 `priceCents`，不带下载地址。商业版站点看到「商业版免费」或「已包含」，免费版看到升级提示。授权校验 `POST /api/license/verify` 不看商业版，已有授权继续可用。

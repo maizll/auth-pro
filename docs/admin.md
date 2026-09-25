@@ -40,7 +40,11 @@
 | 入驻审核 | `/source-station/applications` | 开发者入驻申请。通过后对方才能登录开发者面板 |
 | 公开目录 | `/source-station/catalog` | 预览公开 `index.json`，可从数据库重生快照，并看审计 |
 | 广告投放 | `/source-station/ads` | 广告位 `home-banner`、`sidebar`、`popup` 的审核与投放 |
-| 源站设置 | `/source-station/settings` | GitHub 或 Gitee 的 owner/repo 与令牌，用于把 ZIP 推到 Release。令牌只在服务端保存 |
+| 源站设置 | `/source-station/settings` | GitHub 或 Gitee 的 owner/repo 与令牌，以及商业版宽限、改密撤销绑定、功能键 |
+| 商业版设置 | `/source-station/edition` | 配置永久商业版价格。年付可以先存档，购买接口仍拒绝 |
+| 商店订单 | `/source-station/store-orders` | 查看 `PP` 订单。退款后商业版立即失效 |
+| 主授权与权益 | `/source-station/store-licenses` | 授予、吊销商业版。转移和解绑会撤销旧绑定 |
+| 商业版收入 | `/source-station/store-revenue` | 商业版收入全部归平台 |
 
 `/source-station/plugins` 与 `/source-station/templates` 是隐藏入口，分别转到软件目录和 `?category=home-template`。
 

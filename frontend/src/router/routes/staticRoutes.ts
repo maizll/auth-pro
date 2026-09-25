@@ -135,6 +135,12 @@ export const staticRoutes: AppRouteRecordRaw[] = [
         meta: { title: '我的工单' }
       },
       {
+        path: 'store',
+        name: 'AgentPanelStore',
+        component: () => import('@views/user-panel/store/index.vue'),
+        meta: { title: '已绑定站点' }
+      },
+      {
         path: 'become-developer',
         name: 'AgentPanelBecomeDeveloper',
         component: () => import('@views/agent-panel/become-developer/index.vue'),
@@ -224,6 +230,12 @@ export const staticRoutes: AppRouteRecordRaw[] = [
         name: 'UserPanelBecomeAgent',
         component: () => import('@views/user-panel/become-agent/index.vue'),
         meta: { title: '开通代理商' }
+      },
+      {
+        path: 'store',
+        name: 'UserPanelStore',
+        component: () => import('@views/user-panel/store/index.vue'),
+        meta: { title: '已绑定站点' }
       },
       {
         path: 'tickets',

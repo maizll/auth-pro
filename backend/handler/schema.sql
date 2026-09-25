@@ -265,7 +265,7 @@ CREATE TABLE `licenses` (
   `original_price`   DECIMAL(12,2) DEFAULT NULL COMMENT '套餐原价快照',
   `type`             ENUM('domain','wildcard','ip','key') NOT NULL COMMENT '授权类型',
   `status`           ENUM('active','expired','revoked') DEFAULT 'active' COMMENT '状态',
-  `source`           ENUM('admin','agent','user_purchase','card') NOT NULL COMMENT '来源',
+  `source`           ENUM('admin','agent','user_purchase','card','store_bind') NOT NULL COMMENT '来源',
   `owner_type`       ENUM('user','agent') NOT NULL COMMENT '持有者类型',
   `owner_id`         BIGINT UNSIGNED NOT NULL COMMENT '持有者ID',
   `issued_by`        BIGINT UNSIGNED DEFAULT NULL COMMENT '开通操作者ID',

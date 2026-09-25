@@ -512,6 +512,7 @@ func UserResetPassword(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "重置失败"})
 		return
 	}
+	maybeRevokeBindingsAfterPassword(db, "user", int64(userID))
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "密码重置成功，请使用新密码登录"})
 }

@@ -294,6 +294,11 @@ func AgentUpdate(c *gin.Context) {
 	if agentID := parseNotificationInt64(id); agentID > 0 && strings.TrimSpace(req.Level) != strings.TrimSpace(oldLevel) {
 		notifyAgentLevelChanged(agentID, req.Level)
 	}
+	if strings.TrimSpace(req.Password) != "" {
+		if agentID := parseNotificationInt64(id); agentID > 0 {
+			maybeRevokeBindingsAfterPassword(db, "agent", agentID)
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "更新成功"})
 }

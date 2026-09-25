@@ -247,14 +247,7 @@ func settleEpayCallback(db *sql.DB, params map[string]string) error {
 	if !ok {
 		return errors.New("回调支付方式不受支持")
 	}
-	if strings.HasPrefix(orderNo, "AU") {
-		return settleAgentUpgradeOnlinePayment(db, orderNo, paidCents, payChannelEpayV1, payMethod, params["trade_no"], string(payload))
-	}
-	if err := settleRechargeOrder(db, orderNo, paidCents, params["trade_no"], payMethod, string(payload)); err == nil {
-		return nil
-	}
-	// 不是充值订单时，尝试按授权购买订单结算（代理端线上支付开通授权）。
-	return settleLicensePurchaseOrder(db, orderNo, paidCents, payChannelEpayV1, params["trade_no"], payMethod, string(payload))
+	return dispatchVerifiedOnlinePayment(db, orderNo, paidCents, payChannelEpayV1, payMethod, params["trade_no"], string(payload))
 }
 
 // EpayNotify 易支付异步通知入口。只有验签、金额、订单号全部通过后才入账。
@@ -1314,7 +1307,9 @@ func loadRechargeReturnURL(orderNo string) string {
 		if err2 := db.QueryRow("SELECT return_url FROM license_purchase_orders WHERE order_no = ?", orderNo).Scan(&returnURL); err2 != nil {
 			var upgradeStatus string
 			if err3 := db.QueryRow("SELECT return_url, status FROM agent_upgrade_orders WHERE order_no = ?", orderNo).Scan(&returnURL, &upgradeStatus); err3 != nil {
-				return ""
+				if err4 := db.QueryRow("SELECT return_url FROM store_purchase_orders WHERE order_no = ?", orderNo).Scan(&returnURL); err4 != nil {
+					return ""
+				}
 			}
 			if upgradeStatus == "completed" {
 				parsed, err := url.Parse(strings.TrimSpace(returnURL))

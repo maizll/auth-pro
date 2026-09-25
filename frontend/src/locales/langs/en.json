@@ -248,7 +248,11 @@
       "templates": "Catalog",
       "catalog": "Public Index",
       "ads": "Ads",
-      "settings": "Settings"
+      "settings": "Settings",
+      "edition": "Commercial edition",
+      "storeOrders": "Store orders",
+      "storeLicenses": "Main licenses",
+      "storeRevenue": "Store revenue"
     },
     "security": {
       "title": "Security",

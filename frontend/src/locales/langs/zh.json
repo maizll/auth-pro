@@ -248,7 +248,11 @@
       "templates": "软件目录",
       "catalog": "公开目录",
       "ads": "广告投放",
-      "settings": "源站设置"
+      "settings": "源站设置",
+      "edition": "商业版设置",
+      "storeOrders": "商店订单",
+      "storeLicenses": "主授权与权益",
+      "storeRevenue": "商业版收入"
     },
     "security": {
       "title": "安全风控",

@@ -552,6 +552,8 @@ export interface PluginInfo {
   remote: boolean
   source: string
   downloadUrl: string
+  priceCents?: number
+  ownership?: string
 }
 
 export interface PluginCategoryGroup {

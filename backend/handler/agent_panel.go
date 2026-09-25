@@ -602,6 +602,12 @@ func AgentPanelLicenseUpdate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": errMsg})
 		return
 	}
+	if licenseType == "domain" {
+		if err := guardProductDomainChange(db, int64(licenseID), validatedTarget, false); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+			return
+		}
+	}
 
 	if _, err = tx.Exec("DELETE FROM license_domains WHERE license_id = ?", licenseID); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "清理旧授权目标失败"})
@@ -622,6 +628,9 @@ func AgentPanelLicenseUpdate(c *gin.Context) {
 	if err = tx.Commit(); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "提交更新失败"})
 		return
+	}
+	if licenseType == "domain" {
+		finishProductDomainChange(db, int64(licenseID), validatedTarget, "agent")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
