@@ -124,6 +124,8 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 
 		admin.GET("/settings/release", AdminSourceReleaseSettings)
 		settings.PUT("/settings/release", AdminSourceReleaseSettingsSave)
+		admin.GET("/settings/store", AdminSourceStoreSettings)
+		settings.PUT("/settings/store", AdminSourceStoreSettingsSave)
 		settings.POST("/settings/release/test", AdminSourceReleaseSettingsTest)
 		admin.GET("/packages/schema", SourcePackageSchema)
 		workbenchWrites.POST("/packages/parse", AdminSourcePackageParse)

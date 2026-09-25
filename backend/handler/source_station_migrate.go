@@ -13,6 +13,7 @@ const (
 	sourceMigrationVersionBackfill = "source_catalog_version_backfill_v1"
 	sourceMigrationAppIDBackfill   = "source_catalog_app_id_backfill_v1"
 	sourceMigrationDeveloperAgent  = "source_developer_agent_backfill_v1"
+	sourceMigrationCatalogPrice    = "source_catalog_price_v1"
 )
 
 // ensureSourceStationMigrations 把源站的一次性 ALTER / 回填记入 schema_migrations。
@@ -36,6 +37,7 @@ func ensureSourceStationMigrations(db *sql.DB) error {
 		{sourceMigrationVersionBackfill, migrateSourceCatalogVersionBackfill},
 		{sourceMigrationAppIDBackfill, migrateSourceCatalogAppIDBackfill},
 		{sourceMigrationDeveloperAgent, migrateSourceDeveloperAgentBackfill},
+		{sourceMigrationCatalogPrice, migrateSourceCatalogPrice},
 	}
 	for _, step := range steps {
 		if err := runSourceStationMigration(db, step.name, step.run); err != nil {
@@ -355,6 +357,25 @@ func migrateSourceCatalogAppIDBackfill(db *sql.DB) error {
 	}
 	if _, err := db.Exec(`UPDATE source_catalog_templates t JOIN (SELECT id FROM apps ORDER BY id ASC LIMIT 1) a SET t.app_id=a.id WHERE t.app_id=0`); err != nil {
 		return fmt.Errorf("backfill template app_id: %w", err)
+	}
+	return nil
+}
+
+func migrateSourceCatalogPrice(db *sql.DB) error {
+	columns := []struct {
+		table, column, statement string
+	}{
+		{"source_catalog_plugins", "price_cents", "ALTER TABLE source_catalog_plugins ADD COLUMN price_cents BIGINT NOT NULL DEFAULT 0"},
+		{"source_catalog_plugins", "billing", "ALTER TABLE source_catalog_plugins ADD COLUMN billing VARCHAR(20) NOT NULL DEFAULT 'free'"},
+		{"source_catalog_plugins", "delivery", "ALTER TABLE source_catalog_plugins ADD COLUMN delivery VARCHAR(20) NOT NULL DEFAULT 'zip'"},
+		{"source_catalog_templates", "price_cents", "ALTER TABLE source_catalog_templates ADD COLUMN price_cents BIGINT NOT NULL DEFAULT 0"},
+		{"source_catalog_templates", "billing", "ALTER TABLE source_catalog_templates ADD COLUMN billing VARCHAR(20) NOT NULL DEFAULT 'free'"},
+		{"source_catalog_templates", "delivery", "ALTER TABLE source_catalog_templates ADD COLUMN delivery VARCHAR(20) NOT NULL DEFAULT 'zip'"},
+	}
+	for _, column := range columns {
+		if err := ensureSourceStationColumn(db, column.table, column.column, column.statement); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -761,7 +761,9 @@ INSERT INTO `system_configs` (`group`, `key`, `value`, `description`) VALUES
 ('payment', 'easypay_default_type', 'alipay', '易支付默认支付方式'),
 ('payment', 'easypay_pay_types', 'alipay,wxpay,qqpay', '易支付已开启支付方式'),
 ('payment', 'easypay_notify_url', '', '易支付异步通知地址'),
-('payment', 'easypay_return_url', '', '易支付同步跳转地址');
+('payment', 'easypay_return_url', '', '易支付同步跳转地址'),
+('store', 'store_product_app_key', '', '付费目录所属产品应用标识'),
+('store', 'store_free_plan_id', '', '免费套餐 ID');
 
 DROP TABLE IF EXISTS `source_developer_applications`;
 CREATE TABLE `source_developer_applications` (
@@ -815,6 +817,9 @@ CREATE TABLE `source_catalog_plugins` (
   `sha256` CHAR(64) NOT NULL DEFAULT '',
   `download_url` VARCHAR(500) NOT NULL DEFAULT '',
   `changelog` VARCHAR(2000) NOT NULL DEFAULT '',
+  `price_cents` BIGINT NOT NULL DEFAULT 0,
+  `billing` VARCHAR(20) NOT NULL DEFAULT 'free',
+  `delivery` VARCHAR(20) NOT NULL DEFAULT 'zip',
   `status` VARCHAR(20) NOT NULL DEFAULT 'draft',
   `review_note` VARCHAR(500) NOT NULL DEFAULT '',
   `reviewed_by` VARCHAR(50) NOT NULL DEFAULT '',
@@ -843,6 +848,9 @@ CREATE TABLE `source_catalog_templates` (
   `sha256` CHAR(64) NOT NULL DEFAULT '',
   `template_url` VARCHAR(500) NOT NULL DEFAULT '',
   `changelog` VARCHAR(2000) NOT NULL DEFAULT '',
+  `price_cents` BIGINT NOT NULL DEFAULT 0,
+  `billing` VARCHAR(20) NOT NULL DEFAULT 'free',
+  `delivery` VARCHAR(20) NOT NULL DEFAULT 'zip',
   `status` VARCHAR(20) NOT NULL DEFAULT 'draft',
   `review_note` VARCHAR(500) NOT NULL DEFAULT '',
   `reviewed_by` VARCHAR(50) NOT NULL DEFAULT '',

@@ -79,6 +79,9 @@
             {{ row.latestVersion || row.version || '-' }}
           </template>
         </el-table-column>
+        <el-table-column label="售价" width="100">
+          <template #default="{ row }">{{ formatCatalogPriceLabel(row.priceCents) }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="statusMeta(row.status).type" size="small">
@@ -268,6 +271,10 @@
         <el-form-item label="描述">
           <el-input v-model="editForm.description" type="textarea" :rows="2" maxlength="500" />
         </el-form-item>
+        <el-form-item label="售价（元）">
+          <el-input v-model="editForm.priceYuan" placeholder="0" />
+          <p class="card-hint">填 0 表示免费。大于 0 为买断，且地址须为本站托管 ZIP。付费上架尚未开放。</p>
+        </el-form-item>
         <el-form-item :label="editIsTemplate ? 'templateUrl' : 'downloadUrl'" prop="location">
           <el-input v-model="editForm.location" placeholder="https://..." />
         </el-form-item>
@@ -326,6 +333,10 @@
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="registerForm.description" type="textarea" :rows="2" />
+        </el-form-item>
+        <el-form-item label="售价（元）">
+          <el-input v-model="registerForm.priceYuan" placeholder="0" />
+          <p class="card-hint">填 0 表示免费。大于 0 必须填写本站托管 ZIP 地址。付费上架尚未开放。</p>
         </el-form-item>
         <el-form-item :label="registerIsTemplate ? 'templateUrl' : 'downloadUrl'" prop="location">
           <el-input v-model="registerForm.location" placeholder="https://..." />
@@ -537,6 +548,11 @@
     deleteCatalogCategoryConfirmMessage,
     extrasAfterDeletingCategory
   } from '@/utils/form/catalog-category'
+  import {
+    formatCatalogPriceLabel,
+    formatCatalogPriceYuan,
+    resolveCatalogPriceCents
+  } from '@/utils/form/catalog-slug'
 
   const props = withDefaults(
     defineProps<{
@@ -581,6 +597,7 @@
     description: '',
     location: '',
     sha256: '',
+    priceYuan: '0',
     authorName: '',
     changelog: '',
     category: 'other',
@@ -596,6 +613,7 @@
     description: '',
     location: '',
     sha256: '',
+    priceYuan: '0',
     authorName: '',
     changelog: '',
     category: '',
@@ -873,6 +891,7 @@
     editForm.description = row.description || ''
     editForm.location = itemLocation(row)
     editForm.sha256 = row.sha256 || ''
+    editForm.priceYuan = formatCatalogPriceYuan(row.priceCents)
     editForm.authorName = row.author?.name || ''
     editForm.changelog = row.changelog || ''
     editForm.category = row.category
@@ -884,6 +903,11 @@
   async function handleEdit() {
     if (!editingItem.value) return
     await editRef.value?.validate()
+    const priced = resolveCatalogPriceCents(editForm.priceYuan, editForm.location)
+    if (priced.error) {
+      ElMessage.warning(priced.error)
+      return
+    }
     editing.value = true
     try {
       const note = editForm.note.trim() || '管理员编辑目录元数据（保持原状态）'
@@ -898,6 +922,7 @@
           schemaVersion: editingItem.value.schemaVersion || 1,
           templateUrl: editForm.location,
           sha256: editForm.sha256,
+          priceCents: priced.cents,
           changelog: editForm.changelog,
           category: editForm.category,
           author: { name: editForm.authorName },
@@ -912,6 +937,7 @@
           version: editingItem.value.version || '1.0.0',
           downloadUrl: editForm.location,
           sha256: editForm.sha256,
+          priceCents: priced.cents,
           changelog: editForm.changelog,
           category: editForm.category,
           icon: editForm.icon,
@@ -939,6 +965,7 @@
     registerForm.description = ''
     registerForm.location = ''
     registerForm.sha256 = ''
+    registerForm.priceYuan = '0'
     registerForm.authorName = ''
     registerForm.changelog = ''
     registerForm.category = searchForm.category || 'other'
@@ -948,6 +975,11 @@
 
   async function handleRegister() {
     await registerRef.value?.validate()
+    const priced = resolveCatalogPriceCents(registerForm.priceYuan, registerForm.location)
+    if (priced.error) {
+      ElMessage.warning(priced.error)
+      return
+    }
     registering.value = true
     try {
       if (registerIsTemplate.value) {
@@ -960,6 +992,7 @@
           description: registerForm.description,
           templateUrl: registerForm.location,
           sha256: registerForm.sha256,
+          priceCents: priced.cents,
           changelog: registerForm.changelog,
           schemaVersion: 1,
           category: registerForm.category,
@@ -975,6 +1008,7 @@
           description: registerForm.description,
           downloadUrl: registerForm.location,
           sha256: registerForm.sha256,
+          priceCents: priced.cents,
           changelog: registerForm.changelog,
           category: registerForm.category,
           author: { name: registerForm.authorName },

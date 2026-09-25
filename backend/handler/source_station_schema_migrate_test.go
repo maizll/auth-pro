@@ -82,6 +82,39 @@ func TestEnsureSourceStationSchemaRefusesDropWhenFilePathWouldBeLost(t *testing.
 	}
 }
 
+func TestSourceCatalogPriceMigrationOnExistingDB(t *testing.T) {
+	state := newLegacySourceSchemaState()
+	for _, table := range []string{"source_catalog_plugins", "source_catalog_templates"} {
+		if state.hasColumn(table, "price_cents") || state.hasColumn(table, "billing") || state.hasColumn(table, "delivery") {
+			t.Fatalf("legacy %s already has price columns", table)
+		}
+	}
+	db := openSourceSchemaMigrateDB(t, state)
+	if err := ensureSourceStationStorage(db); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if !state.migrationApplied("source_catalog_price_v1") {
+		t.Fatal("source_catalog_price_v1 was not recorded")
+	}
+	for _, table := range []string{"source_catalog_plugins", "source_catalog_templates"} {
+		for _, column := range []string{"price_cents", "billing", "delivery"} {
+			if !state.hasColumn(table, column) {
+				t.Fatalf("%s.%s missing after migration", table, column)
+			}
+		}
+	}
+	before := state.execCount()
+	if err := ensureSourceStationStorage(db); err != nil {
+		t.Fatalf("second ensure: %v", err)
+	}
+	for _, query := range state.execsAfter(before) {
+		upper := strings.ToUpper(query)
+		if strings.Contains(upper, "ADD COLUMN") && (strings.Contains(query, "price_cents") || strings.Contains(query, " billing") || strings.Contains(query, " delivery")) {
+			t.Fatalf("second ensure re-added a price column: %s", query)
+		}
+	}
+}
+
 func TestEnsureSourceStationSchemaReturnsMigrationExecError(t *testing.T) {
 	state := newLegacySourceSchemaState()
 	state.failExecContaining = "DROP COLUMN file_path"
@@ -107,6 +140,7 @@ var sourceStationMigrationNames = []string{
 	"source_catalog_version_backfill_v1",
 	"source_catalog_app_id_backfill_v1",
 	"source_developer_agent_backfill_v1",
+	"source_catalog_price_v1",
 }
 
 type sourceSchemaPluginRow struct {

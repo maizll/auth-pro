@@ -58,6 +58,9 @@ export interface SourcePlugin {
   author: SourceAuthor
   sha256: string
   downloadUrl: string
+  priceCents?: number
+  billing?: string
+  delivery?: string
   changelog: string
   latestVersion: string
   minVersion: string
@@ -88,6 +91,9 @@ export interface SourceTemplate {
   schemaVersion: number
   sha256: string
   templateUrl: string
+  priceCents?: number
+  billing?: string
+  delivery?: string
   changelog: string
   latestVersion: string
   minVersion: string
@@ -114,6 +120,9 @@ export interface SourceCatalogItem {
   sha256: string
   downloadUrl?: string
   templateUrl?: string
+  priceCents?: number
+  billing?: string
+  delivery?: string
   location?: string
   schemaVersion?: number
   templateKey?: string
@@ -239,6 +248,7 @@ export interface SourcePluginDraft {
   version: string
   sha256: string
   downloadUrl: string
+  priceCents?: number
   changelog?: string
   minVersion?: string
   forceUpdate?: boolean
@@ -257,6 +267,7 @@ export interface SourceTemplateDraft {
   schemaVersion?: number
   sha256: string
   templateUrl: string
+  priceCents?: number
   changelog?: string
   minVersion?: string
   forceUpdate?: boolean
@@ -536,6 +547,19 @@ export function fetchSourceAudit(limit = 100) {
     url: `${BASE}/audit`,
     params: { limit }
   })
+}
+
+export interface SourceStoreSettings {
+  productAppKey: string
+  freePlanId: string
+}
+
+export function fetchSourceStoreSettings() {
+  return request.get<SourceStoreSettings>({ url: `${BASE}/settings/store` })
+}
+
+export function saveSourceStoreSettings(payload: SourceStoreSettings) {
+  return request.put<SourceStoreSettings>({ url: `${BASE}/settings/store`, data: payload })
 }
 
 export function fetchSourceReleaseSettings() {

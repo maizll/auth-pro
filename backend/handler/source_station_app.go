@@ -144,8 +144,13 @@ func sourcePublicPluginEntry(plugin sourcePlugin) map[string]any {
 	}
 	entry := map[string]any{
 		"id": plugin.ID, "category": category, "name": plugin.Name, "description": plugin.Description,
-		"icon": plugin.Icon, "version": plugin.Version, "author": plugin.Author, "downloadUrl": plugin.DownloadURL,
-		"sha256": plugin.SHA256, "forceUpdate": plugin.ForceUpdate,
+		"icon": plugin.Icon, "version": plugin.Version, "author": plugin.Author,
+		"priceCents": plugin.PriceCents, "billing": catalogBillingLabel(plugin.Billing),
+		"forceUpdate": plugin.ForceUpdate,
+	}
+	if plugin.PriceCents <= 0 && !isPrivatePackageRef(plugin.DownloadURL) {
+		entry["downloadUrl"] = plugin.DownloadURL
+		entry["sha256"] = plugin.SHA256
 	}
 	if plugin.Changelog != "" {
 		entry["changelog"] = plugin.Changelog
@@ -167,8 +172,13 @@ func sourcePublicTemplateEntry(template sourceTemplate) map[string]any {
 	}
 	entry := map[string]any{
 		"id": template.TemplateKey, "category": category, "name": template.Name, "description": template.Description,
-		"version": template.Version, "schemaVersion": schemaVersion, "sha256": template.SHA256,
-		"templateUrl": template.TemplateURL, "forceUpdate": template.ForceUpdate,
+		"version": template.Version, "schemaVersion": schemaVersion,
+		"priceCents": template.PriceCents, "billing": catalogBillingLabel(template.Billing),
+		"forceUpdate": template.ForceUpdate,
+	}
+	if template.PriceCents <= 0 && !isPrivatePackageRef(template.TemplateURL) {
+		entry["sha256"] = template.SHA256
+		entry["templateUrl"] = template.TemplateURL
 	}
 	if template.Changelog != "" {
 		entry["changelog"] = template.Changelog

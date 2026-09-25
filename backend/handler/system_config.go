@@ -153,7 +153,9 @@ func ensureSystemConfigStorage(db *sql.DB) error {
 			('payment', 'easypay_return_url', '', '易支付同步跳转地址'),
 			('captcha', 'geetest_enabled', '0', '是否启用极验行为验证'),
 			('captcha', 'geetest_captcha_id', '', '极验验证 ID'),
-			('captcha', 'geetest_captcha_key', '', '极验验证 Key')
+			('captcha', 'geetest_captcha_key', '', '极验验证 Key'),
+			('store', 'store_product_app_key', '', '付费目录所属产品应用标识'),
+			('store', 'store_free_plan_id', '', '免费套餐 ID')
 		ON DUPLICATE KEY UPDATE `+"`key`"+` = VALUES(`+"`key`"+`)
 	`, defaultSiteName, defaultSiteSubtitle, installedAt.Format("2006-01-02 15:04:05"))
 	if err == nil {
