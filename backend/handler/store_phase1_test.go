@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -121,6 +124,119 @@ func TestTamperedSnapshotFailsVerify(t *testing.T) {
 	signed.Edition = storeEditionFree
 	if verifyStoreSnapshot(signed) {
 		t.Fatal("tampered snapshot verified")
+	}
+}
+
+func TestPlaceholderPublicKeyRejectsSnapshots(t *testing.T) {
+	if embeddedStoreSnapshotPublicKey != storeSnapshotPublicKeyPlaceholder || storeSnapshotPublicKeyConfigured() {
+		t.Fatal("source build must keep the unconfigured placeholder")
+	}
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restore := useStoreSnapshotKeysForTest(pub, priv)
+	signed, err := signStoreSnapshot(storeSnapshot{BindingID: "sb_placeholder", Domain: "shop.example.com", Edition: storeEditionCommercial, Features: []string{storeFeatureMultiApp}, Items: []storeSnapshotItem{}})
+	if err != nil || !verifyStoreSnapshot(signed) {
+		restore()
+		t.Fatal("in-test key failed to sign")
+	}
+	restore()
+	if verifyStoreSnapshot(signed) {
+		t.Fatal("placeholder accepted a snapshot")
+	}
+	if _, err := signStoreSnapshot(storeSnapshot{BindingID: "sb_placeholder", Items: []storeSnapshotItem{}}); err == nil || !strings.Contains(err.Error(), "拒绝签发快照") {
+		t.Fatal("source must refuse to sign when the public key is unconfigured")
+	}
+	view := currentBuyerAccess(nil)
+	if view.Edition != storeEditionFree || !view.GraceWarning || view.Reason != storeReasonSnapshotKeyUnconfigured || view.SnapshotValid {
+		t.Fatal("buyer must stay on the free tier and surface the unconfigured warning")
+	}
+}
+
+func TestLdflagsPublicKeyRequiresMatchingPrivateFile(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := embeddedStoreSnapshotPublicKey
+	embeddedStoreSnapshotPublicKey = base64.StdEncoding.EncodeToString(pub)
+	applyEmbeddedStoreSnapshotPublicKey()
+	t.Cleanup(func() {
+		embeddedStoreSnapshotPublicKey = prev
+		applyEmbeddedStoreSnapshotPublicKey()
+	})
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	if !storeSnapshotPublicKeyConfigured() {
+		t.Fatal("ldflags public key was not applied")
+	}
+	if _, err := signStoreSnapshot(storeSnapshot{BindingID: "sb_ldflags", Items: []storeSnapshotItem{}}); err == nil || !strings.Contains(err.Error(), "未配置商店签名私钥") {
+		t.Fatal("configured public key must still refuse to sign without the source private key")
+	}
+}
+
+func TestStoreKeygenRefusesOverwriteAndPrintsOnlyPublicKey(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	if !wantsStoreKeygen([]string{"store-keygen"}) || !wantsStoreKeygen([]string{"--store-keygen"}) || wantsStoreKeygen(nil) {
+		t.Fatal("keygen command detection")
+	}
+	if !storeKeygenForce([]string{"store-keygen", "--force"}) || storeKeygenForce([]string{"store-keygen"}) {
+		t.Fatal("force flag detection")
+	}
+	var out bytes.Buffer
+	if err := runStoreKeygen(&out, false); err != nil {
+		t.Fatal(err)
+	}
+	path := storeSnapshotPrivateKeyPath()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("private key file mode %o", info.Mode().Perm())
+	}
+	secret, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secretText := strings.TrimSpace(string(secret))
+	raw, err := base64.StdEncoding.DecodeString(secretText)
+	if err != nil || len(raw) != ed25519.PrivateKeySize {
+		t.Fatal("private key file is not an ed25519 private key")
+	}
+	wantPub := base64.StdEncoding.EncodeToString(ed25519.PrivateKey(raw).Public().(ed25519.PublicKey))
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) != 2 || lines[0] != wantPub || lines[1] != storeKeygenHint {
+		t.Fatal("stdout must be only the public key and the Chinese hint")
+	}
+	if strings.Contains(out.String(), secretText) {
+		t.Fatal("stdout included the private key")
+	}
+	out.Reset()
+	if err := runStoreKeygen(&out, false); err == nil {
+		t.Fatal("overwrite without force succeeded")
+	}
+	again, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(again, secret) {
+		t.Fatal("refused overwrite changed the private key file")
+	}
+	if strings.Contains(out.String(), secretText) {
+		t.Fatal("refused overwrite wrote the private key to stdout")
+	}
+	out.Reset()
+	if err := runStoreKeygen(&out, true); err != nil {
+		t.Fatal(err)
+	}
+	replaced, err := os.ReadFile(path)
+	if err != nil || bytes.Equal(replaced, secret) {
+		t.Fatal("force did not replace the private key file")
+	}
+	replacedText := strings.TrimSpace(string(replaced))
+	if strings.Contains(out.String(), secretText) || strings.Contains(out.String(), replacedText) {
+		t.Fatal("force stdout included a private key")
+	}
+	if filepath.Base(path) != "snapshot-ed25519.key" {
+		t.Fatal("private key path changed")
 	}
 }
 

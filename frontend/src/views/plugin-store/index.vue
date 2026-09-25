@@ -489,9 +489,14 @@
 
   const storeAccount = ref<StoreAccount | null>(null)
   const catalog = ref<StoreCatalogItem[]>([])
+  const accountUnconfigured = computed(() => storeAccount.value?.reason === 'snapshot_key_unconfigured')
+  const accountWarning = computed(
+    () => !!storeAccount.value && (storeAccount.value.graceWarning || accountUnconfigured.value)
+  )
   const accountText = computed(() => {
     const account = storeAccount.value
     if (!account) return '正在读取版本信息'
+    if (accountUnconfigured.value) return '发行包未配置商店验签公钥，快照一律无效，当前按免费版使用'
     if (account.domainMismatch) return `授权域名与当前域名不一致（${account.domain || '未绑定'}）`
     if (account.offlineGrace) return '源站暂时不可达，商业版处于离线宽限'
     if (account.edition === 'commercial') {
@@ -499,8 +504,10 @@
     }
     return '免费版'
   })
-  const accountIcon = computed(() => (storeAccount.value?.graceWarning ? 'ri:error-warning-fill' : 'ri:vip-crown-fill'))
-  const accountTone = computed(() => (storeAccount.value?.graceWarning ? 'warning' : storeAccount.value?.edition === 'commercial' ? 'ok' : 'crown'))
+  const accountIcon = computed(() => (accountWarning.value ? 'ri:error-warning-fill' : 'ri:vip-crown-fill'))
+  const accountTone = computed(() =>
+    accountWarning.value ? 'warning' : storeAccount.value?.edition === 'commercial' ? 'ok' : 'crown'
+  )
 
   function formatExpire(value?: number | null) {
     if (!value) return '未设置到期时间'

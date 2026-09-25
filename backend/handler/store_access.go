@@ -140,6 +140,11 @@ func buyerConfig(key string) string {
 
 func currentBuyerAccess(c *gin.Context) buyerAccessView {
 	view := buyerAccessView{Edition: storeEditionFree, RequestDomain: requestHostOnly(c), Features: []string{}}
+	if !storeSnapshotPublicKeyConfigured() {
+		view.Reason = storeReasonSnapshotKeyUnconfigured
+		view.GraceWarning = true
+		return view
+	}
 	state, ok := loadBuyerSnapshot()
 	if !ok {
 		return view

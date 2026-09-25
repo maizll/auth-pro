@@ -13,6 +13,8 @@ backend/*.pid
 backend/db.json
 backend/install.lock
 backend/jwt.secret
+store/snapshot-ed25519.key
+backend/store/snapshot-ed25519.key
 backend/updates/
 backend/software-source-cache/
 

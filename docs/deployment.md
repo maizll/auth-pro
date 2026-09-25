@@ -6,6 +6,25 @@
 
 这个目录里会有 `db.json`（数据库口令，权限应收成 `600`）、`install.lock`、`jwt.secret`，以及插件、模板、更新包和日志。不要把该目录暴露到公网。
 
+源站签发商业版快照前，要在这台机器上生成签名私钥，并把打印出来的公钥交给维护者打进发行包。私钥只留在本机。
+
+```bash
+cd /www/wwwroot/example.com/backend
+./auth_pro store-keygen
+```
+
+命令把私钥写到数据目录 `store/snapshot-ed25519.key`（权限 `0600`）。文件已存在时会拒绝覆盖，确认更换才加 `--force`。屏幕上只有公钥的 base64 和一行中文提示，把公钥发给维护者。维护者用下面任一方式打进发行包后再发布（`<打印出的公钥>` 换成命令打印的第一行）：
+
+```bash
+AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY='<打印出的公钥>' ./scripts/build-release.sh
+```
+
+```bash
+go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出的公钥>" -o auth_pro .
+```
+
+未打入公钥的包会把所有快照视为无效：买方保持免费版，商店账号条显示警告；源站拒绝签发并返回明确错误。升级源站时保留 `store/snapshot-ed25519.key`，不要把私钥放进仓库或环境变量。完整说明见 [商业版](commercial.md) 和 [发布包目录](../PACKAGING.md)。
+
 ## 宝塔：全新安装
 
 脚本在发布包根目录，仓库里对应 `scripts/baota-install.sh`（逻辑在 `scripts/baota-lib.sh`）。面板里的建站、空 MySQL、SSL 和进程守护开关仍要手工做，脚本不改面板数据库。

@@ -9,21 +9,22 @@ import (
 )
 
 const (
-	storeFeatureMultiApp     = "multi_app"
-	storeEditionFree         = "free"
-	storeEditionCommercial   = "commercial"
-	storePeriodPermanent     = "permanent"
-	storePeriodYearly        = "yearly"
-	storeOrderPrefix         = "PP"
-	storeGraceDefaultDays    = 7
-	storeBindChallengeTTL    = 2 * time.Minute
-	storeOrderTTL            = 30 * time.Minute
-	storeDownloadTTL         = 10 * time.Minute
-	storeSignWindow          = 300 * time.Second
-	storeDomainChangeWindow  = 30 * 24 * time.Hour
-	storeBindingIdleTTL      = 180 * 24 * time.Hour
-	storeEditionRequiredCode = 402
-	storeEditionRequiredMsg  = "该功能需要商业版"
+	storeFeatureMultiApp               = "multi_app"
+	storeEditionFree                   = "free"
+	storeEditionCommercial             = "commercial"
+	storePeriodPermanent               = "permanent"
+	storePeriodYearly                  = "yearly"
+	storeOrderPrefix                   = "PP"
+	storeGraceDefaultDays              = 7
+	storeBindChallengeTTL              = 2 * time.Minute
+	storeOrderTTL                      = 30 * time.Minute
+	storeDownloadTTL                   = 10 * time.Minute
+	storeSignWindow                    = 300 * time.Second
+	storeDomainChangeWindow            = 30 * 24 * time.Hour
+	storeBindingIdleTTL                = 180 * 24 * time.Hour
+	storeEditionRequiredCode           = 402
+	storeEditionRequiredMsg            = "该功能需要商业版"
+	storeReasonSnapshotKeyUnconfigured = "snapshot_key_unconfigured"
 )
 
 var (
