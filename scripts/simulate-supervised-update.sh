@@ -521,10 +521,179 @@ printf '%s' "$STAND_RESULT" | grep -q '"status":"success"' || fail "无守护更
 wait_version "$STAND_PORT" "1.5.4" >/dev/null || fail "无守护重启后版本不是 1.5.4"
 mapfile -t STAND_LISTENERS < <(listener_pids "$STAND_PORT")
 [[ "${#STAND_LISTENERS[@]}" -eq 1 ]] || fail "无守护端口监听数不是 1: ${STAND_LISTENERS[*]-}"
+PIDS+=("${STAND_LISTENERS[0]}")
 kill -0 "$STAND_OLD" 2>/dev/null && fail "无守护旧进程还在"
 grep -q 'standalone-new-index' "$STAND_SITE/index.html" || fail "无守护前端没有切换"
 printf '%s\n' "$STAND_RESULT" > "$ART/standalone-job.json"
 ok "无守护自重启"
+
+spawn_orphan() {
+  python3 - "$1" <<'PY'
+import os, sys
+path = sys.argv[1]
+if os.fork() > 0:
+    os._exit(0)
+os.setsid()
+if os.fork() > 0:
+    os._exit(0)
+os.execv(path, [path])
+PY
+}
+
+point_supervisor() {
+  local site="$1"
+  supervisorctl -c "$SUP_CONF" stop auth_pro >/dev/null 2>&1 || true
+  python3 - "$SUP_CONF" "$site" <<'PY'
+import pathlib, sys
+conf, site = sys.argv[1:]
+text = pathlib.Path(conf).read_text()
+start = text.index("[program:auth_pro]")
+block = f"""[program:auth_pro]
+command={site}/backend/start.sh
+directory={site}/backend
+autostart=false
+autorestart=true
+startsecs=0
+startretries=40
+stopsignal=TERM
+stopwaitsecs=12
+stdout_logfile={site}/backend/logs/supervisor.out
+stderr_logfile={site}/backend/logs/supervisor.err
+environment=PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+"""
+pathlib.Path(conf).write_text(text[:start] + block)
+PY
+  supervisorctl -c "$SUP_CONF" reread >/dev/null
+  supervisorctl -c "$SUP_CONF" update >/dev/null
+}
+
+# 复现事故：父进程为 1 的本站 auth_pro 占着端口。在线更新必须先停掉它，再由 supervisord 拉起新版。
+ORPHAN_PORT="$(free_port)"
+ORPHAN_UPDATE="$(free_port)"
+ORPHAN_SITE="$WORK/orphan-online/site"
+ORPHAN_SRC="$WORK/orphan-online/src"
+mkdir -p "$ORPHAN_SRC"
+UPDATE_PORT="$ORPHAN_UPDATE" make_package 1.5.4 "$WORK/auth_pro_1.5.4" "orphan-new-index" "$ORPHAN_SRC"
+write_site "$ORPHAN_SITE" "$ORPHAN_PORT" "$ORPHAN_UPDATE" supervisor "$WORK/auth_pro_1.5.3"
+point_supervisor "$ORPHAN_SITE"
+spawn_orphan "$ORPHAN_SITE/backend/start.sh"
+ORPHAN_BODY="$(wait_version "$ORPHAN_PORT" "1.5.3")" || {
+  tail -n 40 "$ORPHAN_SITE/backend/logs/auto_pro.log" 2>/dev/null || true
+  fail "孤儿旧版本没有起来"
+}
+printf '孤儿在线更新前 %s\n' "$ORPHAN_BODY"
+ORPHAN_OLD="$(listener_pids "$ORPHAN_PORT" | head -n 1)"
+ORPHAN_PPID="$(ps -o ppid= -p "$ORPHAN_OLD" | tr -d ' ')"
+[[ "$ORPHAN_PPID" == "1" ]] || fail "在线更新前的旧进程 PPID 不是 1（当前 ${ORPHAN_PPID}）"
+start_update_source "$ORPHAN_SRC/www" "$ORPHAN_UPDATE"
+ORPHAN_TOKEN="$(sign_token "$ORPHAN_SITE/backend/jwt.secret")"
+ORPHAN_APPLY="$(apply_update "$ORPHAN_PORT" "$ORPHAN_TOKEN")"
+printf '孤儿申请 %s\n' "$ORPHAN_APPLY"
+printf '%s' "$ORPHAN_APPLY" | grep -q '"code":200' || fail "孤儿在线更新申请失败: $ORPHAN_APPLY"
+ORPHAN_JOB="$(printf '%s' "$ORPHAN_APPLY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["id"])')"
+ORPHAN_RESULT="$(poll_job "$ORPHAN_PORT" "$ORPHAN_TOKEN" "$ORPHAN_JOB")" || {
+  tail -n 80 "$ORPHAN_SITE/backend/logs/"*.log 2>/dev/null || true
+  fail "孤儿在线更新没有结束: $ORPHAN_RESULT"
+}
+printf '孤儿任务 %s\n' "$ORPHAN_RESULT"
+printf '%s' "$ORPHAN_RESULT" | grep -q '"status":"success"' || fail "孤儿在线更新没有成功: $ORPHAN_RESULT"
+wait_version "$ORPHAN_PORT" "1.5.4" >/dev/null || fail "孤儿更新后版本不是 1.5.4"
+kill -0 "$ORPHAN_OLD" 2>/dev/null && fail "PPID=1 的旧进程还在"
+mapfile -t ORPHAN_LISTENERS < <(listener_pids "$ORPHAN_PORT")
+[[ "${#ORPHAN_LISTENERS[@]}" -eq 1 ]] || fail "孤儿更新后监听数不是 1: ${ORPHAN_LISTENERS[*]-}"
+ORPHAN_NEW_PPID="$(ps -o ppid= -p "${ORPHAN_LISTENERS[0]}" | tr -d ' ')"
+ORPHAN_NEW_COMM="$(ps -o comm= -p "$ORPHAN_NEW_PPID" | tr -d ' ')"
+[[ "$ORPHAN_NEW_COMM" == "supervisord" ]] || fail "孤儿更新后父进程是 $ORPHAN_NEW_COMM"
+grep -q 'orphan-new-index' "$ORPHAN_SITE/index.html" || fail "孤儿更新后前端没有切换"
+printf '%s\n' "$ORPHAN_RESULT" > "$ART/orphan-online-job.json"
+ok "在线更新清掉 PPID=1 的旧进程并由守护启动新版"
+
+# 不响应的孤儿：占着端口、忽略 SIGTERM。baota-upgrade.sh 要 SIGKILL 它，再由守护启动新版。
+HUNG_PORT="$(free_port)"
+HUNG_SITE="$WORK/orphan-upgrade/site"
+write_site "$HUNG_SITE" "$HUNG_PORT" "9" supervisor "$WORK/auth_pro_1.5.3"
+cat > "$HUNG_SITE/backend/auth_pro" <<'EOF'
+#!/usr/bin/env python3
+import os, signal
+from socket import socket, AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+s = socket(AF_INET, SOCK_STREAM)
+s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", int(os.environ["PORT"])))
+s.listen(8)
+while True:
+    conn, _ = s.accept()
+EOF
+chmod 755 "$HUNG_SITE/backend/auth_pro"
+printf 'installed\n' > "$HUNG_SITE/backend/install.lock"
+point_supervisor "$HUNG_SITE"
+PORT="$HUNG_PORT" spawn_orphan "$HUNG_SITE/backend/auth_pro"
+HUNG_OLD=""
+for _ in $(seq 1 20); do
+  HUNG_OLD="$(listener_pids "$HUNG_PORT" | head -n 1)"
+  [[ -n "$HUNG_OLD" ]] && break
+  sleep 0.2
+done
+[[ -n "$HUNG_OLD" ]] || fail "不响应的孤儿没有占上端口"
+PIDS+=("$HUNG_OLD")
+HUNG_PPID="$(ps -o ppid= -p "$HUNG_OLD" | tr -d ' ')"
+[[ "$HUNG_PPID" == "1" ]] || fail "不响应孤儿的 PPID 不是 1（当前 ${HUNG_PPID}）"
+curl -fsS --max-time 1 "http://127.0.0.1:${HUNG_PORT}/api/system/version" >/dev/null 2>&1 && fail "这个孤儿不应该响应健康检查"
+KEEP_PORT="$(free_port)"
+KEEP_SITE="$WORK/other-site"
+mkdir -p "$KEEP_SITE/backend"
+cat > "$KEEP_SITE/backend/auth_pro" <<'EOF'
+#!/usr/bin/env python3
+import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"other-site")
+    def log_message(self, fmt, *args):
+        return
+ThreadingHTTPServer(("127.0.0.1", int(os.environ["PORT"])), H).serve_forever()
+EOF
+chmod 755 "$KEEP_SITE/backend/auth_pro"
+PORT="$KEEP_PORT" "$KEEP_SITE/backend/auth_pro" &
+KEEP_PID=$!
+PIDS+=("$KEEP_PID")
+for _ in $(seq 1 20); do
+  curl -fsS --max-time 1 "http://127.0.0.1:${KEEP_PORT}/" >/dev/null 2>&1 && break
+  sleep 0.2
+done
+curl -fsS --max-time 1 "http://127.0.0.1:${KEEP_PORT}/" >/dev/null || fail "其它站点没有起来"
+UP_PAYLOAD="$WORK/upgrade-payload"
+mkdir -p "$UP_PAYLOAD/assets" "$UP_PAYLOAD/backend"
+cp "$WORK/auth_pro_1.5.4" "$UP_PAYLOAD/backend/auth_pro"
+chmod 755 "$UP_PAYLOAD/backend/auth_pro"
+printf '<html>upgrade-new</html>\n' > "$UP_PAYLOAD/index.html"
+printf '{"version":"1.5.4"}\n' > "$UP_PAYLOAD/version.json"
+printf '{"version":"1.5.4","frontendDir":".","backendFile":"backend/auth_pro","requiredFiles":[]}\n' > "$UP_PAYLOAD/manifest.json"
+printf 'asset-new\n' > "$UP_PAYLOAD/assets/app.js"
+cp "$WORK/backend-unavailable.html" "$UP_PAYLOAD/backend-unavailable.html"
+AUTH_PRO_TERM_WAIT=3 AUTH_PRO_YES=1 AUTH_PRO_START=1 AUTH_PRO_SKIP_MYSQL=1 \
+  bash "$ROOT/scripts/baota-upgrade.sh" \
+    --site-root "$HUNG_SITE" \
+    --source "$UP_PAYLOAD" >"$ART/orphan-upgrade.out" 2>"$ART/orphan-upgrade.err"
+grep -q 'SIGKILL' "$ART/orphan-upgrade.out" "$ART/orphan-upgrade.err" || fail "升级没有在超时后 SIGKILL 不响应的孤儿"
+kill -0 "$HUNG_OLD" 2>/dev/null && fail "不响应的孤儿还在"
+wait_version "$HUNG_PORT" "1.5.4" >/dev/null || {
+  echo "---- upgrade out ----"
+  cat "$ART/orphan-upgrade.out" "$ART/orphan-upgrade.err" || true
+  tail -n 40 "$HUNG_SITE/backend/logs/supervisor.err" "$HUNG_SITE/backend/logs/auto_pro.log" 2>/dev/null || true
+  fail "升级后新版本没有起来"
+}
+HUNG_NEW="$(listener_pids "$HUNG_PORT" | head -n 1)"
+HUNG_NEW_PPID="$(ps -o ppid= -p "$HUNG_NEW" | tr -d ' ')"
+HUNG_NEW_COMM="$(ps -o comm= -p "$HUNG_NEW_PPID" | tr -d ' ')"
+[[ "$HUNG_NEW_COMM" == "supervisord" ]] || fail "升级后的父进程是 $HUNG_NEW_COMM"
+kill -0 "$KEEP_PID" 2>/dev/null || fail "升级误杀了其它站点"
+curl -fsS --max-time 1 "http://127.0.0.1:${KEEP_PORT}/" >/dev/null || fail "其它站点不再响应"
+grep -q 'upgrade-new' "$HUNG_SITE/index.html" || fail "升级没有换上新页面"
+supervisorctl -c "$SUP_CONF" stop auth_pro >/dev/null 2>&1 || true
+ok "baota-upgrade 清掉不响应的孤儿并由守护启动新版"
 
 # nginx：后端端口没有进程时，502 返回静态说明页。
 NGINX_PORT="$(free_port)"

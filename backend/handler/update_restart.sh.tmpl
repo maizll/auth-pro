@@ -284,14 +284,66 @@ wait_port_free() {
   return 1
 }
 
-kill_port_listeners() {
-  pids=$(pids_on_port || true)
+# 端口上只处理本站 auth_pro（含 PPID=1 的孤儿）。其它程序或其它站点直接拒绝。
+# 成功时端口保持空闲。失败时 RECLAIM_REASON 是给任务和日志的中文说明。
+reclaim_port() {
+  RECLAIM_REASON=""
+  if ! port_listening; then
+    sleep 1
+    if ! port_listening; then
+      return 0
+    fi
+  fi
+  pids="$(pids_on_port || true)"
+  if [ -z "$pids" ]; then
+    RECLAIM_REASON="端口 ${PORT} 仍在监听，但当前用户看不到占用进程。请用 root 执行 ss -lptn，先在宝塔进程守护中停止本站点。本次没有启动新进程。"
+    log "$RECLAIM_REASON"
+    return 1
+  fi
+  foreign=""
   for pid in $pids; do
     case "$pid" in
       ''|*[!0-9]*) continue ;;
     esac
-    stop_pid "$pid"
+    target="$(our_root "$pid" || true)"
+    if [ -z "$target" ]; then
+      foreign="$pid"
+      break
+    fi
+    log "port $PORT still held by this site auth_pro pid=$target ppid=$(ppid_of "$target"), stopping it"
+    stop_pid "$target"
   done
+  if [ -n "$foreign" ]; then
+    exe="$(exe_of "$foreign")"
+    cmd="$(cmdline_of "$foreign")"
+    parent="$(ppid_of "$foreign")"
+    RECLAIM_REASON="端口 ${PORT} 被 PID ${foreign}（PPID ${parent}，程序 ${exe}，命令 ${cmd}）占用，不是本站 ${APP_BIN}。已拒绝结束该进程，也没有启动新进程。请确认是不是同机其它站点或其它程序。"
+    log "$RECLAIM_REASON"
+    return 1
+  fi
+  if ! wait_port_free; then
+    RECLAIM_REASON="已要求本站 auth_pro 退出，但端口 ${PORT} 仍被占用。请先在宝塔进程守护里停止本站点，再重新执行。本次没有启动新进程。"
+    log "$RECLAIM_REASON"
+    return 1
+  fi
+  sleep 1
+  if port_listening; then
+    RECLAIM_REASON="端口 ${PORT} 刚释放又被占用。进程守护可能在停止后立刻拉起了进程。请先在宝塔进程守护里停止本站点。本次没有启动新进程。"
+    log "$RECLAIM_REASON"
+    return 1
+  fi
+  return 0
+}
+
+stop_old_process() {
+  log "stopping old process before starting the new one"
+  if [ "$PROCESS_MANAGER" = "systemd" ]; then
+    systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || log "systemctl stop $SERVICE_NAME did not succeed, will still wait for the old pid"
+  elif supervised_manager; then
+    supervisor_ctl stop "$SUPERVISOR_PROGRAM" >/dev/null 2>&1 || log "supervisorctl stop $SUPERVISOR_PROGRAM did not succeed, will still clear this site's listener"
+  fi
+  stop_pid "$APP_PID"
+  reclaim_port
 }
 
 fetch_health() {
@@ -320,12 +372,82 @@ health_version() {
   return 1
 }
 
+exe_of() {
+  pid="$1"
+  target="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
+  target="${target% (deleted)}"
+  printf '%s' "$target"
+}
+
+cmdline_of() {
+  pid="$1"
+  tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true
+}
+
+ppid_of() {
+  pid="$1"
+  awk '/^PPid:/ {print $2}' "/proc/$pid/status" 2>/dev/null || true
+}
+
+# 只认本站这份 backend/auth_pro。同机其它目录里的 auth_pro 不算。
+is_our_pid() {
+  pid="$1"
+  case "$pid" in
+    ''|*[!0-9]*|1) return 1 ;;
+  esac
+  exe="$(exe_of "$pid")"
+  cmd="$(cmdline_of "$pid")"
+  if [ "$exe" = "$APP_BIN" ] || [ "$cmd" = "$APP_BIN" ]; then
+    return 0
+  fi
+  case " $cmd " in
+    *" $APP_BIN "*|*" $APP_BIN") return 0 ;;
+  esac
+  return 1
+}
+
+# 监听者本身或它上面几层父进程是本站程序时，返回应该结束的那个 pid。
+our_root() {
+  pid="$1"
+  current="$1"
+  i=0
+  while [ -n "$current" ] && [ "$current" != "1" ] && [ "$i" -lt 6 ]; do
+    if is_our_pid "$current"; then
+      printf '%s' "$current"
+      return 0
+    fi
+    parent="$(ppid_of "$current")"
+    if [ -z "$parent" ] || [ "$parent" = "$current" ]; then
+      return 1
+    fi
+    current="$parent"
+    i=$((i + 1))
+  done
+  return 1
+}
+
 start_standalone() {
+  if port_listening; then
+    log "refusing standalone start because port $PORT is still busy"
+    return 1
+  fi
   mkdir -p "$DATA_DIR/logs"
   cd "$DATA_DIR" || return 1
-  # 仅无守护时自行拉起。nohup 让新进程在本脚本退出后仍忽略 SIGHUP。
+  # 仅无守护、且端口已确认空闲时自行拉起。
   AUTO_PRO_DATA_DIR="$DATA_DIR" PORT="$PORT" nohup "$APP_BIN" >> "$DATA_DIR/logs/auto_pro.log" 2>&1 &
   STARTED_PID=$!
+}
+
+start_managed() {
+  if port_listening; then
+    log "refusing managed start because port $PORT is still busy"
+    return 1
+  fi
+  if [ "$PROCESS_MANAGER" = "systemd" ]; then
+    systemctl start "$SERVICE_NAME"
+    return $?
+  fi
+  supervisor_ctl start "$SUPERVISOR_PROGRAM"
 }
 
 prune_binary_backups() {
@@ -369,113 +491,108 @@ cp "$APP_BIN" "$BACKUP_BIN" || { rollback_frontend; finish_job failed "无法备
 cp "$NEW_BIN" "$APP_STAGE" || { rollback_frontend; finish_job failed "无法写入新后端程序暂存文件"; exit 1; }
 chmod 755 "$APP_STAGE" || { rm -f "$APP_STAGE"; rollback_frontend; finish_job failed "无法设置新后端程序权限"; exit 1; }
 
-# 先替换路径上的文件，再结束旧进程。守护进程若立刻拉起，读到的是新文件。
+restore_old_binary() {
+  if [ -f "$BACKUP_BIN" ]; then
+    mv -f "$BACKUP_BIN" "$APP_BIN" || cp -a "$BACKUP_BIN" "$APP_BIN" || true
+    chmod 755 "$APP_BIN" || true
+  fi
+}
+
+bring_old_back() {
+  restore_old_binary
+  rollback_frontend
+  if port_listening; then
+    log "old version was not started because port $PORT is still busy"
+    return 0
+  fi
+  if supervised_manager; then
+    start_managed || log "failed to start the previous version via the process manager"
+  else
+    start_standalone || log "failed to start the previous version"
+  fi
+}
+
+# 先停旧进程并确认端口空闲，再换上新文件、再启动。不要在旧进程还占着端口时拉起新进程。
+if ! stop_old_process; then
+  rm -f "$APP_STAGE"
+  reason="${RECLAIM_REASON:-停止旧进程后端口 ${PORT} 仍不可用，没有启动新进程。}"
+  bring_old_back
+  finish_job failed "$reason"
+  exit 1
+fi
 if ! mv -f "$APP_STAGE" "$APP_BIN"; then
   rm -f "$APP_STAGE"
-  rollback_frontend
-  finish_job failed "无法替换后端程序，旧进程仍在运行"
+  bring_old_back
+  finish_job failed "旧进程已停止，但无法替换后端程序，已尝试拉起旧版本"
   exit 1
 fi
 chmod 755 "$APP_BIN" || true
 prune_binary_backups
-log "binary replaced, process manager=$PROCESS_MANAGER"
-
-rollback_failed_update() {
-  if [ "$PROCESS_MANAGER" = "systemd" ]; then
-    systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || true
-    kill_port_listeners
-    wait_port_free || true
-    mv -f "$BACKUP_BIN" "$APP_BIN" || true
-    chmod 755 "$APP_BIN" || true
-    rollback_frontend
-    systemctl start "$SERVICE_NAME" >/dev/null 2>&1 || true
-    return 0
-  fi
-  if [ "$PROCESS_MANAGER" = "supervisor" ] || [ "$PROCESS_MANAGER" = "baota" ]; then
-    if supervisor_ctl stop "$SUPERVISOR_PROGRAM" >/dev/null 2>&1; then
-      kill_port_listeners
-      wait_port_free || true
-      mv -f "$BACKUP_BIN" "$APP_BIN" || true
-      chmod 755 "$APP_BIN" || true
-      rollback_frontend
-      supervisor_ctl start "$SUPERVISOR_PROGRAM" >/dev/null 2>&1 || true
-      return 0
-    fi
-    mv -f "$BACKUP_BIN" "$APP_BIN" || true
-    chmod 755 "$APP_BIN" || true
-    rollback_frontend
-    kill_port_listeners
-    return 0
-  fi
-  stop_pid "$STARTED_PID"
-  kill_port_listeners
-  wait_port_free || true
-  mv -f "$BACKUP_BIN" "$APP_BIN" || true
-  chmod 755 "$APP_BIN" || true
-  rollback_frontend
-  start_standalone || true
-}
-
-if supervised_manager; then
-  log "supervised restart: exit current process and let the supervisor start it"
-  if [ "$PROCESS_MANAGER" = "systemd" ]; then
-    if ! systemctl restart "$SERVICE_NAME"; then
-      stop_pid "$APP_PID"
-    fi
-  else
-    stop_pid "$APP_PID"
-  fi
-  if health_version "$VERSION"; then
-    log "update to $VERSION succeeded"
-    finish_job success
-    exit 0
-  fi
-  log "health check failed, rolling back"
-  rollback_failed_update
-  reason="新版本在 ${HEALTH_TRIES} 秒内没有健康启动，已尝试回滚到 ${OLD_VERSION}"
-  if health_version "$OLD_VERSION"; then
-    reason="${reason}。旧版本已重新拉起。"
-  else
-    reason="${reason}。旧版本未能自动拉起。请在宝塔进程守护中停止此项，结束占用端口 ${PORT} 的 auth_pro，确认 backend/auth_pro 后由守护启动。"
-  fi
-  log "$reason"
-  finish_job failed "$reason"
-  exit 1
-fi
-
-log "standalone restart"
-stop_pid "$APP_PID"
-if ! wait_port_free; then
-  kill_port_listeners
-  if ! wait_port_free; then
-    log "port still busy after stopping the old process"
-    mv -f "$BACKUP_BIN" "$APP_BIN" || true
-    chmod 755 "$APP_BIN" || true
-    rollback_frontend
-    start_standalone || true
-    finish_job failed "旧进程没有在时限内释放端口 ${PORT}，已尝试恢复旧程序"
+log "binary replaced after the old process released port $PORT, process manager=$PROCESS_MANAGER"
+if port_listening; then
+  if ! reclaim_port; then
+    bring_old_back
+    finish_job failed "${RECLAIM_REASON:-替换程序后端口 ${PORT} 又被占用，没有启动新进程。}"
     exit 1
   fi
 fi
-if ! start_standalone; then
-  mv -f "$BACKUP_BIN" "$APP_BIN" || true
-  chmod 755 "$APP_BIN" || true
+
+rollback_failed_update() {
+  log "health check failed, rolling back"
+  if [ "$PROCESS_MANAGER" = "systemd" ]; then
+    systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || true
+  elif supervised_manager; then
+    supervisor_ctl stop "$SUPERVISOR_PROGRAM" >/dev/null 2>&1 || true
+  fi
+  stop_pid "$STARTED_PID"
+  stop_pid "$APP_PID"
+  reclaim_port || log "rollback could not clear port $PORT: ${RECLAIM_REASON:-unknown}"
+  restore_old_binary
   rollback_frontend
-  finish_job failed "无法自行拉起新后端程序"
+  if ! port_listening; then
+    if supervised_manager; then
+      start_managed || true
+    else
+      start_standalone || true
+    fi
+  fi
+}
+
+if ! port_listening; then
+  log "port free, starting new process"
+else
+  bring_old_back
+  finish_job failed "端口 ${PORT} 还没空闲，拒绝启动新进程"
   exit 1
 fi
+
+if supervised_manager; then
+  log "supervised restart"
+  if ! start_managed; then
+    rollback_failed_update
+    finish_job failed "进程守护没有启动新版本。请查看守护日志。已尝试回滚到 ${OLD_VERSION}。"
+    exit 1
+  fi
+else
+  log "standalone restart"
+  if ! start_standalone; then
+    bring_old_back
+    finish_job failed "端口 ${PORT} 未确认空闲，没有自行拉起新进程"
+    exit 1
+  fi
+fi
+
 if health_version "$VERSION"; then
   log "update to $VERSION succeeded"
   finish_job success
   exit 0
 fi
-log "health check failed, rolling back"
 rollback_failed_update
 reason="新版本在 ${HEALTH_TRIES} 秒内没有健康启动，已尝试回滚到 ${OLD_VERSION}"
 if health_version "$OLD_VERSION"; then
   reason="${reason}。旧版本已重新拉起。"
 else
-  reason="${reason}。旧版本未能自动拉起，请手动启动 backend/auth_pro 并确认端口 ${PORT} 没有残留进程。"
+  reason="${reason}。旧版本未能自动拉起。请在宝塔进程守护中停止本站点，确认端口 ${PORT} 没有残留的本站 auth_pro 后再由守护启动。"
 fi
 log "$reason"
 finish_job failed "$reason"

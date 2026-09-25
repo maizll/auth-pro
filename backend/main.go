@@ -494,6 +494,9 @@ func main() {
 	port := config.GetPort()
 	log.Printf("Server starting on %s:%s", host, port)
 	if err := serveUntilSignal(r, host+":"+port); err != nil {
+		if isAddrInUse(err) {
+			log.Printf("%s", describeListenConflict(host+":"+port))
+		}
 		log.Fatal("Server failed:", err)
 	}
 }

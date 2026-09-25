@@ -746,10 +746,14 @@ func TestWriteOnlineUpdateScriptSupportsWebsiteRoot(t *testing.T) {
 	if strings.Contains(script, `cp -a "$FRONTEND_SOURCE/assets/." "$FRONTEND_ROOT/assets/"`) {
 		t.Fatal("generated script still copies assets into the live frontend directory")
 	}
+	stopAt := strings.Index(script, `if ! stop_old_process; then`)
 	mvAt := strings.Index(script, `mv -f "$APP_STAGE" "$APP_BIN"`)
-	stopAt := strings.Index(script, `stop_pid "$APP_PID"`)
-	if mvAt < 0 || stopAt < 0 || mvAt > stopAt {
-		t.Fatal("backend binary must be replaced before the old process is stopped")
+	startAt := strings.Index(script, `log "port free, starting new process"`)
+	if stopAt < 0 || mvAt < 0 || startAt < 0 || stopAt > mvAt || mvAt > startAt {
+		t.Fatal("must stop the old process, confirm the port is free, replace the binary, then start")
+	}
+	if !strings.Contains(script, "不是本站") || !strings.Contains(script, "kill -KILL") {
+		t.Fatal("script must refuse foreign listeners and SIGKILL this site's auth_pro after SIGTERM times out")
 	}
 	if !strings.Contains(script, `PROCESS_MANAGER='none'`) {
 		t.Fatal("default process manager should be standalone when no supervisor is detected")
@@ -1395,7 +1399,7 @@ func writeFrontendSwitchScript(t *testing.T, sourceDir, liveDir, version string)
 func requireFrontendOnlyGuard(t *testing.T, script string) {
 	t.Helper()
 	guard := strings.Index(script, `if [ "$FRONTEND_ONLY" = "1" ]; then`)
-	kill := strings.Index(script, `stop_pid "$APP_PID"`)
+	kill := strings.Index(script, `if ! stop_old_process; then`)
 	if guard < 0 || kill < 0 || guard > kill {
 		t.Fatal("generated script must finish frontend-only before stopping the process")
 	}

@@ -20,9 +20,9 @@ baota_print_help() {
   --package FILE    发布包 auth_pro-full-vX.Y.Z.tar.gz
   --source DIR      已解压的发布目录
   --port PORT       后端端口，默认 19127（已有 baota.env 时沿用其中的 PORT）
-  --start           安装后立即后台启动
-  --no-start        只放好文件，启动交给宝塔进程守护
-  --stop-port       只结束「本站 backend/auth_pro」占用的端口
+  --start           安装后在端口空闲时启动。已配置本站进程守护时由守护启动
+  --no-start        只放好文件。覆盖安装仍会先停本站旧进程
+  --stop-port       兼容旧参数。现在安装和升级都会先停本站进程，不必再加
   --yes, -y         不再询问
   --dry-run         只打印步骤，不改网站文件
   -h, --help        显示本说明

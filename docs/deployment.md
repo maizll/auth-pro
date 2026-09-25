@@ -52,8 +52,8 @@ bash baota-install.sh \
 2. 校验发布包，拒绝 `..` 和符号链接。放入 `index.html`、`assets/`、`backend/auth_pro` 等，不删除 `.user.ini` 这类面板文件。
 3. 把 `backend/auth_pro` 设为 `755`。
 4. 生成 `backend/baota.env`（`PORT`、`HOST=127.0.0.1`、`AUTO_PRO_DATA_DIR`）、`backend/start.sh`、`backend/baota-nginx.snippet.conf`、`backend/baota-guardian.txt`。`baota.env` 为 `600`。已有 `baota.env` 且没有用 `--port` 或 `AUTH_PRO_HOST` 覆盖时，默认保留。
-5. 端口被占用时默认不杀进程。只有 `--stop-port` 且能确认占用者是本站 `backend/auth_pro` 才结束进程树；无关进程直接拒绝，并且此时还不会替换文件。
-6. `--start` 时在 `backend/` 后台启动，并请求 `http://127.0.0.1:19127/api/install/status`。数据库口令只在网页安装向导里填写。
+5. 安装、覆盖安装和升级都会先停旧进程：通过指向本站的进程守护停止，等待退出；端口仍被本站 `backend/auth_pro` 占用时（包括父进程为 1 的孤儿）先 SIGTERM，超时后 SIGKILL。确认端口空闲后才写文件、才启动。占用者不是本站程序时拒绝执行，不结束其它程序，也不结束同机其它站点的 `auth_pro`。
+6. `--start` 时在端口空闲后启动。`baota.env` 或本机 supervisor 配置里的 command 指向本站 `start.sh` 时，由进程守护启动，健康检查失败会把程序文件换回去。没有找到本站守护配置时才直接启动。数据库口令只在网页安装向导里填写。
 
 常用选项：
 
@@ -63,8 +63,8 @@ bash baota-install.sh \
 | `--package FILE` | `auth_pro-full-vX.Y.Z.tar.gz` |
 | `--source DIR` | 已经解压好的发布目录 |
 | `--port PORT` | 后端端口，默认 `19127` |
-| `--start` / `--no-start` | 装完是否立刻后台启动。不启动时交给进程守护 |
-| `--stop-port` | 只结束本站 `backend/auth_pro` 占用的端口 |
+| `--start` / `--no-start` | 装完是否启动。有本站进程守护时由守护启动；不启动时仍会先停本站旧进程 |
+| `--stop-port` | 兼容旧命令。现在默认就会先停本站进程 |
 | `--yes` / `-y` | 不再询问。也可用 `AUTH_PRO_YES=1` |
 | `--dry-run` | 只打印步骤，不改网站文件 |
 | `-h` / `--help` | 帮助 |
@@ -75,13 +75,13 @@ bash baota-install.sh \
 
 ## 宝塔：升级
 
-不要先把新 tar 解压覆盖正在运行的站点。把包留在 `/tmp`，用 `--package` 指向它。升级前先在宝塔「进程守护」里停止本站点，否则刚结束的进程会被立刻拉起，脚本会停在替换之前。
+不要先把新 tar 解压覆盖正在运行的站点。把包留在 `/tmp`，用 `--package` 指向它。升级脚本会自己先停本站进程并确认端口空闲。若进程守护不在 supervisor 里、停掉后又立刻把旧进程拉起来，脚本会停在替换之前，这时再去宝塔面板里停止该站点。
 
 ```bash
 bash baota-upgrade.sh \
   --site-root /www/wwwroot/example.com \
   --package /tmp/auth_pro-full-v1.5.3.tar.gz \
-  --stop-port --no-start
+  --no-start
 ```
 
 要求数据目录里已有 `db.json` 或 `install.lock`。
@@ -173,7 +173,7 @@ Release 附件里要有 `latest.json`。清单里的 `package.signature` 必须�
 
 页面上可以「检查更新」和「立即更新」。重启阶段大约 3 分钟还没有结果时，页面会写明「更新重启失败」、能读到的原因，以及下面的恢复步骤，不会一直停在 95%。新版本健康启动后页面会自动刷新并显示新版本号。失败提示为已尝试回滚。
 
-在宝塔进程守护或 systemd 下，更新会先替换 `backend/auth_pro`，再让当前进程退出，由守护拉起新进程，不再 `nohup` 出一个父进程为 1 的孤儿。判断顺序是：环境变量 `AUTO_PRO_PROCESS_MANAGER`（`supervisor`、`systemd`、`baota`、`none`），否则数据目录里的 `process-manager` 文件，否则父进程是 `supervisord` / `systemd`，否则存在同名 systemd 单元。都没有时才在旧进程释放端口后自行拉起。宝塔脚本写入 `backend/process-manager`，并在 `start.sh` 里默认导出 `AUTO_PRO_PROCESS_MANAGER=supervisor`。新版本在限定时间内没有通过 `http://127.0.0.1:<端口>/api/system/version` 健康检查时，会把旧二进制和前端换回去再拉起，任务记为失败并写明原因。二进制备份 `auth_pro.backup.<时间>` 只留最近 3 份。
+在线更新、`baota-upgrade.sh` 和覆盖安装都按同一顺序重启：先通过进程守护停止，等待退出；端口仍被本站 `backend/auth_pro` 占用时（包括父进程为 1、已经不响应的孤儿）先 SIGTERM，超时后 SIGKILL；占用者不是本站程序就拒绝启动并写明 PID 和程序路径，不误杀同机其它站点。确认端口空闲后才换上新文件、再由守护启动。健康检查通过才算成功，否则回滚旧程序再拉起。判断是否有守护的顺序是：环境变量 `AUTO_PRO_PROCESS_MANAGER`（`supervisor`、`systemd`、`baota`、`none`），否则数据目录里的 `process-manager` 文件，否则父进程是 `supervisord` / `systemd`，否则存在同名 systemd 单元。都没有时才在端口空闲后自行拉起。宝塔脚本写入 `backend/process-manager`，并在 `start.sh` 里默认导出 `AUTO_PRO_PROCESS_MANAGER=supervisor`。把 `AUTO_PRO_SUPERVISOR_CONF` 指到本站的 supervisord 配置后，安装和升级脚本只会操作 command 指向本站 `start.sh` 的那一项。新版本在限定时间内没有通过 `http://127.0.0.1:<端口>/api/system/version` 健康检查时，会把旧二进制和前端换回去再拉起，任务记为失败并写明原因。二进制备份 `auth_pro.backup.<时间>` 只留最近 3 份。后端自己若发现端口已被占用，会在日志里写明占用者的 PID、父进程、程序路径和处理办法，而不是只留一句 bind 失败。
 
 这不能代替升级前在进程守护里停止站点，也不能代替 `baota-upgrade.sh` 那份运行数据备份。
 

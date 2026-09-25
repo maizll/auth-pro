@@ -300,17 +300,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 curl -fsS "http://127.0.0.1:${LISTEN_PORT}/" >/dev/null || fail "自检监听进程没有起来"
 make_payload "$WORKDIR/payload-listen-v2" "listen-v2"
-set +e
 "$UPGRADE" --yes --no-start --skip-mysql \
-  --site-root "$LISTEN_SITE" \
-  --source "$WORKDIR/payload-listen-v2" >"$WORKDIR/busy.out" 2>"$WORKDIR/busy.err"
-busy_status=$?
-set -e
-[[ "$busy_status" -ne 0 ]] || fail "未加 --stop-port 时不应在端口占用下升级"
-grep -q '进程守护' "$WORKDIR/busy.err" || fail "端口占用提示里没有提到进程守护"
-grep -q 'ThreadingHTTPServer' "$LISTEN_SITE/backend/auth_pro" || fail "未确认结束进程时已经替换了程序"
-curl -fsS "http://127.0.0.1:${LISTEN_PORT}/" >/dev/null || fail "拒绝升级后监听进程被误杀"
-"$UPGRADE" --yes --no-start --stop-port --skip-mysql \
   --site-root "$LISTEN_SITE" \
   --source "$WORKDIR/payload-listen-v2" >"$WORKDIR/stopped.out"
 for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -323,7 +313,127 @@ kill -0 "$listen_pid" 2>/dev/null && fail "本站占用端口的进程还在"
 grep -q 'binary-listen-v2' "$LISTEN_SITE/backend/auth_pro" || fail "结束本站进程后没有装上新程序"
 grep -q 'keep-db' "$LISTEN_SITE/backend/db.json" || fail "结束进程升级后 db.json 丢失"
 grep -q 'keep-plugin' "$LISTEN_SITE/backend/plugins/keep.txt" || fail "结束进程升级后插件丢失"
-ok "会结束本站占用端口的进程，再保留数据完成升级"
+ok "会先停本站进程再升级，不必额外加 --stop-port"
+
+# 父进程为 1、忽略 SIGTERM 且不响应 HTTP 的本站孤儿，升级要在超时后 SIGKILL，并且不误伤其它端口。
+HUNG_PORT="$(free_port)"
+HUNG_SITE="$WORKDIR/hung-site"
+OTHER_SITE="$WORKDIR/other-site"
+mkdir -p "$HUNG_SITE/backend" "$OTHER_SITE/backend"
+make_payload "$WORKDIR/payload-hung" "hung-old"
+cat > "$WORKDIR/payload-hung/backend/auth_pro" <<'EOF'
+#!/usr/bin/env python3
+import os, signal
+from socket import socket, AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+s = socket(AF_INET, SOCK_STREAM)
+s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", int(os.environ["PORT"])))
+s.listen(8)
+while True:
+    conn, _ = s.accept()
+EOF
+chmod 755 "$WORKDIR/payload-hung/backend/auth_pro"
+"$INSTALL" --yes --no-start \
+  --site-root "$HUNG_SITE" \
+  --source "$WORKDIR/payload-hung" \
+  --port "$HUNG_PORT" >/dev/null
+printf 'installed\n' > "$HUNG_SITE/backend/install.lock"
+printf 'keep-db\n' > "$HUNG_SITE/backend/db.json"
+python3 - "$HUNG_SITE/backend/auth_pro" "$HUNG_PORT" <<'PY' &
+import os, sys
+binary, port = sys.argv[1:]
+if os.fork() > 0:
+    raise SystemExit(0)
+os.setsid()
+if os.fork() > 0:
+    raise SystemExit(0)
+os.environ["PORT"] = port
+os.execv(binary, [binary])
+PY
+sleep 0.3
+hung_pid=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  hung_pid="$(ss -lptn "sport = :${HUNG_PORT}" 2>/dev/null | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+  [[ -n "$hung_pid" ]] && break
+  sleep 0.2
+done
+[[ -n "$hung_pid" ]] || fail "不响应的孤儿进程没有占上端口"
+hung_ppid="$(ps -o ppid= -p "$hung_pid" | tr -d ' ')"
+[[ "$hung_ppid" == "1" ]] || fail "孤儿进程 PPID 不是 1（当前 ${hung_ppid}）"
+curl -fsS --max-time 1 "http://127.0.0.1:${HUNG_PORT}/" >/dev/null 2>&1 && fail "孤儿进程不应该响应 HTTP"
+OTHER_PORT="$(free_port)"
+cat > "$OTHER_SITE/backend/auth_pro" <<'EOF'
+#!/bin/bash
+exec python3 - <<'PY'
+import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"other")
+    def log_message(self, *args):
+        pass
+ThreadingHTTPServer(("127.0.0.1", int(os.environ["PORT"])), H).serve_forever()
+PY
+EOF
+chmod 755 "$OTHER_SITE/backend/auth_pro"
+PORT="$OTHER_PORT" "$OTHER_SITE/backend/auth_pro" &
+other_site_pid=$!
+PIDS+=("$other_site_pid")
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  curl -fsS "http://127.0.0.1:${OTHER_PORT}/" >/dev/null 2>&1 && break
+  sleep 0.2
+done
+curl -fsS "http://127.0.0.1:${OTHER_PORT}/" >/dev/null || fail "其它站点的 auth_pro 没有起来"
+make_payload "$WORKDIR/payload-hung-v2" "hung-new"
+AUTH_PRO_TERM_WAIT=2 "$UPGRADE" --yes --no-start --skip-mysql \
+  --site-root "$HUNG_SITE" \
+  --source "$WORKDIR/payload-hung-v2" >"$WORKDIR/hung.out"
+kill -0 "$hung_pid" 2>/dev/null && fail "不响应的本站孤儿还在"
+grep -q 'binary-hung-new' "$HUNG_SITE/backend/auth_pro" || fail "清掉孤儿后没有装上新程序"
+kill -0 "$other_site_pid" 2>/dev/null || fail "其它站点的 auth_pro 被误杀"
+curl -fsS "http://127.0.0.1:${OTHER_PORT}/" >/dev/null || fail "其它站点的端口不再响应"
+ok "会 SIGKILL 本站不响应的孤儿，且不误伤其它站点"
+
+# 覆盖安装同样先停本站监听，再放文件。
+REINSTALL_PORT="$(free_port)"
+REINSTALL_SITE="$WORKDIR/reinstall-site"
+mkdir -p "$REINSTALL_SITE"
+make_payload "$WORKDIR/payload-reinstall" "reinstall-old"
+cat > "$WORKDIR/payload-reinstall/backend/auth_pro" <<'EOF'
+#!/usr/bin/env python3
+import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+    def log_message(self, *args):
+        return
+ThreadingHTTPServer(("127.0.0.1", int(os.environ["PORT"])), H).serve_forever()
+EOF
+chmod 755 "$WORKDIR/payload-reinstall/backend/auth_pro"
+"$INSTALL" --yes --no-start \
+  --site-root "$REINSTALL_SITE" \
+  --source "$WORKDIR/payload-reinstall" \
+  --port "$REINSTALL_PORT" >/dev/null
+PORT="$REINSTALL_PORT" "$REINSTALL_SITE/backend/auth_pro" &
+reinstall_pid=$!
+PIDS+=("$reinstall_pid")
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  curl -fsS "http://127.0.0.1:${REINSTALL_PORT}/" >/dev/null 2>&1 && break
+  sleep 0.2
+done
+make_payload "$WORKDIR/payload-reinstall-v2" "reinstall-new"
+"$INSTALL" --yes --no-start \
+  --site-root "$REINSTALL_SITE" \
+  --source "$WORKDIR/payload-reinstall-v2" \
+  --port "$REINSTALL_PORT" >"$WORKDIR/reinstall.out"
+kill -0 "$reinstall_pid" 2>/dev/null && fail "覆盖安装没有结束本站旧进程"
+grep -q 'binary-reinstall-new' "$REINSTALL_SITE/backend/auth_pro" || fail "覆盖安装没有换上新程序"
+ok "覆盖安装会先停本站旧进程再写入新文件"
 
 # --start 能拉起一个返回安装状态的桩程序，并在超时配置下失败得足够快。
 START_PORT="$(free_port)"
