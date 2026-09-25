@@ -201,18 +201,33 @@ Content-Type: application/json
   "msg": "授权有效",
   "data": {
     "result": "pass",
-    "appName": "CMS Pro",
+    "appName": "示例应用",
+    "planId": 1,
+    "planName": "年付",
+    "type": "domain",
     "expireAt": "2027-12-31 23:59:59"
   }
 }`
 
-  const failExample = `{
+  const failExample = `// 应用不存在、已禁用，或签名尚未通过：对外同一句，HTTP 200
+{
   "code": 403,
-  "msg": "授权无效或已过期",
-  "data": {
-    "result": "fail",
-    "reason": "license_not_found"
-  }
+  "msg": "授权校验失败",
+  "data": { "result": "fail", "reason": "verify_failed" }
+}
+
+// 签名已通过，但没有匹配授权：HTTP 200
+{
+  "code": 403,
+  "msg": "授权无效",
+  "data": { "result": "fail", "reason": "license_not_found" }
+}
+
+// 同一客户端 IP + appKey 每分钟超过 1200 次：HTTP 429，且这次不写校验日志
+{
+  "code": 429,
+  "msg": "请求过于频繁，请稍后再试",
+  "data": { "result": "fail", "reason": "rate_limited" }
 }`
 
   const pseudoCode = `启动项目

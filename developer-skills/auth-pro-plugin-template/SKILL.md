@@ -12,23 +12,21 @@ description: Use when creating, packaging, validating, or submitting AuthPro sou
 ## 先选一种
 
 - 插件：ZIP 里只有 `plugin.json`。`kind` 省略或 `"plugin"`。
-- 模板：ZIP 里只有 `template.json`。这是整站声明，不是首页标题块。必须含登录动作。禁止 `index.html`（会和登记时的 `schemaVersion: 1` 冲突）。
+- 模板：登记 ZIP 里要有 `template.json`。`kind` 必须是 `template`。硬校验还要求数字 `schemaVersion: 1` 和 `hero.title`，并禁止 `scripts`。`hero.primaryAction.type = "login"` 由宿主打开登录框，不是上传拒绝条件。登记包不要依赖 `index.html`（本站另行安装静态页时才会优先 `index.html`，见 `docs/home-template.md`）。
 
-禁止：`pages`、`scripts`、自己调用登录接口、保存 token、内置插件 id（`epay`、`epay-v2`、`alipay-f2f`、`alipay-realname`、`kuaitong-realname`、`tencent-realname`、`xiaomu-realname`）。
+`scripts` 会被拒绝。不要在模板里调用登录接口或保存 token。不要使用内置插件 id（`epay`、`epay-v2`、`alipay-f2f`、`alipay-realname`、`kuaitong-realname`、`tencent-realname`、`xiaomu-realname`）。
 
-## 模板必须覆盖的面
+## 宿主会读的字段
 
-宿主用这一份 JSON 画整站。启用后默认首页的注册 / 忘记密码 / 三项查询消失，不要去实现它们。
+硬校验只强制 `hero.title`（以及 `kind`、`schemaVersion`、作者和版本等清单字段）。下面这些写了才会出现在页面上，缺了不会导致 ZIP 被拒。不要在模板里实现注册、忘记密码或自己的登录接口。
 
 | 面 | 写进 JSON |
 | --- | --- |
-| 主视觉 | `hero.title` 必填；加上 `badge`、`highlight`、`description` |
-| 登录框 | `hero.primaryAction.type` = `"login"`，并写 `label`。登录 UI 是宿主弹窗，外观跟随 `stylePreset` 与 `theme`（`cartoon-blue` 浅色胶囊，`fintech-gold` 金黑）。不要写 `login.html` |
-| 能力 | `features` 恰好 3 条，图标 `ri:` 前缀 |
+| 主视觉 | `hero.title` 必填。可选 `badge`、`highlight`、`description` |
+| 登录框 | `hero.primaryAction.type` 为 `"login"` 时打开宿主弹窗，文案用 `label`。外观跟随 `stylePreset` 与 `theme`（`cartoon-blue`、`fintech-gold`，其它值按普通预设）。不要写 `login.html` |
+| 能力 | `features` 数组。普通预设最多显示 12 条，`fintech-gold` 最多 3 条 |
 | 页脚 | `footer.text` |
 | 版式 | `stylePreset` 为 `cartoon-blue` 或 `fintech-gold` |
-
-`fintech-gold` 的查询区、步骤、底部按钮是宿主写死的，没有额外字段。
 
 ## 文件
 
@@ -141,7 +139,7 @@ sha256sum /tmp/demo-home.zip
 | --- | --- |
 | `template.json 缺少 kind` | `"kind": "template"` |
 | `缺少 schemaVersion` 或必须为 1 | 数字 `1` |
-| `缺少 hero.title` | 写标题，并补登录动作 |
+| `缺少 hero.title` | 写 `hero.title`。登录按钮是可选项 |
 | `scripts` / `forbidden` | 删除该键 |
 | `require_manifest` | 清单放到 ZIP 根目录 |
 | `zip_layout` | 按打包命令重打，去掉 `..` 和反斜杠 |

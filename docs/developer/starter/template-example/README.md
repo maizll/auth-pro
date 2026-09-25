@@ -1,8 +1,6 @@
 # 整站模板示例
 
-本目录只有 `template.json`。这是声明式整站：主视觉、登录动作（`type: "login"`）、三条能力、页脚、`stylePreset` 与 `theme`。宿主用同一份 `stylePreset` 画首页和登录框（`cartoon-blue` 为浅色胶囊，`fintech-gold` 为金黑）。不要再加 `index.html`、`login.html` 或 `scripts`。
-
-`kind` 必须是 `template`，`schemaVersion` 必须是数字 `1`。
+本目录只有 `template.json`。硬校验要求 `kind` 为 `template`、`schemaVersion` 为数字 `1`、`hero.title`，并且没有 `scripts`。本示例另外写了登录动作（`type` 为 `login`）、三条能力、页脚、`stylePreset` 与 `theme`，宿主会用来画首页和登录框（`cartoon-blue` 为浅色，`fintech-gold` 为金黑）。这些展示字段不是上传拒绝条件。不要再加 `login.html` 或 `scripts`。
 
 ```bash
 rm -f /tmp/demo-home.zip

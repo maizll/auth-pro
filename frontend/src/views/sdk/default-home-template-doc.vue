@@ -4,10 +4,10 @@
       <template #header>
         <div class="template-doc-header">
           <div>
-            <h2>首页模版文档</h2>
-            <p>首页的页面功能、接口说明和开发约定。</p>
+            <h2>首页模板文档</h2>
+            <p>本站安装首页模板时接受的两种入口，以及声明式字段和静态页如何打开登录框。</p>
           </div>
-          <ElTag type="primary" size="large">Home Template</ElTag>
+          <ElTag type="primary" size="large">首页模板</ElTag>
         </div>
       </template>
 
@@ -39,7 +39,7 @@
 <script setup lang="ts">
   import { computed, ref } from 'vue'
   import { marked } from 'marked'
-  import markdown from './default-home-template.md?raw'
+  import markdown from '@product-docs/home-template.md?raw'
 
   defineOptions({ name: 'DefaultHomeTemplateDoc' })
 
@@ -57,9 +57,10 @@
     if (headings.length > 0 && headings[0].index !== undefined) {
       const intro = source.slice(0, headings[0].index).trim()
       if (intro) {
+        const heading = intro.match(/^#\s+(.+)$/m)
         sections.push({
           id: 'template-package-format',
-          title: '模版压缩包格式',
+          title: (heading?.[1] || '说明').trim(),
           html: String(marked.parse(intro, { gfm: true, breaks: false }))
         })
       }
