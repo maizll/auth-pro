@@ -285,6 +285,48 @@ export function fallbackCatalogSlug(kind: CatalogKind, now = Date.now()): string
   return `${FALLBACK_PREFIX[kind]}-${now.toString(36)}`
 }
 
+const MAX_CATALOG_PRICE_CENTS = 10_000_000_000
+
+export function isPrivatePackageLocation(value: string): boolean {
+  return /^paid:[a-f0-9]{32}\.zip$/.test(String(value || '').trim())
+}
+
+export function parseCatalogPriceYuan(raw: string): number | null {
+  const text = String(raw ?? '').trim()
+  if (!text) return 0
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return null
+  const [yuan, frac = ''] = text.split('.')
+  const cents = Number(yuan) * 100 + Number((frac + '00').slice(0, 2))
+  if (!Number.isSafeInteger(cents) || cents > MAX_CATALOG_PRICE_CENTS) return null
+  return cents
+}
+
+export function formatCatalogPriceYuan(cents: number | undefined | null): string {
+  const value = Math.max(0, Math.trunc(Number(cents) || 0))
+  const yuan = Math.floor(value / 100)
+  const frac = String(value % 100).padStart(2, '0')
+  return `${yuan}.${frac}`
+}
+
+export function formatCatalogPriceLabel(cents: number | undefined | null): string {
+  const value = Math.max(0, Math.trunc(Number(cents) || 0))
+  if (value === 0) return '免费'
+  return `¥${formatCatalogPriceYuan(value)}`
+}
+
+export function resolveCatalogPriceCents(
+  yuan: string,
+  location: string
+): { cents: number; error: string } {
+  const cents = parseCatalogPriceYuan(yuan)
+  if (cents === null) return { cents: 0, error: '售价须为非负金额，最多两位小数' }
+  const loc = String(location || '').trim()
+  if (cents > 0 && loc && !isStationPackageLocation(loc) && !isPrivatePackageLocation(loc)) {
+    return { cents: 0, error: '付费条目必须上传 ZIP 由本站托管，不能使用外链' }
+  }
+  return { cents, error: '' }
+}
+
 export function isStationPackageLocation(value: string): boolean {
   const raw = String(value || '').trim()
   if (!raw) return false

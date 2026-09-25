@@ -48,6 +48,9 @@ export interface SourceDeveloperCatalogItem {
   sha256?: string
   downloadUrl?: string
   templateUrl?: string
+  priceCents?: number
+  billing?: string
+  delivery?: string
   templateKey?: string
   changelog?: string
   latestVersion?: string
@@ -207,6 +210,8 @@ export interface SourceDeveloperPluginDraft {
   version: string
   sha256?: string
   downloadUrl?: string
+  priceCents?: number
+  billing?: string
   changelog?: string
   minVersion?: string
   forceUpdate?: boolean
@@ -224,6 +229,8 @@ export interface SourceDeveloperTemplateDraft {
   schemaVersion?: number
   sha256?: string
   templateUrl?: string
+  priceCents?: number
+  billing?: string
   changelog?: string
   minVersion?: string
   forceUpdate?: boolean

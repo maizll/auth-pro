@@ -32,6 +32,8 @@
 
 仓库示例：`docs/developer/starter/plugin-example/plugin.json`。
 
+售价不在 `plugin.json` 里。登记时默认 0；大于 0 必须上传本站 ZIP，付费上架尚未开放。
+
 ## 安装到其它站点时
 
 消费者在应用商店安装的是这个 ZIP。服务端核对 SHA256 后解压到数据目录 `plugins/<id>/`。不会执行 `install.sh` 或包内可执行文件。未编进当前服务端的插件，装上之后只是已安装的文件，不会自动变成支付或实名通道。

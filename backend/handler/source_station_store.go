@@ -108,6 +108,9 @@ type sourcePlugin struct {
 	Author        sourceAuthor `json:"author"`
 	SHA256        string       `json:"sha256"`
 	DownloadURL   string       `json:"downloadUrl"`
+	PriceCents    int64        `json:"priceCents"`
+	Billing       string       `json:"billing"`
+	Delivery      string       `json:"delivery"`
 	Changelog     string       `json:"changelog"`
 	LatestVersion string       `json:"latestVersion"`
 	MinVersion    string       `json:"minVersion"`
@@ -131,6 +134,9 @@ type sourceTemplate struct {
 	SchemaVersion int          `json:"schemaVersion"`
 	SHA256        string       `json:"sha256"`
 	TemplateURL   string       `json:"templateUrl"`
+	PriceCents    int64        `json:"priceCents"`
+	Billing       string       `json:"billing"`
+	Delivery      string       `json:"delivery"`
 	Changelog     string       `json:"changelog"`
 	LatestVersion string       `json:"latestVersion"`
 	MinVersion    string       `json:"minVersion"`
@@ -349,6 +355,9 @@ func applyPluginMetadataPatch(existing, patch sourcePlugin) sourcePlugin {
 	item.Changelog = patch.Changelog
 	item.MinVersion = patch.MinVersion
 	item.ForceUpdate = patch.ForceUpdate
+	item.PriceCents = patch.PriceCents
+	item.Billing = patch.Billing
+	item.Delivery = patch.Delivery
 	if strings.TrimSpace(patch.Author.Name) != "" || strings.TrimSpace(patch.Author.URL) != "" || strings.TrimSpace(patch.Author.Email) != "" {
 		item.Author = patch.Author
 	}
@@ -376,6 +385,9 @@ func applyTemplateMetadataPatch(existing, patch sourceTemplate) sourceTemplate {
 	item.Changelog = patch.Changelog
 	item.MinVersion = patch.MinVersion
 	item.ForceUpdate = patch.ForceUpdate
+	item.PriceCents = patch.PriceCents
+	item.Billing = patch.Billing
+	item.Delivery = patch.Delivery
 	if patch.SchemaVersion != 0 {
 		item.SchemaVersion = patch.SchemaVersion
 	}
@@ -577,6 +589,16 @@ func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) 
 	if exists && !asAdmin && existing.DeveloperID != plugin.DeveloperID {
 		return sourcePlugin{}, errSourceForbidden
 	}
+	price, billing, delivery, priceErr := applyCatalogPrice(plugin.PriceCents, plugin.Billing, plugin.Delivery)
+	if priceErr != nil {
+		return sourcePlugin{}, priceErr
+	}
+	plugin.PriceCents, plugin.Billing, plugin.Delivery = price, billing, delivery
+	if exists {
+		if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, plugin.PriceCents); err != nil {
+			return sourcePlugin{}, err
+		}
+	}
 	appID, err := bindSourceCatalogAppID(plugin.AppID, existing.AppID, exists, asAdmin)
 	if err != nil {
 		return sourcePlugin{}, err
@@ -658,6 +680,14 @@ func (store *memorySourceStore) UpdatePluginMetadata(id string, patch sourcePlug
 		return sourcePlugin{}, errSourceNotFound
 	}
 	item := applyPluginMetadataPatch(existing, patch)
+	price, billing, delivery, priceErr := applyCatalogPrice(item.PriceCents, item.Billing, item.Delivery)
+	if priceErr != nil {
+		return sourcePlugin{}, priceErr
+	}
+	item.PriceCents, item.Billing, item.Delivery = price, billing, delivery
+	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents); err != nil {
+		return sourcePlugin{}, err
+	}
 	if item.Status == sourceItemPublished && !sourceItemReady(item.SHA256, item.DownloadURL) {
 		return sourcePlugin{}, errSourcePublishIncomplete
 	}
@@ -676,6 +706,11 @@ func (store *memorySourceStore) SetPluginStatus(id, status, actor, note string) 
 	}
 	if !sourceTransitionAllowed(item.Status, status) {
 		return sourcePlugin{}, errSourceInvalidStatus
+	}
+	if status == sourceItemPublished {
+		if err := paidPublishError(item.PriceCents, item.DownloadURL); err != nil {
+			return sourcePlugin{}, err
+		}
 	}
 	if err := store.applyItemStatusToVersionsLocked(sourceKindPlugin, id, status, actor, note); err != nil {
 		return sourcePlugin{}, err
@@ -721,6 +756,16 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 	existing, exists := store.templates[item.ID]
 	if exists && !asAdmin && existing.DeveloperID != item.DeveloperID {
 		return sourceTemplate{}, errSourceForbidden
+	}
+	price, billing, delivery, priceErr := applyCatalogPrice(item.PriceCents, item.Billing, item.Delivery)
+	if priceErr != nil {
+		return sourceTemplate{}, priceErr
+	}
+	item.PriceCents, item.Billing, item.Delivery = price, billing, delivery
+	if exists {
+		if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents); err != nil {
+			return sourceTemplate{}, err
+		}
 	}
 	appID, err := bindSourceCatalogAppID(item.AppID, existing.AppID, exists, asAdmin)
 	if err != nil {
@@ -808,6 +853,14 @@ func (store *memorySourceStore) UpdateTemplateMetadata(id string, patch sourceTe
 		return sourceTemplate{}, errSourceNotFound
 	}
 	item := applyTemplateMetadataPatch(existing, patch)
+	price, billing, delivery, priceErr := applyCatalogPrice(item.PriceCents, item.Billing, item.Delivery)
+	if priceErr != nil {
+		return sourceTemplate{}, priceErr
+	}
+	item.PriceCents, item.Billing, item.Delivery = price, billing, delivery
+	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents); err != nil {
+		return sourceTemplate{}, err
+	}
 	if item.Status == sourceItemPublished && !sourceItemReady(item.SHA256, item.TemplateURL) {
 		return sourceTemplate{}, errSourcePublishIncomplete
 	}
@@ -826,6 +879,11 @@ func (store *memorySourceStore) SetTemplateStatus(id, status, actor, note string
 	}
 	if !sourceTransitionAllowed(item.Status, status) {
 		return sourceTemplate{}, errSourceInvalidStatus
+	}
+	if status == sourceItemPublished {
+		if err := paidPublishError(item.PriceCents, item.TemplateURL); err != nil {
+			return sourceTemplate{}, err
+		}
 	}
 	if err := store.applyItemStatusToVersionsLocked(sourceKindTemplate, id, status, actor, note); err != nil {
 		return sourceTemplate{}, err
@@ -1405,6 +1463,9 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			author_email VARCHAR(200) NOT NULL DEFAULT '',
 			sha256 CHAR(64) NOT NULL DEFAULT '',
 			download_url VARCHAR(500) NOT NULL DEFAULT '',
+			price_cents BIGINT NOT NULL DEFAULT 0,
+			billing VARCHAR(20) NOT NULL DEFAULT 'free',
+			delivery VARCHAR(20) NOT NULL DEFAULT 'zip',
 			status VARCHAR(20) NOT NULL DEFAULT 'draft',
 			review_note VARCHAR(500) NOT NULL DEFAULT '',
 			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
@@ -1426,6 +1487,9 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			schema_version INT NOT NULL DEFAULT 1,
 			sha256 CHAR(64) NOT NULL DEFAULT '',
 			template_url VARCHAR(500) NOT NULL DEFAULT '',
+			price_cents BIGINT NOT NULL DEFAULT 0,
+			billing VARCHAR(20) NOT NULL DEFAULT 'free',
+			delivery VARCHAR(20) NOT NULL DEFAULT 'zip',
 			status VARCHAR(20) NOT NULL DEFAULT 'draft',
 			review_note VARCHAR(500) NOT NULL DEFAULT '',
 			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
@@ -1562,7 +1626,8 @@ func scanSourcePlugin(scanner interface{ Scan(dest ...any) error }) (sourcePlugi
 	var forceUpdate int
 	err := scanner.Scan(&item.ID, &item.DeveloperID, &item.AppID, &item.Category, &item.Name, &item.Description, &item.Icon,
 		&item.Version, &item.LatestVersion, &item.MinVersion, &forceUpdate, &item.Author.Name, &item.Author.URL, &item.Author.Email,
-		&item.SHA256, &item.DownloadURL, &item.Changelog, &item.Status, &item.ReviewNote, &item.ReviewedBy, &updatedAt, &createdAt)
+		&item.SHA256, &item.DownloadURL, &item.Changelog, &item.PriceCents, &item.Billing, &item.Delivery,
+		&item.Status, &item.ReviewNote, &item.ReviewedBy, &updatedAt, &createdAt)
 	if err != nil {
 		return sourcePlugin{}, err
 	}
@@ -1580,7 +1645,7 @@ func (mysqlSourceStore) ListPlugins(status string) ([]sourcePlugin, error) {
 		return nil, err
 	}
 	query := `SELECT id, developer_id, app_id, category, name, description, icon, version, latest_version, min_version, force_update, author_name, author_url, author_email,
-		sha256, download_url, changelog, status, review_note, reviewed_by, updated_at, created_at FROM source_catalog_plugins`
+		sha256, download_url, changelog, price_cents, billing, delivery, status, review_note, reviewed_by, updated_at, created_at FROM source_catalog_plugins`
 	args := []any{}
 	if status != "" {
 		query += ` WHERE status=?`
@@ -1612,7 +1677,7 @@ func (mysqlSourceStore) GetPlugin(id string) (sourcePlugin, error) {
 		return sourcePlugin{}, err
 	}
 	item, err := scanSourcePlugin(db.QueryRow(`SELECT id, developer_id, app_id, category, name, description, icon, version, latest_version, min_version, force_update, author_name, author_url, author_email,
-		sha256, download_url, changelog, status, review_note, reviewed_by, updated_at, created_at FROM source_catalog_plugins WHERE id=?`, id))
+		sha256, download_url, changelog, price_cents, billing, delivery, status, review_note, reviewed_by, updated_at, created_at FROM source_catalog_plugins WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourcePlugin{}, errSourceNotFound
 	}
@@ -1630,6 +1695,16 @@ func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourceP
 	existing, err := (mysqlSourceStore{}).GetPlugin(plugin.ID)
 	if err != nil && !errors.Is(err, errSourceNotFound) {
 		return sourcePlugin{}, err
+	}
+	price, billing, delivery, priceErr := applyCatalogPrice(plugin.PriceCents, plugin.Billing, plugin.Delivery)
+	if priceErr != nil {
+		return sourcePlugin{}, priceErr
+	}
+	plugin.PriceCents, plugin.Billing, plugin.Delivery = price, billing, delivery
+	if err == nil {
+		if guardErr := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, plugin.PriceCents); guardErr != nil {
+			return sourcePlugin{}, guardErr
+		}
 	}
 	incomingVersion := strings.TrimSpace(plugin.Version)
 	incomingURL := strings.TrimSpace(plugin.DownloadURL)
@@ -1692,16 +1767,17 @@ func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourceP
 		plugin.Status = sourceItemDraft
 	}
 	_, err = db.Exec(`INSERT INTO source_catalog_plugins
-		(id, developer_id, app_id, category, name, description, icon, version, latest_version, min_version, force_update, author_name, author_url, author_email, sha256, download_url, changelog, status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(id, developer_id, app_id, category, name, description, icon, version, latest_version, min_version, force_update, author_name, author_url, author_email, sha256, download_url, changelog, price_cents, billing, delivery, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE category=VALUES(category), name=VALUES(name), description=VALUES(description), icon=VALUES(icon),
 			version=VALUES(version), sha256=VALUES(sha256), download_url=VALUES(download_url), changelog=VALUES(changelog),
+			price_cents=VALUES(price_cents), billing=VALUES(billing), delivery=VALUES(delivery),
 			status=VALUES(status), review_note=VALUES(review_note), reviewed_by=VALUES(reviewed_by),
 			min_version=VALUES(min_version), force_update=VALUES(force_update), author_name=VALUES(author_name), author_url=VALUES(author_url),
 			author_email=VALUES(author_email), app_id=VALUES(app_id)`,
 		plugin.ID, plugin.DeveloperID, plugin.AppID, plugin.Category, plugin.Name, plugin.Description, plugin.Icon, plugin.Version,
 		plugin.LatestVersion, plugin.MinVersion, forceUpdate, plugin.Author.Name, plugin.Author.URL, plugin.Author.Email,
-		plugin.SHA256, plugin.DownloadURL, plugin.Changelog, plugin.Status)
+		plugin.SHA256, plugin.DownloadURL, plugin.Changelog, plugin.PriceCents, plugin.Billing, plugin.Delivery, plugin.Status)
 	if err != nil {
 		return sourcePlugin{}, err
 	}
@@ -1722,6 +1798,14 @@ func (mysqlSourceStore) UpdatePluginMetadata(id string, patch sourcePlugin, acto
 		return sourcePlugin{}, err
 	}
 	item := applyPluginMetadataPatch(existing, patch)
+	price, billing, delivery, priceErr := applyCatalogPrice(item.PriceCents, item.Billing, item.Delivery)
+	if priceErr != nil {
+		return sourcePlugin{}, priceErr
+	}
+	item.PriceCents, item.Billing, item.Delivery = price, billing, delivery
+	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents); err != nil {
+		return sourcePlugin{}, err
+	}
 	if item.Status == sourceItemPublished && !sourceItemReady(item.SHA256, item.DownloadURL) {
 		return sourcePlugin{}, errSourcePublishIncomplete
 	}
@@ -1734,10 +1818,10 @@ func (mysqlSourceStore) UpdatePluginMetadata(id string, patch sourcePlugin, acto
 		forceUpdate = 1
 	}
 	if _, err := db.Exec(`UPDATE source_catalog_plugins SET category=?, name=?, description=?, icon=?, version=?,
-		sha256=?, download_url=?, changelog=?, min_version=?, force_update=?,
+		sha256=?, download_url=?, changelog=?, price_cents=?, billing=?, delivery=?, min_version=?, force_update=?,
 		author_name=?, author_url=?, author_email=? WHERE id=?`,
 		item.Category, item.Name, item.Description, item.Icon, item.Version,
-		item.SHA256, item.DownloadURL, item.Changelog, item.MinVersion, forceUpdate,
+		item.SHA256, item.DownloadURL, item.Changelog, item.PriceCents, item.Billing, item.Delivery, item.MinVersion, forceUpdate,
 		item.Author.Name, item.Author.URL, item.Author.Email, id); err != nil {
 		return sourcePlugin{}, err
 	}
@@ -1752,6 +1836,11 @@ func (mysqlSourceStore) SetPluginStatus(id, status, actor, note string) (sourceP
 	}
 	if !sourceTransitionAllowed(item.Status, status) {
 		return sourcePlugin{}, errSourceInvalidStatus
+	}
+	if status == sourceItemPublished {
+		if err := paidPublishError(item.PriceCents, item.DownloadURL); err != nil {
+			return sourcePlugin{}, err
+		}
 	}
 	if err := (mysqlSourceStore{}).applyItemStatusToVersions(sourceKindPlugin, id, status, actor, note); err != nil {
 		return sourcePlugin{}, err
@@ -1781,6 +1870,7 @@ func scanSourceTemplateRow(scanner interface{ Scan(dest ...any) error }) (source
 	var forceUpdate int
 	err := scanner.Scan(&item.ID, &item.DeveloperID, &item.AppID, &item.Category, &item.TemplateKey, &item.Name, &item.Description, &item.Version,
 		&item.LatestVersion, &item.MinVersion, &forceUpdate, &item.SchemaVersion, &item.SHA256, &item.TemplateURL, &item.Changelog,
+		&item.PriceCents, &item.Billing, &item.Delivery,
 		&item.Status, &item.ReviewNote, &item.ReviewedBy, &item.Author.Name, &item.Author.URL, &item.Author.Email, &updatedAt, &createdAt)
 	if err != nil {
 		return sourceTemplate{}, err
@@ -1802,7 +1892,7 @@ func (mysqlSourceStore) ListTemplates(status string) ([]sourceTemplate, error) {
 		return nil, err
 	}
 	query := `SELECT id, developer_id, app_id, category, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog,
-		status, review_note, reviewed_by, author_name, author_url, author_email, updated_at, created_at FROM source_catalog_templates`
+		price_cents, billing, delivery, status, review_note, reviewed_by, author_name, author_url, author_email, updated_at, created_at FROM source_catalog_templates`
 	args := []any{}
 	if status != "" {
 		query += ` WHERE status=?`
@@ -1834,7 +1924,7 @@ func (mysqlSourceStore) GetTemplate(id string) (sourceTemplate, error) {
 		return sourceTemplate{}, err
 	}
 	item, err := scanSourceTemplateRow(db.QueryRow(`SELECT id, developer_id, app_id, category, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog,
-		status, review_note, reviewed_by, author_name, author_url, author_email, updated_at, created_at FROM source_catalog_templates WHERE id=?`, id))
+		price_cents, billing, delivery, status, review_note, reviewed_by, author_name, author_url, author_email, updated_at, created_at FROM source_catalog_templates WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceTemplate{}, errSourceNotFound
 	}
@@ -1858,6 +1948,16 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 	existing, err := (mysqlSourceStore{}).GetTemplate(item.ID)
 	if err != nil && !errors.Is(err, errSourceNotFound) {
 		return sourceTemplate{}, err
+	}
+	price, billing, delivery, priceErr := applyCatalogPrice(item.PriceCents, item.Billing, item.Delivery)
+	if priceErr != nil {
+		return sourceTemplate{}, priceErr
+	}
+	item.PriceCents, item.Billing, item.Delivery = price, billing, delivery
+	if err == nil {
+		if guardErr := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents); guardErr != nil {
+			return sourceTemplate{}, guardErr
+		}
 	}
 	incomingVersion := strings.TrimSpace(item.Version)
 	incomingURL := strings.TrimSpace(item.TemplateURL)
@@ -1920,15 +2020,16 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 		item.Status = sourceItemDraft
 	}
 	_, err = db.Exec(`INSERT INTO source_catalog_templates
-		(id, developer_id, app_id, category, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog, status, author_name, author_url, author_email)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(id, developer_id, app_id, category, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog, price_cents, billing, delivery, status, author_name, author_url, author_email)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE category=VALUES(category), name=VALUES(name), description=VALUES(description), schema_version=VALUES(schema_version),
 			version=VALUES(version), sha256=VALUES(sha256), template_url=VALUES(template_url), changelog=VALUES(changelog),
+			price_cents=VALUES(price_cents), billing=VALUES(billing), delivery=VALUES(delivery),
 			status=VALUES(status), review_note=VALUES(review_note), reviewed_by=VALUES(reviewed_by),
 			min_version=VALUES(min_version), force_update=VALUES(force_update),
 			author_name=VALUES(author_name), author_url=VALUES(author_url), author_email=VALUES(author_email), app_id=VALUES(app_id)`,
 		item.ID, item.DeveloperID, item.AppID, item.Category, item.TemplateKey, item.Name, item.Description, item.Version, item.LatestVersion, item.MinVersion, forceUpdate,
-		item.SchemaVersion, item.SHA256, item.TemplateURL, item.Changelog, item.Status, item.Author.Name, item.Author.URL, item.Author.Email)
+		item.SchemaVersion, item.SHA256, item.TemplateURL, item.Changelog, item.PriceCents, item.Billing, item.Delivery, item.Status, item.Author.Name, item.Author.URL, item.Author.Email)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate") {
 			return sourceTemplate{}, errSourceConflict
@@ -1952,6 +2053,14 @@ func (mysqlSourceStore) UpdateTemplateMetadata(id string, patch sourceTemplate, 
 		return sourceTemplate{}, err
 	}
 	item := applyTemplateMetadataPatch(existing, patch)
+	price, billing, delivery, priceErr := applyCatalogPrice(item.PriceCents, item.Billing, item.Delivery)
+	if priceErr != nil {
+		return sourceTemplate{}, priceErr
+	}
+	item.PriceCents, item.Billing, item.Delivery = price, billing, delivery
+	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents); err != nil {
+		return sourceTemplate{}, err
+	}
 	if item.Status == sourceItemPublished && !sourceItemReady(item.SHA256, item.TemplateURL) {
 		return sourceTemplate{}, errSourcePublishIncomplete
 	}
@@ -1964,10 +2073,10 @@ func (mysqlSourceStore) UpdateTemplateMetadata(id string, patch sourceTemplate, 
 		forceUpdate = 1
 	}
 	if _, err := db.Exec(`UPDATE source_catalog_templates SET category=?, name=?, description=?, version=?,
-		schema_version=?, sha256=?, template_url=?, changelog=?, min_version=?, force_update=?,
+		schema_version=?, sha256=?, template_url=?, changelog=?, price_cents=?, billing=?, delivery=?, min_version=?, force_update=?,
 		author_name=?, author_url=?, author_email=? WHERE id=?`,
 		item.Category, item.Name, item.Description, item.Version,
-		item.SchemaVersion, item.SHA256, item.TemplateURL, item.Changelog, item.MinVersion, forceUpdate,
+		item.SchemaVersion, item.SHA256, item.TemplateURL, item.Changelog, item.PriceCents, item.Billing, item.Delivery, item.MinVersion, forceUpdate,
 		item.Author.Name, item.Author.URL, item.Author.Email, id); err != nil {
 		return sourceTemplate{}, err
 	}
@@ -1982,6 +2091,11 @@ func (mysqlSourceStore) SetTemplateStatus(id, status, actor, note string) (sourc
 	}
 	if !sourceTransitionAllowed(item.Status, status) {
 		return sourceTemplate{}, errSourceInvalidStatus
+	}
+	if status == sourceItemPublished {
+		if err := paidPublishError(item.PriceCents, item.TemplateURL); err != nil {
+			return sourceTemplate{}, err
+		}
 	}
 	if err := (mysqlSourceStore{}).applyItemStatusToVersions(sourceKindTemplate, id, status, actor, note); err != nil {
 		return sourceTemplate{}, err

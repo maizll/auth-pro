@@ -75,6 +75,11 @@ func AdminSourceRegisterPlugin(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
+	plugin, err = guardAndFinalizePlugin(plugin)
+	if err != nil {
+		writeCatalogPriceError(c, err)
+		return
+	}
 	saved, err := currentSourceStationStore().UpsertPlugin(plugin, true)
 	if err != nil {
 		writeSourceDeveloperStoreError(c, err)
@@ -117,6 +122,15 @@ func AdminSourceUpdatePlugin(c *gin.Context) {
 	plugin, err := adminPluginFromRequest(req)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, plugin.PriceCents); err != nil {
+		writeCatalogPriceError(c, err)
+		return
+	}
+	plugin, err = finalizePluginPackage(plugin)
+	if err != nil {
+		writeCatalogPriceError(c, err)
 		return
 	}
 	saved, err := currentSourceStationStore().UpdatePluginMetadata(existing.ID, plugin, c.GetString("username"), req.Note)
@@ -181,6 +195,11 @@ func AdminSourceRegisterTemplate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
+	item, err = guardAndFinalizeTemplate(item)
+	if err != nil {
+		writeCatalogPriceError(c, err)
+		return
+	}
 	saved, err := currentSourceStationStore().UpsertTemplate(item, true)
 	if err != nil {
 		writeSourceDeveloperStoreError(c, err)
@@ -224,6 +243,15 @@ func AdminSourceUpdateTemplate(c *gin.Context) {
 	item, err := adminTemplateFromRequest(req)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents); err != nil {
+		writeCatalogPriceError(c, err)
+		return
+	}
+	item, err = finalizeTemplatePackage(item)
+	if err != nil {
+		writeCatalogPriceError(c, err)
 		return
 	}
 	saved, err := currentSourceStationStore().UpdateTemplateMetadata(existing.ID, item, c.GetString("username"), req.Note)
@@ -422,6 +450,11 @@ func adminWriteVersion(c *gin.Context, kind string) {
 		return
 	}
 	rel.ItemID = strings.TrimSpace(c.Param("id"))
+	rel, err = guardReleasePackage(rel)
+	if err != nil {
+		writeCatalogPriceError(c, err)
+		return
+	}
 	saved, err := currentSourceStationStore().UpsertVersion(rel, 0, true)
 	if err != nil {
 		writeSourceDeveloperStoreError(c, err)
@@ -457,13 +490,30 @@ func adminPluginFromRequest(req sourcePluginDraftRequest) (sourcePlugin, error) 
 	if !pluginIDPattern.MatchString(pluginID) {
 		return sourcePlugin{}, errors.New("插件标识不合法")
 	}
-	if req.DownloadURL != "" {
-		if err := validatePluginDownloadURL(req.DownloadURL); err != nil {
+	downloadURL, sha256Value, err := normalizePackageLocation(req.DownloadURL, req.SHA256)
+	if err != nil {
+		return sourcePlugin{}, err
+	}
+	priceCents, billing, delivery, err := applyCatalogPrice(req.PriceCents, req.Billing, req.Delivery)
+	if err != nil {
+		return sourcePlugin{}, err
+	}
+	if err := rejectPaidExternalLocation(priceCents, downloadURL); err != nil {
+		return sourcePlugin{}, err
+	}
+	if downloadURL != "" && !isPrivatePackageRef(downloadURL) {
+		if err := validatePluginDownloadURL(downloadURL); err != nil {
 			return sourcePlugin{}, err
 		}
 	}
-	if req.SHA256 != "" {
-		if err := validateSHA256(req.SHA256); err != nil {
+	if isPrivatePackageRef(downloadURL) {
+		verified, fileSHA, err := verifyPrivatePackage(downloadURL, sha256Value)
+		if err != nil {
+			return sourcePlugin{}, err
+		}
+		downloadURL, sha256Value = verified, fileSHA
+	} else if sha256Value != "" {
+		if err := validateSHA256(sha256Value); err != nil {
 			return sourcePlugin{}, err
 		}
 	}
@@ -491,8 +541,11 @@ func adminPluginFromRequest(req sourcePluginDraftRequest) (sourcePlugin, error) 
 		Description: truncateText(req.Description, 500),
 		Icon:        icon,
 		Version:     version,
-		SHA256:      strings.ToLower(strings.TrimSpace(req.SHA256)),
-		DownloadURL: strings.TrimSpace(req.DownloadURL),
+		SHA256:      sha256Value,
+		DownloadURL: downloadURL,
+		PriceCents:  priceCents,
+		Billing:     billing,
+		Delivery:    delivery,
 		Changelog:   truncateText(req.Changelog, 2000),
 		MinVersion:  truncateText(req.MinVersion, 40),
 		ForceUpdate: req.ForceUpdate,
@@ -513,13 +566,30 @@ func adminTemplateFromRequest(req sourceTemplateDraftRequest) (sourceTemplate, e
 	if !pluginIDPattern.MatchString(templateKey) {
 		return sourceTemplate{}, errors.New("模板标识不合法")
 	}
-	if req.TemplateURL != "" {
-		if err := validateTemplateLocation(req.TemplateURL); err != nil {
+	templateURL, sha256Value, err := normalizePackageLocation(req.TemplateURL, req.SHA256)
+	if err != nil {
+		return sourceTemplate{}, err
+	}
+	priceCents, billing, delivery, err := applyCatalogPrice(req.PriceCents, req.Billing, req.Delivery)
+	if err != nil {
+		return sourceTemplate{}, err
+	}
+	if err := rejectPaidExternalLocation(priceCents, templateURL); err != nil {
+		return sourceTemplate{}, err
+	}
+	if templateURL != "" && !isPrivatePackageRef(templateURL) {
+		if err := validateTemplateLocation(templateURL); err != nil {
 			return sourceTemplate{}, err
 		}
 	}
-	if req.SHA256 != "" {
-		if err := validateSHA256(req.SHA256); err != nil {
+	if isPrivatePackageRef(templateURL) {
+		verified, fileSHA, err := verifyPrivatePackage(templateURL, sha256Value)
+		if err != nil {
+			return sourceTemplate{}, err
+		}
+		templateURL, sha256Value = verified, fileSHA
+	} else if sha256Value != "" {
+		if err := validateSHA256(sha256Value); err != nil {
 			return sourceTemplate{}, err
 		}
 	}
@@ -551,8 +621,11 @@ func adminTemplateFromRequest(req sourceTemplateDraftRequest) (sourceTemplate, e
 		Description:   truncateText(req.Description, 500),
 		Version:       version,
 		SchemaVersion: schemaVersion,
-		SHA256:        strings.ToLower(strings.TrimSpace(req.SHA256)),
-		TemplateURL:   strings.TrimSpace(req.TemplateURL),
+		SHA256:        sha256Value,
+		TemplateURL:   templateURL,
+		PriceCents:    priceCents,
+		Billing:       billing,
+		Delivery:      delivery,
 		Changelog:     truncateText(req.Changelog, 2000),
 		MinVersion:    truncateText(req.MinVersion, 40),
 		ForceUpdate:   req.ForceUpdate,

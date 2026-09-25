@@ -177,8 +177,8 @@ func PublicSourcePackageFile(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	path := filepath.Join(stationPackageDir(), name)
-	if _, err := os.Stat(path); err != nil {
+	path, ok := publicStationPackagePath(name)
+	if !ok {
 		c.Status(http.StatusNotFound)
 		return
 	}

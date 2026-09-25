@@ -25,6 +25,9 @@ type sourcePluginDraftRequest struct {
 	Version     string       `json:"version"`
 	SHA256      string       `json:"sha256"`
 	DownloadURL string       `json:"downloadUrl"`
+	PriceCents  int64        `json:"priceCents"`
+	Billing     string       `json:"billing"`
+	Delivery    string       `json:"delivery"`
 	Changelog   string       `json:"changelog"`
 	MinVersion  string       `json:"minVersion"`
 	ForceUpdate bool         `json:"forceUpdate"`
@@ -44,6 +47,9 @@ type sourceTemplateDraftRequest struct {
 	SchemaVersion int          `json:"schemaVersion"`
 	SHA256        string       `json:"sha256"`
 	TemplateURL   string       `json:"templateUrl"`
+	PriceCents    int64        `json:"priceCents"`
+	Billing       string       `json:"billing"`
+	Delivery      string       `json:"delivery"`
 	Changelog     string       `json:"changelog"`
 	MinVersion    string       `json:"minVersion"`
 	ForceUpdate   bool         `json:"forceUpdate"`
@@ -283,6 +289,11 @@ func SourceDeveloperUpsertPlugin(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
+	plugin, err = guardAndFinalizePlugin(plugin)
+	if err != nil {
+		writeCatalogPriceError(c, err)
+		return
+	}
 	saved, err := currentSourceStationStore().UpsertPlugin(plugin, false)
 	if err != nil {
 		writeSourceDeveloperStoreError(c, err)
@@ -306,7 +317,7 @@ func SourceDeveloperSubmitPlugin(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": errSourceForbidden.Error()})
 		return
 	}
-	if err := validatePackageForSubmit(sourceKindPlugin, item.DownloadURL, item.SHA256); err != nil {
+	if err := validateCatalogPackage(item.PriceCents, sourceKindPlugin, item.DownloadURL, item.SHA256); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
@@ -356,6 +367,11 @@ func SourceDeveloperUpsertTemplate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
+	item, err = guardAndFinalizeTemplate(item)
+	if err != nil {
+		writeCatalogPriceError(c, err)
+		return
+	}
 	saved, err := currentSourceStationStore().UpsertTemplate(item, false)
 	if err != nil {
 		writeSourceDeveloperStoreError(c, err)
@@ -379,7 +395,7 @@ func SourceDeveloperSubmitTemplate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": errSourceForbidden.Error()})
 		return
 	}
-	if err := validatePackageForSubmit(sourceKindTemplate, item.TemplateURL, item.SHA256); err != nil {
+	if err := validateCatalogPackage(item.PriceCents, sourceKindTemplate, item.TemplateURL, item.SHA256); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
@@ -529,6 +545,14 @@ func currentSourceDeveloper(c *gin.Context) (sourceDeveloper, error) {
 	return developer, nil
 }
 
+func writeCatalogPriceError(c *gin.Context, err error) {
+	if errors.Is(err, errSourceNotFound) {
+		writeSourceDeveloperStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+}
+
 func writeCurrentSourceDeveloperError(c *gin.Context, err error) {
 	code := 401
 	if errors.Is(err, errDeveloperDisabled) || errors.Is(err, errDeveloperNotBound) || errors.Is(err, errSourceForbidden) {
@@ -554,6 +578,7 @@ func sourcePluginView(item sourcePlugin) gin.H {
 		"id": item.ID, "developerId": item.DeveloperID, "appId": item.AppID, "category": item.Category, "name": item.Name,
 		"description": item.Description, "icon": item.Icon, "version": item.Version, "author": item.Author,
 		"sha256": item.SHA256, "downloadUrl": item.DownloadURL, "changelog": item.Changelog,
+		"priceCents": item.PriceCents, "billing": catalogBillingLabel(item.Billing), "delivery": catalogDeliveryLabel(item.Delivery),
 		"latestVersion": item.LatestVersion, "minVersion": item.MinVersion, "forceUpdate": item.ForceUpdate,
 		"status": item.Status, "reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
 		"updatedAt": item.UpdatedAt.Format(time.RFC3339), "createdAt": item.CreatedAt.Format(time.RFC3339),
@@ -569,6 +594,7 @@ func sourceTemplateView(item sourceTemplate) gin.H {
 		"id": item.ID, "developerId": item.DeveloperID, "appId": item.AppID, "category": category, "templateKey": item.TemplateKey, "name": item.Name,
 		"description": item.Description, "version": item.Version, "schemaVersion": item.SchemaVersion,
 		"sha256": item.SHA256, "templateUrl": item.TemplateURL, "changelog": item.Changelog,
+		"priceCents": item.PriceCents, "billing": catalogBillingLabel(item.Billing), "delivery": catalogDeliveryLabel(item.Delivery),
 		"latestVersion": item.LatestVersion, "minVersion": item.MinVersion, "forceUpdate": item.ForceUpdate,
 		"status": item.Status, "author": item.Author, "reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
 		"updatedAt": item.UpdatedAt.Format(time.RFC3339), "createdAt": item.CreatedAt.Format(time.RFC3339),
@@ -608,8 +634,20 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 	if err != nil {
 		return sourcePlugin{}, err
 	}
-	if downloadURL != "" {
+	priceCents, billing, delivery, err := applyCatalogPrice(req.PriceCents, req.Billing, req.Delivery)
+	if err != nil {
+		return sourcePlugin{}, err
+	}
+	if err := rejectPaidExternalLocation(priceCents, downloadURL); err != nil {
+		return sourcePlugin{}, err
+	}
+	if downloadURL != "" && !isPrivatePackageRef(downloadURL) {
 		if err := validatePluginDownloadURL(downloadURL); err != nil {
+			return sourcePlugin{}, err
+		}
+	}
+	if isPrivatePackageRef(downloadURL) {
+		if _, sha256Value, err = verifyPrivatePackage(downloadURL, sha256Value); err != nil {
 			return sourcePlugin{}, err
 		}
 	}
@@ -646,6 +684,9 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 		Version:     version,
 		SHA256:      sha256Value,
 		DownloadURL: downloadURL,
+		PriceCents:  priceCents,
+		Billing:     billing,
+		Delivery:    delivery,
 		Changelog:   truncateText(req.Changelog, 2000),
 		MinVersion:  truncateText(req.MinVersion, 40),
 		ForceUpdate: req.ForceUpdate,
@@ -676,8 +717,20 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 	if err != nil {
 		return sourceTemplate{}, err
 	}
-	if templateURL != "" {
+	priceCents, billing, delivery, err := applyCatalogPrice(req.PriceCents, req.Billing, req.Delivery)
+	if err != nil {
+		return sourceTemplate{}, err
+	}
+	if err := rejectPaidExternalLocation(priceCents, templateURL); err != nil {
+		return sourceTemplate{}, err
+	}
+	if templateURL != "" && !isPrivatePackageRef(templateURL) {
 		if err := validateTemplateLocation(templateURL); err != nil {
+			return sourceTemplate{}, err
+		}
+	}
+	if isPrivatePackageRef(templateURL) {
+		if _, sha256Value, err = verifyPrivatePackage(templateURL, sha256Value); err != nil {
 			return sourceTemplate{}, err
 		}
 	}
@@ -717,6 +770,9 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 		SchemaVersion: schemaVersion,
 		SHA256:        sha256Value,
 		TemplateURL:   templateURL,
+		PriceCents:    priceCents,
+		Billing:       billing,
+		Delivery:      delivery,
 		Changelog:     truncateText(req.Changelog, 2000),
 		MinVersion:    truncateText(req.MinVersion, 40),
 		ForceUpdate:   req.ForceUpdate,
@@ -738,6 +794,9 @@ func writeSourceDeveloperStoreError(c *gin.Context, err error) {
 		errors.Is(err, errSourceInvalidStatus), errors.Is(err, errSourceVersionImmutable),
 		errors.Is(err, errSourceVersionNotLatest), errors.Is(err, errSourceAppRequired),
 		errors.Is(err, errSourceAppNotFound), errors.Is(err, errAdApplicationReviewed):
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+	case errors.Is(err, errSourcePaidListingClosed), errors.Is(err, errSourcePaidExternal),
+		errors.Is(err, errSourcePaidYearly), errors.Is(err, errSourcePaidAlreadyPublic):
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 	case errors.Is(err, errSourceForbidden), errors.Is(err, errDeveloperDisabled), errors.Is(err, errDeveloperNotBound):
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": err.Error()})
@@ -788,6 +847,11 @@ func sourceDeveloperWriteVersion(c *gin.Context, kind string) {
 		return
 	}
 	rel.ItemID = strings.TrimSpace(c.Param("id"))
+	rel, err = guardReleasePackage(rel)
+	if err != nil {
+		writeCatalogPriceError(c, err)
+		return
+	}
 	saved, err := currentSourceStationStore().UpsertVersion(rel, developer.ID, false)
 	if err != nil {
 		writeSourceDeveloperStoreError(c, err)
@@ -830,7 +894,12 @@ func sourceDeveloperSubmitVersion(c *gin.Context, kind string) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	if err := validatePackageForSubmit(kind, release.Location, release.SHA256); err != nil {
+	price, priceErr := catalogItemPrice(kind, itemID)
+	if priceErr != nil && !errors.Is(priceErr, errSourceNotFound) {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取目录价格失败"})
+		return
+	}
+	if err := validateCatalogPackage(price, kind, release.Location, release.SHA256); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
@@ -860,7 +929,11 @@ func bindSourceReleaseDraft(c *gin.Context, kind string) (sourceRelease, error) 
 	if err != nil {
 		return sourceRelease{}, err
 	}
-	if kind == sourceKindTemplate {
+	if isPrivatePackageRef(location) {
+		if _, sha256Value, err = verifyPrivatePackage(location, sha256Value); err != nil {
+			return sourceRelease{}, err
+		}
+	} else if kind == sourceKindTemplate {
 		if location != "" {
 			if err := validateTemplateLocation(location); err != nil {
 				return sourceRelease{}, err

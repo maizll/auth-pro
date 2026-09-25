@@ -59,6 +59,30 @@
         </el-form-item>
       </el-form>
     </el-card>
+
+    <el-card v-loading="storeLoading" shadow="never" class="art-card store-card">
+      <template #header>
+        <div class="table-header">
+          <div>
+            <span class="card-title">商店预留</span>
+            <p class="card-hint">
+              只保存产品应用标识和免费套餐 ID，供后续购买与交付使用。这里不校验应用或套餐是否存在，也不开放付费上架。
+            </p>
+          </div>
+          <div class="table-actions">
+            <el-button type="primary" :loading="storeSaving" @click="handleStoreSave">保存</el-button>
+          </div>
+        </div>
+      </template>
+      <el-form :model="storeForm" label-width="140px" class="settings-form">
+        <el-form-item label="产品应用标识">
+          <el-input v-model.trim="storeForm.productAppKey" placeholder="可留空" />
+        </el-form-item>
+        <el-form-item label="免费套餐 ID">
+          <el-input v-model.trim="storeForm.freePlanId" placeholder="可留空，正整数" />
+        </el-form-item>
+      </el-form>
+    </el-card>
   </div>
 </template>
 
@@ -67,7 +91,9 @@
   import { ElMessage } from 'element-plus'
   import {
     fetchSourceReleaseSettings,
+    fetchSourceStoreSettings,
     saveSourceReleaseSettings,
+    saveSourceStoreSettings,
     testSourceReleaseSettings,
     type SourceReleaseSettings
   } from '@/api/source-station'
@@ -84,6 +110,12 @@
     hasToken: false,
     tokenMasked: '',
     configured: false
+  })
+  const storeLoading = ref(false)
+  const storeSaving = ref(false)
+  const storeForm = reactive({
+    productAppKey: '',
+    freePlanId: ''
   })
   const form = reactive({
     provider: 'github',
@@ -124,6 +156,39 @@
     }
     return '尚未配置完整，上传时需粘贴外部 https 地址。'
   })
+
+  async function loadStoreSettings() {
+    storeLoading.value = true
+    try {
+      const data = await fetchSourceStoreSettings()
+      storeForm.productAppKey = data.productAppKey || ''
+      storeForm.freePlanId = data.freePlanId || ''
+    } finally {
+      storeLoading.value = false
+    }
+  }
+
+  async function handleStoreSave() {
+    const appKey = storeForm.productAppKey.trim()
+    const plan = storeForm.freePlanId.trim()
+    if (appKey && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(appKey)) {
+      ElMessage.warning('产品应用标识不合法')
+      return
+    }
+    if (plan && !/^[1-9]\d*$/.test(plan)) {
+      ElMessage.warning('免费套餐 ID 须为正整数')
+      return
+    }
+    storeSaving.value = true
+    try {
+      const data = await saveSourceStoreSettings({ productAppKey: appKey, freePlanId: plan })
+      storeForm.productAppKey = data.productAppKey || ''
+      storeForm.freePlanId = data.freePlanId || ''
+      ElMessage.success('已保存商店设置')
+    } finally {
+      storeSaving.value = false
+    }
+  }
 
   async function loadSettings() {
     loading.value = true
@@ -178,7 +243,10 @@
     }
   }
 
-  onMounted(loadSettings)
+  onMounted(() => {
+    void loadSettings()
+    void loadStoreSettings()
+  })
 </script>
 
 <style scoped lang="scss">
@@ -191,6 +259,10 @@
       background: var(--default-box-color);
       box-shadow: none;
     }
+  }
+
+  .store-card {
+    margin-top: 16px;
   }
 
   .table-header {

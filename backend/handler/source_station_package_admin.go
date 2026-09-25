@@ -138,6 +138,13 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		return
 	}
 
+	priceCents, priceErr := parseCatalogPriceCents(c.PostForm("priceCents"))
+	if priceErr != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": priceErr.Error()})
+		return
+	}
+	billing := c.PostForm("billing")
+	delivery := c.PostForm("delivery")
 	actor := c.GetString("username")
 	shelf := formFlag(c, "shelf")
 	changelog := truncateText(c.PostForm("changelog"), 2000)
@@ -164,10 +171,15 @@ func AdminSourcePackagePublish(c *gin.Context) {
 			ID: manifest.ID, AppID: appID, TemplateKey: manifest.ID, Name: manifest.Name, Description: manifest.Description,
 			Version: manifest.Version, SchemaVersion: manifest.SchemaVersion, SHA256: manifest.SHA256,
 			TemplateURL: location, Changelog: changelog, MinVersion: minVersion, ForceUpdate: forceUpdate,
-			Author: manifest.Author,
+			Author: manifest.Author, PriceCents: priceCents, Billing: billing, Delivery: delivery,
 		})
 		if convErr != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": convErr.Error()})
+			return
+		}
+		item, convErr = guardAndFinalizeTemplate(item)
+		if convErr != nil {
+			writeCatalogPriceError(c, convErr)
 			return
 		}
 		saved, upsertErr := currentSourceStationStore().UpsertTemplate(item, true)
@@ -200,9 +212,15 @@ func AdminSourcePackagePublish(c *gin.Context) {
 			ID: manifest.ID, AppID: appID, Category: manifest.Category, Name: manifest.Name, Description: manifest.Description,
 			Icon: manifest.Icon, Version: manifest.Version, SHA256: manifest.SHA256, DownloadURL: location,
 			Changelog: changelog, MinVersion: minVersion, ForceUpdate: forceUpdate, Author: manifest.Author,
+			PriceCents: priceCents, Billing: billing, Delivery: delivery,
 		})
 		if convErr != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": convErr.Error()})
+			return
+		}
+		item, convErr = guardAndFinalizePlugin(item)
+		if convErr != nil {
+			writeCatalogPriceError(c, convErr)
 			return
 		}
 		saved, upsertErr := currentSourceStationStore().UpsertPlugin(item, true)

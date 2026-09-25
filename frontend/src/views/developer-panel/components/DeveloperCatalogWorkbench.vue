@@ -27,6 +27,9 @@
         <el-table-column label="版本" width="110">
           <template #default="{ row }">{{ row.latestVersion || row.version || '-' }}</template>
         </el-table-column>
+        <el-table-column label="售价" width="100">
+          <template #default="{ row }">{{ formatCatalogPriceLabel(row.priceCents) }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="110" align="center">
           <template #default="{ row }">
             <el-tag :type="statusMeta(row.status).type" size="small">
@@ -124,6 +127,12 @@
         <el-form-item label="版本" prop="version">
           <el-input v-model="form.version" :disabled="!canEditPackage" placeholder="1.0.0" />
           <p class="field-help">首次发布用 1.0.0 即可，以后改这里或在「版本」里新增。</p>
+        </el-form-item>
+        <el-form-item label="售价（元）">
+          <el-input v-model="form.priceYuan" :disabled="!canEditMeta" placeholder="0" />
+          <p class="field-help">
+            填 0 表示免费。大于 0 为买断，必须上传本站 ZIP。付费上架尚未开放。
+          </p>
         </el-form-item>
         <el-form-item label="包来源">
           <el-radio-group
@@ -409,9 +418,13 @@
   import {
     CATALOG_ID_PATTERN,
     SHA256_HEX_PATTERN,
+    formatCatalogPriceLabel,
+    formatCatalogPriceYuan,
     isHttpsLocation,
+    isPrivatePackageLocation,
     isStationPackageLocation,
     isTemplateLocation,
+    resolveCatalogPriceCents,
     suggestCatalogSlug
   } from '@/utils/form/catalog-slug'
 
@@ -462,6 +475,7 @@
     icon: 'ri:puzzle-line',
     location: '',
     sha256: '',
+    priceYuan: '0',
     packageSource: 'external' as 'upload' | 'external',
     authorName: '',
     changelog: ''
@@ -544,7 +558,7 @@
             callback()
             return
           }
-          if (isStationPackageLocation(raw)) {
+          if (isStationPackageLocation(raw) || isPrivatePackageLocation(raw)) {
             callback()
             return
           }
@@ -746,6 +760,7 @@
     form.icon = defaultIcon()
     form.location = ''
     form.sha256 = ''
+    form.priceYuan = '0'
     form.packageSource = 'external'
     form.authorName = currentDeveloperName()
     form.changelog = ''
@@ -770,7 +785,11 @@
       form.icon = row.icon || defaultIcon()
       form.location = (props.kind === 'template' ? row.templateUrl : row.downloadUrl) || ''
       form.sha256 = row.sha256 || ''
-      form.packageSource = isStationPackageLocation(form.location) ? 'upload' : 'external'
+      form.priceYuan = formatCatalogPriceYuan(row.priceCents)
+      form.packageSource =
+        isStationPackageLocation(form.location) || isPrivatePackageLocation(form.location)
+          ? 'upload'
+          : 'external'
       form.authorName = row.author?.name || currentDeveloperName()
       form.changelog = row.changelog || ''
     } else {
@@ -791,11 +810,13 @@
 
   function onPackageSourceChange(target: 'form' | 'version') {
     const bucket = target === 'form' ? form : versionForm
-    if (bucket.packageSource === 'upload' && !isStationPackageLocation(bucket.location)) {
+    const hosted =
+      isStationPackageLocation(bucket.location) || isPrivatePackageLocation(bucket.location)
+    if (bucket.packageSource === 'upload' && !hosted) {
       bucket.location = ''
       bucket.sha256 = ''
     }
-    if (bucket.packageSource === 'external' && isStationPackageLocation(bucket.location)) {
+    if (bucket.packageSource === 'external' && hosted) {
       bucket.location = ''
       bucket.sha256 = ''
     }
@@ -891,6 +912,11 @@
     if (!form.id.trim()) {
       form.id = suggestCatalogSlug(form.name, props.kind, '')
     }
+    const priced = resolveCatalogPriceCents(form.priceYuan, form.location)
+    if (priced.error) {
+      ElMessage.warning(priced.error)
+      return
+    }
     saving.value = true
     try {
       const authorName = form.authorName.trim() || currentDeveloperName()
@@ -907,6 +933,7 @@
               schemaVersion: 1,
               sha256: form.sha256.trim(),
               templateUrl: form.location.trim(),
+              priceCents: priced.cents,
               changelog: form.changelog.trim(),
               author: authorName ? { name: authorName } : undefined
             })
@@ -920,6 +947,7 @@
               version: form.version.trim() || '1.0.0',
               sha256: form.sha256.trim(),
               downloadUrl: form.location.trim(),
+              priceCents: priced.cents,
               changelog: form.changelog.trim(),
               author: authorName ? { name: authorName } : undefined
             })
