@@ -48,6 +48,7 @@ make_payload() {
   local dir="$1" marker="$2"
   mkdir -p "$dir/assets" "$dir/backend"
   printf '<html>%s</html>\n' "$marker" > "$dir/index.html"
+  printf '<html>unavailable-%s</html>\n' "$marker" > "$dir/backend-unavailable.html"
   printf '{"version":"%s"}\n' "$marker" > "$dir/version.json"
   printf '{"version":"%s","frontendDir":".","backendFile":"backend/auth_pro","requiredFiles":[]}\n' "$marker" > "$dir/manifest.json"
   printf 'asset-%s\n' "$marker" > "$dir/assets/app.js"
@@ -120,6 +121,11 @@ grep -F -q 'install\.lock' "$SITE/backend/baota-nginx.snippet.conf" || fail "Ngi
 grep -q "$SITE/backend/start.sh" "$SITE/backend/baota-guardian.txt" || fail "进程守护说明缺少启动命令"
 [[ "$(cat "$SITE/.user.ini")" == "keep-user-ini" ]] || fail "安装破坏了 .user.ini"
 grep -q '<html>v1</html>' "$SITE/index.html" || fail "首页未装入"
+grep -q 'unavailable-v1' "$SITE/backend-unavailable.html" || fail "后端不可达页面未装入"
+grep -q 'AUTO_PRO_PROCESS_MANAGER=supervisor' "$SITE/backend/baota.env" || fail "baota.env 未声明进程守护"
+grep -q 'supervisor' "$SITE/backend/process-manager" || fail "缺少进程守护标记"
+grep -q 'AUTO_PRO_PROCESS_MANAGER' "$SITE/backend/start.sh" || fail "start.sh 未导出进程守护标记"
+grep -q 'error_page 502 503 504 /backend-unavailable.html' "$SITE/backend/baota-nginx.snippet.conf" || fail "Nginx 片段没有后端不可达页面"
 ok "全新安装：权限、环境文件、Nginx 片段、守护说明"
 
 if "$INSTALL" --yes --no-start --site-root "$SITE" --source "$PKG_V1" >"$WORKDIR/reinstall.out" 2>"$WORKDIR/reinstall.err"; then
@@ -179,6 +185,7 @@ PATH="$FAKE_BIN:$PATH" "$UPGRADE" --yes --no-start \
 unset AUTH_PRO_DUMP_LOG
 
 grep -q '<html>v2</html>' "$SITE/index.html" || fail "升级后首页仍是旧版"
+grep -q 'unavailable-v2' "$SITE/backend-unavailable.html" || fail "升级后静态错误页仍是旧版"
 grep -q 'binary-v2' "$SITE/backend/auth_pro" || fail "升级后二进制仍是旧版"
 [[ ! -f "$SITE/assets/old.js" ]] || fail "旧的 assets 文件还留在网站根"
 grep -q 'asset-v2' "$SITE/assets/app.js" || fail "新的 assets 没有就位"
@@ -378,4 +385,60 @@ grep -q '不安全路径' "$WORKDIR/slip.err" || fail "没有报告不安全路�
 [[ ! -e /tmp/auth-pro-slip-test-unique-name.txt ]] || fail "路径穿越文件被写到了 /tmp"
 ok "拒绝压缩包路径穿越"
 
-printf '\n自检完成。宝塔进程守护和 Nginx 反代仍需要在真实面板上人工确认。\n'
+NGINX_ROOT="$WORKDIR/nginx-vhost"
+NGINX_LOG="$WORKDIR/nginx-calls.txt"
+mkdir -p "$NGINX_ROOT"
+cat > "$NGINX_ROOT/site.conf" <<EOF
+server {
+    listen 80;
+    server_name example.test;
+    root $SITE;
+    location / {
+        proxy_pass http://127.0.0.1:${PORT};
+    }
+}
+EOF
+cp "$NGINX_ROOT/site.conf" "$WORKDIR/nginx-before-ok.conf"
+cat > "$WORKDIR/nginx-ok" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" >> "$NGINX_LOG"
+exit 0
+EOF
+chmod 755 "$WORKDIR/nginx-ok"
+: > "$NGINX_LOG"
+AUTH_PRO_NGINX_BIN="$WORKDIR/nginx-ok" AUTH_PRO_NGINX_VHOST_DIR="$NGINX_ROOT" \
+  "$UPGRADE" --yes --no-start --skip-mysql \
+  --site-root "$SITE" \
+  --source "$PKG_V2" >"$WORKDIR/nginx-upgrade.out"
+grep -q 'BEGIN AUTH_PRO_BACKEND_UNAVAILABLE' "$NGINX_ROOT/site.conf" || fail "没有写入 Nginx error_page"
+grep -q "root $SITE;" "$NGINX_ROOT/site.conf" || fail "Nginx 静态页 root 不是网站根"
+grep -c 'location = /backend-unavailable.html' "$NGINX_ROOT/site.conf" | grep -qx 1 || fail "error_page location 不是恰好一处"
+grep -q -- '-t' "$NGINX_LOG" || fail "写入前没有 nginx -t"
+grep -q -- '-s reload' "$NGINX_LOG" || fail "nginx -t 通过后没有 reload"
+AUTH_PRO_NGINX_BIN="$WORKDIR/nginx-ok" AUTH_PRO_NGINX_VHOST_DIR="$NGINX_ROOT" \
+  "$UPGRADE" --yes --no-start --skip-mysql \
+  --site-root "$SITE" \
+  --source "$PKG_V2" >"$WORKDIR/nginx-upgrade-again.out"
+grep -c 'location = /backend-unavailable.html' "$NGINX_ROOT/site.conf" | grep -qx 1 || fail "重复升级写了多段 error_page"
+ok "Nginx error_page 自动写入且不重复"
+
+cp "$WORKDIR/nginx-before-ok.conf" "$NGINX_ROOT/site.conf"
+cat > "$WORKDIR/nginx-bad" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" >> "$NGINX_LOG"
+if [[ "\$1" == "-t" ]]; then
+  exit 1
+fi
+exit 0
+EOF
+chmod 755 "$WORKDIR/nginx-bad"
+: > "$NGINX_LOG"
+AUTH_PRO_NGINX_BIN="$WORKDIR/nginx-bad" AUTH_PRO_NGINX_VHOST_DIR="$NGINX_ROOT" \
+  "$UPGRADE" --yes --no-start --skip-mysql \
+  --site-root "$SITE" \
+  --source "$PKG_V2" >"$WORKDIR/nginx-bad.out"
+cmp -s "$NGINX_ROOT/site.conf" "$WORKDIR/nginx-before-ok.conf" || fail "nginx -t 失败后没有还原配置"
+grep -q -- '-s reload' "$NGINX_LOG" && fail "nginx -t 失败后仍然 reload"
+ok "nginx -t 失败时还原配置并且不 reload"
+
+printf '\n自检完成。宝塔进程守护拉起和真实 Nginx reload 仍需要在面板或本机 nginx 上再确认。\n'

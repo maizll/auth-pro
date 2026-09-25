@@ -7,6 +7,7 @@
 ```text
 auth_pro-full-v1.5.0.tar.gz
 ├── index.html
+├── backend-unavailable.html
 ├── version.json
 ├── favicon.ico
 ├── assets/
@@ -37,6 +38,7 @@ auth_pro-full-v1.5.0.tar.gz
 ```text
 /www/wwwroot/example.com/
 ├── index.html
+├── backend-unavailable.html
 ├── version.json
 ├── favicon.ico
 ├── assets/

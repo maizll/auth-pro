@@ -18,6 +18,12 @@ import axios, { AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } 
 import { useUserStore } from '@/store/modules/user'
 import { ApiStatus } from './status'
 import { HttpError, handleError, showError, showSuccess } from './error'
+import {
+  BACKEND_UNAVAILABLE_PAGE,
+  backendUnreachableTracker,
+  isBackendUnreachableFailure,
+  shouldRedirectToBackendUnavailable
+} from './backend-unavailable'
 import { $t } from '@/locales'
 import { BaseResponse } from '@/types'
 import { notifyCommercialRequired } from '@/utils/commercial'
@@ -82,8 +88,21 @@ axiosInstance.interceptors.request.use(
 )
 
 /** 响应拦截器 */
+function noteBackendReachable(): void {
+  backendUnreachableTracker.record(false)
+}
+
+function noteBackendUnreachable(status: number | undefined, hasResponse: boolean, code?: string): void {
+  if (code === 'ERR_CANCELED') return
+  const tripped = backendUnreachableTracker.record(isBackendUnreachableFailure(status, hasResponse))
+  if (!tripped || typeof window === 'undefined') return
+  if (!shouldRedirectToBackendUnavailable(window.location.pathname)) return
+  window.location.assign(BACKEND_UNAVAILABLE_PAGE)
+}
+
 axiosInstance.interceptors.response.use(
   async (response: AxiosResponse<BaseResponse>) => {
+    noteBackendReachable()
     if (response.config.responseType === 'blob') {
       if (response.headers['content-disposition']?.includes('attachment')) return response
       const data = response.data as unknown as Blob
@@ -104,6 +123,7 @@ axiosInstance.interceptors.response.use(
     throw createHttpError(responseMessage || $t('httpMsg.requestFailed'), code)
   },
   (error) => {
+    noteBackendUnreachable(error.response?.status, Boolean(error.response), error.code)
     if (error.response?.status === ApiStatus.unauthorized) handleUnauthorizedError()
     return Promise.reject(handleError(error))
   }

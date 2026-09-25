@@ -814,6 +814,7 @@ baota_write_env() {
 PORT=${port}
 HOST=${host}
 AUTO_PRO_DATA_DIR=${data}
+AUTO_PRO_PROCESS_MANAGER=supervisor
 EOF
   chmod 600 "$tmp"
   mv -f "$tmp" "$file"
@@ -840,6 +841,8 @@ if [[ -f ./baota.env ]]; then
   source ./baota.env
   set +a
 fi
+# 在线更新据此退出进程，交给进程守护拉起，不再 nohup 出孤儿进程。
+export AUTO_PRO_PROCESS_MANAGER="${AUTO_PRO_PROCESS_MANAGER:-supervisor}"
 exec ./auth_pro
 EOF
   chmod 755 "$file"
@@ -847,9 +850,10 @@ EOF
 }
 
 baota_write_nginx_snippet() {
-  local data port file
+  local data port file site_root
   data="$(baota_data_dir)"
   port="$(baota_effective_port)"
+  site_root="$BAOTA_SITE_ROOT"
   file="$data/baota-nginx.snippet.conf"
   if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
     baota_info "将写入 Nginx 片段 $file"
@@ -875,6 +879,13 @@ location = /baota-upgrade.sh { return 404; }
 location = /baota-lib.sh { return 404; }
 location ~* ^/(db\\.json|install\\.lock|jwt\\.secret)$ { return 404; }
 location ~* \\.(log|pid)$ { return 404; }
+
+# 后端 502/503/504 时返回站点根的静态说明页。仓库模板：deploy/nginx/backend-unavailable.conf
+error_page 502 503 504 /backend-unavailable.html;
+location = /backend-unavailable.html {
+    root ${site_root};
+    default_type text/html;
+}
 EOF
   baota_info "已写入 $file"
 }
@@ -901,6 +912,108 @@ EOF
   baota_info "已写入 $file"
 }
 
+baota_write_process_manager_marker() {
+  local data file
+  data="$(baota_data_dir)"
+  file="$data/process-manager"
+  if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
+    baota_info "将写入进程守护标记 $file"
+    return 0
+  fi
+  mkdir -p "$data"
+  printf 'supervisor\n' > "$file"
+  baota_info "已写入进程守护标记 $file"
+}
+
+baota_nginx_vhost_dirs() {
+  if [[ -n "${AUTH_PRO_NGINX_VHOST_DIR:-}" ]]; then
+    printf '%s\n' "$AUTH_PRO_NGINX_VHOST_DIR"
+  fi
+  printf '%s\n' \
+    /www/server/panel/vhost/nginx \
+    /www/server/nginx/conf/vhost \
+    /etc/nginx/conf.d \
+    /etc/nginx/sites-enabled
+}
+
+baota_configure_nginx_error_page() {
+  local site port nginx dir conf backup
+  site="$BAOTA_SITE_ROOT"
+  port="$(baota_effective_port)"
+  nginx="${AUTH_PRO_NGINX_BIN:-nginx}"
+  if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
+    baota_info "将尝试把后端不可达静态页写入引用 ${site} 或 127.0.0.1:${port} 的 Nginx 站点配置"
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    baota_warn "没有 python3，跳过自动写入 Nginx error_page。请按 backend/baota-nginx.snippet.conf 手工配置。"
+    return 0
+  fi
+  local found=0
+  while IFS= read -r dir; do
+    [[ -d "$dir" ]] || continue
+    while IFS= read -r conf; do
+      [[ -f "$conf" ]] || continue
+      if ! grep -Fq "$site" "$conf" && ! grep -Fq "127.0.0.1:${port}" "$conf" && ! grep -Fq "localhost:${port}" "$conf"; then
+        continue
+      fi
+      found=1
+      if grep -Fq "location = /backend-unavailable.html" "$conf"; then
+        baota_info "Nginx 已包含后端不可达页面：$conf"
+        continue
+      fi
+      backup="${conf}.bak.auth-pro-$(date '+%Y%m%d%H%M%S')"
+      cp -a "$conf" "$backup" || { baota_warn "无法备份 $conf ，已跳过"; continue; }
+      if ! python3 - "$conf" "$site" <<'PY'
+import pathlib, sys
+path, site = sys.argv[1], sys.argv[2]
+if any(ch in site for ch in "\n;{}\\"):
+    raise SystemExit("网站根不能包含换行或 nginx 元字符")
+text = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
+marker = "# BEGIN AUTH_PRO_BACKEND_UNAVAILABLE"
+if marker in text or "location = /backend-unavailable.html" in text:
+    raise SystemExit(0)
+block = f"""
+    {marker}
+    error_page 502 503 504 /backend-unavailable.html;
+    location = /backend-unavailable.html {{
+        root {site};
+        default_type text/html;
+    }}
+    # END AUTH_PRO_BACKEND_UNAVAILABLE
+"""
+idx = text.rfind("}")
+if idx < 0:
+    raise SystemExit("找不到 server 块结束括号")
+pathlib.Path(path).write_text(text[:idx] + block + "\n" + text[idx:], encoding="utf-8")
+PY
+      then
+        cp -a "$backup" "$conf" || true
+        baota_warn "写入 Nginx 失败，已还原 $conf"
+        continue
+      fi
+      if ! command -v "$nginx" >/dev/null 2>&1; then
+        cp -a "$backup" "$conf" || true
+        baota_warn "未找到 nginx，已还原 $conf 。请手工合并 backend/baota-nginx.snippet.conf"
+        continue
+      fi
+      if ! "$nginx" -t >/dev/null 2>&1; then
+        cp -a "$backup" "$conf" || true
+        baota_warn "nginx -t 未通过，已还原 $conf"
+        continue
+      fi
+      if "$nginx" -s reload >/dev/null 2>&1; then
+        baota_info "已写入后端不可达页面并 reload：$conf （备份 $backup）"
+      else
+        baota_warn "配置已通过 nginx -t，但 reload 失败。请手工执行 nginx -s reload。备份在 $backup"
+      fi
+    done < <(find "$dir" -maxdepth 1 -type f -name '*.conf' | sort)
+  done < <(baota_nginx_vhost_dirs)
+  if [[ "$found" -eq 0 ]]; then
+    baota_warn "没有找到引用本站点的 Nginx 配置。请把 backend/baota-nginx.snippet.conf 里的 error_page 放进站点 server。模板见 deploy/nginx/backend-unavailable.conf"
+  fi
+}
+
 baota_apply_payload() {
   local site="$BAOTA_SITE_ROOT"
   if baota_same_payload; then
@@ -911,15 +1024,18 @@ baota_apply_payload() {
     baota_sync_root_file "version.json"
     baota_sync_root_file "favicon.ico"
     baota_sync_root_file "manifest.json"
+    baota_sync_root_file "backend-unavailable.html"
     baota_replace_assets
     baota_install_binary
   fi
   baota_install_scripts
   baota_chmod_binary
   baota_write_env
+  baota_write_process_manager_marker
   baota_write_start_script
   baota_write_nginx_snippet
   baota_write_guardian_note
+  baota_configure_nginx_error_page
 }
 
 baota_tighten_secrets() {
@@ -991,7 +1107,7 @@ baota_print_manual_steps() {
 仍需在宝塔面板手工完成（脚本不改面板数据库）：
   1. 创建网站，根目录为 ${BAOTA_SITE_ROOT}
   2. 创建空 MySQL 库和用户。全新安装在网页向导里填写，不要在脚本里写数据库口令
-  3. 站点 Nginx 反代到 127.0.0.1:${port}，并把 ${data}/baota-nginx.snippet.conf 中的 location 放进 server，避免直接下载 /backend、db.json、install.lock
+  3. 站点 Nginx 反代到 127.0.0.1:${port}，并把 ${data}/baota-nginx.snippet.conf 中的 location 放进 server，避免直接下载 /backend、db.json、install.lock。502/503/504 使用同文件里的 error_page，返回网站根 backend-unavailable.html
   4. 需要 HTTPS 时在面板申请证书
   5. 进程守护：启动命令 ${data}/start.sh ，运行目录 ${data} 。说明见 ${data}/baota-guardian.txt
      升级或清理残留进程前，先在守护里停止。守护开着时结束进程会被立刻拉起，形成重启循环

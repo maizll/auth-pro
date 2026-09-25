@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>后台服务暂时无法连接</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
+      background: #f4f6f8;
+      color: #1f2933;
+    }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 48px 20px 64px;
+    }
+    h1 { font-size: 28px; line-height: 1.35; margin: 0 0 12px; }
+    .lead { font-size: 16px; line-height: 1.7; margin: 0 0 28px; color: #52606d; }
+    section {
+      background: #fff;
+      border: 1px solid #e4e7eb;
+      border-radius: 12px;
+      padding: 20px 22px;
+      margin: 0 0 16px;
+    }
+    h2 { font-size: 16px; margin: 0 0 10px; }
+    ul, ol { margin: 0; padding-left: 20px; }
+    li { margin: 6px 0; line-height: 1.6; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+      background: #f0f4f8;
+      padding: 0 4px;
+      border-radius: 4px;
+    }
+    .visitor { color: #52606d; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>后台服务暂时无法连接</h1>
+    <p class="lead">站点页面依赖本机后端进程。现在连不上它，所以暂时打不开管理后台和接口。这不是你的浏览器坏了。</p>
+    <section>
+      <h2>可能的原因</h2>
+      <ul>
+        <li>正在在线更新，服务正在切换并重启。</li>
+        <li>后端没有启动，或进程守护没有把它拉起来。</li>
+        <li>端口被旧的 auth_pro 占用，新进程起不来。</li>
+      </ul>
+    </section>
+    <section>
+      <h2>如果你是访客</h2>
+      <p class="visitor">请稍后再试。若页面一直如此，把网址和时间告诉站点管理员即可，不需要自己处理服务器。</p>
+    </section>
+    <section>
+      <h2>管理员可以这样处理</h2>
+      <ol>
+        <li>打开宝塔「进程守护」，先停止本站点，避免杀掉之后立刻被拉起。</li>
+        <li>在服务器上查看谁占用了后端端口（默认 <code>19127</code>）：<code>ss -lptn | grep 19127</code>。</li>
+        <li>结束的应是本站 <code>backend/auth_pro</code>。不要结束无关进程。</li>
+        <li>确认 <code>backend/auth_pro</code> 存在且可执行。若在线更新没换上新文件，保留当前文件，由进程守护重新启动即可回到更新前的版本。</li>
+        <li>只通过进程守护启动：命令是网站根下的 <code>backend/start.sh</code>，运行目录是 <code>backend/</code>。不要再另开一个脱离守护的进程。</li>
+      </ol>
+    </section>
+  </main>
+</body>
+</html>

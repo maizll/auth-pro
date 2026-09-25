@@ -1281,11 +1281,16 @@ func reconcileOnlineUpdateJobResult(job *onlineUpdateJob) *onlineUpdateJob {
 	if err != nil {
 		return job
 	}
-	result := strings.TrimSpace(string(data))
+	lines := strings.Split(strings.ReplaceAll(strings.TrimSpace(string(data)), "\r\n", "\n"), "\n")
+	result := strings.TrimSpace(lines[0])
+	reason := ""
+	if len(lines) > 1 {
+		reason = strings.TrimSpace(strings.Join(lines[1:], "\n"))
+	}
 	if result != "success" && result != "failed" {
 		return job
 	}
-	if job.Status == result {
+	if job.Status == result && (result != "failed" || job.Error == reason || reason == "") {
 		return job
 	}
 	job.Status = result
@@ -1296,8 +1301,11 @@ func reconcileOnlineUpdateJobResult(job *onlineUpdateJob) *onlineUpdateJob {
 		job.Logs = append(job.Logs, fmt.Sprintf("%s 前端和后端已切换到 v%s", time.Now().Format("15:04:05"), job.Version))
 	} else {
 		job.Message = "更新失败，已尝试回滚"
-		job.Error = "新版本健康检查失败或更新脚本执行异常"
-		job.Logs = append(job.Logs, fmt.Sprintf("%s 更新失败，已尝试回滚", time.Now().Format("15:04:05")))
+		if reason == "" {
+			reason = "新版本健康检查失败或更新脚本执行异常"
+		}
+		job.Error = reason
+		job.Logs = append(job.Logs, fmt.Sprintf("%s 更新失败，已尝试回滚：%s", time.Now().Format("15:04:05"), reason))
 	}
 	job.UpdatedAt = time.Now()
 	persistOnlineUpdateJob(job)
@@ -1408,7 +1416,9 @@ func executeOnlineUpdate(jobID string, manifest *onlineUpdateManifest) error {
 	if err != nil {
 		return err
 	}
+	mode := resolveOnlineUpdateProcessManager()
 	appendOnlineUpdateLog(jobID, "更新脚本已生成，准备重启服务")
+	appendOnlineUpdateLog(jobID, describeProcessManager(mode))
 	updateOnlineUpdateProgress(jobID, 92, "更新脚本已生成，准备重启服务")
 
 	logPath := filepath.Join(config.GetUpdateDir(), jobID+".log")
@@ -1418,6 +1428,7 @@ func executeOnlineUpdate(jobID string, manifest *onlineUpdateManifest) error {
 	}
 	cmd := exec.Command("/bin/sh", scriptPath)
 	cmd.Dir = config.GetDataDir()
+	detachOnlineUpdateCommand(cmd)
 	if logFile != nil {
 		cmd.Stdout = logFile
 		cmd.Stderr = logFile
@@ -1425,6 +1436,7 @@ func executeOnlineUpdate(jobID string, manifest *onlineUpdateManifest) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("启动更新脚本失败：%w", err)
 	}
+	go func() { _ = cmd.Wait() }()
 
 	finishOnlineUpdateJob(jobID, "restarting", "服务正在切换并重启", nil)
 	return nil
@@ -1554,6 +1566,9 @@ func hashOnlineUpdateFile(path string) (string, error) {
 func confirmOnlineUpdateTrustedDigest(version, fileName, actualSHA256 string) error {
 	if err := requireOnlineUpdatePackageFileName(version, fileName); err != nil {
 		return err
+	}
+	if allowLocalOnlineUpdateDigest() {
+		return nil
 	}
 	digest, err := fetchOnlineUpdateAssetDigest(version, fileName)
 	if err != nil {
@@ -1899,6 +1914,20 @@ func copyOnlineUpdatePath(source string, target string) error {
 	return nil
 }
 
+// allowLocalOnlineUpdateDigest 只给本机演练用。清单地址必须是回环 HTTPS，
+// 并且显式设置 AUTO_PRO_UPDATE_LOCAL_DIGEST=1。生产默认的 GitHub 清单不会走这里。
+func allowLocalOnlineUpdateDigest() bool {
+	if strings.TrimSpace(os.Getenv("AUTO_PRO_UPDATE_LOCAL_DIGEST")) != "1" {
+		return false
+	}
+	parsed, err := parseOnlineUpdateURL(config.GetUpdateManifestURL())
+	if err != nil {
+		return false
+	}
+	host := strings.Trim(strings.ToLower(parsed.Hostname()), "[]")
+	return host == "127.0.0.1" || host == "localhost" || host == "::1"
+}
+
 func writeOnlineUpdateScript(jobID string, stagingDir string, pkg *extractedOnlineUpdateManifest, frontendSource string, version string, frontendDir string) (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -1914,263 +1943,32 @@ func writeOnlineUpdateScript(jobID string, stagingDir string, pkg *extractedOnli
 		return "", err
 	}
 	scriptPath := filepath.Join(config.GetUpdateDir(), jobID+".sh")
-	script := fmt.Sprintf(`#!/bin/sh
-set -u
-
-FRONTEND_ONLY=0
-if [ "${1:-}" = "--frontend-only" ]; then
-  FRONTEND_ONLY=1
-fi
-
-APP_PID=%d
-APP_BIN=%s
-NEW_BIN=%s
-FRONTEND_SOURCE=%s
-FRONTEND_CURRENT=%s
-DATA_DIR=%s
-SERVICE_NAME=%s
-PORT=%s
-VERSION=%s
-LOG_FILE=%s
-JOB_RESULT=%s
-
-log() {
-  printf '%%s %%s\n' "$(date '+%%Y-%%m-%%d %%H:%%M:%%S')" "$1" >> "$LOG_FILE"
-}
-
-finish_job() {
-  printf '%%s\n' "$1" > "$JOB_RESULT.tmp"
-  mv -f "$JOB_RESULT.tmp" "$JOB_RESULT"
-}
-
-if [ "$FRONTEND_ONLY" != "1" ]; then
-  sleep 2
-fi
-TS=$(date '+%%Y%%m%%d%%H%%M%%S')
-USE_SYSTEMD=0
-if command -v systemctl >/dev/null 2>&1 && systemctl cat "$SERVICE_NAME" >/dev/null 2>&1; then
-  USE_SYSTEMD=1
-fi
-
-FRONTEND_MODE=""
-PREV_FRONTEND_TARGET=""
-FRONTEND_BACKUP=""
-TARGET_RELEASE=""
-if [ ! -d "$FRONTEND_CURRENT" ] && [ ! -L "$FRONTEND_CURRENT" ]; then
-  log "frontend directory not found: $FRONTEND_CURRENT"
-  finish_job failed
-  exit 1
-fi
-
-if [ -L "$FRONTEND_CURRENT" ] || [ "$(basename "$FRONTEND_CURRENT")" = "current" ]; then
-  FRONTEND_MODE="release"
-  FRONT_ROOT=$(dirname "$FRONTEND_CURRENT")
-  RELEASES="$FRONT_ROOT/releases"
-  TARGET_RELEASE="$RELEASES/$VERSION"
-  mkdir -p "$RELEASES" || { finish_job failed; exit 1; }
-  rm -rf "$TARGET_RELEASE"
-  cp -a "$FRONTEND_SOURCE" "$TARGET_RELEASE" || { rm -rf "$TARGET_RELEASE"; finish_job failed; exit 1; }
-  if [ ! -f "$TARGET_RELEASE/index.html" ]; then
-    rm -rf "$TARGET_RELEASE"
-    log "staged frontend missing index.html"
-    finish_job failed
-    exit 1
-  fi
-  if [ -L "$FRONTEND_CURRENT" ]; then
-    PREV_FRONTEND_TARGET=$(readlink "$FRONTEND_CURRENT" || true)
-    rm -f "$FRONTEND_CURRENT"
-  else
-    FRONTEND_BACKUP="$FRONT_ROOT/current.backup.$TS"
-    mv "$FRONTEND_CURRENT" "$FRONTEND_BACKUP" || { finish_job failed; exit 1; }
-  fi
-  ln -s "$TARGET_RELEASE" "$FRONTEND_CURRENT" || {
-    if [ -n "$PREV_FRONTEND_TARGET" ]; then
-      ln -s "$PREV_FRONTEND_TARGET" "$FRONTEND_CURRENT" || true
-    elif [ -n "$FRONTEND_BACKUP" ] && [ -d "$FRONTEND_BACKUP" ]; then
-      mv "$FRONTEND_BACKUP" "$FRONTEND_CURRENT" || true
-    fi
-    finish_job failed
-    exit 1
-  }
-  log "frontend release switched to $TARGET_RELEASE"
-else
-  FRONTEND_MODE="rename"
-  STAGING="${FRONTEND_CURRENT}.staging.$TS"
-  FRONTEND_BACKUP="${FRONTEND_CURRENT}.backup.$TS"
-  rm -rf "$STAGING"
-  cp -a "$FRONTEND_SOURCE" "$STAGING" || {
-    rm -rf "$STAGING"
-    log "frontend staging copy failed"
-    finish_job failed
-    exit 1
-  }
-  if [ ! -f "$STAGING/index.html" ]; then
-    rm -rf "$STAGING"
-    log "staged frontend missing index.html"
-    finish_job failed
-    exit 1
-  fi
-  mv "$FRONTEND_CURRENT" "$FRONTEND_BACKUP" || {
-    rm -rf "$STAGING"
-    log "frontend live directory could not be moved aside"
-    finish_job failed
-    exit 1
-  }
-  mv "$STAGING" "$FRONTEND_CURRENT" || {
-    mv "$FRONTEND_BACKUP" "$FRONTEND_CURRENT" || true
-    rm -rf "$STAGING"
-    log "frontend staged directory could not be switched into place"
-    finish_job failed
-    exit 1
-  }
-  log "frontend switched by rename at $FRONTEND_CURRENT"
-fi
-
-if [ "$FRONTEND_ONLY" = "1" ]; then
-  log "frontend switch completed"
-  finish_job success
-  exit 0
-fi
-
-BACKUP_BIN="$APP_BIN.backup.$TS"
-APP_STAGE="$APP_BIN.next.$TS"
-STARTED_PID=""
-
-rollback_frontend() {
-  if [ "$FRONTEND_MODE" = "rename" ]; then
-    if [ -d "$FRONTEND_BACKUP" ]; then
-      FAILED_FRONTEND="${FRONTEND_CURRENT}.failed.$TS"
-      if [ -e "$FRONTEND_CURRENT" ] || [ -L "$FRONTEND_CURRENT" ]; then
-        mv "$FRONTEND_CURRENT" "$FAILED_FRONTEND" || true
-      fi
-      if ! mv "$FRONTEND_BACKUP" "$FRONTEND_CURRENT"; then
-        if [ -e "$FAILED_FRONTEND" ] || [ -L "$FAILED_FRONTEND" ]; then
-          mv "$FAILED_FRONTEND" "$FRONTEND_CURRENT" || true
-        fi
-      else
-        rm -rf "$FAILED_FRONTEND"
-      fi
-    fi
-    return
-  fi
-  if [ "$FRONTEND_MODE" = "release" ]; then
-    if [ -n "$PREV_FRONTEND_TARGET" ]; then
-      rm -f "$FRONTEND_CURRENT"
-      ln -s "$PREV_FRONTEND_TARGET" "$FRONTEND_CURRENT"
-    elif [ -n "$FRONTEND_BACKUP" ] && [ -d "$FRONTEND_BACKUP" ]; then
-      rm -f "$FRONTEND_CURRENT"
-      mv "$FRONTEND_BACKUP" "$FRONTEND_CURRENT"
-    fi
-  fi
-}
-
-if [ ! -f "$NEW_BIN" ]; then
-  log "new backend binary not found: $NEW_BIN"
-  rollback_frontend
-  finish_job failed
-  exit 1
-fi
-if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
-  log "curl or wget is required for health check"
-  rollback_frontend
-  finish_job failed
-  exit 1
-fi
-cp "$APP_BIN" "$BACKUP_BIN" || { rollback_frontend; finish_job failed; exit 1; }
-cp "$NEW_BIN" "$APP_STAGE" || { rollback_frontend; finish_job failed; exit 1; }
-chmod 755 "$APP_STAGE" || { rm -f "$APP_STAGE"; rollback_frontend; finish_job failed; exit 1; }
-
-if [ "$USE_SYSTEMD" = "1" ]; then
-  if ! systemctl stop "$SERVICE_NAME"; then
-    rm -f "$APP_STAGE"
-    rollback_frontend
-    finish_job failed
-    exit 1
-  fi
-else
-  kill "$APP_PID" >/dev/null 2>&1 || true
-  for i in $(seq 1 20); do
-    if ! kill -0 "$APP_PID" >/dev/null 2>&1; then
-      break
-    fi
-    sleep 1
-  done
-  if kill -0 "$APP_PID" >/dev/null 2>&1; then
-    kill -9 "$APP_PID" >/dev/null 2>&1 || true
-    sleep 1
-  fi
-fi
-
-if ! mv -f "$APP_STAGE" "$APP_BIN"; then
-  if [ "$USE_SYSTEMD" = "1" ]; then
-    systemctl start "$SERVICE_NAME" >/dev/null 2>&1 || true
-  else
-    cd "$DATA_DIR" || exit 1
-    AUTO_PRO_DATA_DIR="$DATA_DIR" PORT="$PORT" nohup "$APP_BIN" >> "$DATA_DIR/logs/auto_pro.log" 2>&1 &
-  fi
-  rollback_frontend
-  finish_job failed
-  exit 1
-fi
-chmod 755 "$APP_BIN"
-
-if [ "$USE_SYSTEMD" = "1" ]; then
-  systemctl start "$SERVICE_NAME" >/dev/null 2>&1 || true
-else
-  mkdir -p "$DATA_DIR/logs"
-  cd "$DATA_DIR" || exit 1
-  AUTO_PRO_DATA_DIR="$DATA_DIR" PORT="$PORT" nohup "$APP_BIN" >> "$DATA_DIR/logs/auto_pro.log" 2>&1 &
-  STARTED_PID=$!
-fi
-
-HEALTH=""
-for i in $(seq 1 30); do
-  sleep 1
-  if command -v curl >/dev/null 2>&1; then
-    HEALTH=$(curl -fs "http://127.0.0.1:$PORT/api/system/version" 2>/dev/null || true)
-  else
-    HEALTH=$(wget -qO- "http://127.0.0.1:$PORT/api/system/version" 2>/dev/null || true)
-  fi
-  if printf '%%s' "$HEALTH" | grep -Fq "\"version\":\"$VERSION\""; then
-    log "update to $VERSION succeeded"
-    finish_job success
-    exit 0
-  fi
-done
-
-log "health check failed, rolling back"
-if [ "$USE_SYSTEMD" = "1" ]; then
-  systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || true
-elif [ -n "$STARTED_PID" ]; then
-  kill "$STARTED_PID" >/dev/null 2>&1 || true
-fi
-mv -f "$BACKUP_BIN" "$APP_BIN"
-chmod 755 "$APP_BIN"
-rollback_frontend
-
-if [ "$USE_SYSTEMD" = "1" ]; then
-  systemctl start "$SERVICE_NAME" >/dev/null 2>&1 || true
-else
-  cd "$DATA_DIR" || exit 1
-  AUTO_PRO_DATA_DIR="$DATA_DIR" PORT="$PORT" nohup "$APP_BIN" >> "$DATA_DIR/logs/auto_pro.log" 2>&1 &
-fi
-
-log "update failed and rollback completed"
-finish_job failed
-exit 1
-`,
-		os.Getpid(),
-		shellQuoteOnlineUpdate(executable),
-		shellQuoteOnlineUpdate(filepath.Join(stagingDir, filepath.FromSlash(pkg.BackendFile))),
-		shellQuoteOnlineUpdate(frontendSource),
-		shellQuoteOnlineUpdate(frontendDir),
-		shellQuoteOnlineUpdate(dataDir),
-		shellQuoteOnlineUpdate(config.GetServiceName()),
-		shellQuoteOnlineUpdate(config.GetPort()),
-		shellQuoteOnlineUpdate(version),
-		shellQuoteOnlineUpdate(filepath.Join(logDir, jobID+".log")),
-		shellQuoteOnlineUpdate(onlineUpdateJobStatePath(jobID)+".result"),
-	)
+	mode := resolveOnlineUpdateProcessManager()
+	replacements := []struct{ token, value string }{
+		{"__APP_PID__", strconv.Itoa(os.Getpid())},
+		{"__APP_BIN__", shellQuoteOnlineUpdate(executable)},
+		{"__NEW_BIN__", shellQuoteOnlineUpdate(filepath.Join(stagingDir, filepath.FromSlash(pkg.BackendFile)))},
+		{"__FRONTEND_SOURCE__", shellQuoteOnlineUpdate(frontendSource)},
+		{"__FRONTEND_CURRENT__", shellQuoteOnlineUpdate(frontendDir)},
+		{"__DATA_DIR__", shellQuoteOnlineUpdate(dataDir)},
+		{"__SERVICE_NAME__", shellQuoteOnlineUpdate(config.GetServiceName())},
+		{"__PORT__", shellQuoteOnlineUpdate(config.GetPort())},
+		{"__VERSION__", shellQuoteOnlineUpdate(version)},
+		{"__OLD_VERSION__", shellQuoteOnlineUpdate(config.AppVersion)},
+		{"__LOG_FILE__", shellQuoteOnlineUpdate(filepath.Join(logDir, jobID+".log"))},
+		{"__JOB_RESULT__", shellQuoteOnlineUpdate(onlineUpdateJobStatePath(jobID) + ".result")},
+		{"__PROCESS_MANAGER__", shellQuoteOnlineUpdate(mode)},
+		{"__SUPERVISOR_PROGRAM__", shellQuoteOnlineUpdate(onlineUpdateSupervisorProgram())},
+		{"__SUPERVISOR_CONF__", shellQuoteOnlineUpdate(strings.TrimSpace(os.Getenv("AUTO_PRO_SUPERVISOR_CONF")))},
+		{"__HEALTH_TRIES__", strconv.Itoa(onlineUpdateHealthTries())},
+	}
+	script := onlineUpdateScriptTemplate
+	for _, item := range replacements {
+		script = strings.ReplaceAll(script, item.token, item.value)
+	}
+	if strings.Contains(script, "__") {
+		return "", errors.New("更新脚本模板存在未替换的占位符")
+	}
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		return "", err
 	}

@@ -1,0 +1,482 @@
+#!/bin/sh
+# 由在线更新生成。先替换磁盘上的程序，再结束旧进程。
+# 进程守护模式下不要自行 nohup，避免再拉起一个脱离守护的孤儿进程。
+set -u
+trap '' HUP
+
+FRONTEND_ONLY=0
+if [ "${1:-}" = "--frontend-only" ]; then
+  FRONTEND_ONLY=1
+fi
+
+APP_PID=__APP_PID__
+APP_BIN=__APP_BIN__
+NEW_BIN=__NEW_BIN__
+FRONTEND_SOURCE=__FRONTEND_SOURCE__
+FRONTEND_CURRENT=__FRONTEND_CURRENT__
+DATA_DIR=__DATA_DIR__
+SERVICE_NAME=__SERVICE_NAME__
+PORT=__PORT__
+VERSION=__VERSION__
+OLD_VERSION=__OLD_VERSION__
+LOG_FILE=__LOG_FILE__
+JOB_RESULT=__JOB_RESULT__
+PROCESS_MANAGER=__PROCESS_MANAGER__
+SUPERVISOR_PROGRAM=__SUPERVISOR_PROGRAM__
+SUPERVISOR_CONF=__SUPERVISOR_CONF__
+HEALTH_TRIES=__HEALTH_TRIES__
+STARTED_PID=""
+
+log() {
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG_FILE"
+}
+
+finish_job() {
+  status="$1"
+  reason="${2:-}"
+  printf '%s\n%s\n' "$status" "$reason" > "$JOB_RESULT.tmp"
+  mv -f "$JOB_RESULT.tmp" "$JOB_RESULT"
+}
+
+if [ "$FRONTEND_ONLY" != "1" ]; then
+  sleep 2
+fi
+TS=$(date '+%Y%m%d%H%M%S')
+
+FRONTEND_MODE=""
+PREV_FRONTEND_TARGET=""
+FRONTEND_BACKUP=""
+TARGET_RELEASE=""
+if [ ! -d "$FRONTEND_CURRENT" ] && [ ! -L "$FRONTEND_CURRENT" ]; then
+  log "frontend directory not found: $FRONTEND_CURRENT"
+  finish_job failed "未找到前端目录，更新已停止"
+  exit 1
+fi
+
+OVERLAY=0
+OVERLAY_MOVED=""
+OVERLAY_PLACED=""
+rollback_overlay() {
+  for name in $OVERLAY_PLACED; do
+    rm -rf "$FRONTEND_CURRENT/$name"
+  done
+  for name in $OVERLAY_MOVED; do
+    if [ -e "$FRONTEND_BACKUP/$name" ] || [ -L "$FRONTEND_BACKUP/$name" ]; then
+      rm -rf "$FRONTEND_CURRENT/$name"
+      mv "$FRONTEND_BACKUP/$name" "$FRONTEND_CURRENT/$name" || true
+    fi
+  done
+}
+case "$APP_BIN" in
+  "$FRONTEND_CURRENT"/*) OVERLAY=1 ;;
+esac
+case "$DATA_DIR" in
+  "$FRONTEND_CURRENT"|"$FRONTEND_CURRENT"/*) OVERLAY=1 ;;
+esac
+
+if [ "$OVERLAY" = "1" ]; then
+  # 宝塔网站根同时放着页面和 backend/。不能把整个网站根改名，否则运行中的程序和数据目录会一起被搬走。
+  FRONTEND_MODE="overlay"
+  STAGING="${FRONTEND_CURRENT}.staging.$TS"
+  FRONTEND_BACKUP="${FRONTEND_CURRENT}.overlay-backup.$TS"
+  rm -rf "$STAGING"
+  cp -a "$FRONTEND_SOURCE" "$STAGING" || {
+    rm -rf "$STAGING"
+    finish_job failed "复制前端暂存目录失败，线上目录未改动"
+    exit 1
+  }
+  if [ ! -f "$STAGING/index.html" ]; then
+    rm -rf "$STAGING"
+    finish_job failed "新前端缺少 index.html，线上目录未改动"
+    exit 1
+  fi
+  mkdir -p "$FRONTEND_BACKUP" || { rm -rf "$STAGING"; finish_job failed "无法创建前端备份目录"; exit 1; }
+  for name in $(ls -A "$STAGING"); do
+    case "$name" in
+      backend|manifest.json) continue ;;
+    esac
+    if [ -e "$FRONTEND_CURRENT/$name" ] || [ -L "$FRONTEND_CURRENT/$name" ]; then
+      mv "$FRONTEND_CURRENT/$name" "$FRONTEND_BACKUP/$name" || {
+        rollback_overlay
+        finish_job failed "无法备份线上前端文件 $name"
+        exit 1
+      }
+      OVERLAY_MOVED="$OVERLAY_MOVED $name"
+    fi
+    mv "$STAGING/$name" "$FRONTEND_CURRENT/$name" || {
+      rollback_overlay
+      finish_job failed "无法切换前端文件 $name"
+      exit 1
+    }
+    OVERLAY_PLACED="$OVERLAY_PLACED $name"
+  done
+  rm -rf "$STAGING"
+  log "frontend overlay switched at $FRONTEND_CURRENT"
+elif [ -L "$FRONTEND_CURRENT" ] || [ "$(basename "$FRONTEND_CURRENT")" = "current" ]; then
+  FRONTEND_MODE="release"
+  FRONT_ROOT=$(dirname "$FRONTEND_CURRENT")
+  RELEASES="$FRONT_ROOT/releases"
+  TARGET_RELEASE="$RELEASES/$VERSION"
+  mkdir -p "$RELEASES" || { finish_job failed "无法创建前端发布目录"; exit 1; }
+  rm -rf "$TARGET_RELEASE"
+  cp -a "$FRONTEND_SOURCE" "$TARGET_RELEASE" || { rm -rf "$TARGET_RELEASE"; finish_job failed "复制前端发布目录失败"; exit 1; }
+  if [ ! -f "$TARGET_RELEASE/index.html" ]; then
+    rm -rf "$TARGET_RELEASE"
+    log "staged frontend missing index.html"
+    finish_job failed "新前端缺少 index.html"
+    exit 1
+  fi
+  if [ -L "$FRONTEND_CURRENT" ]; then
+    PREV_FRONTEND_TARGET=$(readlink "$FRONTEND_CURRENT" || true)
+    rm -f "$FRONTEND_CURRENT"
+  else
+    FRONTEND_BACKUP="$FRONT_ROOT/current.backup.$TS"
+    mv "$FRONTEND_CURRENT" "$FRONTEND_BACKUP" || { finish_job failed "无法移开当前前端目录"; exit 1; }
+  fi
+  ln -s "$TARGET_RELEASE" "$FRONTEND_CURRENT" || {
+    if [ -n "$PREV_FRONTEND_TARGET" ]; then
+      ln -s "$PREV_FRONTEND_TARGET" "$FRONTEND_CURRENT" || true
+    elif [ -n "$FRONTEND_BACKUP" ] && [ -d "$FRONTEND_BACKUP" ]; then
+      mv "$FRONTEND_BACKUP" "$FRONTEND_CURRENT" || true
+    fi
+    finish_job failed "切换前端符号链接失败，已尝试恢复"
+    exit 1
+  }
+  log "frontend release switched to $TARGET_RELEASE"
+else
+  FRONTEND_MODE="rename"
+  STAGING="${FRONTEND_CURRENT}.staging.$TS"
+  FRONTEND_BACKUP="${FRONTEND_CURRENT}.backup.$TS"
+  rm -rf "$STAGING"
+  cp -a "$FRONTEND_SOURCE" "$STAGING" || {
+    rm -rf "$STAGING"
+    log "frontend staging copy failed"
+    finish_job failed "复制前端暂存目录失败，线上目录未改动"
+    exit 1
+  }
+  if [ ! -f "$STAGING/index.html" ]; then
+    rm -rf "$STAGING"
+    log "staged frontend missing index.html"
+    finish_job failed "新前端缺少 index.html，线上目录未改动"
+    exit 1
+  fi
+  mv "$FRONTEND_CURRENT" "$FRONTEND_BACKUP" || {
+    rm -rf "$STAGING"
+    log "frontend live directory could not be moved aside"
+    finish_job failed "无法移开线上前端目录"
+    exit 1
+  }
+  mv "$STAGING" "$FRONTEND_CURRENT" || {
+    mv "$FRONTEND_BACKUP" "$FRONTEND_CURRENT" || true
+    rm -rf "$STAGING"
+    log "frontend staged directory could not be switched into place"
+    finish_job failed "前端切换失败，已尝试恢复旧目录"
+    exit 1
+  }
+  log "frontend switched by rename at $FRONTEND_CURRENT"
+fi
+
+if [ "$FRONTEND_ONLY" = "1" ]; then
+  log "frontend switch completed"
+  finish_job success
+  exit 0
+fi
+
+BACKUP_BIN="$APP_BIN.backup.$TS"
+APP_STAGE="$APP_BIN.next.$TS"
+
+rollback_frontend() {
+  if [ "$FRONTEND_MODE" = "overlay" ]; then
+    rollback_overlay
+    return
+  fi
+  if [ "$FRONTEND_MODE" = "rename" ]; then
+    if [ -d "$FRONTEND_BACKUP" ]; then
+      FAILED_FRONTEND="${FRONTEND_CURRENT}.failed.$TS"
+      if [ -e "$FRONTEND_CURRENT" ] || [ -L "$FRONTEND_CURRENT" ]; then
+        mv "$FRONTEND_CURRENT" "$FAILED_FRONTEND" || true
+      fi
+      if ! mv "$FRONTEND_BACKUP" "$FRONTEND_CURRENT"; then
+        if [ -e "$FAILED_FRONTEND" ] || [ -L "$FAILED_FRONTEND" ]; then
+          mv "$FAILED_FRONTEND" "$FRONTEND_CURRENT" || true
+        fi
+      else
+        rm -rf "$FAILED_FRONTEND"
+      fi
+    fi
+    return
+  fi
+  if [ "$FRONTEND_MODE" = "release" ]; then
+    if [ -n "$PREV_FRONTEND_TARGET" ]; then
+      rm -f "$FRONTEND_CURRENT"
+      ln -s "$PREV_FRONTEND_TARGET" "$FRONTEND_CURRENT"
+    elif [ -n "$FRONTEND_BACKUP" ] && [ -d "$FRONTEND_BACKUP" ]; then
+      rm -f "$FRONTEND_CURRENT"
+      mv "$FRONTEND_BACKUP" "$FRONTEND_CURRENT"
+    fi
+  fi
+}
+
+port_listening() {
+  if command -v ss >/dev/null 2>&1; then
+    if ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)${PORT}$"; then
+      return 0
+    fi
+    return 1
+  fi
+  if command -v netstat >/dev/null 2>&1; then
+    if netstat -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)${PORT}$"; then
+      return 0
+    fi
+    return 1
+  fi
+  if command -v nc >/dev/null 2>&1; then
+    nc -z 127.0.0.1 "$PORT" >/dev/null 2>&1
+    return $?
+  fi
+  return 1
+}
+
+pids_on_port() {
+  if command -v ss >/dev/null 2>&1; then
+    ss -lptn "sport = :$PORT" 2>/dev/null | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | sort -u
+    return 0
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null || true
+    return 0
+  fi
+  if command -v fuser >/dev/null 2>&1; then
+    fuser "${PORT}/tcp" 2>/dev/null || true
+    return 0
+  fi
+  return 0
+}
+
+stop_pid() {
+  pid="$1"
+  if [ -z "${pid:-}" ] || [ "$pid" = "1" ]; then
+    return 0
+  fi
+  kill -0 "$pid" >/dev/null 2>&1 || return 0
+  kill -TERM "$pid" >/dev/null 2>&1 || true
+  i=0
+  while [ "$i" -lt 15 ]; do
+    if ! kill -0 "$pid" >/dev/null 2>&1; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  kill -KILL "$pid" >/dev/null 2>&1 || true
+  sleep 1
+}
+
+wait_port_free() {
+  i=0
+  while [ "$i" -lt 20 ]; do
+    if ! port_listening; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  return 1
+}
+
+kill_port_listeners() {
+  pids=$(pids_on_port || true)
+  for pid in $pids; do
+    case "$pid" in
+      ''|*[!0-9]*) continue ;;
+    esac
+    stop_pid "$pid"
+  done
+}
+
+fetch_health() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS --max-time 2 "http://127.0.0.1:$PORT/api/system/version" 2>/dev/null || true
+    return 0
+  fi
+  if command -v wget >/dev/null 2>&1; then
+    wget -qO- -T 2 "http://127.0.0.1:$PORT/api/system/version" 2>/dev/null || true
+    return 0
+  fi
+  return 0
+}
+
+health_version() {
+  want="$1"
+  i=0
+  while [ "$i" -lt "$HEALTH_TRIES" ]; do
+    sleep 1
+    body=$(fetch_health)
+    if printf '%s' "$body" | grep -Fq "\"version\":\"$want\""; then
+      return 0
+    fi
+    i=$((i + 1))
+  done
+  return 1
+}
+
+start_standalone() {
+  mkdir -p "$DATA_DIR/logs"
+  cd "$DATA_DIR" || return 1
+  # 仅无守护时自行拉起。nohup 让新进程在本脚本退出后仍忽略 SIGHUP。
+  AUTO_PRO_DATA_DIR="$DATA_DIR" PORT="$PORT" nohup "$APP_BIN" >> "$DATA_DIR/logs/auto_pro.log" 2>&1 &
+  STARTED_PID=$!
+}
+
+prune_binary_backups() {
+  ls -1t "$APP_BIN".backup.* 2>/dev/null | awk 'NR>3' | while read -r old; do
+    rm -f "$old"
+  done
+  return 0
+}
+
+supervisor_ctl() {
+  if ! command -v supervisorctl >/dev/null 2>&1; then
+    return 127
+  fi
+  if [ -n "$SUPERVISOR_CONF" ]; then
+    supervisorctl -c "$SUPERVISOR_CONF" "$@"
+  else
+    supervisorctl "$@"
+  fi
+}
+
+supervised_manager() {
+  case "$PROCESS_MANAGER" in
+    supervisor|baota|systemd) return 0 ;;
+  esac
+  return 1
+}
+
+if [ ! -f "$NEW_BIN" ]; then
+  log "new backend binary not found: $NEW_BIN"
+  rollback_frontend
+  finish_job failed "更新包里没有新的后端程序"
+  exit 1
+fi
+if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+  log "curl or wget is required for health check"
+  rollback_frontend
+  finish_job failed "缺少 curl 或 wget，无法做启动健康检查"
+  exit 1
+fi
+cp "$APP_BIN" "$BACKUP_BIN" || { rollback_frontend; finish_job failed "无法备份当前后端程序"; exit 1; }
+cp "$NEW_BIN" "$APP_STAGE" || { rollback_frontend; finish_job failed "无法写入新后端程序暂存文件"; exit 1; }
+chmod 755 "$APP_STAGE" || { rm -f "$APP_STAGE"; rollback_frontend; finish_job failed "无法设置新后端程序权限"; exit 1; }
+
+# 先替换路径上的文件，再结束旧进程。守护进程若立刻拉起，读到的是新文件。
+if ! mv -f "$APP_STAGE" "$APP_BIN"; then
+  rm -f "$APP_STAGE"
+  rollback_frontend
+  finish_job failed "无法替换后端程序，旧进程仍在运行"
+  exit 1
+fi
+chmod 755 "$APP_BIN" || true
+prune_binary_backups
+log "binary replaced, process manager=$PROCESS_MANAGER"
+
+rollback_failed_update() {
+  if [ "$PROCESS_MANAGER" = "systemd" ]; then
+    systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || true
+    kill_port_listeners
+    wait_port_free || true
+    mv -f "$BACKUP_BIN" "$APP_BIN" || true
+    chmod 755 "$APP_BIN" || true
+    rollback_frontend
+    systemctl start "$SERVICE_NAME" >/dev/null 2>&1 || true
+    return 0
+  fi
+  if [ "$PROCESS_MANAGER" = "supervisor" ] || [ "$PROCESS_MANAGER" = "baota" ]; then
+    if supervisor_ctl stop "$SUPERVISOR_PROGRAM" >/dev/null 2>&1; then
+      kill_port_listeners
+      wait_port_free || true
+      mv -f "$BACKUP_BIN" "$APP_BIN" || true
+      chmod 755 "$APP_BIN" || true
+      rollback_frontend
+      supervisor_ctl start "$SUPERVISOR_PROGRAM" >/dev/null 2>&1 || true
+      return 0
+    fi
+    mv -f "$BACKUP_BIN" "$APP_BIN" || true
+    chmod 755 "$APP_BIN" || true
+    rollback_frontend
+    kill_port_listeners
+    return 0
+  fi
+  stop_pid "$STARTED_PID"
+  kill_port_listeners
+  wait_port_free || true
+  mv -f "$BACKUP_BIN" "$APP_BIN" || true
+  chmod 755 "$APP_BIN" || true
+  rollback_frontend
+  start_standalone || true
+}
+
+if supervised_manager; then
+  log "supervised restart: exit current process and let the supervisor start it"
+  if [ "$PROCESS_MANAGER" = "systemd" ]; then
+    if ! systemctl restart "$SERVICE_NAME"; then
+      stop_pid "$APP_PID"
+    fi
+  else
+    stop_pid "$APP_PID"
+  fi
+  if health_version "$VERSION"; then
+    log "update to $VERSION succeeded"
+    finish_job success
+    exit 0
+  fi
+  log "health check failed, rolling back"
+  rollback_failed_update
+  reason="新版本在 ${HEALTH_TRIES} 秒内没有健康启动，已尝试回滚到 ${OLD_VERSION}"
+  if health_version "$OLD_VERSION"; then
+    reason="${reason}。旧版本已重新拉起。"
+  else
+    reason="${reason}。旧版本未能自动拉起。请在宝塔进程守护中停止此项，结束占用端口 ${PORT} 的 auth_pro，确认 backend/auth_pro 后由守护启动。"
+  fi
+  log "$reason"
+  finish_job failed "$reason"
+  exit 1
+fi
+
+log "standalone restart"
+stop_pid "$APP_PID"
+if ! wait_port_free; then
+  kill_port_listeners
+  if ! wait_port_free; then
+    log "port still busy after stopping the old process"
+    mv -f "$BACKUP_BIN" "$APP_BIN" || true
+    chmod 755 "$APP_BIN" || true
+    rollback_frontend
+    start_standalone || true
+    finish_job failed "旧进程没有在时限内释放端口 ${PORT}，已尝试恢复旧程序"
+    exit 1
+  fi
+fi
+if ! start_standalone; then
+  mv -f "$BACKUP_BIN" "$APP_BIN" || true
+  chmod 755 "$APP_BIN" || true
+  rollback_frontend
+  finish_job failed "无法自行拉起新后端程序"
+  exit 1
+fi
+if health_version "$VERSION"; then
+  log "update to $VERSION succeeded"
+  finish_job success
+  exit 0
+fi
+log "health check failed, rolling back"
+rollback_failed_update
+reason="新版本在 ${HEALTH_TRIES} 秒内没有健康启动，已尝试回滚到 ${OLD_VERSION}"
+if health_version "$OLD_VERSION"; then
+  reason="${reason}。旧版本已重新拉起。"
+else
+  reason="${reason}。旧版本未能自动拉起，请手动启动 backend/auth_pro 并确认端口 ${PORT} 没有残留进程。"
+fi
+log "$reason"
+finish_job failed "$reason"
+exit 1
