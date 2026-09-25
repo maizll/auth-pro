@@ -103,8 +103,14 @@ jobs:
           tar -xzf "$PACKAGE" -C "$VERIFY_DIR" \
             ./manifest.json \
             ./backend/auth_pro \
-            ./index.html
+            ./index.html \
+            ./baota-install.sh \
+            ./baota-upgrade.sh \
+            ./baota-lib.sh
           file "$VERIFY_DIR/backend/auth_pro" | grep -Eq 'ELF 64-bit.*x86-64'
+          bash -n "$VERIFY_DIR/baota-install.sh" "$VERIFY_DIR/baota-upgrade.sh" "$VERIFY_DIR/baota-lib.sh"
+          test -x "$VERIFY_DIR/baota-install.sh"
+          test -x "$VERIFY_DIR/baota-upgrade.sh"
           node -e '
             const crypto = require("node:crypto")
             const fs = require("node:fs")

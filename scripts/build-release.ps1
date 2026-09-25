@@ -64,6 +64,13 @@ Write-Host "[2/5] Preparing package directories..."
 $PackageBackendDir = Join-Path $PackageDir 'backend'
 New-Item -ItemType Directory -Force -Path $PackageBackendDir | Out-Null
 Copy-Item -Path (Join-Path $FrontendDist '*') -Destination $PackageDir -Recurse -Force
+foreach ($BaotaScript in @('baota-install.sh', 'baota-upgrade.sh', 'baota-lib.sh')) {
+  $BaotaSource = Join-Path $Root "scripts/$BaotaScript"
+  if (-not (Test-Path -LiteralPath $BaotaSource)) {
+    throw "Missing Baota script: $BaotaSource"
+  }
+  Copy-Item -LiteralPath $BaotaSource -Destination (Join-Path $PackageDir $BaotaScript) -Force
+}
 
 $BackendStaticDir = Join-Path $BackendDir 'static'
 if ($BackendStaticDir -notlike "$Root*") {

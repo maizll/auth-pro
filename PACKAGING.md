@@ -15,7 +15,10 @@ auth_pro-full-v1.5.0.tar.gz
 │   └── ...
 ├── backend/
 │   └── auth_pro
-└── manifest.json
+├── manifest.json
+├── baota-install.sh
+├── baota-upgrade.sh
+└── baota-lib.sh
 ```
 
 ## 必须遵守
@@ -39,10 +42,47 @@ auth_pro-full-v1.5.0.tar.gz
 ├── assets/
 ├── backend/
 │   └── auth_pro
-└── manifest.json
+├── manifest.json
+├── baota-install.sh
+├── baota-upgrade.sh
+└── baota-lib.sh
 ```
 
 这样浏览器请求 `/assets/index-xxxx.js` 时会命中真实文件，不会 fallback 到 `index.html`。
+
+安装完成后，运行数据写在 `backend/`（与进程守护的运行目录一致），这些文件不在发布包里，升级时必须保留：`db.json`、`install.lock`、`jwt.secret`，以及 `plugins/`、`home-templates/`、`software-source-cache/`、`updates/`、`app-releases/`、`logs/`、`advertisement-images/`、`source-packages/`。
+
+## 宝塔一键安装 / 升级
+
+脚本在发布包根目录，解压后和 `index.html` 同级。面板里的建站、空库、SSL、进程守护开关和 Nginx 保存仍要手工做。仓库里可跑 `bash scripts/test-baota-scripts.sh` 检查权限、端口冲突、配置文件和升级备份；真实面板上的守护拉起和反代需要人工再看一遍。
+
+全新安装（站点目录还没有 `backend/install.lock`）：
+
+```bash
+cd /www/wwwroot/example.com
+tar -xzf auth_pro-full-vX.Y.Z.tar.gz
+bash baota-install.sh
+```
+
+已有站点升级。不要先把新包解压覆盖正在运行的目录。先在「进程守护」里停止本站点，再执行：
+
+```bash
+bash baota-upgrade.sh \
+  --site-root /www/wwwroot/example.com \
+  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \
+  --stop-port --no-start
+```
+
+脚本会把运行数据拷到 `backend/updates/backups/baota-upgrade-<时间>-<pid>/`，能连上数据库时再用 `mysqldump` 导出 `db.sql`。替换的是页面、`assets/` 和 `backend/auth_pro`，并把它设为 `755`。
+
+进程守护建议：
+
+- 启动命令：`/www/wwwroot/example.com/backend/start.sh`
+- 运行目录：`/www/wwwroot/example.com/backend`
+- 环境在 `backend/baota.env`（默认 `PORT=19127`、`HOST=127.0.0.1`）
+- 升级或清理残留进程前先停止守护，否则进程会被立刻拉起
+
+Nginx 反代到 `127.0.0.1:19127`，并把 `backend/baota-nginx.snippet.conf` 里的 `location` 放进站点 `server`，至少拦截 `/backend/`、`db.json`、`install.lock`。同一说明也写在 `backend/baota-guardian.txt`。非交互执行可设 `AUTH_PRO_YES=1`；只看步骤用 `--dry-run`。
 
 **二进制只会从这个盘上目录提供前端。** 解压必须让 `index.html` 落在进程将解析到的根上（宝塔网站根，或 `AUTO_PRO_FRONTEND_DIR` / `data/frontend/current`）。缺文件时进程 **启动失败** 或对页面返回 **503 + 版本号**，不会静默改走 `go:embed static` 里的旧页。开发机引导才可设 `AUTO_PRO_ALLOW_EMBEDDED_FRONTEND=1`。启动日志会打印 `frontend root: mode=disk|embed` 以及 `index.html` 指纹 / 资源名。
 
