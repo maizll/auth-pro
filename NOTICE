@@ -1,0 +1,7 @@
+auth-pro 在既有开源实现上继续开发，面向企业授权与许可证管理。
+
+- 根目录 `LICENSE` 为 Apache License 2.0，适用于本仓库按其条款发布的代码。
+- 管理端界面源自 Art Design Pro。其许可证在 `frontend/LICENSE`（MIT License，Copyright (c) 2025 SuperManTT）。
+- 源文件中的版权声明与 `@author` 署名予以保留。
+
+上述许可证与署名不是产品文档，也不代表仍使用原作者的站外文档、社区或推广入口。

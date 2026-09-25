@@ -1,55 +1,47 @@
 # 打包与登记
 
-## 打包
+## ZIP 限制
 
-在含清单的目录内执行，保证清单在 ZIP 根目录：
+登记上传与管理员解析使用同一套限制：
+
+- 必须是 ZIP（文件头为 `PK`），表单字段名 `file`
+- 不超过 20 MiB
+- 解压后不超过 100 MiB，条目不超过 2048
+- 清单在根目录或一层子目录
+- 拒绝路径穿越、绝对路径、符号链接、重复或大小写冲突的路径、空包、只有 `__MACOSX` 的包
+
+`kind` 可随表单提交。不提交时按包里是 `plugin.json` 还是 `template.json` 识别。两者都在时，未指定 `kind` 会先按插件解析。
+
+## 打包命令
+
+在示例目录执行。`-X` 去掉额外属性，便于 SHA256 稳定。
 
 ```bash
-rm -f /tmp/package.zip
-zip -X -r /tmp/package.zip plugin.json
-# 模板改为：zip -X -r /tmp/package.zip template.json
-unzip -l /tmp/package.zip
-sha256sum /tmp/package.zip
+cd docs/developer/starter/plugin-example
+rm -f /tmp/demo-widget.zip
+zip -X -r /tmp/demo-widget.zip plugin.json
+sha256sum /tmp/demo-widget.zip
 ```
 
-限制：ZIP、≤20 MiB、≤2048 个条目、解压后 ≤100 MiB、清单 ≤2 MiB、UTF-8。禁止 `..`、绝对路径、反斜杠、符号链接。不要用访达压缩（会带 `__MACOSX`）。
+模板把目录换成 `docs/developer/starter/template-example`，把 `plugin.json` 换成 `template.json`。
 
-模板登记包里不要放 `index.html`。
+Windows 可用资源管理器压缩该 json，再计算 SHA256。算的是 ZIP 文件，不是 json 文本。
 
-## 登记表单
+## 登记时怎么填
 
-打开 **登记插件** 或 **登记模板**，包来源二选一：
-
-- **上传 ZIP（本站托管）**：选择 ZIP。校验通过后源站保存文件，并自动填写地址和 SHA256。公开地址是 `/api/v1/public/source-packages/<sha256>.zip`。
-- **外部 HTTPS**：自己把 ZIP 放到 `https://`，填写地址和校验码。提交审核时源站会下载并核对可达性、ZIP 和 sha256。
-
-本站托管的包在提交时只核对本地文件。
-
-### 默认显示
-
-| 界面标签 | 键 | 提交审核前 |
+| 表单标签 | 插件 | 模板 |
 | --- | --- | --- |
-| 应用 | `appId` | 必选 |
-| 分类 | `category` | 必选。插件：支付 `payment` / 实名认证 `realname` / 其他 `other`。模板：首页模板 `home-template` |
-| 名称 | `name` | 必填，与清单一致 |
-| 标识 | `id` | 手写，与清单 `id` 一致。模板同时作为 `templateKey` |
-| 版本 | `version` | 默认 `1.0.0` |
-| 包来源 | — | 上传 ZIP，或外部 HTTPS |
-| 下载地址 | `downloadUrl` | 插件。上传后自动填本站地址；外链必须 `https://` |
-| 模板地址 | `templateUrl` | 模板。上传后自动填本站地址；外链为 `https://` 或相对路径 `templates/demo-home.json` |
-| 校验码 (SHA256) | `sha256` | 必填，64 位十六进制，对整个 ZIP |
-| 简介 | `description` | 界面可空。ZIP 内必填 |
+| 标识 | `demo-widget` | `demo-home` |
+| 分类 | 其他（`other`） | 首页模板（`home-template`） |
+| 包来源 | 上传刚才的 ZIP，或填写其 HTTPS 地址 | 同左 |
+| 校验码 | `sha256sum` 的 64 位十六进制 | 同左 |
 
-### 高级选项
+上传成功后地址和校验码不可手改。外链在提交审核时才会下载核对。
 
-| 界面标签 | 键 | 说明 |
-| --- | --- | --- |
-| 作者 | `author.name` | 只读，登录开发者名称 |
-| 图标 | `icon` | 仅插件，缺省 `ri:puzzle-line` |
-| 更新说明 | `changelog` | 可空，≤2000 |
+## 管理员解析
 
-草稿可以后补地址和校验码。**提交审核** 会检查这两项，并对外部 HTTPS 做可达、ZIP、sha256 核对。外链会先解析 DNS，拒绝回环、私网、链路本地、运营商级 NAT 和云元数据；每次重定向都重新检查，并拨号到已检查的 IP。本站托管 ZIP 只核对本地文件，不发外网请求。界面原文：`提交审核前请先填写下载地址和校验码`（模板为「模板地址」）。外链失败时原文为 `外链不可达`、`外链不是 ZIP`、`外链内容与 sha256 不一致`、`拒绝访问非公网地址`、`拒绝访问链路本地或云元数据地址`。
+管理员在「源站 → 软件目录」也可以上传。只解析、不入库：
 
-「自动计算」只在浏览器能跨域读取 https 文件时成功。失败就粘贴 `sha256sum` 的结果。
+`POST /api/v1/source/admin/packages/parse`
 
-已有已发布版本后不要改主表单里的地址，改用 [新版本](./versions.md)。
+字段 `file`，可选 `kind=plugin|template`。失败时 HTTP 体里 `code` 为 400，并带 `error.field` 与 `error.rule`，不写库、不推 Release。

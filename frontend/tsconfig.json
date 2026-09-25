@@ -21,7 +21,8 @@
       "@stores/*": ["src/store/*"],
       "@plugins/*": ["src/plugins/*"],
       "@styles/*": ["src/assets/styles/*"],
-      "@developer-docs/*": ["../docs/developer/*"]
+      "@developer-docs/*": ["../docs/developer/*"],
+      "@product-docs/*": ["../docs/*"]
     }
   },
   "include": ["src/**/*", "src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"],

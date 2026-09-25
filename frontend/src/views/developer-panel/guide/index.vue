@@ -25,7 +25,7 @@
         :closable="false"
         show-icon
         class="mt-4"
-        title='登记模板只上传 template.json。必须写 kind: "template"、schemaVersion: 1、hero.title，以及 hero.primaryAction.type = "login"。启用后登录弹窗跟随 stylePreset（cartoon-blue / fintech-gold）与 theme.primaryColor、theme.backgroundColor、theme.textColor。不要写 login.html，也不要把 index.html 打进同一个 ZIP。插件登记包是 plugin.json。'
+        title='登记模板的 ZIP 须含 template.json：kind 为 template，schemaVersion 为数字 1，并有 hero.title，且不能写 scripts。上传后本站填写地址和 SHA256，也可以改填外部 HTTPS。宿主用 stylePreset 与 theme 画首页和登录框；hero.primaryAction.type 为 login 时，按钮打开宿主登录框。插件登记包是 plugin.json。'
       />
     </el-card>
 

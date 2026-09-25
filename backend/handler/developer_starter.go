@@ -214,8 +214,8 @@ func developerExampleTemplateReadme() string {
 	return `# 整站模板示例
 
 清单必须是 template.json，且必须包含 "kind": "template"。
-schemaVersion 必须为数字 1，必须有 hero.title。
-登录入口是 hero.primaryAction.type = "login"。启用后宿主登录弹窗跟随 stylePreset 与 theme.primaryColor、theme.backgroundColor、theme.textColor。禁止 scripts，不要放入 index.html 或 login.html。
+schemaVersion 必须为数字 1，必须有 hero.title，不能有 scripts。
+hero.primaryAction.type = "login" 时宿主打开登录框，不是上传拒绝条件。登录框跟随 stylePreset 与 theme。不要写 login.html。
 
 提交元数据时填写 templateUrl 和整个 ZIP 的 sha256。
 `
@@ -226,7 +226,7 @@ func developerDocsIndexFallback() string {
 }
 
 func developerCharterFallback() string {
-	return "# AuthPro 源站开发者章程\n\ntemplate.json 必须包含 kind: template、schemaVersion 1、hero.title，以及 hero.primaryAction.type=login。启用后宿主登录弹窗跟随 stylePreset 与 theme.primaryColor、theme.backgroundColor、theme.textColor。禁止 scripts、index.html 与 login.html。plugin.json 的 kind 只能是 plugin 或省略。\n"
+	return "# AuthPro 源站开发者章程\n\ntemplate.json 必须包含 kind: template、schemaVersion 1、hero.title，且不能有 scripts。hero.primaryAction.type=login 由宿主打开登录框，不是上传拒绝条件。plugin.json 的 kind 只能是 plugin 或省略。\n"
 }
 
 func developerPluginPackageFallback() string {
