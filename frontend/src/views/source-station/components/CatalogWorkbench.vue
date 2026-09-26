@@ -94,9 +94,15 @@
             {{ itemLocation(row) }}
           </template>
         </el-table-column>
+        <el-table-column label="来源外链" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.originUrl || '-' }}</span>
+            <p v-if="row.originHint" class="card-hint">{{ row.originHint }}</p>
+          </template>
+        </el-table-column>
         <el-table-column prop="sha256" label="SHA256" min-width="160" show-overflow-tooltip />
         <el-table-column prop="updatedAt" label="更新时间" width="170" />
-        <el-table-column label="操作" width="340" fixed="right">
+        <el-table-column label="操作" width="420" fixed="right">
           <template #default="{ row }">
             <el-button
               v-if="canEditItem(row.status)"
@@ -105,6 +111,15 @@
               size="small"
               @click="openEdit(row)"
               >编辑</el-button
+            >
+            <el-button
+              v-if="row.originUrl"
+              link
+              type="primary"
+              size="small"
+              :loading="pullingId === row.id"
+              @click="handlePull(row)"
+              >重新拉取</el-button
             >
             <el-button
               v-if="canAction(row.status, 'approve')"
@@ -273,10 +288,16 @@
         </el-form-item>
         <el-form-item label="售价（元）">
           <el-input v-model="editForm.priceYuan" placeholder="0" />
-          <p class="card-hint">填 0 表示免费。大于 0 为买断，且地址须为本站托管 ZIP。付费上架尚未开放。</p>
+          <p class="card-hint">填 0 表示免费。大于 0 为买断：可填本站托管 ZIP，或填写 HTTPS 外链由本站立即拉取并私有托管。付费上架尚未开放。</p>
         </el-form-item>
         <el-form-item :label="editIsTemplate ? 'templateUrl' : 'downloadUrl'" prop="location">
           <el-input v-model="editForm.location" placeholder="https://..." />
+        </el-form-item>
+        <el-form-item v-if="editingItem?.originUrl" label="来源外链">
+          <el-input :model-value="editingItem.originUrl" disabled />
+          <p class="card-hint">
+            {{ editingItem.originHint || '本站已拉取并私有托管。买家看不到这条外链。' }}
+          </p>
         </el-form-item>
         <el-form-item label="sha256" prop="sha256">
           <el-input v-model="editForm.sha256" />
@@ -336,7 +357,7 @@
         </el-form-item>
         <el-form-item label="售价（元）">
           <el-input v-model="registerForm.priceYuan" placeholder="0" />
-          <p class="card-hint">填 0 表示免费。大于 0 必须填写本站托管 ZIP 地址。付费上架尚未开放。</p>
+          <p class="card-hint">填 0 表示免费。大于 0 可填本站托管 ZIP，或填写 HTTPS 外链由本站立即拉取并私有托管。付费上架尚未开放。</p>
         </el-form-item>
         <el-form-item :label="registerIsTemplate ? 'templateUrl' : 'downloadUrl'" prop="location">
           <el-input v-model="registerForm.location" placeholder="https://..." />
@@ -492,8 +513,9 @@
           <el-form-item :label="currentIsTemplate ? 'templateUrl' : 'downloadUrl'" required>
             <el-input v-model="versionForm.location" placeholder="https://..." />
           </el-form-item>
-          <el-form-item label="sha256" required>
-            <el-input v-model="versionForm.sha256" />
+          <el-form-item label="sha256">
+            <el-input v-model="versionForm.sha256" placeholder="付费 HTTPS 外链可留空，由本站拉取后计算" />
+            <p class="card-hint">免费外链仍须填写 64 位校验码。付费条目填 HTTPS 外链时，保存时本站拉取并自动计算。</p>
           </el-form-item>
           <el-form-item label="changelog">
             <el-input v-model="versionForm.changelog" type="textarea" :rows="2" />
@@ -528,6 +550,8 @@
     updateSourcePlugin,
     updateSourceTemplate,
     saveSourceCatalogCategories,
+    pullSourcePlugin,
+    pullSourceTemplate,
     setSourcePluginStatus,
     setSourceTemplateStatus,
     fetchSourcePluginVersions,
@@ -551,6 +575,11 @@
   import {
     formatCatalogPriceLabel,
     formatCatalogPriceYuan,
+    isHttpsLocation,
+    isPaidHttpsImportLocation,
+    isPrivatePackageLocation,
+    isStationPackageLocation,
+    parseCatalogPriceYuan,
     resolveCatalogPriceCents
   } from '@/utils/form/catalog-slug'
 
@@ -566,6 +595,7 @@
   const categories = ref<SourceCatalogCategory[]>([])
   const apps = ref<SourceCatalogApp[]>([])
   const loading = ref(false)
+  const pullingId = ref('')
   const tableData = ref<SourceCatalogItem[]>([])
   const searchForm = reactive({
     appId: 0,
@@ -624,7 +654,7 @@
     category: [{ required: true, message: '请选择分类', trigger: 'change' }],
     name: [{ required: true, message: '请填写名称', trigger: 'blur' }],
     location: [{ required: true, message: '请填写外部地址', trigger: 'blur' }],
-    sha256: [{ required: true, message: '请填写 sha256', trigger: 'blur' }]
+    sha256: [optionalPaidShaRule(() => editForm.priceYuan, () => editForm.location)]
   }
 
   const registerRules: FormRules = {
@@ -634,7 +664,26 @@
     name: [{ required: true, message: '请填写名称', trigger: 'blur' }],
     version: [{ required: true, message: '请填写版本', trigger: 'blur' }],
     location: [{ required: true, message: '请填写外部地址', trigger: 'blur' }],
-    sha256: [{ required: true, message: '请填写 sha256', trigger: 'blur' }]
+    sha256: [optionalPaidShaRule(() => registerForm.priceYuan, () => registerForm.location)]
+  }
+
+  function optionalPaidShaRule(yuan: () => string, location: () => string) {
+    return {
+      validator: (_: unknown, value: string, callback: (error?: Error) => void) => {
+        const raw = String(value || '').trim()
+        const cents = parseCatalogPriceYuan(yuan())
+        if (!raw && cents !== null && isPaidHttpsImportLocation(location(), cents)) {
+          callback()
+          return
+        }
+        if (!/^[a-fA-F0-9]{64}$/.test(raw)) {
+          callback(new Error(raw ? 'sha256 须为 64 位十六进制' : '请填写 sha256'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur' as const
+    }
   }
 
   const categoryVisible = ref(false)
@@ -782,6 +831,19 @@
       localStorage.setItem(CATEGORY_APP_STORAGE_KEY, String(searchForm.appId))
     }
     loadItems()
+  }
+
+  async function handlePull(row: SourceCatalogItem) {
+    if (!row.originUrl || pullingId.value) return
+    pullingId.value = row.id
+    try {
+      if (isTemplateItem(row)) await pullSourceTemplate(row.id)
+      else await pullSourcePlugin(row.id)
+      ElMessage.success('已重新拉取并更新托管包')
+      await loadItems()
+    } finally {
+      pullingId.value = ''
+    }
   }
 
   async function loadItems() {
@@ -1136,6 +1198,25 @@
 
   async function handleAddVersion() {
     if (!currentItem.value) return
+    const cents = currentItem.value.priceCents || 0
+    const location = versionForm.location.trim()
+    if (!versionForm.version.trim() || !location) {
+      ElMessage.warning('请填写版本和地址')
+      return
+    }
+    if (
+      cents > 0 &&
+      !isStationPackageLocation(location) &&
+      !isPrivatePackageLocation(location) &&
+      !isHttpsLocation(location)
+    ) {
+      ElMessage.warning('付费条目请上传 ZIP，或填写 HTTPS 外链由本站拉取托管')
+      return
+    }
+    if (!isPaidHttpsImportLocation(location, cents) && !/^[a-fA-F0-9]{64}$/.test(versionForm.sha256.trim())) {
+      ElMessage.warning('请填写 64 位 sha256')
+      return
+    }
     versionSaving.value = true
     try {
       const payload = {

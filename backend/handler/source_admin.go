@@ -498,21 +498,18 @@ func adminPluginFromRequest(req sourcePluginDraftRequest) (sourcePlugin, error) 
 	if err != nil {
 		return sourcePlugin{}, err
 	}
-	if err := rejectPaidExternalLocation(priceCents, downloadURL); err != nil {
-		return sourcePlugin{}, err
-	}
-	if downloadURL != "" && !isPrivatePackageRef(downloadURL) {
+	if priceCents <= 0 && downloadURL != "" && !isPrivatePackageRef(downloadURL) {
 		if err := validatePluginDownloadURL(downloadURL); err != nil {
 			return sourcePlugin{}, err
 		}
 	}
-	if isPrivatePackageRef(downloadURL) {
+	if priceCents <= 0 && isPrivatePackageRef(downloadURL) {
 		verified, fileSHA, err := verifyPrivatePackage(downloadURL, sha256Value)
 		if err != nil {
 			return sourcePlugin{}, err
 		}
 		downloadURL, sha256Value = verified, fileSHA
-	} else if sha256Value != "" {
+	} else if priceCents <= 0 && sha256Value != "" {
 		if err := validateSHA256(sha256Value); err != nil {
 			return sourcePlugin{}, err
 		}
@@ -533,22 +530,36 @@ func adminPluginFromRequest(req sourcePluginDraftRequest) (sourcePlugin, error) 
 	if err != nil {
 		return sourcePlugin{}, err
 	}
+	var originURL, originHealth string
+	downloadURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindPlugin, category, pluginID, downloadURL, sha256Value, version, priceCents)
+	if err != nil {
+		return sourcePlugin{}, err
+	}
+	if priceCents > 0 && isPrivatePackageRef(downloadURL) {
+		verified, fileSHA, verr := verifyPrivatePackage(downloadURL, sha256Value)
+		if verr != nil {
+			return sourcePlugin{}, verr
+		}
+		downloadURL, sha256Value = verified, fileSHA
+	}
 	return sourcePlugin{
-		ID:          pluginID,
-		AppID:       req.AppID,
-		Category:    category,
-		Name:        name,
-		Description: truncateText(req.Description, 500),
-		Icon:        icon,
-		Version:     version,
-		SHA256:      sha256Value,
-		DownloadURL: downloadURL,
-		PriceCents:  priceCents,
-		Billing:     billing,
-		Delivery:    delivery,
-		Changelog:   truncateText(req.Changelog, 2000),
-		MinVersion:  truncateText(req.MinVersion, 40),
-		ForceUpdate: req.ForceUpdate,
+		ID:           pluginID,
+		AppID:        req.AppID,
+		Category:     category,
+		Name:         name,
+		Description:  truncateText(req.Description, 500),
+		Icon:         icon,
+		Version:      version,
+		SHA256:       sha256Value,
+		DownloadURL:  downloadURL,
+		OriginURL:    originURL,
+		OriginHealth: originHealth,
+		PriceCents:   priceCents,
+		Billing:      billing,
+		Delivery:     delivery,
+		Changelog:    truncateText(req.Changelog, 2000),
+		MinVersion:   truncateText(req.MinVersion, 40),
+		ForceUpdate:  req.ForceUpdate,
 		Author: sourceAuthor{
 			Name:  truncateText(req.Author.Name, 100),
 			URL:   truncateText(req.Author.URL, 300),
@@ -574,21 +585,18 @@ func adminTemplateFromRequest(req sourceTemplateDraftRequest) (sourceTemplate, e
 	if err != nil {
 		return sourceTemplate{}, err
 	}
-	if err := rejectPaidExternalLocation(priceCents, templateURL); err != nil {
-		return sourceTemplate{}, err
-	}
-	if templateURL != "" && !isPrivatePackageRef(templateURL) {
+	if priceCents <= 0 && templateURL != "" && !isPrivatePackageRef(templateURL) {
 		if err := validateTemplateLocation(templateURL); err != nil {
 			return sourceTemplate{}, err
 		}
 	}
-	if isPrivatePackageRef(templateURL) {
+	if priceCents <= 0 && isPrivatePackageRef(templateURL) {
 		verified, fileSHA, err := verifyPrivatePackage(templateURL, sha256Value)
 		if err != nil {
 			return sourceTemplate{}, err
 		}
 		templateURL, sha256Value = verified, fileSHA
-	} else if sha256Value != "" {
+	} else if priceCents <= 0 && sha256Value != "" {
 		if err := validateSHA256(sha256Value); err != nil {
 			return sourceTemplate{}, err
 		}
@@ -612,6 +620,18 @@ func adminTemplateFromRequest(req sourceTemplateDraftRequest) (sourceTemplate, e
 	if err != nil {
 		return sourceTemplate{}, err
 	}
+	var originURL, originHealth string
+	templateURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindTemplate, category, templateKey, templateURL, sha256Value, version, priceCents)
+	if err != nil {
+		return sourceTemplate{}, err
+	}
+	if priceCents > 0 && isPrivatePackageRef(templateURL) {
+		verified, fileSHA, verr := verifyPrivatePackage(templateURL, sha256Value)
+		if verr != nil {
+			return sourceTemplate{}, verr
+		}
+		templateURL, sha256Value = verified, fileSHA
+	}
 	return sourceTemplate{
 		ID:            templateKey,
 		AppID:         req.AppID,
@@ -623,6 +643,8 @@ func adminTemplateFromRequest(req sourceTemplateDraftRequest) (sourceTemplate, e
 		SchemaVersion: schemaVersion,
 		SHA256:        sha256Value,
 		TemplateURL:   templateURL,
+		OriginURL:     originURL,
+		OriginHealth:  originHealth,
 		PriceCents:    priceCents,
 		Billing:       billing,
 		Delivery:      delivery,

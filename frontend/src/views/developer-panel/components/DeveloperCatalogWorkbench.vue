@@ -7,7 +7,8 @@
             <span class="card-title">{{ title }}（共 {{ items.length }} 条）</span>
             <p class="card-hint">
               可以上传 ZIP，由本站保存并自动填写地址和校验码；也可以登记外部
-              HTTPS。外链在提交审核时检查能否下载、是不是 ZIP、校验码是否一致。本站托管的包只核对本地文件。
+              HTTPS。免费外链在提交审核时检查能否下载、是不是 ZIP、校验码是否一致。付费条目填写
+              HTTPS 外链时，保存时本站立即拉取并私有托管，买家看不到外链。
             </p>
           </div>
           <el-button type="primary" @click="openEdit()">{{ createLabel }}</el-button>
@@ -37,11 +38,17 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="来源外链" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.originUrl || '-' }}</span>
+            <p v-if="row.originHint" class="field-help">{{ row.originHint }}</p>
+          </template>
+        </el-table-column>
         <el-table-column label="审核说明" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">{{ row.reviewNote || '-' }}</template>
         </el-table-column>
         <el-table-column prop="updatedAt" label="更新时间" width="180" />
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEdit(row)">
               {{ canEditItem(row) ? '编辑' : '查看' }}
@@ -54,6 +61,16 @@
               @click="handleSubmit(row)"
             >
               提交审核
+            </el-button>
+            <el-button
+              v-if="row.originUrl"
+              link
+              type="primary"
+              size="small"
+              :loading="pullingId === row.id"
+              @click="handlePull(row)"
+            >
+              重新拉取
             </el-button>
             <el-button link type="primary" size="small" @click="openVersions(row)">版本</el-button>
           </template>
@@ -131,7 +148,7 @@
         <el-form-item label="售价（元）">
           <el-input v-model="form.priceYuan" :disabled="!canEditMeta" placeholder="0" />
           <p class="field-help">
-            填 0 表示免费。大于 0 为买断，必须上传本站 ZIP。付费上架尚未开放。
+            填 0 表示免费。大于 0 为买断：可上传 ZIP，或填写 HTTPS 外链由本站立即拉取并私有托管。付费上架尚未开放。
           </p>
         </el-form-item>
         <el-form-item label="包来源">
@@ -165,15 +182,21 @@
           />
           <p class="field-help">{{ locationHelp }}</p>
         </el-form-item>
+        <el-form-item v-if="currentItem?.originUrl" label="来源外链">
+          <el-input :model-value="currentItem.originUrl" disabled />
+          <p class="field-help">
+            {{ currentItem.originHint || '本站已拉取并私有托管。买家看不到这条外链。' }}
+          </p>
+        </el-form-item>
         <el-form-item label="校验码 (SHA256)" prop="sha256">
           <div class="checksum-row">
             <el-input
               v-model="form.sha256"
-              :disabled="!canEditPackage || form.packageSource === 'upload'"
+              :disabled="!canEditPackage || form.packageSource === 'upload' || formServerPulls"
               placeholder="64 位十六进制，可稍后补"
             />
             <el-button
-              v-if="form.packageSource === 'external'"
+              v-if="form.packageSource === 'external' && !formServerPulls"
               :disabled="!canEditPackage || !canAutoHash(form.location)"
               :loading="hashing === 'form'"
               @click="handleAutoHash('form')"
@@ -185,7 +208,9 @@
             {{
               form.packageSource === 'upload'
                 ? '由本站按 ZIP 内容计算，不能手改。'
-                : '64位，可用 sha256sum 计算；粘贴下载后也可稍后补'
+                : formServerPulls
+                  ? '付费外链由本站拉取后自动计算，不用手填。'
+                  : '64位，可用 sha256sum 计算；粘贴下载后也可稍后补'
             }}
           </p>
         </el-form-item>
@@ -286,6 +311,9 @@
             {{ kind === 'template' ? row.templateUrl : row.downloadUrl }}
           </template>
         </el-table-column>
+        <el-table-column label="来源外链" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.originUrl || '-' }}</template>
+        </el-table-column>
         <el-table-column prop="changelog" label="说明" min-width="140" show-overflow-tooltip />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
@@ -346,11 +374,11 @@
             <div class="checksum-row">
               <el-input
                 v-model="versionForm.sha256"
-                :disabled="versionForm.packageSource === 'upload'"
+                :disabled="versionForm.packageSource === 'upload' || versionServerPulls"
                 placeholder="64 位十六进制"
               />
               <el-button
-                v-if="versionForm.packageSource === 'external'"
+                v-if="versionForm.packageSource === 'external' && !versionServerPulls"
                 :disabled="!canAutoHash(versionForm.location)"
                 :loading="hashing === 'version'"
                 @click="handleAutoHash('version')"
@@ -362,7 +390,9 @@
               {{
                 versionForm.packageSource === 'upload'
                   ? '由本站按 ZIP 内容计算。'
-                  : '64位，可用 sha256sum 计算后粘贴。提交审核时会核对文件。'
+                  : versionServerPulls
+                    ? '付费外链由本站拉取后自动计算，不用手填。'
+                    : '64位，可用 sha256sum 计算后粘贴。提交审核时会核对文件。'
               }}
             </p>
           </el-form-item>
@@ -401,6 +431,8 @@
     fetchSourceDeveloperMe,
     fetchSourceDeveloperPluginVersions,
     fetchSourceDeveloperTemplateVersions,
+    pullSourceDeveloperPlugin,
+    pullSourceDeveloperTemplate,
     submitSourceDeveloperPlugin,
     submitSourceDeveloperPluginVersion,
     submitSourceDeveloperTemplate,
@@ -420,7 +452,9 @@
     SHA256_HEX_PATTERN,
     formatCatalogPriceLabel,
     formatCatalogPriceYuan,
+    parseCatalogPriceYuan,
     isHttpsLocation,
+    isPaidHttpsImportLocation,
     isPrivatePackageLocation,
     isStationPackageLocation,
     isTemplateLocation,
@@ -448,6 +482,7 @@
   const formLabelPosition = computed(() => (isNarrow.value ? 'top' : 'right'))
   const loading = ref(false)
   const saving = ref(false)
+  const pullingId = ref('')
   const hashing = ref<'form' | 'version' | ''>('')
   const uploading = ref(false)
   const items = ref<SourceDeveloperCatalogItem[]>([])
@@ -497,19 +532,35 @@
   )
   const locationLabel = computed(() => (props.kind === 'template' ? '模板地址' : '下载地址'))
   const locationPlaceholder = 'https://你的文件地址.zip'
-  const packageSourceHelp = computed(() =>
-    props.kind === 'template'
+  const formPriceCents = computed(() => parseCatalogPriceYuan(form.priceYuan) || 0)
+  const formServerPulls = computed(
+    () => form.packageSource === 'external' && formPriceCents.value > 0
+  )
+  const versionServerPulls = computed(
+    () =>
+      versionForm.packageSource === 'external' && (currentItem.value?.priceCents || 0) > 0
+  )
+  const packageSourceHelp = computed(() => {
+    if (formPriceCents.value > 0) {
+      return '付费条目可以上传 ZIP，或填写 HTTPS 外链。外链会立即拉取到本站私有目录，并自动计算校验码。买家看不到外链。'
+    }
+    return props.kind === 'template'
       ? '上传 ZIP 由本站托管；外部地址可以是 HTTPS，或相对路径如 templates/demo-home.json。'
       : '上传 ZIP 由本站托管并生成地址；外部地址必须是 HTTPS。'
-  )
-  function locationHelpFor(source: 'upload' | 'external') {
+  })
+  function locationHelpFor(source: 'upload' | 'external', cents: number) {
     if (source === 'upload') return '本站地址由上传结果填入，提交时只核对本地文件。'
+    if (cents > 0) {
+      return '填写 HTTPS 外链。保存时本站立即拉取 ZIP、校验并私有托管，自动填写校验码。失败不会保存。'
+    }
     return props.kind === 'template'
       ? '填 HTTPS 外链，或相对路径例如 templates/demo-home.json。提交审核时会下载 HTTPS 并核对 ZIP 与校验码。'
       : '填 HTTPS 外链。提交审核时会下载并核对是不是 ZIP、校验码是否一致。'
   }
-  const locationHelp = computed(() => locationHelpFor(form.packageSource))
-  const versionLocationHelp = computed(() => locationHelpFor(versionForm.packageSource))
+  const locationHelp = computed(() => locationHelpFor(form.packageSource, formPriceCents.value))
+  const versionLocationHelp = computed(() =>
+    locationHelpFor(versionForm.packageSource, currentItem.value?.priceCents || 0)
+  )
   const categoryOptions = computed(() =>
     categories.value.filter((item) => item.kind === props.kind)
   )
@@ -587,6 +638,10 @@
         validator: (_: unknown, value: string, callback: (error?: Error) => void) => {
           const raw = String(value || '').trim()
           if (!raw) {
+            if (formServerPulls.value) {
+              callback()
+              return
+            }
             if (requirePackageFields.value) {
               callback(new Error('提交审核前请填写校验码'))
               return
@@ -1002,6 +1057,28 @@
     await loadAll()
   }
 
+  async function handlePull(row: SourceDeveloperCatalogItem) {
+    if (!row.originUrl || pullingId.value) return
+    pullingId.value = row.id
+    try {
+      const res =
+        props.kind === 'template'
+          ? await pullSourceDeveloperTemplate(row.id)
+          : await pullSourceDeveloperPlugin(row.id)
+      const body = unwrapCode(res)
+      if (!body) return
+      if (body.code !== 200) {
+        ElMessage.error(body.msg || '重新拉取失败，原托管包未改动')
+        await loadAll()
+        return
+      }
+      ElMessage.success(body.msg || '已重新拉取并更新托管包')
+      await loadAll()
+    } finally {
+      pullingId.value = ''
+    }
+  }
+
   async function openVersions(row: SourceDeveloperCatalogItem) {
     currentItem.value = row
     versionVisible.value = true
@@ -1042,7 +1119,20 @@
       )
       return
     }
-    if (!SHA256_HEX_PATTERN.test(versionForm.sha256.trim())) {
+    const versionCents = currentItem.value.priceCents || 0
+    if (
+      versionCents > 0 &&
+      !isStationPackageLocation(versionForm.location) &&
+      !isPrivatePackageLocation(versionForm.location) &&
+      !isHttpsLocation(versionForm.location)
+    ) {
+      ElMessage.warning('付费条目请上传 ZIP，或填写 HTTPS 外链由本站拉取托管')
+      return
+    }
+    if (
+      !isPaidHttpsImportLocation(versionForm.location, versionCents) &&
+      !SHA256_HEX_PATTERN.test(versionForm.sha256.trim())
+    ) {
       ElMessage.warning('请填写 64 位校验码')
       return
     }

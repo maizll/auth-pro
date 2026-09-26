@@ -53,6 +53,8 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		developer.POST("/ad-applications", SourceDeveloperCreateAdApplication)
 		developer.POST("/advertisements/image", SourceDeveloperAdvertisementImageUpload)
 		developer.POST("/packages/upload", SourceDeveloperPackageUpload)
+		developer.POST("/plugins/:id/pull", SourceDeveloperPullPlugin)
+		developer.POST("/templates/:id/pull", SourceDeveloperPullTemplate)
 		developer.GET("/starter.zip", SourceDeveloperStarterZIP)
 		developer.GET("/skill.md", SourceDeveloperSkillMarkdown)
 	}
@@ -101,6 +103,7 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		pluginWrites.POST("/plugins/:id/versions/:version/approve", AdminSourcePluginVersionApprove)
 		pluginWrites.POST("/plugins/:id/versions/:version/reject", AdminSourcePluginVersionReject)
 		pluginWrites.POST("/plugins/:id/versions/:version/deprecate", AdminSourcePluginVersionDeprecate)
+		pluginWrites.POST("/plugins/:id/pull", AdminSourcePullPlugin)
 		pluginWrites.POST("/plugins/:id/versions/:version/latest", AdminSourcePluginVersionLatest)
 
 		admin.GET("/templates", AdminSourceTemplates)
@@ -116,6 +119,7 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		templateWrites.POST("/templates/:id/versions/:version/approve", AdminSourceTemplateVersionApprove)
 		templateWrites.POST("/templates/:id/versions/:version/reject", AdminSourceTemplateVersionReject)
 		templateWrites.POST("/templates/:id/versions/:version/deprecate", AdminSourceTemplateVersionDeprecate)
+		templateWrites.POST("/templates/:id/pull", AdminSourcePullTemplate)
 		templateWrites.POST("/templates/:id/versions/:version/latest", AdminSourceTemplateVersionLatest)
 
 		admin.GET("/index", AdminSourceIndexSnapshot)

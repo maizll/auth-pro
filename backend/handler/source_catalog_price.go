@@ -26,7 +26,7 @@ const (
 
 var (
 	errSourcePaidListingClosed = errors.New("付费条目暂不能上架，购买与交付将在后续版本开放")
-	errSourcePaidExternal      = errors.New("付费条目必须上传 ZIP 由本站托管，不能使用外链")
+	errSourcePaidExternal      = errors.New("付费条目请上传 ZIP，或填写 HTTPS 外链由本站拉取托管")
 	errSourcePaidYearly        = errors.New("年付尚未开放，当前只支持买断")
 	errSourcePaidAlreadyPublic = errors.New("已公开的免费条目不能直接改为付费")
 )

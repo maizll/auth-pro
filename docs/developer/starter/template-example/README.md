@@ -9,6 +9,6 @@ unzip -l /tmp/demo-home.zip
 sha256sum /tmp/demo-home.zip
 ```
 
-登记模板时：标识填 `demo-home`，分类选「首页模板」，模板地址填这个 ZIP 的 https 地址，校验码填 sha256。售价默认 0；大于 0 时必须上传本站 ZIP，且付费上架尚未开放。价格不写进 `template.json`。
+登记模板时：标识填 `demo-home`，分类选「首页模板」，模板地址填这个 ZIP 的 https 地址，校验码填 sha256。售价默认 0。大于 0 时可以上传这个 ZIP，也可以填它的 HTTPS 地址，由本站立即拉取并私有托管、自动计算校验码；付费上架尚未开放。价格不写进 `template.json`。
 
 规范：[章程](../../charter.md)。

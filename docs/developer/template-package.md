@@ -49,4 +49,4 @@
 
 带登录按钮和配色、且同样能通过硬校验的示例：`docs/developer/starter/template-example/template.json`。
 
-售价不在 `template.json` 里。登记时默认 0；大于 0 必须上传本站 ZIP，付费上架尚未开放。
+售价不在 `template.json` 里。登记时默认 0；大于 0 可以上传本站 ZIP，或填写 HTTPS 外链由本站拉取并私有托管。付费上架尚未开放。

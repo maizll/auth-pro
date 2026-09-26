@@ -14,6 +14,7 @@ const (
 	sourceMigrationAppIDBackfill   = "source_catalog_app_id_backfill_v1"
 	sourceMigrationDeveloperAgent  = "source_developer_agent_backfill_v1"
 	sourceMigrationCatalogPrice    = "source_catalog_price_v1"
+	sourceMigrationCatalogOrigin   = "source_catalog_origin_v1"
 )
 
 // ensureSourceStationMigrations 把源站的一次性 ALTER / 回填记入 schema_migrations。
@@ -38,6 +39,7 @@ func ensureSourceStationMigrations(db *sql.DB) error {
 		{sourceMigrationAppIDBackfill, migrateSourceCatalogAppIDBackfill},
 		{sourceMigrationDeveloperAgent, migrateSourceDeveloperAgentBackfill},
 		{sourceMigrationCatalogPrice, migrateSourceCatalogPrice},
+		{sourceMigrationCatalogOrigin, migrateSourceCatalogOrigin},
 		{storeMigrationBindings, migrateStoreBindings},
 		{storeMigrationEditions, migrateStoreEditions},
 		{storeMigrationOrders, migrateStorePurchaseOrders},
@@ -378,6 +380,25 @@ func migrateSourceCatalogPrice(db *sql.DB) error {
 		{"source_catalog_templates", "price_cents", "ALTER TABLE source_catalog_templates ADD COLUMN price_cents BIGINT NOT NULL DEFAULT 0"},
 		{"source_catalog_templates", "billing", "ALTER TABLE source_catalog_templates ADD COLUMN billing VARCHAR(20) NOT NULL DEFAULT 'free'"},
 		{"source_catalog_templates", "delivery", "ALTER TABLE source_catalog_templates ADD COLUMN delivery VARCHAR(20) NOT NULL DEFAULT 'zip'"},
+	}
+	for _, column := range columns {
+		if err := ensureSourceStationColumn(db, column.table, column.column, column.statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateSourceCatalogOrigin(db *sql.DB) error {
+	columns := []struct {
+		table, column, statement string
+	}{
+		{"source_catalog_plugins", "origin_url", "ALTER TABLE source_catalog_plugins ADD COLUMN origin_url VARCHAR(500) NOT NULL DEFAULT ''"},
+		{"source_catalog_plugins", "origin_health", "ALTER TABLE source_catalog_plugins ADD COLUMN origin_health VARCHAR(20) NOT NULL DEFAULT ''"},
+		{"source_catalog_templates", "origin_url", "ALTER TABLE source_catalog_templates ADD COLUMN origin_url VARCHAR(500) NOT NULL DEFAULT ''"},
+		{"source_catalog_templates", "origin_health", "ALTER TABLE source_catalog_templates ADD COLUMN origin_health VARCHAR(20) NOT NULL DEFAULT ''"},
+		{"source_catalog_plugin_versions", "origin_url", "ALTER TABLE source_catalog_plugin_versions ADD COLUMN origin_url VARCHAR(500) NOT NULL DEFAULT ''"},
+		{"source_catalog_template_versions", "origin_url", "ALTER TABLE source_catalog_template_versions ADD COLUMN origin_url VARCHAR(500) NOT NULL DEFAULT ''"},
 	}
 	for _, column := range columns {
 		if err := ensureSourceStationColumn(db, column.table, column.column, column.statement); err != nil {

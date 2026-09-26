@@ -112,7 +112,7 @@ func sourcePackageSchemaDocument() gin.H {
 			"file":             "multipart 字段 file，必须是 ZIP，≤ 20 MiB",
 			"kind":             "可选 plugin | template；缺省时按包内清单文件名识别。template.json 必须自带 kind=template；plugin.json 若填写 kind 必须为 plugin",
 			"category":         "可选。与清单 kind 对应：插件分类不可用于模板，模板分类不可用于插件。模板缺省自动绑定 home-template。",
-			"externalOnSubmit": "外链 HTTPS 在提交审核时检查可达、ZIP 魔数与 sha256。本站托管地址只核对本地文件，不发外网请求。",
+			"externalOnSubmit": "免费外链 HTTPS 在提交审核时检查可达、ZIP 魔数与 sha256。付费条目填写 HTTPS 外链时，保存时立即拉取、校验并写入私有目录，买家看不到外链。本站托管地址只核对本地文件，不发外网请求。",
 		},
 		"zip": gin.H{
 			"required":             true,
