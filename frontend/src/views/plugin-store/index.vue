@@ -252,7 +252,7 @@
       </div>
     </ElCard>
 
-    <ElDialog v-model="sourceDialogVisible" title="软件源管理" width="560px">
+    <ElDialog v-model="sourceDialogVisible" title="软件源管理" width="640px">
       <div class="source-add">
         <ElInput v-model="newSourceUrl" placeholder="JSON 清单或 Git 仓库地址" />
         <ElInput
@@ -260,6 +260,11 @@
           placeholder="名称（可选，留空自动获取）"
           class="source-name-input"
         />
+        <ElSelect v-model="newSourceType" class="source-type-select">
+          <ElOption label="自动识别" value="auto" />
+          <ElOption label="JSON 目录" value="json" />
+          <ElOption label="Git 仓库" value="git" />
+        </ElSelect>
         <ElButton type="primary" :loading="addingSource" @click="handleAddSource">添加</ElButton>
       </div>
       <ElTable :data="sources" size="small" class="source-table">
@@ -268,7 +273,10 @@
             <span class="source-dot" :class="`is-${row.state}`" />
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="name" label="名称" width="130" show-overflow-tooltip />
+        <ElTableColumn prop="name" label="名称" width="120" show-overflow-tooltip />
+        <ElTableColumn label="类型" width="96">
+          <template #default="{ row }">{{ sourceTypeLabel(row.sourceType) }}</template>
+        </ElTableColumn>
         <ElTableColumn prop="url" label="地址" show-overflow-tooltip />
         <ElTableColumn label="操作" width="140" align="center">
           <template #default="{ row }">
@@ -290,7 +298,7 @@
         </template>
       </ElTable>
       <div class="source-tip">
-        可以填写软件源地址，或填写 Git 仓库地址。本站请为每个应用单独添加一条，避免不同应用的目录混在一起。Git 仓库的根目录需要有软件清单。
+        可以填写 JSON 目录，或填写 Git 仓库地址。以 .json 结尾或内容是 JSON 的地址会按 JSON 目录保存；类型选错会在添加时自动改正并提示。本站请为每个应用单独添加一条公开清单，避免不同应用的目录混在一起。Git 仓库的根目录需要有软件清单。
       </div>
     </ElDialog>
 
@@ -347,6 +355,9 @@
   const addingSource = ref(false)
   const newSourceUrl = ref('')
   const newSourceName = ref('')
+  const newSourceType = ref<'auto' | 'json' | 'git'>('auto')
+
+  const sourceTypeLabel = (sourceType?: string) => (sourceType === 'git' ? 'Git 仓库' : 'JSON 目录')
 
   const storeTabs = computed(() => {
     const tabs: { name: string; label: string }[] = []
@@ -474,8 +485,8 @@
   const handleRefreshSource = async (source: PluginSource) => {
     refreshingSourceId.value = source.id
     try {
-      await fetchRefreshPluginSource(source.id)
-      ElMessage.success(`「${source.name}」刷新成功`)
+      const result = await fetchRefreshPluginSource(source.id)
+      ElMessage.success(result.notice || `「${source.name}」刷新成功`)
       await loadPlugins()
     } catch (error: any) {
       showCaughtError(error, '软件源刷新失败')
@@ -616,10 +627,10 @@
     }
     addingSource.value = true
     try {
-      await fetchAddPluginSource(newSourceName.value.trim(), url)
-      ElMessage.success('软件源已添加')
+      await fetchAddPluginSource(newSourceName.value.trim(), url, newSourceType.value)
       newSourceUrl.value = ''
       newSourceName.value = ''
+      newSourceType.value = 'auto'
       await loadPlugins()
     } catch (e: any) {
       showCaughtError(e, '软件源添加失败，请检查清单地址')
@@ -893,7 +904,12 @@
       margin-bottom: 16px;
 
       .source-name-input {
-        width: 180px;
+        width: 160px;
+        flex-shrink: 0;
+      }
+
+      .source-type-select {
+        width: 120px;
         flex-shrink: 0;
       }
     }
@@ -939,7 +955,8 @@
       .source-add {
         flex-direction: column;
 
-        .source-name-input {
+        .source-name-input,
+        .source-type-select {
           width: 100%;
         }
       }

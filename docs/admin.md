@@ -86,6 +86,8 @@
 
 远程 ZIP 必须带 64 位 SHA256。公网地址必须是 HTTPS。只有软件源 URL 写成字面量回环或私网 IP 时，才允许 HTTP 和私网。主机名一律按公网处理。
 
+软件源管理里可以填 JSON 目录，也可以填 Git 仓库。地址以 `.json` 结尾（查询串不算），或者打开后是 JSON，都按 JSON 目录保存。本站公开清单 `https://<本站>/software-source/<app_key>/index.json` 就是 JSON 目录，不会按 Git 仓库去克隆。添加时如果类型和地址不一致，会立刻改成正确类型并提示，不用等到刷新。已经记成 Git、地址却以 `.json` 结尾的旧记录，启动后会自动改回 JSON，重复启动不会再改。Git 克隆发现不是仓库时，提示「该地址不是 Git 仓库，可能是 JSON 目录，请修改源类型」，不再显示 git 的原始报错。
+
 ## 在线更新 `/online-update`（仅超管）
 
 检查 GitHub Release 的 `latest.json` 并执行整包更新。签名、备份与回滚见 [部署手册](deployment.md)。

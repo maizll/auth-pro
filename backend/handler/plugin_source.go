@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,10 +28,11 @@ const (
 )
 
 type pluginSourceRecord struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	URL       string    `json:"url"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID         int64     `json:"id"`
+	Name       string    `json:"name"`
+	URL        string    `json:"url"`
+	SourceType string    `json:"sourceType"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 type remotePluginEntry struct {
@@ -68,38 +71,132 @@ func ensurePluginSourceStorage(db *sql.DB) error {
 		id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
 		name VARCHAR(60) NOT NULL DEFAULT '',
 		url VARCHAR(500) NOT NULL,
+		source_type VARCHAR(20) NOT NULL DEFAULT 'json',
 		created_at DATETIME DEFAULT NULL,
 		UNIQUE KEY uk_url (url(191))
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权系统插件软件源'`); err != nil {
 		return err
 	}
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS plugin_source_cache (
+	if err := ensureColumn(db, "plugin_sources", "source_type",
+		"ALTER TABLE plugin_sources ADD COLUMN source_type VARCHAR(20) NOT NULL DEFAULT 'json'"); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS plugin_source_cache (
 		source_id BIGINT NOT NULL PRIMARY KEY,
 		source_type VARCHAR(20) NOT NULL DEFAULT 'json',
 		manifest_json MEDIUMTEXT NOT NULL,
 		fetched_at DATETIME NOT NULL,
 		expires_at DATETIME NOT NULL,
 		last_error VARCHAR(500) NOT NULL DEFAULT ''
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权系统插件清单缓存'`)
-	return err
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权系统插件清单缓存'`); err != nil {
+		return err
+	}
+	return migrateMisclassifiedJSONPluginSources(db)
+}
+
+const (
+	pluginSourceTypeJSON        = "json"
+	pluginSourceTypeGit         = "git"
+	errPluginSourceNotGitRepo   = "该地址不是 Git 仓库，可能是 JSON 目录，请修改源类型"
+	pluginSourceCorrectedToJSON = "该地址是 JSON 目录，已自动改为 JSON 类型"
+	pluginSourceCorrectedToGit  = "该地址不是 JSON 目录，已自动改为 Git 仓库"
+	pluginSourceJSONFetchFailed = "JSON 目录拉取失败"
+	pluginSourceJSONInvalid     = "该地址不是有效的 JSON 目录"
+)
+
+type resolvedPluginSource struct {
+	index      *remotePluginIndex
+	manifest   []byte
+	sourceType string
+	notice     string
 }
 
 func fetchPluginSourceManifest(ctx context.Context, rawURL string) (*remotePluginIndex, []byte, string, error) {
-	if _, err := validatePluginSourceURL(rawURL); err != nil {
+	resolved, err := resolvePluginSource(ctx, rawURL, "")
+	if err != nil || resolved == nil {
 		return nil, nil, "", err
 	}
-	if payload, index, ok := lookupLocalSoftwareSourceIndex(rawURL); ok {
-		return index, payload, "json", nil
+	return resolved.index, resolved.manifest, resolved.sourceType, nil
+}
+
+func resolvePluginSource(ctx context.Context, rawURL, requestedType string) (*resolvedPluginSource, error) {
+	normalized, err := validatePluginSourceURL(rawURL)
+	if err != nil {
+		return nil, err
 	}
-	preferGit := looksLikeGitRepositoryURL(rawURL)
-	if !preferGit {
-		payload, err := fetchPluginHTTP(ctx, rawURL, pluginManifestMaxSize, 10*time.Second, pluginSourceAllowsPrivate(rawURL))
-		if err == nil {
-			index, parseErr := parsePluginSourceManifest(payload)
-			if parseErr == nil {
-				return index, payload, "json", nil
-			}
+	rawURL = normalized
+	requested, err := normalizePluginSourceType(requestedType)
+	if err != nil {
+		return nil, err
+	}
+	if payload, index, ok := lookupLocalSoftwareSourceIndex(rawURL); ok {
+		return &resolvedPluginSource{
+			index: index, manifest: payload, sourceType: pluginSourceTypeJSON,
+			notice: pluginSourceTypeNotice(requested, pluginSourceTypeJSON),
+		}, nil
+	}
+	jsonURL := pluginSourceURLLooksLikeJSON(rawURL)
+	tryHTTPFirst := jsonURL || requested == pluginSourceTypeJSON || !looksLikeGitRepositoryURL(rawURL)
+	if tryHTTPFirst {
+		resolved, handled, err := resolvePluginSourceFromHTTP(ctx, rawURL, requested, jsonURL)
+		if handled || err != nil {
+			return resolved, err
 		}
+	}
+	if jsonURL {
+		return nil, errors.New(pluginSourceJSONInvalid)
+	}
+	resolved, err := resolvePluginSourceFromGit(ctx, rawURL, requested)
+	if err == nil {
+		return resolved, nil
+	}
+	if !tryHTTPFirst {
+		if httpResolved, ok := pluginSourceJSONOverHTTP(ctx, rawURL, requested); ok {
+			return httpResolved, nil
+		}
+	}
+	return nil, err
+}
+
+func resolvePluginSourceFromHTTP(ctx context.Context, rawURL, requested string, jsonURL bool) (*resolvedPluginSource, bool, error) {
+	payload, err := fetchPluginHTTP(ctx, rawURL, pluginManifestMaxSize, 10*time.Second, pluginSourceAllowsPrivate(rawURL))
+	if err == nil && payloadLooksLikeJSON(payload) {
+		index, parseErr := parsePluginSourceManifest(payload)
+		if parseErr != nil {
+			return nil, true, parseErr
+		}
+		return &resolvedPluginSource{
+			index: index, manifest: payload, sourceType: pluginSourceTypeJSON,
+			notice: pluginSourceTypeNotice(requested, pluginSourceTypeJSON),
+		}, true, nil
+	}
+	if jsonURL {
+		if err != nil {
+			return nil, true, fmt.Errorf("%s：%s", pluginSourceJSONFetchFailed, err.Error())
+		}
+		return nil, true, errors.New(pluginSourceJSONInvalid)
+	}
+	return nil, false, nil
+}
+
+func pluginSourceJSONOverHTTP(ctx context.Context, rawURL, requested string) (*resolvedPluginSource, bool) {
+	payload, err := fetchPluginHTTP(ctx, rawURL, pluginManifestMaxSize, 10*time.Second, pluginSourceAllowsPrivate(rawURL))
+	if err != nil || !payloadLooksLikeJSON(payload) {
+		return nil, false
+	}
+	index, parseErr := parsePluginSourceManifest(payload)
+	if parseErr != nil {
+		return nil, false
+	}
+	return &resolvedPluginSource{
+		index: index, manifest: payload, sourceType: pluginSourceTypeJSON,
+		notice: pluginSourceTypeNotice(requested, pluginSourceTypeJSON),
+	}, true
+}
+
+func resolvePluginSourceFromGit(ctx context.Context, rawURL, requested string) (*resolvedPluginSource, error) {
+	if pluginSourceURLLooksLikeJSON(rawURL) {
+		return nil, errors.New(errPluginSourceNotGitRepo)
 	}
 	var payload []byte
 	err := withPluginRepository(ctx, rawURL, func(repositoryDir string) error {
@@ -108,10 +205,112 @@ func fetchPluginSourceManifest(ctx context.Context, rawURL string) (*remotePlugi
 		return readErr
 	})
 	if err != nil {
-		return nil, nil, "", err
+		if os.IsNotExist(err) {
+			return nil, errors.New("Git 仓库根目录没有 index.json")
+		}
+		return nil, err
 	}
 	index, err := parsePluginSourceManifest(payload)
-	return index, payload, "git", err
+	if err != nil {
+		return nil, err
+	}
+	return &resolvedPluginSource{
+		index: index, manifest: payload, sourceType: pluginSourceTypeGit,
+		notice: pluginSourceTypeNotice(requested, pluginSourceTypeGit),
+	}, nil
+}
+
+func normalizePluginSourceType(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "auto":
+		return "", nil
+	case pluginSourceTypeJSON:
+		return pluginSourceTypeJSON, nil
+	case pluginSourceTypeGit:
+		return pluginSourceTypeGit, nil
+	default:
+		return "", errors.New("源类型只能是 JSON 目录或 Git 仓库")
+	}
+}
+
+func pluginSourceTypeNotice(requested, detected string) string {
+	if requested == pluginSourceTypeGit && detected == pluginSourceTypeJSON {
+		return pluginSourceCorrectedToJSON
+	}
+	if requested == pluginSourceTypeJSON && detected == pluginSourceTypeGit {
+		return pluginSourceCorrectedToGit
+	}
+	return ""
+}
+
+func pluginSourceURLPath(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSuffix(strings.ToLower(parsed.Path), "/")
+}
+
+func pluginSourceURLLooksLikeJSON(rawURL string) bool {
+	return strings.HasSuffix(pluginSourceURLPath(rawURL), ".json")
+}
+
+func payloadLooksLikeJSON(payload []byte) bool {
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 || (trimmed[0] != '{' && trimmed[0] != '[') {
+		return false
+	}
+	return json.Valid(trimmed)
+}
+
+func pluginSourceJSONURLPredicate(column string) string {
+	switch column {
+	case "url", "s.url":
+	default:
+		column = "url"
+	}
+	return "LOWER(TRIM(TRAILING '/' FROM SUBSTRING_INDEX(SUBSTRING_INDEX(" + column + ", '?', 1), '#', 1))) LIKE '%.json'"
+}
+
+func migrateMisclassifiedJSONPluginSources(db *sql.DB) error {
+	jsonURL := pluginSourceJSONURLPredicate("s.url")
+	if _, err := db.Exec(`UPDATE plugin_sources s
+		JOIN plugin_source_cache c ON c.source_id = s.id
+		SET s.source_type = 'git'
+		WHERE c.source_type = 'git' AND s.source_type <> 'git' AND NOT (` + jsonURL + `)`); err != nil {
+		return err
+	}
+	jsonURL = pluginSourceJSONURLPredicate("s.url")
+	if _, err := db.Exec(`UPDATE plugin_source_cache c
+		JOIN plugin_sources s ON s.id = c.source_id
+		SET c.source_type = 'json'
+		WHERE c.source_type = 'git' AND ` + jsonURL); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE plugin_sources
+		SET source_type = 'json'
+		WHERE source_type = 'git' AND ` + pluginSourceJSONURLPredicate("url")); err != nil {
+		return err
+	}
+	return nil
+}
+
+func pluginSourceFailureMessage(prefix string, err error) string {
+	if err == nil {
+		return prefix
+	}
+	if err.Error() == errPluginSourceNotGitRepo || strings.HasPrefix(err.Error(), pluginSourceJSONFetchFailed) || err.Error() == pluginSourceJSONInvalid {
+		return err.Error()
+	}
+	return prefix + err.Error()
+}
+
+func pluginSourceAddedMessage(notice string, pluginCount int) string {
+	msg := fmt.Sprintf("软件源已添加，发现 %d 个插件", pluginCount)
+	if notice == "" {
+		return msg
+	}
+	return notice + "。" + msg
 }
 
 func parsePluginSourceManifest(payload []byte) (*remotePluginIndex, error) {
@@ -135,29 +334,43 @@ func parsePluginSourceManifest(payload []byte) (*remotePluginIndex, error) {
 	return &index, nil
 }
 
-func loadPluginSourceIndex(ctx context.Context, db *sql.DB, source pluginSourceRecord, force bool) (*remotePluginIndex, error) {
+func loadPluginSourceIndex(ctx context.Context, db *sql.DB, source pluginSourceRecord, force bool) (*remotePluginIndex, string, error) {
 	if payload, index, ok := lookupLocalSoftwareSourceIndex(source.URL); ok {
-		_ = cachePluginSourceManifest(db, source.ID, "json", payload, "")
-		return index, nil
+		_ = cachePluginSourceManifest(db, source.ID, pluginSourceTypeJSON, payload, "")
+		_ = persistPluginSourceType(db, source.ID, pluginSourceTypeJSON)
+		notice := pluginSourceTypeNotice(source.SourceType, pluginSourceTypeJSON)
+		return index, notice, nil
 	}
 	cache, cacheErr := readCachedPluginSource(db, source.ID)
 	if !force && cacheErr == nil && time.Now().Before(cache.ExpiresAt) {
-		return parsePluginSourceManifest(cache.Manifest)
+		index, err := parsePluginSourceManifest(cache.Manifest)
+		return index, "", err
 	}
-	index, manifest, sourceType, fetchErr := fetchPluginSourceManifest(ctx, source.URL)
-	if fetchErr == nil {
-		if err := cachePluginSourceManifest(db, source.ID, sourceType, manifest, ""); err != nil {
-			return nil, err
+	resolved, fetchErr := resolvePluginSource(ctx, source.URL, source.SourceType)
+	if fetchErr == nil && resolved != nil {
+		if err := cachePluginSourceManifest(db, source.ID, resolved.sourceType, resolved.manifest, ""); err != nil {
+			return nil, "", err
 		}
-		return index, nil
+		if err := persistPluginSourceType(db, source.ID, resolved.sourceType); err != nil {
+			return nil, "", err
+		}
+		return resolved.index, resolved.notice, nil
 	}
-	if cacheErr == nil {
+	if cacheErr == nil && fetchErr != nil {
 		_, _ = db.Exec("UPDATE plugin_source_cache SET last_error=? WHERE source_id=?", truncateText(fetchErr.Error(), 500), source.ID)
 		if stale, err := parsePluginSourceManifest(cache.Manifest); err == nil {
-			return stale, fetchErr
+			return stale, "", fetchErr
 		}
 	}
-	return nil, fetchErr
+	return nil, "", fetchErr
+}
+
+func persistPluginSourceType(db *sql.DB, sourceID int64, sourceType string) error {
+	if db == nil || sourceID == 0 || sourceType == "" {
+		return nil
+	}
+	_, err := db.Exec("UPDATE plugin_sources SET source_type=? WHERE id=?", sourceType, sourceID)
+	return err
 }
 
 func cachePluginSourceManifest(db *sql.DB, sourceID int64, sourceType string, manifest []byte, lastError string) error {
@@ -176,7 +389,7 @@ func readCachedPluginSource(db *sql.DB, sourceID int64) (cachedPluginSource, err
 }
 
 func listPluginSources(db *sql.DB) ([]pluginSourceRecord, error) {
-	rows, err := db.Query("SELECT id, name, url, created_at FROM plugin_sources ORDER BY id ASC")
+	rows, err := db.Query("SELECT id, name, url, source_type, created_at FROM plugin_sources ORDER BY id ASC")
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +398,7 @@ func listPluginSources(db *sql.DB) ([]pluginSourceRecord, error) {
 	for rows.Next() {
 		var item pluginSourceRecord
 		var createdAt sql.NullTime
-		if err := rows.Scan(&item.ID, &item.Name, &item.URL, &createdAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.URL, &item.SourceType, &createdAt); err != nil {
 			return nil, err
 		}
 		if createdAt.Valid {
@@ -248,7 +461,7 @@ func AdminPluginList(c *gin.Context) {
 			if sourceFilter != "" && sourceFilter != fmt.Sprintf("%d", source.ID) {
 				continue
 			}
-			index, loadErr := loadPluginSourceIndex(c.Request.Context(), db, source, false)
+			index, _, loadErr := loadPluginSourceIndex(c.Request.Context(), db, source, false)
 			if index == nil {
 				sourceOK[source.ID] = false
 				continue
@@ -299,15 +512,18 @@ func AdminPluginList(c *gin.Context) {
 				state = "error"
 			}
 		}
-		sourceStates = append(sourceStates, gin.H{"id": source.ID, "name": source.Name, "url": source.URL, "state": state})
+		sourceStates = append(sourceStates, gin.H{
+			"id": source.ID, "name": source.Name, "url": source.URL, "sourceType": source.SourceType, "state": state,
+		})
 	}
 	writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"categories": groups, "sources": sourceStates}})
 }
 
 func AdminPluginSourceAdd(c *gin.Context) {
 	var request struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
+		Name       string `json:"name"`
+		URL        string `json:"url"`
+		SourceType string `json:"sourceType"`
 	}
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
@@ -318,11 +534,12 @@ func AdminPluginSourceAdd(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
-	index, manifest, sourceType, err := fetchPluginSourceManifest(c.Request.Context(), repositoryURL)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "仓库校验失败：" + err.Error()})
+	resolved, err := resolvePluginSource(c.Request.Context(), repositoryURL, request.SourceType)
+	if err != nil || resolved == nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": pluginSourceFailureMessage("仓库校验失败：", err)})
 		return
 	}
+	index, manifest, sourceType := resolved.index, resolved.manifest, resolved.sourceType
 	request.Name = strings.TrimSpace(request.Name)
 	if request.Name == "" {
 		request.Name = index.Name
@@ -340,7 +557,7 @@ func AdminPluginSourceAdd(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})
 		return
 	}
-	result, err := db.Exec("INSERT INTO plugin_sources (name, url, created_at) VALUES (?, ?, NOW()) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), name=VALUES(name)", request.Name, repositoryURL)
+	result, err := db.Exec("INSERT INTO plugin_sources (name, url, source_type, created_at) VALUES (?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), name=VALUES(name), source_type=VALUES(source_type)", request.Name, repositoryURL, sourceType)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存软件源失败"})
 		return
@@ -350,7 +567,11 @@ func AdminPluginSourceAdd(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "缓存软件源失败"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": fmt.Sprintf("软件源已添加，发现 %d 个插件", len(index.Plugins))})
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"msg":  pluginSourceAddedMessage(resolved.notice, len(index.Plugins)),
+		"data": gin.H{"sourceType": sourceType, "corrected": resolved.notice != ""},
+	})
 }
 
 func AdminPluginSourceDelete(c *gin.Context) {
@@ -406,7 +627,7 @@ func AdminPluginDownload(c *gin.Context) {
 	expectedSHA := ""
 	var metadata pluginInfo
 	for _, source := range sources {
-		index, _ := loadPluginSourceIndex(c.Request.Context(), db, source, false)
+		index, _, _ := loadPluginSourceIndex(c.Request.Context(), db, source, false)
 		if index == nil {
 			continue
 		}
@@ -455,17 +676,24 @@ func AdminPluginSourceRefresh(c *gin.Context) {
 		return
 	}
 	var source pluginSourceRecord
-	if err := db.QueryRow("SELECT id, name, url FROM plugin_sources WHERE id=?", id).Scan(&source.ID, &source.Name, &source.URL); err != nil {
+	if err := db.QueryRow("SELECT id, name, url, source_type FROM plugin_sources WHERE id=?", id).Scan(&source.ID, &source.Name, &source.URL, &source.SourceType); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "软件源不存在"})
 		return
 	}
-	index, err := loadPluginSourceIndex(c.Request.Context(), db, source, true)
+	index, notice, err := loadPluginSourceIndex(c.Request.Context(), db, source, true)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "软件源刷新失败：" + err.Error()})
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": pluginSourceFailureMessage("软件源刷新失败：", err)})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "软件源刷新成功", "data": gin.H{
+	msg := "软件源刷新成功"
+	if notice != "" {
+		msg = notice
+	}
+	storedType := source.SourceType
+	_ = db.QueryRow("SELECT source_type FROM plugin_sources WHERE id=?", source.ID).Scan(&storedType)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": gin.H{
 		"plugins": len(index.Plugins), "homeTemplates": len(index.HomeTemplates),
+		"sourceType": storedType, "notice": notice,
 	}})
 }
 
@@ -534,6 +762,18 @@ func wrapPluginNetError(err error) error {
 	return fmt.Errorf("连接失败：%w", err)
 }
 
+func explainGitCloneFailure(output string) error {
+	lower := strings.ToLower(output)
+	if strings.Contains(lower, "is this a git repository") ||
+		strings.Contains(lower, "not a git repository") ||
+		strings.Contains(lower, "does not appear to be a git repository") ||
+		strings.Contains(lower, "repository") && strings.Contains(lower, "not found") ||
+		strings.Contains(lower, "bad line length character") {
+		return errors.New(errPluginSourceNotGitRepo)
+	}
+	return errors.New("Git 仓库拉取失败，请确认地址可以匿名克隆")
+}
+
 func withPluginRepository(ctx context.Context, rawURL string, action func(string) error) error {
 	cloneCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -545,8 +785,12 @@ func withPluginRepository(ctx context.Context, rawURL string, action func(string
 	repositoryDir := filepath.Join(tempDir, "repository")
 	command := exec.CommandContext(cloneCtx, "git", "clone", "--depth", "1", "--single-branch", rawURL, repositoryDir)
 	command.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	if output, err := command.CombinedOutput(); err != nil {
-		return fmt.Errorf("Git 仓库拉取失败：%s", truncateText(string(output), 500))
+	output, err := command.CombinedOutput()
+	if err != nil {
+		if errors.Is(cloneCtx.Err(), context.DeadlineExceeded) {
+			return errors.New("Git 仓库拉取超时，请稍后重试")
+		}
+		return explainGitCloneFailure(string(output))
 	}
 	return action(repositoryDir)
 }

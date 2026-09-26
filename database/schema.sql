@@ -764,6 +764,7 @@ CREATE TABLE `plugin_sources` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(60) NOT NULL DEFAULT '',
   `url` VARCHAR(500) NOT NULL,
+  `source_type` VARCHAR(20) NOT NULL DEFAULT 'json' COMMENT 'json 目录或 git 仓库',
   `created_at` DATETIME DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_url` (`url`(191))

@@ -45,4 +45,6 @@ $pluginSourceIndexUrl = rtrim($origin, '/') . '/software-source/' . rawurlencode
 
 消费者按配置 URL 原样 GET 即可；相对 `templateUrl` 相对该 `index.json` 解析。
 
+管理端「软件源管理」粘贴上述地址时按 JSON 目录保存。以 `.json` 结尾或内容为 JSON 的地址不会被当成 Git 仓库克隆。若添加时选了 Git，保存当场改回 JSON 并提示。
+
 首页模板与插件共用这一份按应用隔离的清单，不要再为模板单独配置第二套远程源。
