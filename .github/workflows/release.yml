@@ -106,9 +106,11 @@ jobs:
             ./index.html \
             ./baota-install.sh \
             ./baota-upgrade.sh \
-            ./baota-lib.sh
+            ./baota-lib.sh \
+            ./guardian-start.sh
           file "$VERIFY_DIR/backend/auth_pro" | grep -Eq 'ELF 64-bit.*x86-64'
-          bash -n "$VERIFY_DIR/baota-install.sh" "$VERIFY_DIR/baota-upgrade.sh" "$VERIFY_DIR/baota-lib.sh"
+          bash -n "$VERIFY_DIR/baota-install.sh" "$VERIFY_DIR/baota-upgrade.sh" "$VERIFY_DIR/baota-lib.sh" "$VERIFY_DIR/guardian-start.sh"
+          grep -q 'auth-pro-guardian-start' "$VERIFY_DIR/guardian-start.sh"
           test -x "$VERIFY_DIR/baota-install.sh"
           test -x "$VERIFY_DIR/baota-upgrade.sh"
           node -e '

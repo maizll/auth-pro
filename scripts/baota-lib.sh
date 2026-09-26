@@ -856,11 +856,13 @@ baota_chmod_binary() {
 
 baota_install_scripts() {
   local name src dest
-  for name in baota-install.sh baota-upgrade.sh baota-lib.sh; do
+  for name in baota-install.sh baota-upgrade.sh baota-lib.sh guardian-start.sh; do
     if [[ -f "$BAOTA_PAYLOAD/$name" ]]; then
       src="$BAOTA_PAYLOAD/$name"
     elif [[ -f "$SCRIPT_DIR/$name" ]]; then
       src="$SCRIPT_DIR/$name"
+    elif [[ "$name" == "guardian-start.sh" ]]; then
+      continue
     else
       baota_die "缺少脚本 $name"
     fi
@@ -916,31 +918,35 @@ EOF
   baota_info "已写入 $file"
 }
 
+baota_guardian_start_template() {
+  if [[ -n "${BAOTA_PAYLOAD:-}" && -f "$BAOTA_PAYLOAD/guardian-start.sh" ]]; then
+    printf '%s\n' "$BAOTA_PAYLOAD/guardian-start.sh"
+    return 0
+  fi
+  if [[ -f "$SCRIPT_DIR/guardian-start.sh" ]]; then
+    printf '%s\n' "$SCRIPT_DIR/guardian-start.sh"
+    return 0
+  fi
+  if [[ -f "$SCRIPT_DIR/../backend/handler/guardian_start.sh" ]]; then
+    printf '%s\n' "$SCRIPT_DIR/../backend/handler/guardian_start.sh"
+    return 0
+  fi
+  return 1
+}
+
 baota_write_start_script() {
-  local data file
+  local data file template
   data="$(baota_data_dir)"
   file="$data/start.sh"
   if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
     baota_info "将写入启动脚本 $file"
     return 0
   fi
+  template="$(baota_guardian_start_template)" || baota_die "缺少 guardian-start.sh，无法写入 $file"
   mkdir -p "$data"
-  cat > "$file" <<'EOF'
-#!/usr/bin/env bash
-# 宝塔进程守护的启动命令。运行目录可以是本文件所在目录。
-set -euo pipefail
-cd "$(dirname "$(readlink -f "$0" 2>/dev/null || realpath "$0")")"
-if [[ -f ./baota.env ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source ./baota.env
-  set +a
-fi
-# 在线更新据此退出进程，交给进程守护拉起，不再 nohup 出孤儿进程。
-export AUTO_PRO_PROCESS_MANAGER="${AUTO_PRO_PROCESS_MANAGER:-supervisor}"
-exec ./auth_pro
-EOF
+  cp "$template" "$file"
   chmod 755 "$file"
+  grep -q 'auth-pro-guardian-start' "$file" || baota_die "启动脚本 $file 不是进程守护交接版本"
   baota_info "已写入 $file"
 }
 
@@ -972,6 +978,7 @@ location ^~ /backend/ { return 404; }
 location = /baota-install.sh { return 404; }
 location = /baota-upgrade.sh { return 404; }
 location = /baota-lib.sh { return 404; }
+location = /guardian-start.sh { return 404; }
 location ~* ^/(db\\.json|install\\.lock|jwt\\.secret)$ { return 404; }
 location ~* \\.(log|pid)$ { return 404; }
 
@@ -1000,7 +1007,7 @@ baota_write_guardian_note() {
 启动命令: ${data}/start.sh
 运行目录: ${data}
 端口: ${port}
-说明: 升级或处理残留进程前，先在宝塔进程守护里停止此项，否则进程会被立刻拉起。
+说明: 在线更新会替换文件后退出，由本守护按 start.sh 拉起。手工替换程序或 --no-start 升级前，仍要先在宝塔进程守护里停止此项，否则进程会被立刻拉起。
 Nginx 反代: 127.0.0.1:${port}
 Nginx 拦截片段: ${data}/baota-nginx.snippet.conf
 EOF
@@ -1260,7 +1267,7 @@ baota_print_manual_steps() {
   3. 站点 Nginx 反代到 127.0.0.1:${port}，并把 ${data}/baota-nginx.snippet.conf 中的 location 放进 server，避免直接下载 /backend、db.json、install.lock。502/503/504 使用同文件里的 error_page，返回网站根 backend-unavailable.html
   4. 需要 HTTPS 时在面板申请证书
   5. 进程守护：启动命令 ${data}/start.sh ，运行目录 ${data} 。说明见 ${data}/baota-guardian.txt
-     升级或清理残留进程前，先在守护里停止。守护开着时结束进程会被立刻拉起，形成重启循环
+     在线更新会自己退出并交给守护拉起。手工停进程或 --no-start 升级前，先在守护里停止，否则进程会被立刻拉起
 
 运行数据目录：${data}
 升级会保留：db.json、install.lock、jwt.secret、plugins、home-templates、software-source-cache、updates、app-releases、logs、advertisement-images、source-packages，以及 baota.env
@@ -1303,6 +1310,97 @@ baota_cmd_install() {
   baota_print_manual_steps
 }
 
+# 父进程链上有 supervisord，或带 INVOCATION_ID 且最终回到 PID 1（systemd 服务）。
+# 直接父进程为 1 且没有 INVOCATION_ID 的是孤儿，守护不会把它拉起来。
+baota_guardian_owns_pid() {
+  local pid="$1" current parent comm i
+  [[ "$pid" =~ ^[0-9]+$ && "$pid" -gt 1 ]] || return 1
+  current="$pid"
+  for i in 1 2 3 4 5 6 7 8; do
+    parent="$(awk '/^PPid:/ {print $2}' "/proc/$current/status" 2>/dev/null || true)"
+    [[ "$parent" =~ ^[0-9]+$ ]] || return 1
+    if [[ "$parent" == "1" ]]; then
+      if tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^INVOCATION_ID='; then
+        return 0
+      fi
+      return 1
+    fi
+    comm="$(tr -d ' \n' < "/proc/$parent/comm" 2>/dev/null || true)"
+    case "$comm" in
+      supervisord|supervisor|systemd) return 0 ;;
+    esac
+    if tr '\0' ' ' < "/proc/$parent/cmdline" 2>/dev/null | grep -Fq 'supervisord'; then
+      return 0
+    fi
+    current="$parent"
+  done
+  return 1
+}
+
+baota_find_guardian_owned_pid() {
+  local port="$1" site="$2" pid root
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] || continue
+    root="$(baota_our_root "$pid" "$site" || true)"
+    [[ -n "$root" ]] || continue
+    if baota_guardian_owns_pid "$root"; then
+      printf '%s\n' "$root"
+      return 0
+    fi
+  done < <(baota_pids_for_port "$port")
+  return 1
+}
+
+baota_wait_listening_health() {
+  local port url timeout i health
+  port="$(baota_effective_port)"
+  url="http://127.0.0.1:${port}/api/install/status"
+  timeout="${AUTH_PRO_HEALTH_TIMEOUT:-30}"
+  for i in $(seq 1 "$timeout"); do
+    health="$(baota_health_body "$url")"
+    if [[ -n "$health" ]]; then
+      baota_info "后端已响应 ${url}"
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+# 守护会在进程退出后立刻拉起。先换文件，再只结束本站这一个 PID。
+baota_upgrade_under_guardian() {
+  local pid="$1" data manifest again
+  data="$(baota_data_dir)"
+  if [[ "$BAOTA_START" != "1" ]]; then
+    baota_die "端口由进程守护托管（PID ${pid}）。守护会在进程退出后立刻拉起，--no-start 无法让它保持停止。请先在宝塔进程守护里停止本站点，或改用 --start，由脚本替换文件后交给守护拉起。"
+  fi
+  baota_info "进程守护正在托管本站 PID ${pid}。不停止守护。先替换文件，再只结束这个进程，由守护拉起。"
+  baota_prepare_backup_dir
+  manifest="$BAOTA_BACKUP_DIR/durable.sha256"
+  baota_durable_manifest "$data" "$manifest"
+  baota_copy_durable_into_backup
+  baota_mysql_backup
+  baota_apply_payload
+  baota_verify_manifest "$manifest"
+  baota_tighten_secrets
+  baota_signal_pid "$pid"
+  if baota_wait_listening_health; then
+    baota_info "升级完成。备份在 ${BAOTA_BACKUP_DIR}"
+    baota_print_manual_steps
+    return 0
+  fi
+  baota_warn "新版本没有通过健康检查，正在回滚程序文件"
+  baota_rollback_programs
+  again="$(baota_find_guardian_owned_pid "$(baota_effective_port)" "$BAOTA_SITE_ROOT" || true)"
+  if [[ -n "$again" ]]; then
+    baota_signal_pid "$again"
+  fi
+  if baota_wait_listening_health; then
+    baota_die "新版本没有通过健康检查，已回滚并交给进程守护拉起旧版本。备份在 ${BAOTA_BACKUP_DIR}"
+  fi
+  baota_die "新版本没有通过健康检查，已回滚程序文件，但旧版本没有在时限内恢复。请查看进程守护日志。备份在 ${BAOTA_BACKUP_DIR}"
+}
+
 baota_cmd_upgrade() {
   baota_parse_args "$@"
   baota_resolve_site_root
@@ -1318,6 +1416,14 @@ baota_cmd_upgrade() {
   fi
   baota_prepare_payload
   baota_confirm "升级 ${BAOTA_SITE_ROOT} ，保留 ${data} 中的运行数据，端口 ${port}"
+  local guardian_pid=""
+  if [[ "$BAOTA_DRY_RUN" != "1" ]] && baota_port_is_open "$port"; then
+    guardian_pid="$(baota_find_guardian_owned_pid "$port" "$BAOTA_SITE_ROOT" || true)"
+  fi
+  if [[ -n "$guardian_pid" ]]; then
+    baota_upgrade_under_guardian "$guardian_pid"
+    return 0
+  fi
   baota_ensure_port_available "$port" "$BAOTA_SITE_ROOT" "1"
   if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
     baota_prepare_backup_dir

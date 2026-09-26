@@ -125,6 +125,8 @@ grep -q 'unavailable-v1' "$SITE/backend-unavailable.html" || fail "后端不可�
 grep -q 'AUTO_PRO_PROCESS_MANAGER=supervisor' "$SITE/backend/baota.env" || fail "baota.env 未声明进程守护"
 grep -q 'supervisor' "$SITE/backend/process-manager" || fail "缺少进程守护标记"
 grep -q 'AUTO_PRO_PROCESS_MANAGER' "$SITE/backend/start.sh" || fail "start.sh 未导出进程守护标记"
+grep -q 'pending-restart/handoff.sh' "$SITE/backend/start.sh" || fail "start.sh 没有待验证交接"
+grep -q 'auth-pro-guardian-start' "$SITE/backend/start.sh" || fail "start.sh 不是进程守护交接版本"
 grep -q 'error_page 502 503 504 /backend-unavailable.html' "$SITE/backend/baota-nginx.snippet.conf" || fail "Nginx 片段没有后端不可达页面"
 ok "全新安装：权限、环境文件、Nginx 片段、守护说明"
 

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -1961,6 +1962,7 @@ func writeOnlineUpdateScript(jobID string, stagingDir string, pkg *extractedOnli
 		{"__SUPERVISOR_PROGRAM__", shellQuoteOnlineUpdate(onlineUpdateSupervisorProgram())},
 		{"__SUPERVISOR_CONF__", shellQuoteOnlineUpdate(strings.TrimSpace(os.Getenv("AUTO_PRO_SUPERVISOR_CONF")))},
 		{"__HEALTH_TRIES__", strconv.Itoa(onlineUpdateHealthTries())},
+		{"__GUARDIAN_START_B64__", base64.StdEncoding.EncodeToString([]byte(guardianStartScript))},
 	}
 	script := onlineUpdateScriptTemplate
 	for _, item := range replacements {

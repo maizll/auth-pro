@@ -33,7 +33,7 @@ var (
 // AppVersion 是当前系统整体版本号。前后端共用该版本。
 // 发布构建通过 -ldflags 从 git tag / VERSION 注入；仓库默认必须与根目录 VERSION（当前 1.5.x）一致，
 // 避免忘记 -ldflags 时静默显示 1.0.0。
-var AppVersion = "1.5.6"
+var AppVersion = "1.5.7"
 
 // BuildTime 是二进制构建时间，发布时通过 -ldflags 注入。
 var BuildTime = ""
