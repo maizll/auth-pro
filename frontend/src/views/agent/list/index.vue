@@ -77,28 +77,14 @@
 
         <!-- 操作 -->
         <template #operation="{ row }">
-          <ElButton link type="success" @click="loginAsAgent(row)">登录</ElButton>
-          <ElButton link type="primary" @click="handleEdit(row)">编辑</ElButton>
-          <ElButton link type="primary" @click="handleRecharge(row)">充值</ElButton>
-          <ElButton link type="primary" @click="handleToggle(row)">
-            {{ row.status === 'active' ? '冻结' : '解冻' }}
-          </ElButton>
-          <ElTooltip
-            :disabled="row.source !== 'user_upgrade'"
-            content="用户升级产生的代理需保留审计关联，不能删除"
-            placement="top"
-          >
-            <span>
-              <ElButton
-                link
-                type="danger"
-                :disabled="row.source === 'user_upgrade'"
-                @click="handleDelete(row)"
-              >
-                删除
-              </ElButton>
-            </span>
-          </ElTooltip>
+          <RowActions
+            :primary="[
+              { key: 'edit', label: '编辑' },
+              { key: 'login', label: '登录' }
+            ]"
+            :more="agentMoreActions(row)"
+            @click="(action) => onAgentAction(row, action)"
+          />
         </template>
       </ArtTable>
     </ElCard>
@@ -183,6 +169,7 @@
 <script setup lang="ts">
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { showCaughtError } from '@/utils/http/error-toast'
+  import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchAgentList,
@@ -318,8 +305,7 @@
         {
           prop: 'operation',
           label: '操作',
-          width: 250,
-          fixed: 'right',
+          width: 148,
           useSlot: true
         }
       ]
@@ -334,6 +320,41 @@
       }
     }
   })
+
+  function agentMoreActions(row: AgentItem): RowActionItem[] {
+    const locked = row.source === 'user_upgrade'
+    return [
+      { key: 'recharge', label: '充值' },
+      { key: 'toggle', label: row.status === 'active' ? '冻结' : '解冻' },
+      {
+        key: 'delete',
+        label: '删除',
+        danger: true,
+        disabled: locked,
+        hint: locked ? '用户升级产生的代理需保留审计关联，不能删除' : undefined
+      }
+    ]
+  }
+
+  function onAgentAction(row: AgentItem, action: RowActionItem) {
+    switch (action.key) {
+      case 'edit':
+        handleEdit(row)
+        break
+      case 'login':
+        loginAsAgent(row)
+        break
+      case 'recharge':
+        handleRecharge(row)
+        break
+      case 'toggle':
+        handleToggle(row)
+        break
+      case 'delete':
+        handleDelete(row)
+        break
+    }
+  }
 
   /**
    * 搜索处理

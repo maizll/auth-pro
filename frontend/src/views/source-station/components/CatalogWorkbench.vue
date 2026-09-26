@@ -79,25 +79,25 @@
       </template>
 
       <el-table :data="tableData" stripe v-loading="loading" @selection-change="onSelectionChange">
-        <el-table-column type="selection" width="42" />
-        <el-table-column prop="id" label="标识" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="name" label="名称" min-width="180">
+        <el-table-column v-if="!narrow" type="selection" width="42" />
+        <el-table-column v-if="!narrow" prop="id" label="标识" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="name" label="名称" min-width="140">
           <template #default="{ row }">
             <div>{{ row.name }}</div>
             <p v-if="row.fulfillmentHint" class="card-hint">{{ row.fulfillmentHint }}</p>
           </template>
         </el-table-column>
-        <el-table-column label="分类" width="120">
+        <el-table-column v-if="!narrow" label="分类" width="120">
           <template #default="{ row }">
             {{ row.categoryLabel || categoryLabel(row.category) }}
           </template>
         </el-table-column>
-        <el-table-column label="当前版本" width="110">
+        <el-table-column v-if="!narrow" label="当前版本" width="110">
           <template #default="{ row }">
             {{ row.latestVersion || row.version || '-' }}
           </template>
         </el-table-column>
-        <el-table-column label="售价" width="100">
+        <el-table-column v-if="!narrow" label="售价" width="100">
           <template #default="{ row }">{{ formatCatalogPriceLabel(row.priceCents) }}</template>
         </el-table-column>
         <el-table-column label="状态" width="100" align="center">
@@ -107,90 +107,26 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="下载地址" min-width="200" show-overflow-tooltip>
+        <el-table-column v-if="!narrow" label="下载地址" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
             {{ itemLocation(row) }}
           </template>
         </el-table-column>
-        <el-table-column label="来源外链" min-width="180" show-overflow-tooltip>
+        <el-table-column v-if="!narrow" label="来源外链" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ row.originUrl || '-' }}</span>
             <p v-if="row.originHint" class="card-hint">{{ row.originHint }}</p>
           </template>
         </el-table-column>
-        <el-table-column prop="sha256" label="校验码" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="updatedAt" label="更新时间" width="170" />
-        <el-table-column label="操作" width="480" fixed="right">
+        <el-table-column v-if="!narrow" prop="sha256" label="校验码" min-width="160" show-overflow-tooltip />
+        <el-table-column v-if="!narrow" prop="updatedAt" label="更新时间" width="170" />
+        <el-table-column label="操作" width="168">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openRebind([row])"
-              >切换应用</el-button
-            >
-            <el-button
-              v-if="canEditItem(row.status)"
-              link
-              type="primary"
-              size="small"
-              @click="openEdit(row)"
-              >编辑</el-button
-            >
-            <el-button
-              v-if="row.originUrl"
-              link
-              type="primary"
-              size="small"
-              :loading="pullingId === row.id"
-              @click="handlePull(row)"
-              >重新拉取</el-button
-            >
-            <el-button
-              v-if="canAction(row.status, 'approve')"
-              link
-              type="primary"
-              size="small"
-              @click="runStatus(row, 'approve')"
-              >通过</el-button
-            >
-            <el-button
-              v-if="canAction(row.status, 'reject')"
-              link
-              type="warning"
-              size="small"
-              @click="runStatus(row, 'reject')"
-              >拒绝</el-button
-            >
-            <el-button
-              v-if="canAction(row.status, 'shelf')"
-              link
-              type="success"
-              size="small"
-              @click="runStatus(row, 'shelf')"
-              >上架</el-button
-            >
-            <el-button
-              v-if="canAction(row.status, 'unshelf')"
-              link
-              type="info"
-              size="small"
-              @click="runStatus(row, 'unshelf')"
-              >下架</el-button
-            >
-            <el-button
-              v-if="canAction(row.status, 'deprecate')"
-              link
-              type="danger"
-              size="small"
-              @click="runStatus(row, 'deprecate')"
-              >弃用</el-button
-            >
-            <el-button
-              v-if="canAction(row.status, 'restore')"
-              link
-              type="primary"
-              size="small"
-              @click="runStatus(row, 'restore')"
-              >恢复为草稿</el-button
-            >
-            <el-button link type="primary" size="small" @click="openVersions(row)">版本</el-button>
+            <RowActions
+              :primary="catalogPrimary(row)"
+              :more="catalogMore(row)"
+              @click="(action) => onCatalogAction(row, action)"
+            />
           </template>
         </el-table-column>
       </el-table>
@@ -618,6 +554,8 @@
   import { useRoute } from 'vue-router'
   import type { FormInstance, FormRules, UploadFile } from 'element-plus'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
+  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import CatalogPriceSwitchDialog from './CatalogPriceSwitchDialog.vue'
   import {
     SOURCE_ITEM_STATUS,
@@ -870,6 +808,58 @@
         return status === 'published'
       default:
         return false
+    }
+  }
+
+  const narrow = useNarrowScreen()
+
+  function catalogPrimary(row: SourceCatalogItem): RowActionItem[] {
+    const items: RowActionItem[] = []
+    if (canEditItem(row.status)) items.push({ key: 'edit', label: '编辑' })
+    items.push({ key: 'versions', label: '版本' })
+    return items
+  }
+
+  function catalogMore(row: SourceCatalogItem): RowActionItem[] {
+    const items: RowActionItem[] = [{ key: 'rebind', label: '切换应用' }]
+    if (row.originUrl) {
+      items.push({
+        key: 'pull',
+        label: '重新拉取',
+        disabled: pullingId.value === row.id
+      })
+    }
+    if (canAction(row.status, 'approve')) items.push({ key: 'approve', label: '通过' })
+    if (canAction(row.status, 'reject')) items.push({ key: 'reject', label: '拒绝' })
+    if (canAction(row.status, 'shelf')) items.push({ key: 'shelf', label: '上架' })
+    if (canAction(row.status, 'unshelf')) items.push({ key: 'unshelf', label: '下架' })
+    if (canAction(row.status, 'deprecate')) items.push({ key: 'deprecate', label: '弃用', danger: true })
+    if (canAction(row.status, 'restore')) items.push({ key: 'restore', label: '恢复为草稿' })
+    return items
+  }
+
+  function onCatalogAction(row: SourceCatalogItem, action: RowActionItem) {
+    switch (action.key) {
+      case 'edit':
+        openEdit(row)
+        break
+      case 'versions':
+        openVersions(row)
+        break
+      case 'rebind':
+        openRebind([row])
+        break
+      case 'pull':
+        handlePull(row)
+        break
+      case 'approve':
+      case 'reject':
+      case 'shelf':
+      case 'unshelf':
+      case 'deprecate':
+      case 'restore':
+        runStatus(row, action.key)
+        break
     }
   }
 

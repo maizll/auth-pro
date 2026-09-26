@@ -88,14 +88,14 @@
 
         <!-- 操作 -->
         <template #operation="{ row }">
-          <ElButton link type="primary" @click="handleVersions(row)">版本</ElButton>
-          <ElButton link type="primary" @click="handleSDKPack(row)">SDK 包</ElButton>
-          <ElButton link type="primary" @click="handleEdit(row)">编辑</ElButton>
-          <ElButton link type="primary" @click="handleResetSecret(row)">重置密钥</ElButton>
-          <ElButton v-if="!row.archived" link type="danger" @click="handleDelete(row)"
-            >归档</ElButton
-          >
-          <ElButton v-else link type="primary" @click="handleRestore(row)">恢复</ElButton>
+          <RowActions
+            :primary="[
+              { key: 'edit', label: '编辑' },
+              { key: 'versions', label: '版本' }
+            ]"
+            :more="appMoreActions(row)"
+            @click="(action) => onAppAction(row, action)"
+          />
         </template>
       </ArtTable>
     </ElCard>
@@ -223,6 +223,8 @@
     openCommercialUpgrade,
     rememberCommercialAccount
   } from '@/utils/commercial'
+  import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
+  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchLicenseAppList,
@@ -281,7 +283,7 @@
     name: [{ required: true, message: '请输入应用名称', trigger: 'blur' }]
   }
 
-  const { columns, columnChecks, data, loading, refreshData, refreshRemove } = useTable({
+  const { columns, columnChecks, data, loading, refreshData, refreshRemove, toggleColumn } = useTable({
     // 核心配置
     core: {
       apiFn: fetchLicenseAppList,
@@ -312,8 +314,7 @@
         {
           prop: 'operation',
           label: '操作',
-          width: 230,
-          fixed: 'right',
+          width: 168,
           useSlot: true
         }
       ]
@@ -334,6 +335,61 @@
       }
     }
   })
+
+  const narrow = useNarrowScreen()
+  watch(
+    narrow,
+    (value) => {
+      toggleColumn?.(
+        [
+          '__index__',
+          'sale',
+          'appKey',
+          'purchaseLicenseTypes',
+          'appSecret',
+          'licenseCount',
+          'version',
+          'licenseRequired',
+          'createdAt'
+        ],
+        !value
+      )
+    },
+    { immediate: true }
+  )
+
+  function appMoreActions(row: AppRow): RowActionItem[] {
+    return [
+      { key: 'sdk', label: 'SDK 包' },
+      { key: 'secret', label: '重置密钥', danger: true },
+      row.archived
+        ? { key: 'restore', label: '恢复' }
+        : { key: 'archive', label: '归档', danger: true }
+    ]
+  }
+
+  function onAppAction(row: AppRow, action: RowActionItem) {
+    switch (action.key) {
+      case 'edit':
+        handleEdit(row)
+        break
+      case 'versions':
+        handleVersions(row)
+        break
+      case 'sdk':
+        handleSDKPack(row)
+        break
+      case 'secret':
+        handleResetSecret(row)
+        break
+      case 'archive':
+        handleDelete(row)
+        break
+      case 'restore':
+        handleRestore(row)
+        break
+    }
+  }
 
   const orderedPurchaseLicenseTypes = (types: string[] = []) => {
     return purchaseLicenseTypeOrder.filter((licenseType) => types.includes(licenseType))

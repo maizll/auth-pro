@@ -58,34 +58,13 @@
           <template #default="{ row }">{{ row.reviewNote || '-' }}</template>
         </el-table-column>
         <el-table-column prop="updatedAt" label="更新时间" width="180" />
-        <el-table-column label="操作" width="360" fixed="right">
+        <el-table-column label="操作" width="168">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openRebind([row])"
-              >切换应用</el-button
-            >
-            <el-button link type="primary" size="small" @click="openEdit(row)">
-              {{ canEditItem(row) ? '编辑' : '查看' }}
-            </el-button>
-            <el-button
-              v-if="canSubmitItem(row)"
-              link
-              type="success"
-              size="small"
-              @click="handleSubmit(row)"
-            >
-              提交审核
-            </el-button>
-            <el-button
-              v-if="row.originUrl"
-              link
-              type="primary"
-              size="small"
-              :loading="pullingId === row.id"
-              @click="handlePull(row)"
-            >
-              重新拉取
-            </el-button>
-            <el-button link type="primary" size="small" @click="openVersions(row)">版本</el-button>
+            <RowActions
+              :primary="developerPrimary(row)"
+              :more="developerMore(row)"
+              @click="(action) => onDeveloperAction(row, action)"
+            />
           </template>
         </el-table-column>
       </el-table>
@@ -470,6 +449,7 @@
   import { useRoute, useRouter } from 'vue-router'
   import type { FormInstance, FormRules, UploadFile } from 'element-plus'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import CatalogPriceSwitchDialog from '@/views/source-station/components/CatalogPriceSwitchDialog.vue'
   import { SOURCE_ITEM_STATUS, SOURCE_VERSION_STATUS } from '@/api/source-station'
   import {
@@ -827,6 +807,46 @@
   function categoryLabel(key?: string) {
     if (!key) return '-'
     return categories.value.find((item) => item.key === key)?.label || key
+  }
+
+  function developerPrimary(row: SourceDeveloperCatalogItem): RowActionItem[] {
+    return [
+      { key: 'edit', label: canEditItem(row) ? '编辑' : '查看' },
+      { key: 'versions', label: '版本' }
+    ]
+  }
+
+  function developerMore(row: SourceDeveloperCatalogItem): RowActionItem[] {
+    const items: RowActionItem[] = [{ key: 'rebind', label: '切换应用' }]
+    if (canSubmitItem(row)) items.push({ key: 'submit', label: '提交审核' })
+    if (row.originUrl) {
+      items.push({
+        key: 'pull',
+        label: '重新拉取',
+        disabled: pullingId.value === row.id
+      })
+    }
+    return items
+  }
+
+  function onDeveloperAction(row: SourceDeveloperCatalogItem, action: RowActionItem) {
+    switch (action.key) {
+      case 'edit':
+        openEdit(row)
+        break
+      case 'versions':
+        openVersions(row)
+        break
+      case 'rebind':
+        openRebind([row])
+        break
+      case 'submit':
+        handleSubmit(row)
+        break
+      case 'pull':
+        handlePull(row)
+        break
+    }
   }
 
   function canEditItem(row: SourceDeveloperCatalogItem) {
