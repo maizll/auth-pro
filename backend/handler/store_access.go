@@ -149,6 +149,19 @@ func currentBuyerAccess(c *gin.Context) buyerAccessView {
 	if !ok {
 		return view
 	}
+	if !state.ExplicitRevoked {
+		bindingID := state.Snapshot.BindingID
+		if bindingID == "" {
+			bindingID = state.BindingID
+		}
+		if stale, why := localCommercialSnapshotStale(bindingID); stale {
+			state = markLocalBuyerSnapshotRevoked(state, why)
+			// 禁用只影响这一次读取。重新启用后仍用原来的快照，不必等下一次刷新。
+			if why != "license_inactive" {
+				_ = saveBuyerSnapshot(state)
+			}
+		}
+	}
 	if domain := buyerRequestDomain(c); domain != "" {
 		view.RequestDomain = domain
 	}

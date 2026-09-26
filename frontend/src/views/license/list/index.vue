@@ -791,6 +791,7 @@
       await fetchRevokeCommercialEdition(row.id, value || '')
       ElMessage.success('已吊销商业版')
       refreshData()
+      window.dispatchEvent(new Event('store-account-refresh'))
     } catch (error) {
       if (error !== 'cancel' && error !== 'close') showCaughtError(error, '吊销失败')
     }
@@ -804,6 +805,7 @@
       await fetchToggleLicense(row.id, newStatus)
       ElMessage.success(`${action}成功`)
       refreshUpdate()
+      window.dispatchEvent(new Event('store-account-refresh'))
     } catch (error) {
       if (error !== 'cancel' && error !== 'close') {
         console.error(`[LicenseList] ${action}失败:`, error)
@@ -817,6 +819,7 @@
       await fetchDeleteLicense(row.id)
       ElMessage.success('删除成功')
       refreshRemove()
+      window.dispatchEvent(new Event('store-account-refresh'))
     } catch (error) {
       if (error !== 'cancel' && error !== 'close') {
         console.error('[LicenseList] 删除失败:', error)

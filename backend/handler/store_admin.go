@@ -242,11 +242,10 @@ func AdminStoreLicenseRevoke(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	if _, err := db.Exec(`UPDATE main_license_editions SET status = 'revoked', updated_at = NOW() WHERE license_id = ? AND status = 'active'`, licenseID); err != nil {
+	if err := revokeCommercialRightsForLicense(db, licenseID, trimStoreText(req.Reason, 200)); err != nil {
 		storeFail(c, 500, "吊销失败")
 		return
 	}
-	_, _ = db.Exec(`UPDATE store_bindings SET status = 'revoked', revoked_at = NOW(), revoke_reason = ? WHERE license_id = ? AND status = 'active'`, trimStoreText(req.Reason, 200), licenseID)
 	storeData(c, gin.H{"ok": true})
 }
 
