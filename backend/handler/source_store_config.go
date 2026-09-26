@@ -149,6 +149,26 @@ func requireEnabledStoreProductApp(db *sql.DB, productAppKey string) error {
 	return nil
 }
 
+func requireStoreFreePlan(db *sql.DB, productAppKey, freePlanID string) error {
+	planID := strings.TrimSpace(freePlanID)
+	if planID == "" {
+		return nil
+	}
+	key := strings.TrimSpace(productAppKey)
+	if key == "" {
+		return errors.New("请先选择产品应用，再选择免费套餐")
+	}
+	var appID int64
+	if err := db.QueryRow(`SELECT id FROM apps WHERE app_key = ? AND enabled = 1`, key).Scan(&appID); err != nil || appID <= 0 {
+		return errors.New("找不到该应用标识，请从 应用管理 复制 app_key")
+	}
+	var planAppID int64
+	if err := db.QueryRow(`SELECT app_id FROM license_plans WHERE id = ?`, planID).Scan(&planAppID); err != nil || planAppID != appID {
+		return errors.New("该套餐不属于所选产品应用，请到 套餐管理 选择")
+	}
+	return nil
+}
+
 func lookupEnabledStoreProductAppID(db *sql.DB, productAppKey string) (int64, error) {
 	key := strings.TrimSpace(productAppKey)
 	if key == "" {
@@ -226,6 +246,10 @@ func AdminSourceStoreSettingsSave(c *gin.Context) {
 		return
 	}
 	if err := requireEnabledStoreProductApp(db, settings.ProductAppKey); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	if err := requireStoreFreePlan(db, settings.ProductAppKey, settings.FreePlanID); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}

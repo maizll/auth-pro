@@ -82,6 +82,15 @@ async function mockSettingsAPIs(page: Page) {
       })
       return
     }
+    if (pathname === '/api/plan/list') {
+      const appId = new URL(route.request().url()).searchParams.get('appId')
+      const list =
+        appId === '1'
+          ? [{ id: 12, appId: 1, name: '免费体验', durationText: '永久', enabled: true }]
+          : [{ id: 99, appId: 2, name: '其他应用套餐', durationText: '30天', enabled: true }]
+      await route.fulfill({ status: 200, json: { code: 200, msg: '', data: list } })
+      return
+    }
     if (pathname === '/api/v1/source/admin/settings/store') {
       await route.fulfill({
         status: 200,
@@ -157,7 +166,9 @@ test('产品应用标识从已启用应用中选择', async ({ page }, testInfo)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/source-station/settings')
 
-  await expect(page.getByText('从已启用的应用里选择产品应用标识')).toBeVisible()
+  await expect(page.getByText('买家绑定源站账号时，用这里的产品应用建立主授权')).toBeVisible()
+  await expect(page.getByText('multi_app 表示允许使用多个应用')).toBeVisible()
+  await expect(page.getByText('应用授权 → 套餐管理')).toBeVisible()
   const select = page.locator('.product-app-select')
   await expect(select).toBeVisible()
   await select.click()
@@ -167,6 +178,15 @@ test('产品应用标识从已启用应用中选择', async ({ page }, testInfo)
   await expect(dropdown.getByText('已停用（old-app）')).toHaveCount(0)
   await dropdown.getByText('正式产品（good-app）').click()
   await expect(select).toContainText('正式产品（good-app）')
+
+  const planSelect = page.locator('.free-plan-select')
+  await expect(planSelect).toBeVisible()
+  await planSelect.click()
+  const planDropdown = page.locator('.el-select-dropdown:visible')
+  await expect(planDropdown.getByText('免费体验（ID 12，永久）')).toBeVisible()
+  await expect(planDropdown.getByText('其他应用套餐')).toHaveCount(0)
+  await planDropdown.getByText('免费体验（ID 12，永久）').click()
+  await expect(planSelect).toContainText('免费体验（ID 12，永久）')
 
   await page.locator('.store-card').screenshot({
     path: testInfo.outputPath('store-product-app-select.png')
