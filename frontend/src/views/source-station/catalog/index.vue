@@ -6,11 +6,9 @@
           <div>
             <span class="card-title">公开软件源目录</span>
             <p class="card-hint">
-              软件源按应用隔离。上架、下架、改元数据/版本或自定义分类后会自动写入公开目录，无需再点重生。消费者在「软件源管理」为对应应用添加
+              软件源按应用分开。上架、下架、修改资料或分类后会自动更新公开目录，不用再手动重生。买家在「软件源管理」里为对应应用添加
               <code>{{ publicIndexUrl }}</code>
-              （兼容 <code>?app_key=</code>）。未带 app_key 的
-              <code>/software-source/index.json</code> 返回空目录，不会串应用。公开清单仍按分类拆出
-              <code>plugins</code> 与 <code>homeTemplates</code>。
+              。不指定应用时目录是空的，不会把不同应用混在一起。插件和首页模板会分开展示。
             </p>
           </div>
           <div class="table-actions">

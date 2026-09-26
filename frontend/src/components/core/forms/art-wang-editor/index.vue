@@ -25,6 +25,7 @@
   import EmojiText from '@/utils/ui/emojo'
   import { IDomEditor, IToolbarConfig, IEditorConfig } from '@wangeditor/editor'
   import request from '@/utils/http'
+  import { showCaughtError } from '@/utils/http/error-toast'
 
   defineOptions({ name: 'ArtWangEditor' })
 
@@ -164,7 +165,7 @@
         ElMessage.success(`图片上传成功 ${EmojiText[200]}`)
       } catch (error) {
         console.error('图片上传失败:', error)
-        ElMessage.error(`图片上传失败 ${EmojiText[500]}`)
+        showCaughtError(error, `图片上传失败 ${EmojiText[500]}`)
       }
     }
   }

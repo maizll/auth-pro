@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -125,14 +126,27 @@ func onlineSettlementRoute(orderNo string) string {
 }
 
 func nextEditionExpiry(period string, current *time.Time, now time.Time) *time.Time {
-	if period != storePeriodYearly {
+	days := 0
+	switch period {
+	case storePeriodYearly:
+		days = 365
+	case storePeriodPermanent, "":
 		return nil
+	default:
+		if !strings.HasPrefix(period, "d") {
+			return nil
+		}
+		n, err := strconv.Atoi(strings.TrimPrefix(period, "d"))
+		if err != nil || n <= 0 {
+			return nil
+		}
+		days = n
 	}
 	base := now
 	if current != nil && current.After(now) {
 		base = *current
 	}
-	next := base.AddDate(0, 0, 365)
+	next := base.AddDate(0, 0, days)
 	return &next
 }
 

@@ -148,6 +148,7 @@ var sourceStationMigrationNames = []string{
 	"plugin_entitlements_v1",
 	"store_revenue_ledger_v1",
 	"licenses_source_store_bind_v1",
+	"licenses_source_store_purchase_v1",
 	"license_domain_changes_v1",
 }
 

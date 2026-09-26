@@ -5,7 +5,7 @@
         <div>
           <h2 class="panel-title">首页模板管理</h2>
           <p class="panel-subtitle">
-            管理 <code>/user/login</code> 的首页展示模板，启用后访问路径保持不变
+            管理登录页展示的首页模板，启用后访问地址保持不变
           </p>
         </div>
         <div class="panel-header-actions">
@@ -152,6 +152,7 @@
   import TemplateActions from './TemplateActions.vue'
   import { computed, onMounted, ref } from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { showCaughtError } from '@/utils/http/error-toast'
   import { Refresh } from '@element-plus/icons-vue'
   import {
     fetchEnableHomeTemplate,
@@ -216,7 +217,7 @@
     } catch (error: any) {
       templates.value = []
       loadError.value = error?.message || '首页模板列表加载失败，请稍后重试'
-      ElMessage.error(loadError.value)
+      showCaughtError(error, loadError.value)
     }
   }
 
@@ -237,7 +238,7 @@
       ElMessage.success(successText)
       await loadAll()
     } catch (error: any) {
-      ElMessage.error(error?.message || '操作失败，请稍后重试')
+      showCaughtError(error, '操作失败，请稍后重试')
     } finally {
       togglingId.value = ''
     }

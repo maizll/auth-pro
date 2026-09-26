@@ -6,9 +6,7 @@
           <div>
             <span class="card-title">{{ title }}（共 {{ items.length }} 条）</span>
             <p class="card-hint">
-              可以上传 ZIP，由本站保存并自动填写地址和校验码；也可以登记外部
-              HTTPS。免费外链在提交审核时检查能否下载、是不是 ZIP、校验码是否一致。付费条目填写
-              HTTPS 外链时，保存时本站立即拉取并私有托管，买家看不到外链。
+              可以上传压缩包，由本站保存并自动填写地址和校验码；也可以登记外部网址。免费外链在提交审核时检查能否下载、是不是压缩包、校验码是否一致。付费条目填写 https 网址时，保存时本站立即拉取并私有托管，买家看不到外链。
             </p>
           </div>
           <el-button type="primary" @click="openEdit()">{{ createLabel }}</el-button>
@@ -148,7 +146,7 @@
         <el-form-item label="售价（元）">
           <el-input v-model="form.priceYuan" :disabled="!canEditMeta" placeholder="0" />
           <p class="field-help">
-            填 0 表示免费。大于 0 为买断：可上传 ZIP，或填写 HTTPS 外链由本站立即拉取并私有托管。付费上架尚未开放。
+            填 0 表示免费。大于 0 为买断：可上传压缩包，或填写 https 网址由本站立即拉取并私有托管。付费上架尚未开放。
           </p>
         </el-form-item>
         <el-form-item label="包来源">
@@ -157,12 +155,12 @@
             :disabled="!canEditPackage"
             @change="onPackageSourceChange('form')"
           >
-            <el-radio value="upload">上传 ZIP（本站托管）</el-radio>
+            <el-radio value="upload">上传压缩包（本站托管）</el-radio>
             <el-radio value="external">外部 HTTPS</el-radio>
           </el-radio-group>
           <p class="field-help">{{ packageSourceHelp }}</p>
         </el-form-item>
-        <el-form-item v-if="form.packageSource === 'upload'" label="ZIP 文件">
+        <el-form-item v-if="form.packageSource === 'upload'" label="压缩包">
           <el-upload
             :auto-upload="false"
             :show-file-list="false"
@@ -170,15 +168,15 @@
             :disabled="!canEditPackage || uploading"
             :on-change="(file) => handlePackageFile('form', file)"
           >
-            <el-button :loading="uploading" :disabled="!canEditPackage">选择 ZIP</el-button>
+            <el-button :loading="uploading" :disabled="!canEditPackage">选择压缩包</el-button>
           </el-upload>
-          <p class="field-help">上传后自动填写地址和 SHA256。不合规的包不会保存。</p>
+          <p class="field-help">上传后自动填写地址和校验码。不合规的包不会保存。</p>
         </el-form-item>
         <el-form-item :label="locationLabel" prop="location">
           <el-input
             v-model="form.location"
             :disabled="!canEditPackage || form.packageSource === 'upload'"
-            :placeholder="form.packageSource === 'upload' ? '上传 ZIP 后自动填写' : locationPlaceholder"
+            :placeholder="form.packageSource === 'upload' ? '上传压缩包后自动填写' : locationPlaceholder"
           />
           <p class="field-help">{{ locationHelp }}</p>
         </el-form-item>
@@ -188,7 +186,7 @@
             {{ currentItem.originHint || '本站已拉取并私有托管。买家看不到这条外链。' }}
           </p>
         </el-form-item>
-        <el-form-item label="校验码 (SHA256)" prop="sha256">
+        <el-form-item label="校验码" prop="sha256">
           <div class="checksum-row">
             <el-input
               v-model="form.sha256"
@@ -207,10 +205,10 @@
           <p class="field-help">
             {{
               form.packageSource === 'upload'
-                ? '由本站按 ZIP 内容计算，不能手改。'
+                ? '由本站按压缩包内容计算，不能手改。'
                 : formServerPulls
                   ? '付费外链由本站拉取后自动计算，不用手填。'
-                  : '64位，可用 sha256sum 计算；粘贴下载后也可稍后补'
+                  : '64 位。粘贴下载地址后也可以稍后补上'
             }}
           </p>
         </el-form-item>
@@ -234,7 +232,7 @@
             </el-form-item>
             <el-form-item v-if="kind === 'plugin'" label="图标">
               <el-input v-model="form.icon" :disabled="!canEditMeta" placeholder="ri:puzzle-line" />
-              <p class="field-help">Iconify 图标名，缺省为拼图图标。</p>
+              <p class="field-help">图标名称，不填则使用默认拼图图标。</p>
             </el-form-item>
             <el-form-item label="更新说明">
               <el-input
@@ -347,11 +345,11 @@
               v-model="versionForm.packageSource"
               @change="onPackageSourceChange('version')"
             >
-              <el-radio value="upload">上传 ZIP（本站托管）</el-radio>
+              <el-radio value="upload">上传压缩包（本站托管）</el-radio>
               <el-radio value="external">外部 HTTPS</el-radio>
             </el-radio-group>
           </el-form-item>
-          <el-form-item v-if="versionForm.packageSource === 'upload'" label="ZIP 文件">
+          <el-form-item v-if="versionForm.packageSource === 'upload'" label="压缩包">
             <el-upload
               :auto-upload="false"
               :show-file-list="false"
@@ -359,18 +357,18 @@
               :disabled="uploading"
               :on-change="(file) => handlePackageFile('version', file)"
             >
-              <el-button :loading="uploading">选择 ZIP</el-button>
+              <el-button :loading="uploading">选择压缩包</el-button>
             </el-upload>
           </el-form-item>
           <el-form-item :label="locationLabel" required>
             <el-input
               v-model="versionForm.location"
               :disabled="versionForm.packageSource === 'upload'"
-              :placeholder="versionForm.packageSource === 'upload' ? '上传 ZIP 后自动填写' : locationPlaceholder"
+              :placeholder="versionForm.packageSource === 'upload' ? '上传压缩包后自动填写' : locationPlaceholder"
             />
             <p class="field-help">{{ versionLocationHelp }}</p>
           </el-form-item>
-          <el-form-item label="校验码 (SHA256)" required>
+          <el-form-item label="校验码" required>
             <div class="checksum-row">
               <el-input
                 v-model="versionForm.sha256"
@@ -389,10 +387,10 @@
             <p class="field-help">
               {{
                 versionForm.packageSource === 'upload'
-                  ? '由本站按 ZIP 内容计算。'
+                  ? '由本站按压缩包内容计算。'
                   : versionServerPulls
                     ? '付费外链由本站拉取后自动计算，不用手填。'
-                    : '64位，可用 sha256sum 计算后粘贴。提交审核时会核对文件。'
+                    : '64 位。提交审核时会核对文件。'
               }}
             </p>
           </el-form-item>
@@ -542,20 +540,20 @@
   )
   const packageSourceHelp = computed(() => {
     if (formPriceCents.value > 0) {
-      return '付费条目可以上传 ZIP，或填写 HTTPS 外链。外链会立即拉取到本站私有目录，并自动计算校验码。买家看不到外链。'
+      return '付费条目可以上传压缩包，或填写 https 网址。外链会立即拉取到本站私有目录，并自动计算校验码。买家看不到外链。'
     }
     return props.kind === 'template'
-      ? '上传 ZIP 由本站托管；外部地址可以是 HTTPS，或相对路径如 templates/demo-home.json。'
-      : '上传 ZIP 由本站托管并生成地址；外部地址必须是 HTTPS。'
+      ? '上传压缩包由本站托管；外部地址可以是 https 网址，或本站上已有文件的相对路径。'
+      : '上传压缩包由本站托管并生成地址；外部地址必须是 https 网址。'
   })
   function locationHelpFor(source: 'upload' | 'external', cents: number) {
     if (source === 'upload') return '本站地址由上传结果填入，提交时只核对本地文件。'
     if (cents > 0) {
-      return '填写 HTTPS 外链。保存时本站立即拉取 ZIP、校验并私有托管，自动填写校验码。失败不会保存。'
+      return '填写 https 网址。保存时本站立即拉取压缩包、校验并私有托管，自动填写校验码。失败不会保存。'
     }
     return props.kind === 'template'
-      ? '填 HTTPS 外链，或相对路径例如 templates/demo-home.json。提交审核时会下载 HTTPS 并核对 ZIP 与校验码。'
-      : '填 HTTPS 外链。提交审核时会下载并核对是不是 ZIP、校验码是否一致。'
+      ? '填写 https 网址，或本站上已有文件的相对路径。提交审核时会下载并核对压缩包与校验码。'
+      : '填写 https 网址。提交审核时会下载并核对是不是压缩包、校验码是否一致。'
   }
   const locationHelp = computed(() => locationHelpFor(form.packageSource, formPriceCents.value))
   const versionLocationHelp = computed(() =>
@@ -614,7 +612,7 @@
             return
           }
           if (form.packageSource === 'upload') {
-            callback(new Error('请先上传 ZIP'))
+            callback(new Error('请先上传压缩包'))
             return
           }
           const ok = props.kind === 'template' ? isTemplateLocation(raw) : isHttpsLocation(raw)
@@ -1126,7 +1124,7 @@
       !isPrivatePackageLocation(versionForm.location) &&
       !isHttpsLocation(versionForm.location)
     ) {
-      ElMessage.warning('付费条目请上传 ZIP，或填写 HTTPS 外链由本站拉取托管')
+      ElMessage.warning('付费条目请上传压缩包，或填写 https 网址由本站拉取托管')
       return
     }
     if (

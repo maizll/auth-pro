@@ -88,6 +88,9 @@ func settleStorePurchaseOrder(db *sql.DB, orderNo string, paidCents int64, chann
 			VALUES (?, 'commercial', ?, NOW(), ?, 'active', ?)`, licenseID, period, exp, id); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(`UPDATE licenses SET source = 'store_purchase' WHERE id = ?`, licenseID); err != nil {
+			return err
+		}
 	case "plugin", "template":
 		if _, err := tx.Exec(`INSERT INTO plugin_entitlements
 			(order_id, license_id, owner_type, owner_id, item_kind, item_id, period, source, status)
@@ -110,21 +113,10 @@ func StoreEditionPlans(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	rows, err := db.Query(`SELECT id, name, period, price_cents FROM store_edition_plans
-		WHERE enabled = 1 AND period = ? ORDER BY sort, id`, storePeriodPermanent)
+	list, err := listCommercialSalePlans(db)
 	if err != nil {
 		storeFail(c, 500, "读取套餐失败")
 		return
-	}
-	defer rows.Close()
-	list := make([]gin.H, 0)
-	for rows.Next() {
-		var id, price int64
-		var name, period string
-		if err := rows.Scan(&id, &name, &period, &price); err != nil {
-			continue
-		}
-		list = append(list, gin.H{"id": id, "name": name, "period": period, "priceCents": price})
 	}
 	storeData(c, gin.H{"list": list})
 }
@@ -151,21 +143,9 @@ func StoreOrderCreate(c *gin.Context) {
 		return
 	}
 	db := c.MustGet("storeDB").(*sql.DB)
-	var name, period string
-	var price int64
-	var enabled bool
-	err := db.QueryRow(`SELECT name, period, price_cents, enabled FROM store_edition_plans WHERE id = ?`, req.PlanID).
-		Scan(&name, &period, &price, &enabled)
-	if err != nil || !enabled {
-		storeFail(c, 400, "套餐不存在或未启用")
-		return
-	}
-	if period != storePeriodPermanent {
-		storeFail(c, 400, "年付尚未开放")
-		return
-	}
-	if price <= 0 {
-		storeFail(c, 400, "套餐价格不正确")
+	name, period, price, err := loadCommercialSalePlan(db, req.PlanID)
+	if err != nil {
+		storeFail(c, 400, err.Error())
 		return
 	}
 	orderNo := storeOrderPrefix + strconv.FormatInt(time.Now().Unix(), 10) + randomHex(4)

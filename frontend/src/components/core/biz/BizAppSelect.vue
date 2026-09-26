@@ -25,7 +25,7 @@
   generic="T extends string | number | Array<string | number> | null | undefined"
 >
   import { computed, onMounted, ref } from 'vue'
-  import { ElMessage } from 'element-plus'
+  import { showCaughtError } from '@/utils/http/error-toast'
   import { loadBizApps } from './load-apps'
   import {
     appLoadErrorText,
@@ -87,10 +87,10 @@
     try {
       const raw = props.loader ? await props.loader() : await loadBizApps(props.api)
       options.value = props.loader ? normalizeAppOptions(raw) : (raw as BizAppOption[])
-    } catch {
+    } catch (error) {
       options.value = []
       const message = props.loader ? undefined : appLoadErrorText(props.api)
-      if (message) ElMessage.error(message)
+      if (message) showCaughtError(error, message)
     } finally {
       loading.value = false
     }

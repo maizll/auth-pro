@@ -315,6 +315,7 @@ func main() {
 			// 打包下载不改业务数据，仍只要求管理员身份。
 			secured.POST("/sdk/pack", handler.AdminSDKPackDownload)
 			licenseApps.POST("/app/create", handler.AppCreate)
+			licenseApps.POST("/app/store-snapshot-key", handler.AppEnsureStoreSnapshotKey)
 			licenseApps.PUT("/app/:id", handler.AppUpdate)
 			licenseApps.PUT("/app/:id/license-required", handler.AppLicenseRequiredUpdate)
 			licenseApps.PUT("/app/:id/reset-secret", handler.AppResetSecret)

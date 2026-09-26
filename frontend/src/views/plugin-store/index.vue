@@ -3,13 +3,15 @@
     <ElCard shadow="never" class="art-table-card">
       <div class="store-account-bar">
         <CommercialMark :icon="accountIcon" :text="accountText" :tone="accountTone" />
-        <ElButton type="primary" @click="openCommercialUpgrade">升级商业版</ElButton>
+        <ElButton v-if="storeAccount" type="primary" @click="openCommercialUpgrade">
+          {{ commercialCtaLabel(commercialCta(storeAccount)) }}
+        </ElButton>
       </div>
       <div class="store-header">
         <div>
           <h2 class="store-title">应用商店</h2>
           <p class="store-subtitle">
-            按软件源 index.categories 筛选（含自定义分类）；首页模板单独分区
+            浏览并安装插件和首页模板
           </p>
         </div>
         <div class="store-header-actions">
@@ -291,9 +293,7 @@
         </template>
       </ElTable>
       <div class="source-tip">
-        支持 JSON 清单 URL（本站源站请用
-        <code>/software-source/{app_key}/index.json</code>，每个应用一条，避免串目录）或 HTTP(S)
-        Git 仓库地址；Git 仓库根目录需包含 index.json。
+        可以填写软件源地址，或填写 Git 仓库地址。本站请为每个应用单独添加一条，避免不同应用的目录混在一起。Git 仓库的根目录需要有软件清单。
       </div>
     </ElDialog>
 
@@ -305,10 +305,18 @@
   import TemplateActions from '@/views/home-template/TemplateActions.vue'
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
   import { fetchStoreAccount, fetchStoreCatalog, type StoreAccount, type StoreCatalogItem } from '@/api/store'
-  import { commercialText, openCommercialPrompt, openCommercialUpgrade } from '@/utils/commercial'
+  import {
+    commercialCta,
+    commercialCtaLabel,
+    commercialText,
+    openCommercialPrompt,
+    openCommercialUpgrade,
+    rememberCommercialAccount
+  } from '@/utils/commercial'
   import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { showCaughtError } from '@/utils/http/error-toast'
   import { FolderAdd, Refresh, Search } from '@element-plus/icons-vue'
   import {
     fetchAddPluginSource,
@@ -438,7 +446,7 @@
         categories.value = []
         sources.value = []
         loadError.value = pluginResult.reason?.message || '插件商店加载失败，请稍后重试'
-        ElMessage.error(loadError.value)
+        showCaughtError(pluginResult.reason, loadError.value)
       }
 
       if (templateResult.status === 'fulfilled') {
@@ -462,7 +470,7 @@
       await Promise.all(sources.value.map((source) => fetchRefreshPluginSource(source.id)))
       ElMessage.success('软件源已刷新')
     } catch (error: any) {
-      ElMessage.error(error?.message || '部分软件源刷新失败')
+      showCaughtError(error, '部分软件源刷新失败')
     } finally {
       loading.value = false
       await loadPlugins(true)
@@ -476,7 +484,7 @@
       ElMessage.success(`「${source.name}」刷新成功`)
       await loadPlugins()
     } catch (error: any) {
-      ElMessage.error(error?.message || '软件源刷新失败')
+      showCaughtError(error, '软件源刷新失败')
     } finally {
       refreshingSourceId.value = null
     }
@@ -537,6 +545,7 @@
       storeAccount.value = await fetchStoreAccount()
       const data = await fetchStoreCatalog()
       catalog.value = data.list || []
+      rememberCommercialAccount(storeAccount.value)
     } catch {
       storeAccount.value = {
         bound: false,
@@ -560,6 +569,7 @@
         trustProxy: false,
         installId: ''
       }
+      rememberCommercialAccount(storeAccount.value)
     }
   }
 
@@ -585,7 +595,7 @@
       ElMessage.success(plugin.enabled ? '插件已停用' : `已启用「${plugin.name}」`)
       await loadPlugins()
     } catch (error: any) {
-      if (error?.code !== 402) ElMessage.error(error?.message || '操作失败')
+      if (error?.code !== 402) showCaughtError(error, '操作失败')
     } finally {
       togglingId.value = ''
     }
@@ -598,7 +608,7 @@
       ElMessage.success(`「${plugin.name}」已下载、解压并安装`)
       await loadPlugins()
     } catch (error: any) {
-      ElMessage.error(error?.message || '插件下载安装失败')
+      showCaughtError(error, '插件下载安装失败')
     } finally {
       downloadingId.value = ''
     }
@@ -618,7 +628,7 @@
       newSourceName.value = ''
       await loadPlugins()
     } catch (e: any) {
-      ElMessage.error(e?.message || '软件源添加失败，请检查清单地址')
+      showCaughtError(e, '软件源添加失败，请检查清单地址')
     } finally {
       addingSource.value = false
     }
@@ -642,8 +652,8 @@
       await fetchDeletePluginSource(row.id)
       ElMessage.success('软件源已删除')
       await loadPlugins()
-    } catch {
-      ElMessage.error('删除失败')
+    } catch (error) {
+      showCaughtError(error, '删除失败')
     }
   }
 

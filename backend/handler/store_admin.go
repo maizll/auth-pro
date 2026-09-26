@@ -13,10 +13,10 @@ import (
 
 func registerStoreAdminRoutes(admin *gin.RouterGroup) {
 	read := admin.Group("/store")
-	edition := admin.Group("/store", middleware.RequireMenu(middleware.MenuSourceStationEdition))
-	orders := admin.Group("/store", middleware.RequireMenu(middleware.MenuSourceStationStoreOrders))
-	licenses := admin.Group("/store", middleware.RequireMenu(middleware.MenuSourceStationStoreLicenses))
-	revenue := admin.Group("/store", middleware.RequireMenu(middleware.MenuSourceStationStoreRevenue))
+	edition := admin.Group("/store", middleware.RequireMenu(middleware.MenuLicensePlans))
+	orders := admin.Group("/store", middleware.RequireMenu(middleware.MenuOrderList))
+	licenses := admin.Group("/store", middleware.RequireMenu(middleware.MenuLicenseList))
+	revenue := admin.Group("/store", middleware.RequireMenu(middleware.MenuOrderList))
 
 	read.GET("/plans", AdminStorePlans)
 	edition.POST("/plans", AdminStorePlanSave)

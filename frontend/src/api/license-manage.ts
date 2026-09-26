@@ -35,6 +35,9 @@ export interface LicenseItem {
   typeLabel: string
   status: string
   statusLabel: string
+  source?: string
+  sourceLabel?: string
+  commercialActive?: boolean
   expireAt: string
   verifyCount: number
   boundSites?: number
@@ -50,6 +53,7 @@ export interface LicenseSearchParams {
   keyword?: string
   type?: string
   status?: string
+  source?: string
   appId?: string | number
 }
 
@@ -71,6 +75,12 @@ export interface LicensePlanOption {
 }
 
 /** 应用列表项 */
+export interface AppSaleGap {
+  code: string
+  label: string
+  path?: string
+}
+
 export interface LicenseAppItem {
   id: number
   name: string
@@ -82,6 +92,12 @@ export interface LicenseAppItem {
   versionCount: number
   enabled: boolean
   licenseRequired: boolean
+  commercialProduct?: boolean
+  saleGaps?: AppSaleGap[]
+  graceDays?: number
+  revokeOnPasswordChange?: boolean
+  commercialFeatures?: string[]
+  remark?: string
   createdAt: string
 }
 
@@ -256,21 +272,45 @@ export function fetchLicenseAppList() {
 }
 
 /** 新增应用 */
-export function fetchCreateLicenseApp(params: {
+export interface CommercialAppPayload {
   name: string
   enabled: boolean
   remark: string
   purchaseLicenseTypes: string[]
-}) {
-  return request.post({ url: '/api/app/create', params })
+  commercialProduct?: boolean
+  graceDays?: number
+  revokeOnPasswordChange?: boolean
+  commercialFeatures?: string[]
+}
+
+export function fetchCreateLicenseApp(params: CommercialAppPayload) {
+  return request.post<{ id: number; switched?: boolean }>({ url: '/api/app/create', params })
 }
 
 /** 编辑应用 */
-export function fetchUpdateLicenseApp(
-  id: number,
-  params: { name: string; enabled: boolean; remark: string; purchaseLicenseTypes: string[] }
-) {
-  return request.put({ url: `/api/app/${id}`, params })
+export function fetchUpdateLicenseApp(id: number, params: CommercialAppPayload) {
+  return request.put<{ switched?: boolean }>({ url: `/api/app/${id}`, params })
+}
+
+/** 补生成商店签名密钥 */
+export function fetchEnsureStoreSnapshotKey() {
+  return request.post({ url: '/api/app/store-snapshot-key', showSuccessMessage: true })
+}
+
+export function fetchGrantCommercialEdition(id: number) {
+  return request.post({
+    url: `/api/v1/source/admin/store/licenses/${id}/grant`,
+    data: { period: 'permanent' },
+    showSuccessMessage: true
+  })
+}
+
+export function fetchRevokeCommercialEdition(id: number, reason: string) {
+  return request.post({
+    url: `/api/v1/source/admin/store/licenses/${id}/revoke`,
+    data: { reason },
+    showSuccessMessage: true
+  })
 }
 
 /** 删除应用 */

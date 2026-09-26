@@ -17,6 +17,7 @@
     keyword?: string
     type?: string
     status?: string
+    source?: string
     appId?: number | string
   }
 
@@ -73,6 +74,15 @@
     { label: '已禁用', value: 'disabled' }
   ]
 
+  const sourceOptions = [
+    { label: '管理员', value: 'admin' },
+    { label: '代理商', value: 'agent' },
+    { label: '用户购买', value: 'user_purchase' },
+    { label: '卡密', value: 'card' },
+    { label: '商店绑定', value: 'store_bind' },
+    { label: '商店购买', value: 'store_purchase' }
+  ]
+
   /**
    * 搜索表单配置项
    */
@@ -102,6 +112,16 @@
       props: {
         placeholder: '全部',
         options: statusOptions,
+        clearable: true
+      }
+    },
+    {
+      label: '来源',
+      key: 'source',
+      type: 'select',
+      props: {
+        placeholder: '全部',
+        options: sourceOptions,
         clearable: true
       }
     },

@@ -4,11 +4,9 @@
       <template #header>
         <div class="table-header">
           <div>
-            <span class="card-title">Release / 仓库 Token</span>
+            <span class="card-title">发布仓库令牌</span>
             <p class="card-hint">
-              校验通过的 ZIP 可推送到 GitHub/Gitee Release，源站只保存附件 https 地址与
-              sha256。令牌仅保存在服务端，GET 只返回掩码。「测试连接」验证仓库可达与令牌权限（不创建
-              Release）。
+              校验通过的压缩包可以推送到 GitHub 或 Gitee 的发布页。源站只保存下载地址和校验码。令牌只存在服务器上，页面只显示掩码。「测试连接」只检查仓库和令牌是否可用，不会创建发布。
             </p>
           </div>
           <div class="table-actions">
@@ -29,19 +27,19 @@
       </el-alert>
 
       <el-form :model="form" label-width="140px" class="settings-form">
-        <el-form-item label="Provider">
+        <el-form-item label="代码平台">
           <el-radio-group v-model="form.provider">
             <el-radio value="github">GitHub</el-radio>
             <el-radio value="gitee">Gitee</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="Owner">
+        <el-form-item label="所有者">
           <el-input v-model.trim="form.owner" placeholder="组织或用户名" />
         </el-form-item>
         <el-form-item label="仓库">
           <el-input v-model.trim="form.repo" placeholder="仓库名" />
         </el-form-item>
-        <el-form-item label="Token">
+        <el-form-item label="访问令牌">
           <el-input
             v-model="form.token"
             type="password"
@@ -51,44 +49,12 @@
             "
           />
         </el-form-item>
-        <el-form-item label="Tag 策略">
+        <el-form-item label="版本标签">
           <el-input v-model.trim="form.tagStrategy" placeholder="{id}-{version}" />
+          <p class="field-hint">一般保持默认即可，用来给每次发布命名。</p>
         </el-form-item>
         <el-form-item v-if="form.provider === 'gitee'" label="Gitee 分支">
           <el-input v-model.trim="form.branch" placeholder="master" />
-        </el-form-item>
-      </el-form>
-    </el-card>
-
-    <el-card v-loading="storeLoading" shadow="never" class="art-card store-card">
-      <template #header>
-        <div class="table-header">
-          <div>
-            <span class="card-title">商店预留</span>
-            <p class="card-hint">
-              只保存产品应用标识和免费套餐 ID，供后续购买与交付使用。这里不校验应用或套餐是否存在，也不开放付费上架。
-            </p>
-          </div>
-          <div class="table-actions">
-            <el-button type="primary" :loading="storeSaving" @click="handleStoreSave">保存</el-button>
-          </div>
-        </div>
-      </template>
-      <el-form :model="storeForm" label-width="140px" class="settings-form">
-        <el-form-item label="产品应用标识">
-          <el-input v-model.trim="storeForm.productAppKey" placeholder="可留空" />
-        </el-form-item>
-        <el-form-item label="免费套餐 ID">
-          <el-input v-model.trim="storeForm.freePlanId" placeholder="可留空，正整数" />
-        </el-form-item>
-        <el-form-item label="离线宽限天数">
-          <el-input-number v-model="storeForm.graceDays" :min="1" :max="30" />
-        </el-form-item>
-        <el-form-item label="改密撤销绑定">
-          <el-switch v-model="storeForm.revokeOnPasswordChange" />
-        </el-form-item>
-        <el-form-item label="商业版功能键">
-          <el-input v-model.trim="storeForm.commercialFeatures" placeholder="multi_app" />
         </el-form-item>
       </el-form>
     </el-card>
@@ -100,9 +66,7 @@
   import { ElMessage } from 'element-plus'
   import {
     fetchSourceReleaseSettings,
-    fetchSourceStoreSettings,
     saveSourceReleaseSettings,
-    saveSourceStoreSettings,
     testSourceReleaseSettings,
     type SourceReleaseSettings
   } from '@/api/source-station'
@@ -120,15 +84,6 @@
     tokenMasked: '',
     configured: false
   })
-  const storeLoading = ref(false)
-  const storeSaving = ref(false)
-  const storeForm = reactive({
-    productAppKey: '',
-    freePlanId: '',
-    graceDays: 7,
-    revokeOnPasswordChange: true,
-    commercialFeatures: 'multi_app'
-  })
   const form = reactive({
     provider: 'github',
     owner: '',
@@ -143,10 +98,10 @@
   const missingFields = computed(() => {
     const missing: string[] = []
     const provider = form.provider.trim().toLowerCase()
-    if (provider !== 'github' && provider !== 'gitee') missing.push('Provider')
-    if (!form.owner.trim()) missing.push('Owner')
+    if (provider !== 'github' && provider !== 'gitee') missing.push('代码平台')
+    if (!form.owner.trim()) missing.push('所有者')
     if (!form.repo.trim()) missing.push('仓库')
-    if (!formHasToken.value) missing.push('Token')
+    if (!formHasToken.value) missing.push('访问令牌')
     return missing
   })
 
@@ -154,7 +109,7 @@
 
   const alertTitle = computed(() => {
     if (formReady.value) {
-      return '当前表单已齐：上传时可推送 Release（保存后生效）'
+      return '当前表单已齐：上传时可推送到发布页（保存后生效）'
     }
     return `当前表单不完整，缺少：${missingFields.value.join('、')}`
   })
@@ -164,55 +119,10 @@
       return '服务端已保存完整配置。表单改动需点击「保存设置」后才会写入服务端。'
     }
     if (formReady.value) {
-      return '服务端尚未保存完整配置，请点击「保存设置」后上传才会推送 Release。'
+      return '服务端尚未保存完整配置，请点击「保存设置」后上传才会推送到发布页。'
     }
     return '尚未配置完整，上传时需粘贴外部 https 地址。'
   })
-
-  async function loadStoreSettings() {
-    storeLoading.value = true
-    try {
-      const data = await fetchSourceStoreSettings()
-      storeForm.productAppKey = data.productAppKey || ''
-      storeForm.freePlanId = data.freePlanId || ''
-      storeForm.graceDays = data.graceDays || 7
-      storeForm.revokeOnPasswordChange = data.revokeOnPasswordChange !== false
-      storeForm.commercialFeatures = (data.commercialFeatures || ['multi_app']).join(',')
-    } finally {
-      storeLoading.value = false
-    }
-  }
-
-  async function handleStoreSave() {
-    const appKey = storeForm.productAppKey.trim()
-    const plan = storeForm.freePlanId.trim()
-    if (appKey && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(appKey)) {
-      ElMessage.warning('产品应用标识不合法')
-      return
-    }
-    if (plan && !/^[1-9]\d*$/.test(plan)) {
-      ElMessage.warning('免费套餐 ID 须为正整数')
-      return
-    }
-    storeSaving.value = true
-    try {
-      const data = await saveSourceStoreSettings({
-        productAppKey: appKey,
-        freePlanId: plan,
-        graceDays: storeForm.graceDays,
-        revokeOnPasswordChange: storeForm.revokeOnPasswordChange,
-        commercialFeatures: storeForm.commercialFeatures.split(',').map((item) => item.trim()).filter(Boolean)
-      })
-      storeForm.productAppKey = data.productAppKey || ''
-      storeForm.freePlanId = data.freePlanId || ''
-      storeForm.graceDays = data.graceDays || 7
-      storeForm.revokeOnPasswordChange = data.revokeOnPasswordChange !== false
-      storeForm.commercialFeatures = (data.commercialFeatures || ['multi_app']).join(',')
-      ElMessage.success('已保存商店设置')
-    } finally {
-      storeSaving.value = false
-    }
-  }
 
   async function loadSettings() {
     loading.value = true
@@ -269,7 +179,6 @@
 
   onMounted(() => {
     void loadSettings()
-    void loadStoreSettings()
   })
 </script>
 
@@ -283,10 +192,6 @@
       background: var(--default-box-color);
       box-shadow: none;
     }
-  }
-
-  .store-card {
-    margin-top: 16px;
   }
 
   .table-header {
@@ -324,5 +229,17 @@
 
   .settings-form {
     max-width: 560px;
+  }
+
+  .product-app-select,
+  .free-plan-select {
+    width: 100%;
+  }
+
+  .field-hint {
+    margin: 6px 0 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--art-gray-600);
   }
 </style>

@@ -8,9 +8,8 @@
 import { RouteLocationNormalized, RouteRecordRaw } from 'vue-router'
 import NProgress from 'nprogress'
 import 'nprogress/nprogress.css'
-import i18n, { $t } from '@/locales'
 import { useSystemConfigStore } from '@/store/modules/system-config'
-import { MENU_TITLE_ZH } from '@/utils/form/menu-title'
+import { resolveMenuTitle } from '@/utils/form/menu-title'
 
 /** 扩展的路由配置类型 */
 export type AppRouteRecordRaw = RouteRecordRaw & {
@@ -47,14 +46,4 @@ export const setPageTitle = (to: RouteLocationNormalized): void => {
  * @param title 菜单标题，可以是 i18n 的 key，也可以是字符串
  * @returns 格式化后的菜单标题
  */
-export const formatMenuTitle = (title: string): string => {
-    if (!title) return ''
-    if (MENU_TITLE_ZH[title]) return MENU_TITLE_ZH[title]
-    if (title.startsWith('menus.')) {
-      if (i18n.global.te(title)) {
-        return $t(title)
-      }
-      return title.split('.').pop() || title
-    }
-    return title
-  }
+export const formatMenuTitle = (title: string): string => resolveMenuTitle(title)

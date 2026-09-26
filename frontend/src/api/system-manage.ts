@@ -387,7 +387,13 @@ export function fetchUpdateAlipayF2FConfig(data: AlipayF2FConfigData) {
   })
 }
 
-export type PaymentOrderSubjectType = 'user' | 'agent' | 'test'
+export type PaymentOrderSubjectType =
+  | 'user'
+  | 'agent'
+  | 'test'
+  | 'store_edition'
+  | 'store_plugin'
+  | 'store_template'
 export type PaymentOrderStatus = 'pending' | 'paid' | 'failed' | 'cancelled'
 
 export interface PaymentOrderSearchParams {
@@ -416,7 +422,13 @@ export interface PaymentOrderItem {
 }
 
 export function fetchPaymentOrderList(params: PaymentOrderSearchParams) {
-  return request.get<{ list: PaymentOrderItem[]; total: number; page: number; pageSize: number }>({
+  return request.get<{
+    list: PaymentOrderItem[]
+    total: number
+    page: number
+    pageSize: number
+    commercialPaidYuan?: number
+  }>({
     url: '/api/system/payment-orders',
     params
   })

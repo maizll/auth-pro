@@ -52,15 +52,13 @@
           <div>
             <span class="card-title">软件目录（共 {{ tableData.length }} 条）</span>
             <p class="card-hint">
-              插件按应用分区：先选应用，再按分类（支付 / 实名 / 其他 / 首页模板）筛选。源站只保存元数据与外部
-              HTTPS 地址，从不存储源码。上架后自动进入该应用软件源目录；下架只从
-              <code>{{ publicIndexPath }}</code> 隐藏，不会远程卸载已安装实例。弃用后会从公开软件源目录清除，不再展示；默认列表也不再把它当作在架货架项（可用状态筛「已弃用」审计）。
+              先选择应用，再按分类筛选。源站只保存说明和下载地址，不保存源码。上架后会自动出现在该应用的软件源里。下架后商店不再显示，已经安装的不会被远程卸掉。弃用后会从公开目录移除，默认列表也不再显示；需要查看时，把状态筛成「已弃用」。
             </p>
           </div>
           <div class="table-actions">
             <el-button :disabled="!searchForm.appId" @click="openRegister">登记外部地址</el-button>
             <el-button type="primary" :disabled="!searchForm.appId" @click="openUpload"
-              >上传 ZIP（硬校验）</el-button
+              >上传压缩包</el-button
             >
           </div>
         </div>
@@ -100,7 +98,7 @@
             <p v-if="row.originHint" class="card-hint">{{ row.originHint }}</p>
           </template>
         </el-table-column>
-        <el-table-column prop="sha256" label="SHA256" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="sha256" label="校验码" min-width="160" show-overflow-tooltip />
         <el-table-column prop="updatedAt" label="更新时间" width="170" />
         <el-table-column label="操作" width="420" fixed="right">
           <template #default="{ row }">
@@ -167,12 +165,12 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="uploadVisible" title="上传安装包 ZIP" width="640px" destroy-on-close>
+    <el-dialog v-model="uploadVisible" title="上传安装包" width="640px" destroy-on-close>
       <el-alert
         type="warning"
         :closable="false"
         show-icon
-        title="失败即拒绝：ZIP 必须含 plugin.json 或 template.json，必填字段合法，禁止路径穿越。校验按分类对应的清单类型执行。失败不写库、不推 Release、不留临时文件。"
+        title="校验不通过就会拒绝：压缩包里要有合法的插件或模板清单，不能包含越界路径。失败不会保存，也不会推送到发布页。"
         class="mb-3"
       />
       <el-form label-width="120px">
@@ -186,7 +184,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="ZIP 文件" required>
+        <el-form-item label="压缩包" required>
           <el-upload
             drag
             :auto-upload="false"
@@ -194,7 +192,7 @@
             accept=".zip,application/zip"
             :on-change="selectUploadFile"
           >
-            <div>{{ uploadFile ? uploadFile.name : '点击或拖拽 ZIP（≤ 20 MiB）' }}</div>
+            <div>{{ uploadFile ? uploadFile.name : '点击或拖拽压缩包（不超过 20 MB）' }}</div>
           </el-upload>
         </el-form-item>
         <el-form-item label="分类">
@@ -223,10 +221,10 @@
             <el-descriptions-item label="作者">{{
               parsedManifest.author?.name
             }}</el-descriptions-item>
-            <el-descriptions-item label="SHA256">{{ parsedManifest.sha256 }}</el-descriptions-item>
+            <el-descriptions-item label="校验码">{{ parsedManifest.sha256 }}</el-descriptions-item>
           </el-descriptions>
         </el-form-item>
-        <el-form-item label="changelog">
+        <el-form-item label="更新说明">
           <el-input v-model="uploadForm.changelog" type="textarea" :rows="2" placeholder="可选" />
         </el-form-item>
         <el-form-item label="选项">
@@ -288,9 +286,9 @@
         </el-form-item>
         <el-form-item label="售价（元）">
           <el-input v-model="editForm.priceYuan" placeholder="0" />
-          <p class="card-hint">填 0 表示免费。大于 0 为买断：可填本站托管 ZIP，或填写 HTTPS 外链由本站立即拉取并私有托管。付费上架尚未开放。</p>
+          <p class="card-hint">填 0 表示免费。大于 0 为买断：可上传本站托管的压缩包，或填写 https 网址由本站立即拉取并私有托管。付费上架尚未开放。</p>
         </el-form-item>
-        <el-form-item :label="editIsTemplate ? 'templateUrl' : 'downloadUrl'" prop="location">
+        <el-form-item label="下载地址" prop="location">
           <el-input v-model="editForm.location" placeholder="https://..." />
         </el-form-item>
         <el-form-item v-if="editingItem?.originUrl" label="来源外链">
@@ -299,7 +297,7 @@
             {{ editingItem.originHint || '本站已拉取并私有托管。买家看不到这条外链。' }}
           </p>
         </el-form-item>
-        <el-form-item label="sha256" prop="sha256">
+        <el-form-item label="校验码" prop="sha256">
           <el-input v-model="editForm.sha256" />
         </el-form-item>
         <el-form-item label="作者">
@@ -308,7 +306,7 @@
         <el-form-item v-if="!editIsTemplate" label="图标">
           <el-input v-model="editForm.icon" placeholder="ri:puzzle-line" />
         </el-form-item>
-        <el-form-item label="changelog">
+        <el-form-item label="更新说明">
           <el-input v-model="editForm.changelog" type="textarea" :rows="2" />
         </el-form-item>
         <el-form-item label="审计备注">
@@ -357,23 +355,23 @@
         </el-form-item>
         <el-form-item label="售价（元）">
           <el-input v-model="registerForm.priceYuan" placeholder="0" />
-          <p class="card-hint">填 0 表示免费。大于 0 可填本站托管 ZIP，或填写 HTTPS 外链由本站立即拉取并私有托管。付费上架尚未开放。</p>
+          <p class="card-hint">填 0 表示免费。大于 0 可上传本站托管的压缩包，或填写 https 网址由本站立即拉取并私有托管。付费上架尚未开放。</p>
         </el-form-item>
-        <el-form-item :label="registerIsTemplate ? 'templateUrl' : 'downloadUrl'" prop="location">
+        <el-form-item label="下载地址" prop="location">
           <el-input v-model="registerForm.location" placeholder="https://..." />
         </el-form-item>
-        <el-form-item label="sha256" prop="sha256">
+        <el-form-item label="校验码" prop="sha256">
           <el-input v-model="registerForm.sha256" />
         </el-form-item>
         <el-form-item label="作者">
           <el-input v-model="registerForm.authorName" placeholder="作者名称" />
         </el-form-item>
-        <el-form-item label="changelog">
+        <el-form-item label="更新说明">
           <el-input v-model="registerForm.changelog" />
         </el-form-item>
         <el-form-item>
           <el-checkbox v-model="registerForm.shelf"
-            >登记后直接上架（须同时有 URL 与 sha256）</el-checkbox
+            >登记后直接上架（须同时有下载地址和校验码）</el-checkbox
           >
         </el-form-item>
       </el-form>
@@ -385,16 +383,14 @@
 
     <el-dialog v-model="categoryVisible" title="目录分类" width="640px" destroy-on-close>
       <p class="card-hint mb-3">
-        内置分类覆盖原来的插件分区和首页模板，并作为应用内的二级筛选。额外分类可自行添加或删除；公开
-        index.json 仍按分类拆成 plugins / homeTemplates 以兼容旧消费者，同时把 extras 写入
-        categories，应用商店会按这些分类生成筛选页签（例如自定义标识 template、名称「模板」）。
+        内置分类包含插件和首页模板，也可作为应用里的二级筛选。可以自行添加或删除额外分类。应用商店会按这些分类生成筛选页签。
       </p>
       <el-table :data="categories" size="small" class="mb-3">
         <el-table-column prop="label" label="名称" min-width="120" />
         <el-table-column prop="key" label="标识" min-width="140" />
         <el-table-column label="清单类型" width="110">
           <template #default="{ row }">
-            {{ row.kind === 'template' ? 'template.json' : 'plugin.json' }}
+            {{ row.kind === 'template' ? '首页模板' : '插件' }}
           </template>
         </el-table-column>
         <el-table-column label="来源" width="80">
@@ -423,8 +419,8 @@
         </el-form-item>
         <el-form-item label="清单">
           <el-select v-model="extraForm.kind" style="width: 140px">
-            <el-option label="plugin.json" value="plugin" />
-            <el-option label="template.json" value="template" />
+            <el-option label="插件" value="plugin" />
+            <el-option label="首页模板" value="template" />
           </el-select>
         </el-form-item>
         <el-form-item>
@@ -510,14 +506,14 @@
           <el-form-item label="版本" required>
             <el-input v-model="versionForm.version" placeholder="1.0.1" />
           </el-form-item>
-          <el-form-item :label="currentIsTemplate ? 'templateUrl' : 'downloadUrl'" required>
+          <el-form-item label="下载地址" required>
             <el-input v-model="versionForm.location" placeholder="https://..." />
           </el-form-item>
-          <el-form-item label="sha256">
-            <el-input v-model="versionForm.sha256" placeholder="付费 HTTPS 外链可留空，由本站拉取后计算" />
-            <p class="card-hint">免费外链仍须填写 64 位校验码。付费条目填 HTTPS 外链时，保存时本站拉取并自动计算。</p>
+          <el-form-item label="校验码">
+            <el-input v-model="versionForm.sha256" placeholder="付费外链可留空，由本站拉取后计算" />
+            <p class="card-hint">免费外链仍须填写 64 位校验码。付费条目填写 https 网址时，保存时本站拉取并自动计算。</p>
           </el-form-item>
-          <el-form-item label="changelog">
+          <el-form-item label="更新说明">
             <el-input v-model="versionForm.changelog" type="textarea" :rows="2" />
           </el-form-item>
         </el-form>
@@ -677,7 +673,7 @@
           return
         }
         if (!/^[a-fA-F0-9]{64}$/.test(raw)) {
-          callback(new Error(raw ? 'sha256 须为 64 位十六进制' : '请填写 sha256'))
+          callback(new Error(raw ? '校验码须为 64 位十六进制' : '请填写校验码'))
           return
         }
         callback()
@@ -717,16 +713,6 @@
     if (!kind) return categories.value
     return categories.value.filter((item) => item.kind === kind)
   })
-  const selectedApp = computed(
-    () => apps.value.find((item) => item.id === searchForm.appId) || null
-  )
-  const publicIndexPath = computed(() =>
-    selectedApp.value?.indexUrl ||
-    (selectedApp.value?.appKey
-      ? `/software-source/${selectedApp.value.appKey}/index.json`
-      : '/software-source/{app_key}/index.json')
-  )
-
   function appLabel(app: SourceCatalogApp) {
     return app.enabled ? `${app.name}（${app.appKey}）` : `${app.name}（${app.appKey}）· 已停用`
   }
@@ -1150,7 +1136,7 @@
   ) {
     if (action === 'unshelf') {
       await ElMessageBox.confirm(
-        '下架只会从该应用的公开 index.json 隐藏，不会远程卸载已安装实例。确认继续？',
+        '下架后，该应用的公开软件源里不再显示这一条，已经安装的不会被远程卸掉。确认继续？',
         '下架确认',
         { type: 'warning' }
       )
@@ -1210,11 +1196,11 @@
       !isPrivatePackageLocation(location) &&
       !isHttpsLocation(location)
     ) {
-      ElMessage.warning('付费条目请上传 ZIP，或填写 HTTPS 外链由本站拉取托管')
+      ElMessage.warning('付费条目请上传压缩包，或填写 https 网址由本站拉取托管')
       return
     }
     if (!isPaidHttpsImportLocation(location, cents) && !/^[a-fA-F0-9]{64}$/.test(versionForm.sha256.trim())) {
-      ElMessage.warning('请填写 64 位 sha256')
+      ElMessage.warning('请填写 64 位校验码')
       return
     }
     versionSaving.value = true

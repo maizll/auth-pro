@@ -334,8 +334,8 @@ test('应用商店可启用远程模板并切回默认首页', async ({ page }) 
 test('应用商店隐藏本地上传入口并保留软件源模板安装', async ({ page }) => {
   await mockAdminAndTemplateAPIs(page)
   await loginAsAdmin(page)
-  await expect(page.getByRole('button', { name: '上传首页模板 ZIP' })).toHaveCount(0)
-  await expect(page.getByRole('dialog', { name: '上传首页模板 ZIP' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '上传首页模板' })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: '上传首页模板' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '软件源管理' })).toBeVisible()
   await expect(page.locator('.template-card').filter({ hasText: '黑金金融科技' })).toBeVisible()
 })
@@ -419,7 +419,7 @@ test('ZIP 首页模板下载、安装、停用、卸载和重新安装互不混�
   const confirm = async (name: string) => {
     await page.locator('.el-message-box').getByRole('button', { name, exact: true }).click()
   }
-  await expect(page.getByRole('button', { name: '上传首页模板 ZIP' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '上传首页模板' })).toHaveCount(0)
   await expect(card.getByText('未安装', { exact: true })).toBeVisible()
   let downloadEvents = 0
   page.on('download', () => downloadEvents++)

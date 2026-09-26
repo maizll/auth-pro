@@ -810,7 +810,7 @@
                         <li>需要在聚合实名认证平台开通「腾讯云增强人脸」产品</li>
                         <li>用户输入姓名 + 身份证号后扫码拍照，服务端提交人脸 Base64 完成核验</li>
                       </template>
-                      <li>勾选应用对未实名用户返回 <code>realname_required</code>，禁止安装</li>
+                      <li>勾选后，未完成实名的用户不能安装这些应用</li>
                       <li>未勾选的应用不受实名限制，可正常安装使用</li>
                     </ul>
                   </div>
@@ -980,6 +980,7 @@
 <script setup lang="ts">
   import type { FormInstance, FormRules } from 'element-plus'
   import { ElMessage } from 'element-plus'
+  import { showCaughtError } from '@/utils/http/error-toast'
   import {
     fetchSystemConfig,
     fetchUpdateSystemConfig,
@@ -1158,8 +1159,8 @@
       })
       recordList.value = data.list || []
       recordTotal.value = data.total
-    } catch {
-      ElMessage.error('认证记录加载失败')
+    } catch (error) {
+      showCaughtError(error, '认证记录加载失败')
     } finally {
       recordLoading.value = false
     }
@@ -1222,8 +1223,8 @@
         xiaomuProductMode: data.xiaomuProductMode || 'three_element',
         requireAppIds: [...data.requireAppIds]
       })
-    } catch {
-      ElMessage.error('实名认证配置加载失败')
+    } catch (error) {
+      showCaughtError(error, '实名认证配置加载失败')
     }
   }
 

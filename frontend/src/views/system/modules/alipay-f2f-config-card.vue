@@ -120,6 +120,7 @@
 <script setup lang="ts">
   import type { AlipayF2FConfigData } from '@/api/system-manage'
   import { fetchAlipayF2FConfig, fetchUpdateAlipayF2FConfig } from '@/api/system-manage'
+  import { showCaughtError } from '@/utils/http/error-toast'
 
   defineOptions({ name: 'AlipayF2FConfigCard' })
 
@@ -205,7 +206,7 @@
       applyForm(data)
       ElMessage.success('支付宝当面付配置已保存')
     } catch (error: any) {
-      ElMessage.error(error?.message || '保存失败')
+      showCaughtError(error, '保存失败')
     } finally {
       saving.value = false
     }

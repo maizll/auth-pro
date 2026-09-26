@@ -102,7 +102,7 @@
     const label = { install: '安装', enable: '启用', disable: '停用', uninstall: '卸载' }[action]
     const detail = {
       install: '仅下载并安装，不切换当前首页。',
-      enable: '将安装所需文件并切换 /user/login 的首页模板。',
+      enable: '将安装所需文件并切换登录页的首页模板。',
       disable: '恢复默认首页，保留模板文件，可再次启用。',
       uninstall:
         '删除本地安装文件；若正在使用，则先恢复默认首页。软件源中的模板不会被删除，可重新安装。'

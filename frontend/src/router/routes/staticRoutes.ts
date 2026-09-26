@@ -73,6 +73,27 @@ export const staticRoutes: AppRouteRecordRaw[] = [
     component: () => import('@views/user-panel/reset-password/index.vue'),
     meta: { title: '重置密码', isHideTab: true }
   },
+  // 商业版页面已并入应用、套餐、授权和订单。
+  {
+    path: '/source-station/edition',
+    name: 'SourceStationEditionRedirect',
+    redirect: '/license/plans'
+  },
+  {
+    path: '/source-station/store-orders',
+    name: 'SourceStationStoreOrdersRedirect',
+    redirect: '/order-list'
+  },
+  {
+    path: '/source-station/store-revenue',
+    name: 'SourceStationStoreRevenueRedirect',
+    redirect: '/order-list'
+  },
+  {
+    path: '/source-station/store-licenses',
+    name: 'SourceStationStoreLicensesRedirect',
+    redirect: '/license/list'
+  },
   // 当面付配置已并入支付配置页；保留旧地址，避免书签 404。
   {
     path: '/system/alipay-f2f-config',
@@ -274,7 +295,7 @@ export const staticRoutes: AppRouteRecordRaw[] = [
         path: '/outside/iframe/:path',
         name: 'Iframe',
         component: () => import('@/views/outside/Iframe.vue'),
-        meta: { title: 'iframe' }
+        meta: { title: '内嵌页面' }
       }
     ]
   }

@@ -46,6 +46,7 @@ func ensureSourceStationMigrations(db *sql.DB) error {
 		{storeMigrationEntitlements, migratePluginEntitlements},
 		{storeMigrationRevenue, migrateStoreRevenueLedger},
 		{storeMigrationLicenseSource, migrateLicenseSourceStoreBind},
+		{storeMigrationLicenseSourcePurchase, migrateLicenseSourceStorePurchase},
 		{storeMigrationDomainChanges, migrateLicenseDomainChanges},
 	}
 	for _, step := range steps {

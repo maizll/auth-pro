@@ -331,6 +331,7 @@
 
 <script setup lang="ts">
   import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+  import { showCaughtError } from '@/utils/http/error-toast'
   import {
     ElMessage,
     ElMessageBox,
@@ -598,8 +599,8 @@
           audience: query.audience || undefined,
           status: query.status || undefined
         })) || []
-    } catch {
-      ElMessage.error('活动列表加载失败')
+    } catch (error) {
+      showCaughtError(error, '活动列表加载失败')
     } finally {
       loading.value = false
     }
@@ -609,9 +610,9 @@
     plansLoading.value = true
     try {
       planOptions.value = (await fetchPromotionPlans(appId)) || []
-    } catch {
+    } catch (error) {
       planOptions.value = []
-      ElMessage.error('套餐列表加载失败')
+      showCaughtError(error, '套餐列表加载失败')
     } finally {
       plansLoading.value = false
     }

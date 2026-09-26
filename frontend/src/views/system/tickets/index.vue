@@ -200,6 +200,7 @@
 
 <script setup lang="ts">
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { showCaughtError } from '@/utils/http/error-toast'
   import {
     fetchTicketList,
     fetchTicketDetail,
@@ -320,8 +321,8 @@
       currentTicket.value = res.ticket
       messages.value = res.messages || []
       if (!silent) scrollToBottom()
-    } catch {
-      if (!silent) ElMessage.error('加载工单失败')
+    } catch (error) {
+      if (!silent) showCaughtError(error, '加载工单失败')
     } finally {
       detailLoading.value = false
     }

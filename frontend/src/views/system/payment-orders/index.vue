@@ -7,6 +7,12 @@
     <OrderSearch v-model="searchForm" @search="handleSearch" @reset="resetSearchParams" />
 
     <ElCard class="art-table-card" shadow="never">
+      <ElAlert
+        class="commercial-paid"
+        :closable="false"
+        type="info"
+        :title="`商业版已支付合计 ¥${commercialPaidYuan.toFixed(2)}`"
+      />
       <!-- 表格头部 -->
       <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData" />
 
@@ -135,10 +141,15 @@
     status: undefined
   })
 
+  const commercialPaidYuan = ref(0)
+
   const subjectLabels: Record<string, string> = {
     user: '用户充值',
     agent: '代理充值',
-    test: '支付测试'
+    test: '支付测试',
+    store_edition: '商业版',
+    store_plugin: '付费插件',
+    store_template: '付费模板'
   }
 
   const subjectTagTypes: Record<string, 'primary' | 'success' | 'warning' | 'info'> = {
@@ -151,7 +162,8 @@
     pending: '待支付',
     paid: '已支付',
     failed: '失败',
-    cancelled: '已取消'
+    cancelled: '已取消',
+    refunded: '已退款'
   }
 
   const statusTagTypes: Record<string, 'success' | 'warning' | 'danger' | 'info'> = {
@@ -188,7 +200,11 @@
   } = useTable({
     // 核心配置
     core: {
-      apiFn: fetchPaymentOrderList,
+      apiFn: async (params: PaymentOrderSearchParams) => {
+        const result = await fetchPaymentOrderList(params)
+        commercialPaidYuan.value = Number(result?.commercialPaidYuan || 0)
+        return result
+      },
       apiParams: {
         page: 1,
         pageSize: 20,
@@ -293,6 +309,10 @@
 
 <style scoped lang="scss">
   .payment-orders-page {
+    .commercial-paid {
+      margin-bottom: 12px;
+    }
+
     .mono {
       font-family: 'Roboto Mono', monospace;
     }

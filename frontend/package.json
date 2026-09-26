@@ -8,7 +8,9 @@
   },
   "scripts": {
     "dev": "vite --open",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "tsx src/utils/form/menu-title.test.ts && tsx src/utils/http/error-toast.test.ts && vue-tsc --noEmit && vite build",
+    "test:menu-titles": "tsx src/utils/form/menu-title.test.ts",
+    "test:error-toast": "tsx src/utils/http/error-toast.test.ts",
     "test:e2e": "playwright test",
     "serve": "vite preview",
     "lint": "eslint",

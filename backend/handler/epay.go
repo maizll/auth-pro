@@ -647,6 +647,10 @@ func AdminPaymentOrderList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化购买订单表失败"})
 		return
 	}
+	if err := ensurePaidStoreSchema(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化商店订单失败"})
+		return
+	}
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
@@ -657,42 +661,30 @@ func AdminPaymentOrderList(c *gin.Context) {
 		pageSize = 20
 	}
 
-	where := []string{"1=1"}
-	args := []any{}
+	innerWhere := []string{"1=1"}
+	innerArgs := []any{}
+	outerWhere := []string{"1=1"}
+	outerArgs := []any{}
 
 	if orderNo := strings.TrimSpace(c.Query("orderNo")); orderNo != "" {
-		where = append(where, "o.order_no LIKE ?")
-		args = append(args, "%"+orderNo+"%")
+		innerWhere = append(innerWhere, "o.order_no LIKE ?")
+		innerArgs = append(innerArgs, "%"+orderNo+"%")
 	}
 	if subjectType := strings.TrimSpace(c.Query("subjectType")); subjectType != "" {
-		where = append(where, "o.subject_type = ?")
-		args = append(args, subjectType)
+		outerWhere = append(outerWhere, "t.subject_type = ?")
+		outerArgs = append(outerArgs, subjectType)
 	}
 	if status := strings.TrimSpace(c.Query("status")); status != "" {
-		where = append(where, "o.status = ?")
-		args = append(args, status)
+		innerWhere = append(innerWhere, "o.status = ?")
+		innerArgs = append(innerArgs, status)
 	}
 	if payMethod := strings.TrimSpace(c.Query("payMethod")); payMethod != "" {
-		where = append(where, "o.pay_method = ?")
-		args = append(args, payMethod)
+		innerWhere = append(innerWhere, "o.pay_method = ?")
+		innerArgs = append(innerArgs, payMethod)
 	}
-	whereSQL := strings.Join(where, " AND ")
-
-	var total int64
-	countSQL := `
-		SELECT COUNT(*) FROM (
-			SELECT o.order_no FROM recharge_orders o WHERE ` + whereSQL + `
-			UNION ALL
-			SELECT o.order_no FROM license_purchase_orders o WHERE ` + whereSQL + `
-		) t`
-	if err := db.QueryRow(countSQL, append(args, args...)...).Scan(&total); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "查询订单总数失败"})
-		return
-	}
-
-	offset := (page - 1) * pageSize
-	listSQL := `
-		SELECT * FROM (
+	innerSQL := strings.Join(innerWhere, " AND ")
+	outerSQL := strings.Join(outerWhere, " AND ")
+	unionSQL := `
 			SELECT o.order_no, o.subject_type, o.subject_id,
 			       COALESCE(u.nickname, u.email, a.name, '') AS subject_name,
 			       o.amount, o.paid_amount, o.pay_channel, o.pay_method, o.status,
@@ -701,7 +693,7 @@ func AdminPaymentOrderList(c *gin.Context) {
 			FROM recharge_orders o
 			LEFT JOIN users u ON u.id = o.subject_id AND o.subject_type = 'user'
 			LEFT JOIN agents a ON a.id = o.subject_id AND o.subject_type = 'agent'
-			WHERE ` + whereSQL + `
+			WHERE ` + innerSQL + `
 			UNION ALL
 			SELECT o.order_no, o.owner_type AS subject_type, o.owner_id AS subject_id,
 			       COALESCE(u.nickname, u.email, a.name, '') AS subject_name,
@@ -711,11 +703,43 @@ func AdminPaymentOrderList(c *gin.Context) {
 			FROM license_purchase_orders o
 			LEFT JOIN users u ON u.id = o.owner_id AND o.owner_type = 'user'
 			LEFT JOIN agents a ON a.id = o.owner_id AND o.owner_type = 'agent'
-			WHERE ` + whereSQL + `
-		) t
-		ORDER BY t.created_at DESC
-		LIMIT ? OFFSET ?`
-	queryArgs := append(args, args...)
+			WHERE ` + innerSQL + `
+			UNION ALL
+			SELECT o.order_no,
+			       CASE o.item_kind
+			         WHEN 'edition' THEN 'store_edition'
+			         WHEN 'plugin' THEN 'store_plugin'
+			         WHEN 'template' THEN 'store_template'
+			         ELSE o.item_kind
+			       END AS subject_type,
+			       o.owner_id AS subject_id,
+			       COALESCE(u.nickname, u.email, a.name, '') AS subject_name,
+			       CAST(o.amount_cents AS DECIMAL(12,2)) / 100 AS amount,
+			       CASE WHEN o.status = 'paid' THEN CAST(o.amount_cents AS DECIMAL(12,2)) / 100 ELSE NULL END AS paid_amount,
+			       COALESCE(o.pay_channel, ''), COALESCE(o.pay_method, ''), o.status,
+			       COALESCE(o.gateway_trade_no, ''), COALESCE(o.title_snapshot, ''),
+			       o.created_at, o.paid_at
+			FROM store_purchase_orders o
+			LEFT JOIN users u ON u.id = o.owner_id AND o.owner_type = 'user'
+			LEFT JOIN agents a ON a.id = o.owner_id AND o.owner_type = 'agent'
+			WHERE ` + innerSQL
+
+	var total int64
+	countArgs := append(append(append([]any{}, innerArgs...), innerArgs...), innerArgs...)
+	countArgs = append(countArgs, outerArgs...)
+	countSQL := `SELECT COUNT(*) FROM (` + unionSQL + `) t WHERE ` + outerSQL
+	if err := db.QueryRow(countSQL, countArgs...).Scan(&total); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "查询订单总数失败"})
+		return
+	}
+
+	var paidCents int64
+	_ = db.QueryRow(`SELECT COALESCE(SUM(amount_cents), 0) FROM store_purchase_orders WHERE status = 'paid'`).Scan(&paidCents)
+
+	offset := (page - 1) * pageSize
+	listSQL := `SELECT * FROM (` + unionSQL + `) t WHERE ` + outerSQL + ` ORDER BY t.created_at DESC LIMIT ? OFFSET ?`
+	queryArgs := append(append(append([]any{}, innerArgs...), innerArgs...), innerArgs...)
+	queryArgs = append(queryArgs, outerArgs...)
 	queryArgs = append(queryArgs, pageSize, offset)
 	rows, err := db.Query(listSQL, queryArgs...)
 	if err != nil {
@@ -770,7 +794,7 @@ func AdminPaymentOrderList(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"msg":  "",
-		"data": gin.H{"list": list, "total": total, "page": page, "pageSize": pageSize},
+		"data": gin.H{"list": list, "total": total, "page": page, "pageSize": pageSize, "commercialPaidYuan": float64(paidCents) / 100},
 	})
 }
 
