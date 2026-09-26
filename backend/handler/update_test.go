@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -745,6 +746,21 @@ func TestWriteOnlineUpdateScriptSupportsWebsiteRoot(t *testing.T) {
 	if strings.Contains(script, `cp -a "$FRONTEND_SOURCE/assets/." "$FRONTEND_ROOT/assets/"`) {
 		t.Fatal("generated script still copies assets into the live frontend directory")
 	}
+	stopAt := strings.Index(script, `if ! stop_old_process; then`)
+	mvAt := strings.Index(script, `mv -f "$APP_STAGE" "$APP_BIN"`)
+	startAt := strings.Index(script, `log "port free, starting new process"`)
+	if stopAt < 0 || mvAt < 0 || startAt < 0 || stopAt > mvAt || mvAt > startAt {
+		t.Fatal("must stop the old process, confirm the port is free, replace the binary, then start")
+	}
+	if !strings.Contains(script, "不是本站") || !strings.Contains(script, "kill -KILL") {
+		t.Fatal("script must refuse foreign listeners and SIGKILL this site's auth_pro after SIGTERM times out")
+	}
+	if !strings.Contains(script, `PROCESS_MANAGER='none'`) {
+		t.Fatal("default process manager should be standalone when no supervisor is detected")
+	}
+	if !strings.Contains(script, `--max-time 2`) {
+		t.Fatal("health check must time out individual probes")
+	}
 	if output, err := exec.Command(shell, "-n", scriptPath).CombinedOutput(); err != nil {
 		t.Fatalf("generated script syntax error: %v\n%s", err, output)
 	}
@@ -1205,6 +1221,158 @@ func assertFrontendTree(t *testing.T, dir, indexBody, assetBody string) {
 	}
 }
 
+func TestOnlineUpdateJobFailureReasonSurvivesRestart(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	job := &onlineUpdateJob{
+		ID:        "U-test-fail-reason",
+		Status:    "restarting",
+		Message:   "服务正在切换并重启",
+		Progress:  95,
+		Version:   "1.0.1",
+		Logs:      []string{"开始更新"},
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	persistOnlineUpdateJob(job)
+	reason := "新版本在 12 秒内没有健康启动，已尝试回滚到 1.5.3"
+	if err := os.WriteFile(onlineUpdateJobStatePath(job.ID)+".result", []byte("failed\n"+reason+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded := loadOnlineUpdateJob(job.ID)
+	if loaded == nil || loaded.Status != "failed" || loaded.Error != reason || loaded.Progress != 95 {
+		t.Fatalf("unexpected failed job: %#v", loaded)
+	}
+	loadedAgain := loadOnlineUpdateJob(job.ID)
+	if loadedAgain == nil || len(loadedAgain.Logs) != 2 || loadedAgain.Error != reason {
+		t.Fatalf("failure reconciliation was not idempotent: %#v", loadedAgain)
+	}
+}
+
+func TestResolveProcessManagerPrefersExplicitMode(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AUTO_PRO_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, processManagerFileName), []byte("supervisor\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTO_PRO_PROCESS_MANAGER", "none")
+	if got := resolveOnlineUpdateProcessManager(); got != processManagerNone {
+		t.Fatalf("explicit none = %s", got)
+	}
+	t.Setenv("AUTO_PRO_PROCESS_MANAGER", "")
+	if got := resolveOnlineUpdateProcessManager(); got != processManagerSupervisor {
+		t.Fatalf("marker file = %s", got)
+	}
+}
+
+func TestSupervisedUpdateScriptDoesNotSelfSpawn(t *testing.T) {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "backend")
+	frontendSource := filepath.Join(root, "staging-frontend")
+	stagingDir := filepath.Join(root, "staging")
+	for _, dir := range []string{dataDir, frontendSource, filepath.Join(stagingDir, "backend")} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(frontendSource, "index.html"), []byte("new"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stagingDir, "backend", "auth_pro"), []byte("binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTO_PRO_DATA_DIR", dataDir)
+	t.Setenv("AUTO_PRO_PROCESS_MANAGER", "supervisor")
+	t.Setenv("AUTO_PRO_SUPERVISOR_PROGRAM", "auth_pro")
+	scriptPath, err := writeOnlineUpdateScript(
+		"U-supervisor-script",
+		stagingDir,
+		&extractedOnlineUpdateManifest{BackendFile: "backend/auth_pro"},
+		frontendSource,
+		"1.0.1",
+		root,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(script)
+	if !strings.Contains(text, `PROCESS_MANAGER='supervisor'`) {
+		t.Fatal("supervisor mode was not baked into the script")
+	}
+	supervised := strings.Index(text, `log "supervised restart`)
+	standalone := strings.Index(text, `log "standalone restart"`)
+	if supervised < 0 || standalone < 0 || supervised > standalone {
+		t.Fatal("standalone restart is not after the supervised branch")
+	}
+	section := text[supervised:standalone]
+	if strings.Contains(section, "start_standalone") || strings.Contains(section, `nohup "$APP_BIN"`) {
+		t.Fatal("supervised branch starts its own backend process")
+	}
+}
+
+func TestLocalDigestSwitchDoesNotBypassGitHub(t *testing.T) {
+	t.Setenv("AUTO_PRO_UPDATE_LOCAL_DIGEST", "1")
+	t.Setenv("AUTO_PRO_UPDATE_URL", "https://api.github.com/repos/maizll/auth-pro/releases/latest")
+	called := false
+	previous := fetchOnlineUpdateAssetDigest
+	fetchOnlineUpdateAssetDigest = func(string, string) (string, error) {
+		called = true
+		return "", errors.New("digest lookup reached")
+	}
+	t.Cleanup(func() { fetchOnlineUpdateAssetDigest = previous })
+	err := confirmOnlineUpdateTrustedDigest("1.0.1", "auth_pro-full-v1.0.1.tar.gz", strings.Repeat("ab", 32))
+	if !called {
+		t.Fatal("GitHub manifest skipped the release digest check")
+	}
+	if err == nil || !strings.Contains(err.Error(), "digest lookup reached") {
+		t.Fatalf("unexpected digest error: %v", err)
+	}
+}
+
+func TestLocalDigestSwitchSkipsGitHubForLoopbackOnly(t *testing.T) {
+	previous := fetchOnlineUpdateAssetDigest
+	t.Cleanup(func() { fetchOnlineUpdateAssetDigest = previous })
+	sum := strings.Repeat("ab", 32)
+
+	t.Run("loopback with switch", func(t *testing.T) {
+		t.Setenv("AUTO_PRO_UPDATE_LOCAL_DIGEST", "1")
+		t.Setenv("AUTO_PRO_UPDATE_URL", "https://127.0.0.1:8443/latest.json")
+		called := false
+		fetchOnlineUpdateAssetDigest = func(string, string) (string, error) {
+			called = true
+			return "", errors.New("should not call github")
+		}
+		if err := confirmOnlineUpdateTrustedDigest("1.0.1", "auth_pro-full-v1.0.1.tar.gz", sum); err != nil {
+			t.Fatal(err)
+		}
+		if called {
+			t.Fatal("loopback drill still called GitHub")
+		}
+	})
+
+	t.Run("loopback without switch", func(t *testing.T) {
+		t.Setenv("AUTO_PRO_UPDATE_LOCAL_DIGEST", "")
+		t.Setenv("AUTO_PRO_UPDATE_URL", "https://127.0.0.1:8443/latest.json")
+		called := false
+		fetchOnlineUpdateAssetDigest = func(string, string) (string, error) {
+			called = true
+			return "sha256:" + sum, nil
+		}
+		if err := confirmOnlineUpdateTrustedDigest("1.0.1", "auth_pro-full-v1.0.1.tar.gz", sum); err != nil {
+			t.Fatal(err)
+		}
+		if !called {
+			t.Fatal("loopback without the drill switch skipped GitHub")
+		}
+	})
+}
+
 func writeFrontendSwitchScript(t *testing.T, sourceDir, liveDir, version string) string {
 	t.Helper()
 	stagingDir := filepath.Join(filepath.Dir(sourceDir), "package")
@@ -1231,7 +1399,7 @@ func writeFrontendSwitchScript(t *testing.T, sourceDir, liveDir, version string)
 func requireFrontendOnlyGuard(t *testing.T, script string) {
 	t.Helper()
 	guard := strings.Index(script, `if [ "$FRONTEND_ONLY" = "1" ]; then`)
-	kill := strings.Index(script, `kill "$APP_PID"`)
+	kill := strings.Index(script, `if ! stop_old_process; then`)
 	if guard < 0 || kill < 0 || guard > kill {
 		t.Fatal("generated script must finish frontend-only before stopping the process")
 	}

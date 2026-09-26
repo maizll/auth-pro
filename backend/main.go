@@ -1,12 +1,17 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"errors"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"auto_pro/appstore"
 	"auto_pro/config"
@@ -484,11 +489,45 @@ func main() {
 		handler.BackfillLicensePurchaseTransactions(db)
 	}()
 
-	// 启动
+	// 启动。SIGTERM/SIGINT 先在时限内关闭监听，避免在线更新或进程守护停进程时端口一直不释放。
 	host := config.GetHost()
 	port := config.GetPort()
 	log.Printf("Server starting on %s:%s", host, port)
-	if err := r.Run(host + ":" + port); err != nil {
+	if err := serveUntilSignal(r, host+":"+port); err != nil {
+		if isAddrInUse(err) {
+			log.Printf("%s", describeListenConflict(host+":"+port))
+		}
 		log.Fatal("Server failed:", err)
+	}
+}
+
+func serveUntilSignal(handler http.Handler, addr string) error {
+	server := &http.Server{Addr: addr, Handler: handler}
+	errCh := make(chan error, 1)
+	go func() {
+		err := server.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			errCh <- nil
+			return
+		}
+		errCh <- err
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(sigCh)
+
+	select {
+	case err := <-errCh:
+		return err
+	case sig := <-sigCh:
+		log.Printf("received %s, shutting down", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("graceful shutdown failed, closing listeners: %v", err)
+			_ = server.Close()
+		}
+		return nil
 	}
 }

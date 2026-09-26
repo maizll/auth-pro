@@ -22,16 +22,18 @@ baota_print_help() {
 db.json 能连上 MySQL 时，还会用 mysqldump 导出 db.sql（口令只放在环境变量里）。
 
 不要先把新压缩包直接解压覆盖正在运行的站点。把包留在 /tmp，用 --package 指向它。
-升级前先在宝塔「进程守护」里停止本站点，否则结束残留进程会被立刻拉起。
+脚本会先通过进程守护停止本站点，等进程退出；端口上如果还有本站 auth_pro
+（包括父进程为 1 的孤儿）会先 SIGTERM，超时后 SIGKILL。确认端口空闲后才替换并启动。
+占用者不是本站程序时会拒绝执行，不会误杀同机其它站点。
 
 选项：
   --site-root DIR   正在运行的网站根
   --package FILE    新版本 tar.gz
   --source DIR      已解压的新版本目录（不要指向正在服务的网站根）
   --port PORT       覆盖 baota.env 里的端口，默认 19127
-  --start           升级后立即后台启动
-  --no-start        只替换文件，启动交给进程守护
-  --stop-port       结束本站 backend/auth_pro 占用的端口后再替换
+  --start           升级后启动。找到本站进程守护时由守护启动，健康检查失败会回滚
+  --no-start        只替换文件。替换前仍会先停本站旧进程
+  --stop-port       兼容旧参数。现在默认就会先停本站进程
   --skip-mysql      不导出数据库（仍会备份 db.json 文件）
   --yes, -y         不再询问
   --dry-run         只打印步骤，不改文件、不导出数据库
@@ -43,7 +45,7 @@ db.json 能连上 MySQL 时，还会用 mysqldump 导出 db.sql（口令只放�
   bash baota-upgrade.sh \
     --site-root /www/wwwroot/example.com \
     --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \
-    --stop-port --no-start
+    --no-start
 EOF
 }
 

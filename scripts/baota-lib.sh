@@ -427,22 +427,22 @@ baota_port_is_open() {
 }
 
 baota_cmd_is_ours() {
-  local pid="$1" site="$2" exe cmd
+  local pid="$1" site="$2" exe cmd bin
   [[ "$pid" =~ ^[0-9]+$ ]] || return 1
   [[ "$pid" -gt 1 ]] || return 1
   if [[ "$pid" == "$$" || "$pid" == "${PPID:-0}" ]]; then
     return 1
   fi
-  exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+  bin="$site/backend/auth_pro"
+  exe="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
   exe="${exe% (deleted)}"
   cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
-  if [[ "$exe" == "$site/backend/auth_pro" ]]; then
+  if [[ "$exe" == "$bin" || "$cmd" == "$bin" ]]; then
     return 0
   fi
-  if [[ "$cmd" == *"$site/backend/auth_pro"* ]]; then
-    case "$exe" in
-      */bash|*/sh|*/dash) return 0 ;;
-    esac
+  # 只匹配命令行里的完整路径，避免误伤其它站点的 auth_pro。
+  if [[ " $cmd " == *" $bin "* || " $cmd " == *" $bin" ]]; then
+    return 0
   fi
   return 1
 }
@@ -462,67 +462,162 @@ baota_our_root() {
   return 1
 }
 
-baota_kill_tree() {
+baota_signal_pid() {
+  local pid="$1" wait_s="${AUTH_PRO_TERM_WAIT:-15}" i
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+  [[ "$pid" -gt 1 ]] || return 0
+  kill -0 "$pid" 2>/dev/null || return 0
+  kill -TERM "$pid" 2>/dev/null || true
+  for ((i = 1; i <= wait_s; i++)); do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 1
+  done
+  baota_warn "PID ${pid} 在 ${wait_s} 秒内没有退出，发送 SIGKILL"
+  kill -KILL "$pid" 2>/dev/null || true
+  sleep 1
+}
+
+baota_signal_tree() {
   local pid="$1" child
   [[ "$pid" =~ ^[0-9]+$ ]] || return 0
   for child in $(ps -o pid= --ppid "$pid" 2>/dev/null || true); do
-    baota_kill_tree "$child"
+    baota_signal_tree "$child"
   done
-  kill "$pid" 2>/dev/null || true
+  baota_signal_pid "$pid"
 }
 
-baota_ensure_port_available() {
-  local port="$1" site="$2" must_clear="$3"
-  local pids pid root cmdline
-  if ! baota_port_is_open "$port"; then
-    baota_info "端口 ${port} 空闲"
+baota_env_get() {
+  local key="$1" file
+  file="$(baota_data_dir)/baota.env"
+  [[ -f "$file" ]] || return 0
+  sed -n "s/^${key}=//p" "$file" | head -n 1
+}
+
+baota_supervisor_command_is_ours() {
+  local conf="$1" program="$2" site="$3" cmd
+  [[ -f "$conf" && -n "$program" ]] || return 1
+  cmd="$(awk -v p="[program:${program}]" '
+    $0 == p { found = 1; next }
+    found && /^\[/ { exit }
+    found && /^command=/ { sub(/^command=/, ""); print; exit }
+  ' "$conf")"
+  case "$cmd" in
+    "$site"/backend/start.sh|"$site"/backend/auth_pro) return 0 ;;
+  esac
+  return 1
+}
+
+# 只选用 command 指向本站 start.sh / auth_pro 的守护项，避免停掉同机其它站点。
+baota_find_supervisor() {
+  BAOTA_SUP_CONF=""
+  BAOTA_SUP_PROGRAM=""
+  local site conf program candidate
+  site="$BAOTA_SITE_ROOT"
+  conf="$(baota_env_get AUTO_PRO_SUPERVISOR_CONF)"
+  program="$(baota_env_get AUTO_PRO_SUPERVISOR_PROGRAM)"
+  [[ -n "$program" ]] || program="${AUTH_PRO_SUPERVISOR_PROGRAM:-auth_pro}"
+  if baota_supervisor_command_is_ours "$conf" "$program" "$site"; then
+    BAOTA_SUP_CONF="$conf"
+    BAOTA_SUP_PROGRAM="$program"
     return 0
+  fi
+  for candidate in /etc/supervisor/supervisord.conf /etc/supervisord.conf; do
+    [[ -f "$candidate" ]] || continue
+    program="$(awk -v site="$site" '
+      /^\[program:/ {
+        name = $0
+        sub(/^\[program:/, "", name)
+        sub(/\]$/, "", name)
+        next
+      }
+      /^command=/ && name != "" {
+        cmd = substr($0, 9)
+        if (cmd == site "/backend/start.sh" || cmd == site "/backend/auth_pro") {
+          print name
+          exit
+        }
+      }
+      /^\[/ && $0 !~ /^\[program:/ { name = "" }
+    ' "$candidate")"
+    if [[ -n "$program" ]]; then
+      BAOTA_SUP_CONF="$candidate"
+      BAOTA_SUP_PROGRAM="$program"
+      return 0
+    fi
+  done
+  return 1
+}
+
+baota_supervisorctl() {
+  [[ -n "${BAOTA_SUP_CONF:-}" && -n "${BAOTA_SUP_PROGRAM:-}" ]] || return 127
+  command -v supervisorctl >/dev/null 2>&1 || return 127
+  supervisorctl -c "$BAOTA_SUP_CONF" "$@"
+}
+
+# 先让进程守护停止，再清本站残留（含 PPID=1 的孤儿）。端口空闲才返回。
+# 占用者不是本站 auth_pro 时直接失败，不杀进程、不替换文件。
+baota_stop_and_reclaim() {
+  local port="$1" site="$2"
+  local i pid pids root exe cmd parent
+  baota_find_supervisor || true
+  if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
+    if baota_port_is_open "$port"; then
+      baota_info "预演：将先停止本站进程守护，确认端口 ${port} 空闲后再替换文件"
+    else
+      baota_info "预演：端口 ${port} 空闲"
+    fi
+    return 0
+  fi
+  if [[ -n "${BAOTA_SUP_PROGRAM:-}" ]]; then
+    baota_info "通过进程守护停止 ${BAOTA_SUP_PROGRAM}"
+    baota_supervisorctl stop "$BAOTA_SUP_PROGRAM" >/dev/null 2>&1 || baota_warn "进程守护停止 ${BAOTA_SUP_PROGRAM} 没有成功，继续检查端口 ${port} 上是不是本站残留进程"
+  fi
+  for i in 1 2 3; do
+    baota_port_is_open "$port" || break
+    sleep 1
+  done
+  if ! baota_port_is_open "$port"; then
+    sleep 1
+    if ! baota_port_is_open "$port"; then
+      baota_info "端口 ${port} 已空闲"
+      return 0
+    fi
   fi
   pids="$(baota_pids_for_port "$port")"
-  baota_warn "端口 ${port} 已被占用"
   if [[ -z "$pids" ]]; then
-    baota_die "看到端口 ${port} 在监听，但当前用户看不到进程。请用 root 运行，或先在宝塔进程守护中停止本站点。"
+    baota_die "端口 ${port} 仍在监听，但当前用户看不到占用进程。请用 root 运行，或先在宝塔进程守护中停止本站点。本次没有替换文件，也没有启动新进程。"
   fi
   while IFS= read -r pid; do
     [[ -n "$pid" ]] || continue
-    cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
-    baota_warn "  监听进程 PID ${pid} ${cmdline}"
-  done <<< "$pids"
-
-  if [[ "$must_clear" != "1" && "$BAOTA_STOP_PORT" != "1" ]]; then
-    baota_warn "本次不启动后端，因此不会结束占用进程。若随后要手工启动，请先释放 ${port}。"
-    return 0
-  fi
-  if [[ "$BAOTA_STOP_PORT" != "1" ]]; then
-    baota_die "端口 ${port} 已被占用。请先在宝塔进程守护中停止本站点（否则杀掉会被立刻拉起），确认端口不再自动复活后，加上 --stop-port 再执行。未确认时脚本不会结束进程。"
-  fi
-
-  while IFS= read -r pid; do
-    [[ -n "$pid" ]] || continue
+    exe="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
+    cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+    parent="$(awk '/^PPid:/ {print $2}' "/proc/$pid/status" 2>/dev/null || true)"
+    baota_warn "端口 ${port} 的监听进程 PID ${pid} PPID ${parent} 程序 ${exe} 命令 ${cmd}"
     if ! root="$(baota_our_root "$pid" "$site")"; then
-      baota_die "PID ${pid} 占用 ${port}，但不是本站 backend/auth_pro。已拒绝结束该进程。"
+      baota_die "端口 ${port} 被 PID ${pid}（PPID ${parent}，程序 ${exe}，命令 ${cmd}）占用，不是本站 ${site}/backend/auth_pro。已拒绝结束该进程，也没有替换文件或启动新进程。请确认是不是同机其它站点。"
     fi
-    if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
-      baota_info "预演：将结束本站进程树 PID ${root}"
-      continue
+    baota_info "结束本站进程 PID ${root}（包括脱离守护、父进程为 1 的孤儿）"
+    baota_signal_tree "$root"
+    if [[ "$pid" != "$root" ]]; then
+      baota_signal_pid "$pid"
     fi
-    baota_info "结束本站进程树 PID ${root}"
-    baota_kill_tree "$root"
   done <<< "$pids"
-
-  if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
-    return 0
-  fi
-
-  local i
   for i in 1 2 3 4 5 6 7 8 9 10; do
     if ! baota_port_is_open "$port"; then
-      baota_info "端口 ${port} 已释放"
-      return 0
+      sleep 1
+      if ! baota_port_is_open "$port"; then
+        baota_info "端口 ${port} 已空闲"
+        return 0
+      fi
+      baota_die "端口 ${port} 刚释放又被占用。进程守护可能在停止后立刻拉起了进程。请先在宝塔进程守护里停止本站点。本次没有替换文件，也没有启动新进程。"
     fi
     sleep 1
   done
-  baota_die "端口 ${port} 仍被占用。进程守护可能已把它拉起。请先在宝塔面板停止守护，再重新执行。"
+  baota_die "本站 auth_pro 没有在时限内退出，端口 ${port} 仍被占用。本次没有替换文件，也没有启动新进程。"
+}
+
+baota_ensure_port_available() {
+  baota_stop_and_reclaim "$1" "$2"
 }
 
 baota_prepare_backup_dir() {
@@ -814,6 +909,7 @@ baota_write_env() {
 PORT=${port}
 HOST=${host}
 AUTO_PRO_DATA_DIR=${data}
+AUTO_PRO_PROCESS_MANAGER=supervisor
 EOF
   chmod 600 "$tmp"
   mv -f "$tmp" "$file"
@@ -840,6 +936,8 @@ if [[ -f ./baota.env ]]; then
   source ./baota.env
   set +a
 fi
+# 在线更新据此退出进程，交给进程守护拉起，不再 nohup 出孤儿进程。
+export AUTO_PRO_PROCESS_MANAGER="${AUTO_PRO_PROCESS_MANAGER:-supervisor}"
 exec ./auth_pro
 EOF
   chmod 755 "$file"
@@ -847,9 +945,10 @@ EOF
 }
 
 baota_write_nginx_snippet() {
-  local data port file
+  local data port file site_root
   data="$(baota_data_dir)"
   port="$(baota_effective_port)"
+  site_root="$BAOTA_SITE_ROOT"
   file="$data/baota-nginx.snippet.conf"
   if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
     baota_info "将写入 Nginx 片段 $file"
@@ -875,6 +974,13 @@ location = /baota-upgrade.sh { return 404; }
 location = /baota-lib.sh { return 404; }
 location ~* ^/(db\\.json|install\\.lock|jwt\\.secret)$ { return 404; }
 location ~* \\.(log|pid)$ { return 404; }
+
+# 后端 502/503/504 时返回站点根的静态说明页。仓库模板：deploy/nginx/backend-unavailable.conf
+error_page 502 503 504 /backend-unavailable.html;
+location = /backend-unavailable.html {
+    root ${site_root};
+    default_type text/html;
+}
 EOF
   baota_info "已写入 $file"
 }
@@ -901,6 +1007,108 @@ EOF
   baota_info "已写入 $file"
 }
 
+baota_write_process_manager_marker() {
+  local data file
+  data="$(baota_data_dir)"
+  file="$data/process-manager"
+  if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
+    baota_info "将写入进程守护标记 $file"
+    return 0
+  fi
+  mkdir -p "$data"
+  printf 'supervisor\n' > "$file"
+  baota_info "已写入进程守护标记 $file"
+}
+
+baota_nginx_vhost_dirs() {
+  if [[ -n "${AUTH_PRO_NGINX_VHOST_DIR:-}" ]]; then
+    printf '%s\n' "$AUTH_PRO_NGINX_VHOST_DIR"
+  fi
+  printf '%s\n' \
+    /www/server/panel/vhost/nginx \
+    /www/server/nginx/conf/vhost \
+    /etc/nginx/conf.d \
+    /etc/nginx/sites-enabled
+}
+
+baota_configure_nginx_error_page() {
+  local site port nginx dir conf backup
+  site="$BAOTA_SITE_ROOT"
+  port="$(baota_effective_port)"
+  nginx="${AUTH_PRO_NGINX_BIN:-nginx}"
+  if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
+    baota_info "将尝试把后端不可达静态页写入引用 ${site} 或 127.0.0.1:${port} 的 Nginx 站点配置"
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    baota_warn "没有 python3，跳过自动写入 Nginx error_page。请按 backend/baota-nginx.snippet.conf 手工配置。"
+    return 0
+  fi
+  local found=0
+  while IFS= read -r dir; do
+    [[ -d "$dir" ]] || continue
+    while IFS= read -r conf; do
+      [[ -f "$conf" ]] || continue
+      if ! grep -Fq "$site" "$conf" && ! grep -Fq "127.0.0.1:${port}" "$conf" && ! grep -Fq "localhost:${port}" "$conf"; then
+        continue
+      fi
+      found=1
+      if grep -Fq "location = /backend-unavailable.html" "$conf"; then
+        baota_info "Nginx 已包含后端不可达页面：$conf"
+        continue
+      fi
+      backup="${conf}.bak.auth-pro-$(date '+%Y%m%d%H%M%S')"
+      cp -a "$conf" "$backup" || { baota_warn "无法备份 $conf ，已跳过"; continue; }
+      if ! python3 - "$conf" "$site" <<'PY'
+import pathlib, sys
+path, site = sys.argv[1], sys.argv[2]
+if any(ch in site for ch in "\n;{}\\"):
+    raise SystemExit("网站根不能包含换行或 nginx 元字符")
+text = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
+marker = "# BEGIN AUTH_PRO_BACKEND_UNAVAILABLE"
+if marker in text or "location = /backend-unavailable.html" in text:
+    raise SystemExit(0)
+block = f"""
+    {marker}
+    error_page 502 503 504 /backend-unavailable.html;
+    location = /backend-unavailable.html {{
+        root {site};
+        default_type text/html;
+    }}
+    # END AUTH_PRO_BACKEND_UNAVAILABLE
+"""
+idx = text.rfind("}")
+if idx < 0:
+    raise SystemExit("找不到 server 块结束括号")
+pathlib.Path(path).write_text(text[:idx] + block + "\n" + text[idx:], encoding="utf-8")
+PY
+      then
+        cp -a "$backup" "$conf" || true
+        baota_warn "写入 Nginx 失败，已还原 $conf"
+        continue
+      fi
+      if ! command -v "$nginx" >/dev/null 2>&1; then
+        cp -a "$backup" "$conf" || true
+        baota_warn "未找到 nginx，已还原 $conf 。请手工合并 backend/baota-nginx.snippet.conf"
+        continue
+      fi
+      if ! "$nginx" -t >/dev/null 2>&1; then
+        cp -a "$backup" "$conf" || true
+        baota_warn "nginx -t 未通过，已还原 $conf"
+        continue
+      fi
+      if "$nginx" -s reload >/dev/null 2>&1; then
+        baota_info "已写入后端不可达页面并 reload：$conf （备份 $backup）"
+      else
+        baota_warn "配置已通过 nginx -t，但 reload 失败。请手工执行 nginx -s reload。备份在 $backup"
+      fi
+    done < <(find "$dir" -maxdepth 1 -type f -name '*.conf' | sort)
+  done < <(baota_nginx_vhost_dirs)
+  if [[ "$found" -eq 0 ]]; then
+    baota_warn "没有找到引用本站点的 Nginx 配置。请把 backend/baota-nginx.snippet.conf 里的 error_page 放进站点 server。模板见 deploy/nginx/backend-unavailable.conf"
+  fi
+}
+
 baota_apply_payload() {
   local site="$BAOTA_SITE_ROOT"
   if baota_same_payload; then
@@ -911,15 +1119,18 @@ baota_apply_payload() {
     baota_sync_root_file "version.json"
     baota_sync_root_file "favicon.ico"
     baota_sync_root_file "manifest.json"
+    baota_sync_root_file "backend-unavailable.html"
     baota_replace_assets
     baota_install_binary
   fi
   baota_install_scripts
   baota_chmod_binary
   baota_write_env
+  baota_write_process_manager_marker
   baota_write_start_script
   baota_write_nginx_snippet
   baota_write_guardian_note
+  baota_configure_nginx_error_page
 }
 
 baota_tighten_secrets() {
@@ -936,50 +1147,105 @@ baota_tighten_secrets() {
   fi
 }
 
+baota_rollback_programs() {
+  local site="$BAOTA_SITE_ROOT" data
+  data="$(baota_data_dir)"
+  [[ -n "${BAOTA_BACKUP_DIR:-}" && -d "$BAOTA_BACKUP_DIR" ]] || return 0
+  baota_warn "健康检查未通过，正在把程序文件换回升级前的版本"
+  if [[ -n "${BAOTA_SUP_PROGRAM:-}" ]]; then
+    baota_supervisorctl stop "$BAOTA_SUP_PROGRAM" >/dev/null 2>&1 || true
+  fi
+  if [[ -f "$BAOTA_BACKUP_DIR/auth_pro.prev" ]]; then
+    cp -a "$BAOTA_BACKUP_DIR/auth_pro.prev" "$data/auth_pro"
+    chmod 755 "$data/auth_pro" || true
+  fi
+  if [[ -f "$BAOTA_BACKUP_DIR/index.html.prev" ]]; then
+    cp -a "$BAOTA_BACKUP_DIR/index.html.prev" "$site/index.html"
+  fi
+  if [[ -d "$BAOTA_BACKUP_DIR/assets" ]]; then
+    rm -rf "$site/assets"
+    mv "$BAOTA_BACKUP_DIR/assets" "$site/assets" || true
+  fi
+}
+
+baota_health_body() {
+  local url="$1"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS --max-time 2 "$url" 2>/dev/null || true
+    return 0
+  fi
+  wget -qO- -T 2 "$url" 2>/dev/null || true
+}
+
 baota_start_backend() {
-  local data port pid i health url
+  local data port pid i health url started_by timeout
   [[ "$BAOTA_START" == "1" ]] || return 0
   data="$(baota_data_dir)"
   port="$(baota_effective_port)"
   url="http://127.0.0.1:${port}/api/install/status"
   if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
-    baota_info "将后台启动 ${data}/auth_pro ，并请求 ${url}"
+    baota_info "将在端口 ${port} 空闲后由进程守护启动，并请求 ${url}"
     return 0
   fi
   if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
     baota_die "启动后需要 curl 或 wget 做健康检查"
   fi
   mkdir -p "$data/logs"
-  baota_ensure_port_available "$port" "$BAOTA_SITE_ROOT" "1"
-  pid="$(
-    cd "$data"
-    set -a
-    # shellcheck disable=SC1091
-    source ./baota.env
-    set +a
-    nohup "$data/auth_pro" >> "$data/logs/auto_pro.log" 2>&1 &
-    echo $!
-  )"
-  printf '%s\n' "$pid" > "$data/auto_pro.pid"
-  local timeout="${AUTH_PRO_HEALTH_TIMEOUT:-30}"
+  if baota_port_is_open "$port"; then
+    baota_stop_and_reclaim "$port" "$BAOTA_SITE_ROOT"
+  fi
+  if baota_port_is_open "$port"; then
+    baota_die "端口 ${port} 还没空闲，拒绝启动新进程。"
+  fi
+  baota_find_supervisor || true
+  pid=""
+  started_by="direct"
+  if [[ -n "${BAOTA_SUP_PROGRAM:-}" ]]; then
+    baota_info "端口 ${port} 已空闲，由进程守护启动 ${BAOTA_SUP_PROGRAM}"
+    if ! baota_supervisorctl start "$BAOTA_SUP_PROGRAM"; then
+      baota_rollback_programs
+      baota_die "进程守护没有启动新版本，已尝试回滚程序文件。请查看守护日志。不要另外 nohup 一份。"
+    fi
+    started_by="supervisor"
+  else
+    baota_info "未找到指向本站的进程守护配置。端口 ${port} 已确认空闲，改为直接启动。生产环境请只在宝塔进程守护里启动 backend/start.sh。"
+    pid="$(
+      cd "$data"
+      set -a
+      # shellcheck disable=SC1091
+      source ./baota.env
+      set +a
+      nohup "$data/auth_pro" >> "$data/logs/auto_pro.log" 2>&1 &
+      echo $!
+    )"
+    printf '%s\n' "$pid" > "$data/auto_pro.pid"
+  fi
+  timeout="${AUTH_PRO_HEALTH_TIMEOUT:-30}"
   for i in $(seq 1 "$timeout"); do
     sleep 1
-    if command -v curl >/dev/null 2>&1; then
-      health="$(curl -fsS "$url" 2>/dev/null || true)"
-    else
-      health="$(wget -qO- "$url" 2>/dev/null || true)"
-    fi
+    health="$(baota_health_body "$url")"
     if [[ -n "$health" ]]; then
-      baota_info "后端已启动 PID=${pid} 端口=${port}"
+      baota_info "后端已启动 端口=${port}"
+      [[ -n "$pid" ]] && baota_info "直接启动的 PID=${pid}"
       baota_info "本机检查：${url}"
       baota_info "浏览器打开站点域名。全新安装会进入安装向导，请填写事先建好的空数据库。"
       return 0
     fi
-    if ! kill -0 "$pid" 2>/dev/null; then
-      baota_die "后端进程已退出。请查看 ${data}/logs/auto_pro.log"
+    if [[ "$started_by" == "direct" && -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
+      baota_rollback_programs
+      baota_die "后端进程已退出，已尝试回滚程序文件。请查看 ${data}/logs/auto_pro.log"
     fi
   done
-  baota_die "健康检查超时（${timeout}s）。请查看 ${data}/logs/auto_pro.log 。若要用进程守护启动，请先结束刚才拉起的进程。"
+  if [[ "$started_by" == "supervisor" ]]; then
+    baota_supervisorctl stop "$BAOTA_SUP_PROGRAM" >/dev/null 2>&1 || true
+  elif [[ -n "$pid" ]]; then
+    baota_signal_pid "$pid"
+  fi
+  baota_rollback_programs
+  if [[ "$started_by" == "supervisor" ]] && ! baota_port_is_open "$port"; then
+    baota_supervisorctl start "$BAOTA_SUP_PROGRAM" >/dev/null 2>&1 || true
+  fi
+  baota_die "健康检查超时（${timeout}s），已尝试回滚。请查看 ${data}/logs/auto_pro.log 。不要在旧进程还占着端口时再启动一份。"
 }
 
 baota_print_manual_steps() {
@@ -991,7 +1257,7 @@ baota_print_manual_steps() {
 仍需在宝塔面板手工完成（脚本不改面板数据库）：
   1. 创建网站，根目录为 ${BAOTA_SITE_ROOT}
   2. 创建空 MySQL 库和用户。全新安装在网页向导里填写，不要在脚本里写数据库口令
-  3. 站点 Nginx 反代到 127.0.0.1:${port}，并把 ${data}/baota-nginx.snippet.conf 中的 location 放进 server，避免直接下载 /backend、db.json、install.lock
+  3. 站点 Nginx 反代到 127.0.0.1:${port}，并把 ${data}/baota-nginx.snippet.conf 中的 location 放进 server，避免直接下载 /backend、db.json、install.lock。502/503/504 使用同文件里的 error_page，返回网站根 backend-unavailable.html
   4. 需要 HTTPS 时在面板申请证书
   5. 进程守护：启动命令 ${data}/start.sh ，运行目录 ${data} 。说明见 ${data}/baota-guardian.txt
      升级或清理残留进程前，先在守护里停止。守护开着时结束进程会被立刻拉起，形成重启循环

@@ -51,13 +51,35 @@
         class="update-alert"
       />
       <ElAlert
-        v-if="job?.status === 'restarting'"
+        v-if="job?.status === 'restarting' && !restartTimedOut"
         title="服务正在重启，页面稍后可能短暂无法访问"
         type="success"
         show-icon
         :closable="false"
         class="update-alert"
       />
+      <ElAlert
+        v-if="restartTimedOut"
+        title="更新重启失败"
+        type="error"
+        show-icon
+        :closable="false"
+        class="update-alert"
+      >
+        <p>{{ restartFailureReason }}</p>
+        <p>{{ restartRecovery }}</p>
+      </ElAlert>
+      <ElAlert
+        v-else-if="job?.status === 'failed'"
+        title="更新失败，已尝试回滚"
+        type="error"
+        show-icon
+        :closable="false"
+        class="update-alert"
+      >
+        <p>{{ job.error || job.message || '新版本没有健康启动' }}</p>
+        <p>{{ restartRecovery }}</p>
+      </ElAlert>
 
       <div v-if="job" ref="jobSectionRef" class="update-section job-section">
         <div class="section-header">
@@ -227,6 +249,13 @@
     OnlineUpdateStatus
   } from '@/api/update'
   import { HttpError } from '@/utils/http/error'
+  import { setBackendUnreachableRedirectPaused } from '@/utils/http/backend-unavailable'
+  import {
+    UPDATE_RESTART_RECOVERY,
+    clearRestartStart,
+    rememberRestartStart,
+    restartTimedOut as restartWaitExceeded
+  } from './restart-timeout'
 
   defineOptions({ name: 'OnlineUpdate' })
 
@@ -240,8 +269,12 @@
   const checkResult = ref<OnlineUpdateCheckResult | null>(null)
   const job = ref<OnlineUpdateJob | null>(null)
   const jobSectionRef = ref<HTMLElement | null>(null)
+  const restartTimedOut = ref(false)
+  const restartFailureReason = ref('在限定时间内没有确认新版本已经启动。若服务已经恢复，请刷新页面查看版本号。')
+  const restartRecovery = UPDATE_RESTART_RECOVERY
   let jobTimer: ReturnType<typeof setInterval> | undefined
   let redirectScheduled = false
+  let restartSince = 0
 
   const latest = computed(() => checkResult.value?.latest || status.value?.latest || null)
   const currentVersion = computed(
@@ -360,26 +393,61 @@
 
   const startJobPolling = (id: string) => {
     stopJobPolling()
+    trackRestart(id)
     jobTimer = setInterval(async () => {
       try {
         const nextJob = await fetchOnlineUpdateJob(id)
         job.value = nextJob
+        if (nextJob.status === 'restarting') trackRestart(id)
         if (nextJob.status === 'success') {
+          finishRestartWait()
           stopJobPolling()
-          ElMessage.success('更新完成，请重新登录')
-          redirectToAdminLogin()
+          ElMessage.success(`已更新到 v${nextJob.version}，正在刷新`)
+          window.setTimeout(() => window.location.reload(), 600)
           return
         }
         if (nextJob.status === 'failed') {
+          finishRestartWait()
           stopJobPolling()
           ElMessage.error(nextJob.error || nextJob.message || '更新失败，已尝试回滚')
+          return
         }
+        if (markRestartTimeoutIfNeeded()) return
       } catch (error) {
         if (handleUpdateError(error)) return
-        if (job.value?.status === 'restarting') return
+        if (job.value?.status === 'restarting') {
+          markRestartTimeoutIfNeeded()
+          return
+        }
         stopJobPolling()
       }
     }, 2000)
+  }
+
+  const trackRestart = (id: string) => {
+    if (job.value?.status !== 'restarting') {
+      restartSince = 0
+      setBackendUnreachableRedirectPaused(false)
+      return
+    }
+    restartSince = rememberRestartStart(id, Date.now(), window.sessionStorage)
+    setBackendUnreachableRedirectPaused(true)
+  }
+
+  const finishRestartWait = () => {
+    if (job.value?.id) clearRestartStart(job.value.id, window.sessionStorage)
+    restartSince = 0
+    setBackendUnreachableRedirectPaused(false)
+  }
+
+  const markRestartTimeoutIfNeeded = () => {
+    if (!restartWaitExceeded(restartSince, Date.now(), job.value?.status || '')) return false
+    restartTimedOut.value = true
+    restartFailureReason.value = job.value?.error || restartFailureReason.value
+    finishRestartWait()
+    stopJobPolling()
+    ElMessage.error('更新重启失败')
+    return true
   }
 
   const stopJobPolling = () => {
@@ -457,7 +525,10 @@
     void loadPage()
   })
 
-  onBeforeUnmount(stopJobPolling)
+  onBeforeUnmount(() => {
+    stopJobPolling()
+    setBackendUnreachableRedirectPaused(false)
+  })
 </script>
 
 <style lang="scss" scoped>
