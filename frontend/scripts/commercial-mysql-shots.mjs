@@ -43,7 +43,7 @@ try {
   console.log('buyer login')
   await login(state.buyer)
   await page.goto(`${state.buyer}/license/apps`, { waitUntil: 'domcontentloaded' })
-  await page.getByRole('button', { name: '升级商业版' }).click()
+  await page.locator('#app-header').getByRole('button', { name: '升级商业版' }).click()
   await page.getByRole('dialog', { name: '升级商业版' }).waitFor()
   await page.getByPlaceholder('邮箱或账号').fill(state.buyerEmail)
   await page.getByPlaceholder('仅用于本次登录，不会保存').fill(state.buyerPass)
@@ -61,7 +61,7 @@ try {
   await page.getByText('商业版 · 永久').first().waitFor()
   await page.getByText('浏览并安装插件和首页模板').waitFor()
   await page.getByRole('button', { name: '查看授权' }).waitFor()
-  if (await page.getByRole('button', { name: '升级商业版' }).isVisible().catch(() => false)) {
+  if (await page.getByRole('button', { name: '升级商业版' }).count()) {
     throw new Error('商业版仍显示升级按钮')
   }
   await page.screenshot({ path: shot('phone-buyer-commercial-v2.png') })
@@ -70,7 +70,7 @@ try {
   await page.getByText('买家第二个应用').waitFor()
   await page.getByText('买家主应用').waitFor()
   await page.getByRole('button', { name: '查看授权' }).waitFor()
-  if (await page.getByRole('button', { name: '升级商业版' }).isVisible().catch(() => false)) {
+  if (await page.getByRole('button', { name: '升级商业版' }).count()) {
     throw new Error('应用管理仍显示升级商业版')
   }
   if (await page.getByText('免费版仅支持').isVisible().catch(() => false)) {
