@@ -36,7 +36,7 @@
 
 | 菜单 | 路径 | 作用 |
 | --- | --- | --- |
-| 软件目录 | `/source-station/packages` | 按应用查看插件与首页模板。审核、上架、下架、弃用、编辑元数据、版本与回滚 latest |
+| 软件目录 | `/source-station/packages` | 按应用查看插件与首页模板。审核、上架、下架、弃用、编辑元数据、版本与回滚 latest。可单条或批量切换绑定应用。下拉里的「未归属（应用已删除）」用来找回已删除应用留下的条目 |
 | 入驻审核 | `/source-station/applications` | 开发者入驻申请。通过后对方才能登录开发者面板 |
 | 公开目录 | `/source-station/catalog` | 预览公开 `index.json`，可从数据库重生快照，并看审计 |
 | 广告投放 | `/source-station/ads` | 广告位 `home-banner`、`sidebar`、`popup` 的审核与投放 |

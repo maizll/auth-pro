@@ -419,14 +419,36 @@ export function saveSourceCatalogCategories(
   })
 }
 
-export function fetchSourceCatalogItems(status?: string, category?: string, appId?: number) {
+export function fetchSourceCatalogItems(
+  status?: string,
+  category?: string,
+  appId?: number,
+  unassigned = false
+) {
   return request.get<SourceListResponse<SourceCatalogItem>>({
     url: `${BASE}/catalog-items`,
     params: {
       ...(status ? { status } : {}),
       ...(category ? { category } : {}),
-      ...(appId && appId > 0 ? { app_id: appId } : {})
+      ...(unassigned ? { unassigned: 1 } : appId && appId > 0 ? { app_id: appId } : {})
     }
+  })
+}
+
+export function fetchCatalogAppUsage(appId: number) {
+  return request.get<{ count: number; pluginCount: number; templateCount: number }>({
+    url: `${BASE}/catalog-app-usage`,
+    params: { app_id: appId }
+  })
+}
+
+export function rebindSourceCatalogItems(
+  appId: number,
+  items: Array<{ kind: 'plugin' | 'template'; id: string }>
+) {
+  return request.post<{ count: number }>({
+    url: `${BASE}/catalog-items/rebind`,
+    data: { appId, items }
   })
 }
 

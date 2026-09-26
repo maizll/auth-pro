@@ -154,6 +154,34 @@
         <ElButton type="primary" @click="handleSubmit">确定</ElButton>
       </template>
     </ElDialog>
+
+    <ElDialog v-model="migrateVisible" title="删除应用前迁移软件目录" width="480px">
+      <p>
+        应用「{{ migrateSource?.name }}」下还有
+        {{ migrateCount }}
+        条软件目录条目。删除前要把它们迁到另一个应用，版本、价格和安装包会一起过去。
+      </p>
+      <ElSelect
+        v-if="migrateTargets.length"
+        v-model="migrateAppId"
+        placeholder="请选择目标应用"
+        style="width: 100%; margin-top: 12px"
+      >
+        <ElOption v-for="app in migrateTargets" :key="app.id" :label="app.name" :value="app.id" />
+      </ElSelect>
+      <p v-else>没有其他应用可以接收这些目录条目，请先新建应用。</p>
+      <template #footer>
+        <ElButton @click="migrateVisible = false">取消</ElButton>
+        <ElButton
+          type="danger"
+          :loading="migrateSaving"
+          :disabled="!migrateTargets.length"
+          @click="confirmMigrateAndDelete"
+        >
+          迁移并删除
+        </ElButton>
+      </template>
+    </ElDialog>
   </div>
 </template>
 
@@ -182,6 +210,7 @@
     type AppSaleGap,
     type LicenseAppItem
   } from '@/api/license-manage'
+  import { fetchCatalogAppUsage } from '@/api/source-station'
 
   defineOptions({ name: 'LicenseApps' })
 
@@ -444,8 +473,42 @@
     router.push({ name: 'SdkIndex', query: { appId: String(row.id) } })
   }
 
+  const migrateVisible = ref(false)
+  const migrateSaving = ref(false)
+  const migrateCount = ref(0)
+  const migrateAppId = ref<number>()
+  const migrateSource = ref<AppRow | null>(null)
+  const migrateTargets = computed(() =>
+    ((data.value || []) as AppRow[]).filter((item) => item.id !== migrateSource.value?.id)
+  )
+
+  const confirmMigrateAndDelete = async () => {
+    const row = migrateSource.value
+    if (!row || !migrateAppId.value) {
+      ElMessage.warning('请选择要迁移到的应用')
+      return
+    }
+    migrateSaving.value = true
+    try {
+      await fetchDeleteLicenseApp(row.id, migrateAppId.value)
+      ElMessage.success('目录条目已迁移，应用已删除')
+      migrateVisible.value = false
+      refreshRemove()
+    } finally {
+      migrateSaving.value = false
+    }
+  }
+
   const handleDelete = async (row: AppRow) => {
     try {
+      const usage = await fetchCatalogAppUsage(row.id)
+      if (usage.count > 0) {
+        migrateSource.value = row
+        migrateCount.value = usage.count
+        migrateAppId.value = ((data.value || []) as AppRow[]).find((item) => item.id !== row.id)?.id
+        migrateVisible.value = true
+        return
+      }
       await ElMessageBox.confirm(
         `删除应用「${row.name}」将同时清除其所有授权记录，确定？`,
         '危险操作',

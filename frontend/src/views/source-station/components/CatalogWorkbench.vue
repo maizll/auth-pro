@@ -23,6 +23,7 @@
               :label="appLabel(app)"
               :value="app.id"
             />
+            <el-option label="未归属（应用已删除）" :value="-1" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
@@ -64,15 +65,21 @@
             </p>
           </div>
           <div class="table-actions">
-            <el-button :disabled="!searchForm.appId" @click="openRegister">登记外部地址</el-button>
-            <el-button type="primary" :disabled="!searchForm.appId" @click="openUpload"
+            <el-button :disabled="!selectedRows.length" @click="openRebind(selectedRows)"
+              >切换绑定应用</el-button
+            >
+            <el-button :disabled="searchForm.appId <= 0" @click="openRegister"
+              >登记外部地址</el-button
+            >
+            <el-button type="primary" :disabled="searchForm.appId <= 0" @click="openUpload"
               >上传压缩包</el-button
             >
           </div>
         </div>
       </template>
 
-      <el-table :data="tableData" stripe v-loading="loading">
+      <el-table :data="tableData" stripe v-loading="loading" @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="42" />
         <el-table-column prop="id" label="标识" min-width="140" show-overflow-tooltip />
         <el-table-column prop="name" label="名称" min-width="180">
           <template #default="{ row }">
@@ -113,8 +120,11 @@
         </el-table-column>
         <el-table-column prop="sha256" label="校验码" min-width="160" show-overflow-tooltip />
         <el-table-column prop="updatedAt" label="更新时间" width="170" />
-        <el-table-column label="操作" width="420" fixed="right">
+        <el-table-column label="操作" width="480" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="openRebind([row])"
+              >切换应用</el-button
+            >
             <el-button
               v-if="canEditItem(row.status)"
               link
@@ -303,7 +313,7 @@
         :closable="false"
         show-icon
         class="mb-3"
-        title="已上架条目可直接改名称、地址、校验码等元数据，不会自动退回待审核。标识与所属应用创建后不可改。"
+        title="已上架条目可直接改名称、地址、校验码等元数据，不会自动退回待审核。标识创建后不可改。更换所属应用请用「切换应用」，版本、价格和安装包会一起过去。"
       />
       <el-form ref="editRef" :model="editForm" :rules="editRules" label-width="110px">
         <el-form-item label="应用">
@@ -575,6 +585,21 @@
         </template>
       </el-dialog>
     </el-drawer>
+
+    <el-dialog v-model="rebindVisible" title="切换绑定应用" width="480px" destroy-on-close>
+      <p class="card-hint mb-3">
+        将把选中的
+        {{ rebindItems.length }}
+        条改到目标应用。版本、价格和安装包跟着走，标识不变。目标应用里已有相同标识时会拒绝。
+      </p>
+      <el-select v-model="rebindAppId" placeholder="请选择目标应用" style="width: 100%">
+        <el-option v-for="app in apps" :key="app.id" :label="appLabel(app)" :value="app.id" />
+      </el-select>
+      <template #footer>
+        <el-button @click="rebindVisible = false">取消</el-button>
+        <el-button type="primary" :loading="rebindSaving" @click="handleRebind">确定切换</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -590,6 +615,7 @@
     fetchGitHubPaidToken,
     fetchSourceCatalogItems,
     fetchSourceCatalogApps,
+    rebindSourceCatalogItems,
     parseSourcePackage,
     publishSourcePackage,
     registerSourcePlugin,
@@ -645,6 +671,11 @@
   const loading = ref(false)
   const pullingId = ref('')
   const tableData = ref<SourceCatalogItem[]>([])
+  const selectedRows = ref<SourceCatalogItem[]>([])
+  const rebindVisible = ref(false)
+  const rebindSaving = ref(false)
+  const rebindAppId = ref<number>()
+  const rebindItems = ref<SourceCatalogItem[]>([])
   const searchForm = reactive({
     appId: 0,
     status: '',
@@ -869,6 +900,10 @@
     const data = await fetchSourceCatalogApps()
     apps.value = data.list || []
     const stored = Number(localStorage.getItem(CATEGORY_APP_STORAGE_KEY) || 0)
+    if (stored === -1) {
+      searchForm.appId = -1
+      return
+    }
     const exists = apps.value.some((item) => item.id === stored)
     if (exists) {
       searchForm.appId = stored
@@ -900,8 +935,41 @@
     }
   }
 
+  function onSelectionChange(rows: SourceCatalogItem[]) {
+    selectedRows.value = rows
+  }
+
+  function openRebind(rows: SourceCatalogItem[]) {
+    if (!rows.length) {
+      ElMessage.warning('请选择要切换的条目')
+      return
+    }
+    rebindItems.value = rows
+    rebindAppId.value = apps.value[0]?.id
+    rebindVisible.value = true
+  }
+
+  async function handleRebind() {
+    if (!rebindAppId.value) {
+      ElMessage.warning('请选择目标应用')
+      return
+    }
+    rebindSaving.value = true
+    try {
+      await rebindSourceCatalogItems(
+        rebindAppId.value,
+        rebindItems.value.map((row) => ({ kind: row.kind, id: row.id }))
+      )
+      ElMessage.success('已切换绑定应用')
+      rebindVisible.value = false
+      await loadItems()
+    } finally {
+      rebindSaving.value = false
+    }
+  }
+
   async function loadItems() {
-    if (!searchForm.appId) {
+    if (searchForm.appId === 0) {
       tableData.value = []
       return
     }
@@ -910,7 +978,8 @@
       const data = await fetchSourceCatalogItems(
         searchForm.status,
         searchForm.category,
-        searchForm.appId
+        searchForm.appId,
+        searchForm.appId === -1
       )
       tableData.value = data.list || []
     } finally {
@@ -925,7 +994,7 @@
   }
 
   function openUpload() {
-    if (!searchForm.appId) {
+    if (searchForm.appId <= 0) {
       ElMessage.warning('请先选择应用')
       return
     }
@@ -1096,7 +1165,7 @@
   }
 
   function openRegister() {
-    if (!searchForm.appId) {
+    if (searchForm.appId <= 0) {
       ElMessage.warning('请先选择应用')
       return
     }
@@ -1196,8 +1265,13 @@
   async function handleDeleteCategory(row: SourceCatalogCategory) {
     if (!canDeleteCatalogCategory(row)) return
     let usedCount = catalogCategoryUsageCount(tableData.value, row.key)
-    if (usedCount === 0 && searchForm.appId) {
-      const data = await fetchSourceCatalogItems('', '', searchForm.appId)
+    if (usedCount === 0 && searchForm.appId !== 0) {
+      const data = await fetchSourceCatalogItems(
+        '',
+        '',
+        searchForm.appId > 0 ? searchForm.appId : undefined,
+        searchForm.appId === -1
+      )
       usedCount = catalogCategoryUsageCount(data.list || [], row.key)
     }
     try {

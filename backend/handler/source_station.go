@@ -37,6 +37,7 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		developer.GET("/apps", SourceDeveloperCatalogApps)
 		developer.GET("/categories", SourceDeveloperCatalogCategories)
 		developer.GET("/items", SourceDeveloperItems)
+		developer.POST("/items/rebind", SourceDeveloperRebindCatalogItems)
 		developer.POST("/plugins", SourceDeveloperUpsertPlugin)
 		developer.PUT("/plugins/:id", SourceDeveloperUpsertPlugin)
 		developer.POST("/plugins/:id/submit", SourceDeveloperSubmitPlugin)
@@ -89,6 +90,8 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		admin.GET("/categories", AdminSourceCatalogCategories)
 		workbenchWrites.PUT("/categories", AdminSourceCatalogCategoriesSave)
 		admin.GET("/catalog-items", AdminSourceCatalogItems)
+		admin.GET("/catalog-app-usage", AdminCatalogAppUsage)
+		workbenchWrites.POST("/catalog-items/rebind", AdminRebindCatalogItems)
 
 		admin.GET("/plugins", AdminSourcePlugins)
 		pluginWrites.PUT("/plugins", AdminSourceRegisterPlugin)

@@ -4,9 +4,12 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"auto_pro/config"
@@ -408,6 +411,25 @@ func AppResetSecret(c *gin.Context) {
 // AppDelete 删除应用
 func AppDelete(c *gin.Context) {
 	id := c.Param("id")
+	appID, convErr := strconv.ParseInt(strings.TrimSpace(id), 10, 64)
+	if convErr != nil || appID <= 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用不存在"})
+		return
+	}
+	migrateAppID, migrateErr := parseMigrateAppID(c)
+	if migrateErr != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": migrateErr.Error()})
+		return
+	}
+	if err := relocateCatalogBeforeAppDelete(appID, migrateAppID, c.GetString("username")); err != nil {
+		var required appCatalogMigrateRequiredError
+		if errors.As(err, &required) {
+			c.JSON(http.StatusOK, gin.H{"code": 409, "msg": err.Error(), "data": gin.H{"count": required.Count}})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
 
 	db, err := config.DB()
 	if err != nil {

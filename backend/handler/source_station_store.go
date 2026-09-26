@@ -292,6 +292,7 @@ type sourceStationStore interface {
 	ListCatalogApps() ([]sourceCatalogApp, error)
 	GetCatalogAppByID(id int64) (sourceCatalogApp, error)
 	GetCatalogAppByKey(appKey string) (sourceCatalogApp, error)
+	SetCatalogAppID(kind, id string, appID int64) error
 
 	AppendAudit(entry sourceAuditEntry) error
 	ListAudit(limit int) ([]sourceAuditEntry, error)
@@ -520,6 +521,33 @@ func (store *memorySourceStore) GetCatalogAppByID(id int64) (sourceCatalogApp, e
 		return sourceCatalogApp{}, errSourceAppNotFound
 	}
 	return item, nil
+}
+
+func (store *memorySourceStore) SetCatalogAppID(kind, id string, appID int64) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	now := time.Now().UTC()
+	switch kind {
+	case sourceKindPlugin:
+		item, ok := store.plugins[id]
+		if !ok {
+			return errSourceNotFound
+		}
+		item.AppID = appID
+		item.UpdatedAt = now
+		store.plugins[id] = item
+	case sourceKindTemplate:
+		item, ok := store.templates[id]
+		if !ok {
+			return errSourceNotFound
+		}
+		item.AppID = appID
+		item.UpdatedAt = now
+		store.templates[id] = item
+	default:
+		return errSourceNotFound
+	}
+	return nil
 }
 
 func (store *memorySourceStore) GetCatalogAppByKey(appKey string) (sourceCatalogApp, error) {
@@ -3007,6 +3035,34 @@ func (mysqlSourceStore) GetCatalogAppByKey(appKey string) (sourceCatalogApp, err
 	}
 	item.Enabled = enabled == 1
 	return item, nil
+}
+
+func (mysqlSourceStore) SetCatalogAppID(kind, id string, appID int64) error {
+	table := ""
+	switch kind {
+	case sourceKindPlugin:
+		table = "source_catalog_plugins"
+	case sourceKindTemplate:
+		table = "source_catalog_templates"
+	default:
+		return errSourceNotFound
+	}
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return err
+	}
+	result, err := db.Exec(`UPDATE `+table+` SET app_id=? WHERE id=?`, appID, id)
+	if err != nil {
+		return err
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		return errSourceNotFound
+	}
+	return nil
 }
 
 func sourceCatalogJSON() ([]byte, ginHCatalog, error) {

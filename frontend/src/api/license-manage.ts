@@ -314,8 +314,11 @@ export function fetchRevokeCommercialEdition(id: number, reason: string) {
 }
 
 /** 删除应用 */
-export function fetchDeleteLicenseApp(id: number) {
-  return request.del({ url: `/api/app/${id}` })
+export function fetchDeleteLicenseApp(id: number, migrateAppId?: number) {
+  return request.del({
+    url: `/api/app/${id}`,
+    params: migrateAppId ? { migrateAppId } : undefined
+  })
 }
 
 /** 重置 AppSecret */

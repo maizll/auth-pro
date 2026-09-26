@@ -167,6 +167,17 @@ export function fetchSourceDeveloperMe() {
   })
 }
 
+export function rebindSourceDeveloperCatalogItems(
+  appId: number,
+  items: Array<{ kind: 'plugin' | 'template'; id: string }>
+) {
+  return axios.post<{ code: number; msg: string; data: { count: number } }>(
+    `${BASE}/items/rebind`,
+    { appId, items },
+    { headers: developerAuthHeaders() }
+  )
+}
+
 export function fetchSourceDeveloperItems(status?: string) {
   return axios.get<{ code: number; msg: string; data: SourceDeveloperItems }>(`${BASE}/items`, {
     headers: developerAuthHeaders(),

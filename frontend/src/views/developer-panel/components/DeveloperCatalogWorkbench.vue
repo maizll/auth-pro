@@ -10,12 +10,18 @@
               zip 或填写公开地址，才能继续收费出售」。
             </p>
           </div>
-          <el-button type="primary" @click="openEdit()">{{ createLabel }}</el-button>
+          <div class="table-actions">
+            <el-button :disabled="!selectedRows.length" @click="openRebind(selectedRows)">
+              切换绑定应用
+            </el-button>
+            <el-button type="primary" @click="openEdit()">{{ createLabel }}</el-button>
+          </div>
         </div>
       </template>
 
       <el-empty v-if="!items.length" :description="emptyText" />
-      <el-table v-else :data="items" stripe>
+      <el-table v-else :data="items" stripe @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="42" />
         <el-table-column prop="id" label="标识" min-width="140" show-overflow-tooltip />
         <el-table-column label="名称" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">
@@ -52,8 +58,11 @@
           <template #default="{ row }">{{ row.reviewNote || '-' }}</template>
         </el-table-column>
         <el-table-column prop="updatedAt" label="更新时间" width="180" />
-        <el-table-column label="操作" width="300" fixed="right">
+        <el-table-column label="操作" width="360" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="openRebind([row])"
+              >切换应用</el-button
+            >
             <el-button link type="primary" size="small" @click="openEdit(row)">
               {{ canEditItem(row) ? '编辑' : '查看' }}
             </el-button>
@@ -428,6 +437,24 @@
         </template>
       </el-dialog>
     </el-drawer>
+
+    <el-dialog v-model="rebindVisible" title="切换绑定应用" width="480px" destroy-on-close>
+      <p class="field-help">
+        只能改到你能登记的应用。版本、价格和安装包跟着走，标识不变。目标应用里已有相同标识时会拒绝。
+      </p>
+      <el-select v-model="rebindAppId" placeholder="请选择目标应用" style="width: 100%">
+        <el-option
+          v-for="app in apps"
+          :key="app.id"
+          :label="`${app.name}（${app.appKey}）`"
+          :value="app.id"
+        />
+      </el-select>
+      <template #footer>
+        <el-button @click="rebindVisible = false">取消</el-button>
+        <el-button type="primary" :loading="rebindSaving" @click="handleRebind">确定切换</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -443,6 +470,7 @@
     fetchSourceDeveloperCatalogApps,
     fetchSourceDeveloperCategories,
     fetchSourceDeveloperItems,
+    rebindSourceDeveloperCatalogItems,
     fetchSourceDeveloperMe,
     fetchSourceDeveloperPluginVersions,
     fetchSourceDeveloperTemplateVersions,
@@ -504,6 +532,11 @@
   const hashing = ref<'form' | 'version' | ''>('')
   const uploading = ref(false)
   const items = ref<SourceDeveloperCatalogItem[]>([])
+  const selectedRows = ref<SourceDeveloperCatalogItem[]>([])
+  const rebindVisible = ref(false)
+  const rebindSaving = ref(false)
+  const rebindAppId = ref<number>()
+  const rebindItems = ref<SourceDeveloperCatalogItem[]>([])
   const apps = ref<SourceDeveloperCatalogApp[]>([])
   const categories = ref<SourceDeveloperCategory[]>([])
   const formVisible = ref(false)
@@ -823,6 +856,45 @@
       form.authorName = profile.displayName || profile.username || currentDeveloperName()
     } catch {
       form.authorName = currentDeveloperName()
+    }
+  }
+
+  function onSelectionChange(rows: SourceDeveloperCatalogItem[]) {
+    selectedRows.value = rows
+  }
+
+  function openRebind(rows: SourceDeveloperCatalogItem[]) {
+    if (!rows.length) {
+      ElMessage.warning('请选择要切换的条目')
+      return
+    }
+    rebindItems.value = rows
+    rebindAppId.value = apps.value.find((app) => app.id !== rows[0]?.appId)?.id || apps.value[0]?.id
+    rebindVisible.value = true
+  }
+
+  async function handleRebind() {
+    if (!rebindAppId.value) {
+      ElMessage.warning('请选择目标应用')
+      return
+    }
+    rebindSaving.value = true
+    try {
+      const res = await rebindSourceDeveloperCatalogItems(
+        rebindAppId.value,
+        rebindItems.value.map((row) => ({ kind: props.kind, id: row.id }))
+      )
+      const body = unwrapCode(res)
+      if (!body) return
+      if (body.code !== 200) {
+        ElMessage.error(body.msg || '切换失败')
+        return
+      }
+      ElMessage.success(body.msg || '已切换绑定应用')
+      rebindVisible.value = false
+      await loadAll()
+    } finally {
+      rebindSaving.value = false
     }
   }
 
