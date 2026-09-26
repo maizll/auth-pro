@@ -1,6 +1,6 @@
 # 部署手册
 
-当前版本 **1.5.6**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
+当前版本 **1.5.7**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
 
 运行数据目录与进程的工作目录一致。宝塔脚本默认把它放在网站根下的 `backend/`。后端解析数据目录的顺序是：环境变量 `AUTO_PRO_DATA_DIR`，否则在当前工作目录或其子目录 `backend/` 中寻找 `install.lock`、`db.json` 或 `go.mod`，再否则用可执行文件所在目录。
 
@@ -35,7 +35,7 @@ go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出
 
 ```bash
 cd /www/wwwroot/example.com
-tar -xzf auth_pro-full-v1.5.6.tar.gz
+tar -xzf auth_pro-full-v1.5.7.tar.gz
 bash baota-install.sh
 ```
 
@@ -45,7 +45,7 @@ bash baota-install.sh
 AUTH_PRO_YES=1 AUTH_PRO_START=0 \
 bash baota-install.sh \
   --site-root /www/wwwroot/example.com \
-  --package /tmp/auth_pro-full-v1.5.6.tar.gz
+  --package /tmp/auth_pro-full-v1.5.7.tar.gz
 ```
 
 ### 安装脚本会做的事
@@ -77,13 +77,16 @@ bash baota-install.sh \
 
 ## 宝塔：升级
 
-不要先把新 tar 解压覆盖正在运行的站点。把包留在 `/tmp`，用 `--package` 指向它。升级脚本会自己先停本站进程并确认端口空闲。若进程守护不在 supervisor 里、停掉后又立刻把旧进程拉起来，脚本会停在替换之前，这时再去宝塔面板里停止该站点。
+不要先把新 tar 解压覆盖正在运行的站点。把包留在 `/tmp`，用新包里的 `baota-upgrade.sh`，`--package` 指向它。
+
+进程没有被守护托管时，脚本会先停本站进程并确认端口空闲。进程已经由宝塔进程守护或 systemd 托管时，加上 `--start`：脚本不停止守护，替换文件后只结束本站进程，由守护按 `start.sh` 拉起。`--no-start` 在守护仍托管时会拒绝执行，需要先在面板里停止该站点。
 
 ```bash
-bash baota-upgrade.sh \
+tar -xzf /tmp/auth_pro-full-v1.5.7.tar.gz -C /tmp/auth-pro-1.5.7
+bash /tmp/auth-pro-1.5.7/baota-upgrade.sh \
   --site-root /www/wwwroot/example.com \
-  --package /tmp/auth_pro-full-v1.5.6.tar.gz \
-  --no-start
+  --package /tmp/auth_pro-full-v1.5.7.tar.gz \
+  --start --yes
 ```
 
 要求数据目录里已有 `db.json` 或 `install.lock`。
@@ -98,7 +101,7 @@ backend/updates/backups/baota-upgrade-<时间>-<pid>/
 
 能连上 MySQL 时用 `mysqldump` 导出 `db.sql`。口令只放在 `MYSQL_PWD` 环境变量里，不放进命令参数。没有客户端或暂时不能连库时加 `--skip-mysql`（或 `AUTH_PRO_SKIP_MYSQL=1`），`db.json` 文件副本仍会备份。
 
-只替换页面、`assets/`、`backend/auth_pro` 以及 `baota-install.sh`、`baota-upgrade.sh`、`baota-lib.sh`。替换后核对下列路径的 SHA256 与替换前一致：
+只替换页面、`assets/`、`backend/auth_pro`、`backend/start.sh` 以及 `baota-install.sh`、`baota-upgrade.sh`、`baota-lib.sh`、`guardian-start.sh`。替换后核对下列路径的 SHA256 与替换前一致：
 
 - 文件：`db.json`、`install.lock`、`jwt.secret`、`auto_pro.log`、`auto_pro.pid`
 - 目录：`plugins/`、`home-templates/`、`software-source-cache/`、`updates/`（不含本次 `backups/`）、`app-releases/`、`logs/`、`advertisement-images/`、`source-packages/`
@@ -107,9 +110,9 @@ backend/updates/backups/baota-upgrade-<时间>-<pid>/
 
 ## 进程守护
 
-守护的启动命令用安装脚本生成的 `backend/start.sh`，运行目录用 `backend/`（与 `start.sh` 所在目录相同）。`start.sh` 会加载同目录的 `baota.env`，然后执行 `./auth_pro`。说明写在 `backend/baota-guardian.txt`。
+守护的启动命令用安装脚本生成的 `backend/start.sh`，运行目录用 `backend/`（与 `start.sh` 所在目录相同）。没有待验证更新时，`start.sh` 加载同目录的 `baota.env` 后直接执行 `./auth_pro`。在线更新留下 `backend/updates/pending-restart/handoff.sh` 时，`start.sh` 先做健康检查，失败则还原备份再执行旧程序。说明写在 `backend/baota-guardian.txt`。
 
-升级或清理残留进程之前，先在守护里停止此项。守护开着时在外面杀进程，会被立刻拉起来。
+手工替换程序或 `--no-start` 升级之前，先在守护里停止此项。守护开着时在外面杀进程，会被立刻拉起。1.5.7 的在线更新和 `baota-upgrade.sh --start` 不会去停守护。
 
 ## Nginx 与 SSL
 
@@ -175,9 +178,13 @@ Release 附件里要有 `latest.json`。清单里的 `package.signature` 必须�
 
 页面上可以「检查更新」和「立即更新」。重启阶段大约 3 分钟还没有结果时，页面会写明「更新重启失败」、能读到的原因，以及下面的恢复步骤，不会一直停在 95%。新版本健康启动后页面会自动刷新并显示新版本号。失败提示为已尝试回滚。
 
-在线更新、`baota-upgrade.sh` 和覆盖安装都按同一顺序重启：先通过进程守护停止，等待退出；端口仍被本站 `backend/auth_pro` 占用时（包括父进程为 1、已经不响应的孤儿）先 SIGTERM，超时后 SIGKILL；占用者不是本站程序就拒绝启动并写明 PID 和程序路径，不误杀同机其它站点。确认端口空闲后才换上新文件、再由守护启动。健康检查通过才算成功，否则回滚旧程序再拉起。判断是否有守护的顺序是：环境变量 `AUTO_PRO_PROCESS_MANAGER`（`supervisor`、`systemd`、`baota`、`none`），否则数据目录里的 `process-manager` 文件，否则父进程是 `supervisord` / `systemd`，否则存在同名 systemd 单元。都没有时才在端口空闲后自行拉起。宝塔脚本写入 `backend/process-manager`，并在 `start.sh` 里默认导出 `AUTO_PRO_PROCESS_MANAGER=supervisor`。把 `AUTO_PRO_SUPERVISOR_CONF` 指到本站的 supervisord 配置后，安装和升级脚本只会操作 command 指向本站 `start.sh` 的那一项。新版本在限定时间内没有通过 `http://127.0.0.1:<端口>/api/system/version` 健康检查时，会把旧二进制和前端换回去再拉起，任务记为失败并写明原因。二进制备份 `auth_pro.backup.<时间>` 只留最近 3 份。后端自己若发现端口已被占用，会在日志里写明占用者的 PID、父进程、程序路径和处理办法，而不是只留一句 bind 失败。
+判断是否有守护的顺序是：环境变量 `AUTO_PRO_PROCESS_MANAGER`（`supervisor`、`systemd`、`baota`、`none`），否则数据目录里的 `process-manager` 文件，否则父进程是 `supervisord` / `systemd`，否则存在同名 systemd 单元。宝塔脚本写入 `backend/process-manager`，并在 `start.sh` 里默认导出 `AUTO_PRO_PROCESS_MANAGER=supervisor`。
 
-这不能代替升级前在进程守护里停止站点，也不能代替 `baota-upgrade.sh` 那份运行数据备份。
+当前进程若真由守护拉起（父进程链上有 `supervisord`，或这是带 `INVOCATION_ID` 的 systemd 服务），在线更新**不**调用守护的停止命令，也**不** `nohup`。它先备份并原子替换二进制和前端，写入 `backend/updates/pending-restart/handoff.sh`，更新 `start.sh`，然后只对本进程发 SIGTERM（超时后 SIGKILL）。守护按原来的启动命令拉起 `start.sh`。`start.sh` 在同一次启动里最多做 2 次健康检查，地址是 `http://127.0.0.1:<端口>/api/system/version`，版本号必须是新版本。通过则记下成功并清掉标记；连续失败则还原备份再执行旧程序，更新页显示失败原因。检查发生在 `start.sh` 内部，不会把守护打成 FATAL。
+
+没有守护，或端口上是父进程为 1 的本站孤儿时，仍先停本站进程并确认端口空闲，再替换、再启动。能连上指向本站 `start.sh` 的 supervisor 配置时由守护启动，否则在端口空闲后自行拉起。其它程序或其它站点的 `auth_pro` 不会被结束。健康检查失败会回滚。二进制备份 `auth_pro.backup.<时间>` 只留最近 3 份。后端自己若发现端口已被占用，会在日志里写明占用者的 PID、父进程、程序路径和处理办法。
+
+这不能代替 `baota-upgrade.sh` 那份运行数据备份。从 1.5.6 升到 1.5.7 这一次仍要走升级脚本，见下一节。
 
 ## 回滚
 
@@ -197,6 +204,25 @@ Release 附件里要有 `latest.json`。清单里的 `package.signature` 必须�
 4. 看 `backend/logs/auto_pro.log`（脚本 `--start` 时写这里）以及启动日志里的前端根和版本。
 
 健康检查地址是 `http://127.0.0.1:19127/api/install/status`。已安装时应表示系统已安装，且安装写接口返回 403。
+
+## 从 1.5.5 或 1.5.6 升级到 1.5.7
+
+1.5.5 和 1.5.6 的在线更新会先让守护停进程。宝塔「进程守护管理器」使用自己的 supervisor，更新脚本手里的 `supervisorctl` 通常停不到它。脚本接着结束本进程，守护立刻把**还没换上的旧二进制**拉起来，端口刚空又被占上，更新就报「端口刚释放又被占用」并回滚。所以后台在线更新在宝塔守护下不可用。
+
+1.5.7 改成「替换文件后退出，由守护拉起」。这套逻辑在**新程序里**。从 1.5.5/1.5.6 升到 1.5.7 这一次，服务器上跑的仍是旧程序，在线更新还会走旧逻辑。这一次请用 **1.5.7 包里的** `baota-upgrade.sh`，不要用网站上旧的脚本。
+
+推荐（守护开着也可以，脚本发现守护正在托管时不会去停它）：
+
+```bash
+tar -xzf /tmp/auth_pro-full-v1.5.7.tar.gz -C /tmp/auth-pro-1.5.7
+bash /tmp/auth-pro-1.5.7/baota-upgrade.sh --yes --start \
+  --site-root /www/wwwroot/auth.maizll.com \
+  --package /tmp/auth_pro-full-v1.5.7.tar.gz
+```
+
+也可以先在宝塔「进程守护」里停止本站点，再执行同一条命令但把 `--start` 换成 `--no-start`，最后在守护里启动。启动命令仍是 `backend/start.sh`，运行目录仍是 `backend/`。不要再 `nohup` 一份。
+
+装上 1.5.7 之后，下一次在线更新才会走新的交接。这一次不要在后台点「在线更新」。
 
 ## 从 1.5.3 或 1.5.4 在线更新到 1.5.5 卡住时的恢复
 

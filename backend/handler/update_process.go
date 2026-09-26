@@ -16,6 +16,9 @@ import (
 //go:embed update_restart.sh.tmpl
 var onlineUpdateScriptTemplate string
 
+//go:embed guardian_start.sh
+var guardianStartScript string
+
 const (
 	processManagerSupervisor = "supervisor"
 	processManagerSystemd    = "systemd"
@@ -125,9 +128,9 @@ func onlineUpdateSupervisorProgram() string {
 func describeProcessManager(mode string) string {
 	switch mode {
 	case processManagerSupervisor, processManagerBaota:
-		return "检测到进程守护（" + mode + "）。替换文件后退出当前进程，由守护拉起，不再自行 nohup"
+		return "检测到进程守护（" + mode + "）。若当前进程由守护拉起，会先替换文件再退出，由守护按 start.sh 拉起；健康检查失败由 start.sh 回滚。不会 supervisorctl stop，也不会 nohup"
 	case processManagerSystemd:
-		return "检测到 systemd。替换文件后由 systemctl 重启，不再自行 nohup"
+		return "检测到 systemd。若当前进程由 systemd 拉起，会先替换文件再退出，由 Restart=always 拉起；健康检查失败由 start.sh 回滚。不会另行 nohup"
 	default:
 		return "未检测到进程守护。将在旧进程释放端口后自行拉起新进程"
 	}

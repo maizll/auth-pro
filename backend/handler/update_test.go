@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -746,11 +747,12 @@ func TestWriteOnlineUpdateScriptSupportsWebsiteRoot(t *testing.T) {
 	if strings.Contains(script, `cp -a "$FRONTEND_SOURCE/assets/." "$FRONTEND_ROOT/assets/"`) {
 		t.Fatal("generated script still copies assets into the live frontend directory")
 	}
-	stopAt := strings.Index(script, `if ! stop_old_process; then`)
-	mvAt := strings.Index(script, `mv -f "$APP_STAGE" "$APP_BIN"`)
-	startAt := strings.Index(script, `log "port free, starting new process"`)
+	standalone := script[strings.Index(script, "# BEGIN STANDALONE RESTART"):]
+	stopAt := strings.Index(standalone, `if ! stop_old_process; then`)
+	mvAt := strings.Index(standalone, `mv -f "$APP_STAGE" "$APP_BIN"`)
+	startAt := strings.Index(standalone, `log "port free, starting new process"`)
 	if stopAt < 0 || mvAt < 0 || startAt < 0 || stopAt > mvAt || mvAt > startAt {
-		t.Fatal("must stop the old process, confirm the port is free, replace the binary, then start")
+		t.Fatal("standalone path must stop the old process, confirm the port is free, replace the binary, then start")
 	}
 	if !strings.Contains(script, "不是本站") || !strings.Contains(script, "kill -KILL") {
 		t.Fatal("script must refuse foreign listeners and SIGKILL this site's auth_pro after SIGTERM times out")
@@ -1305,14 +1307,31 @@ func TestSupervisedUpdateScriptDoesNotSelfSpawn(t *testing.T) {
 	if !strings.Contains(text, `PROCESS_MANAGER='supervisor'`) {
 		t.Fatal("supervisor mode was not baked into the script")
 	}
-	supervised := strings.Index(text, `log "supervised restart`)
-	standalone := strings.Index(text, `log "standalone restart"`)
-	if supervised < 0 || standalone < 0 || supervised > standalone {
-		t.Fatal("standalone restart is not after the supervised branch")
+	handoffStart := strings.Index(text, "# BEGIN GUARDIAN HANDOFF")
+	handoffEnd := strings.Index(text, "# END GUARDIAN HANDOFF")
+	if handoffStart < 0 || handoffEnd < 0 || handoffStart > handoffEnd {
+		t.Fatal("guardian handoff section is missing")
 	}
-	section := text[supervised:standalone]
-	if strings.Contains(section, "start_standalone") || strings.Contains(section, `nohup "$APP_BIN"`) {
-		t.Fatal("supervised branch starts its own backend process")
+	section := text[handoffStart:handoffEnd]
+	if strings.Contains(section, "supervisorctl") || strings.Contains(section, "start_standalone") || strings.Contains(section, `nohup "$APP_BIN"`) {
+		t.Fatal("guardian handoff must not stop the supervisor or start its own backend")
+	}
+	if !strings.Contains(section, `guardian owns pid`) || !strings.Contains(section, "write_pending_handoff") || !strings.Contains(section, `stop_pid "$APP_PID"`) {
+		t.Fatal("guardian handoff must replace files, write the pending marker, then signal only this process")
+	}
+	replaceAt := strings.Index(section, `mv -f "$APP_STAGE" "$APP_BIN"`)
+	signalAt := strings.Index(section, `stop_pid "$APP_PID"`)
+	if replaceAt < 0 || signalAt < 0 || replaceAt > signalAt {
+		t.Fatal("guardian handoff must replace the binary before signaling the current process")
+	}
+	encoded := text[strings.Index(text, "GUARDIAN_START_B64='")+len("GUARDIAN_START_B64='"):]
+	encoded = encoded[:strings.Index(encoded, "'")]
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("guardian start script is not valid base64: %v", err)
+	}
+	if !strings.Contains(string(decoded), "auth-pro-guardian-start") || !strings.Contains(string(decoded), "pending-restart/handoff.sh") {
+		t.Fatal("generated script does not embed the guardian start script")
 	}
 }
 

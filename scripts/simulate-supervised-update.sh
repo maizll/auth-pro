@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 在本机用 supervisord 演练在线更新：成功切换、坏包回滚、无守护自重启，以及 nginx 502 静态页。
-# 不修改仓库 VERSION，不打 tag。演练二进制只用 -ldflags 注入版本号（当前仓库 1.5.6，演练仍从 1.5.4 升到 1.5.5）。
+# 不修改仓库 VERSION，不打 tag。演练二进制只用 -ldflags 注入版本号（从已修复的 1.5.7 升到 1.5.8）。
+# 守护场景故意把 AUTO_PRO_SUPERVISOR_CONF 指到一份无关配置，模拟宝塔 supervisorctl 停不掉真正的守护。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -58,9 +59,9 @@ build_bin() {
     -o "$out" .
 }
 
-printf '编译旧版本 1.5.4 与新版本 1.5.5\n'
-build_bin 1.5.4 "$WORK/auth_pro_1.5.4"
-build_bin 1.5.5 "$WORK/auth_pro_1.5.5"
+printf '编译旧版本 1.5.7 与新版本 1.5.8\n'
+build_bin 1.5.7 "$WORK/auth_pro_1.5.7"
+build_bin 1.5.8 "$WORK/auth_pro_1.5.8"
 cp "$ROOT/frontend/public/backend-unavailable.html" "$WORK/backend-unavailable.html"
 
 openssl req -x509 -newkey rsa:2048 -keyout "$WORK/update.key" -out "$WORK/update.crt" -days 2 -nodes \
@@ -213,9 +214,10 @@ PY
 
 write_site() {
   local site="$1" port="$2" update_port="$3" manager="$4" binary="$5"
+  local ctl_conf="${6:-${SUP_CONF:-}}"
   mkdir -p "$site/backend/logs" "$site/assets"
   printf 'old-index\n' > "$site/index.html"
-  printf '{"version":"1.5.4"}\n' > "$site/version.json"
+  printf '{"version":"1.5.7"}\n' > "$site/version.json"
   printf 'old-asset\n' > "$site/assets/app.js"
   cp "$WORK/backend-unavailable.html" "$site/backend-unavailable.html"
   cp "$binary" "$site/backend/auth_pro"
@@ -230,9 +232,9 @@ AUTO_PRO_FRONTEND_DIR=${site}
 AUTO_PRO_PROCESS_MANAGER=${manager}
 AUTO_PRO_UPDATE_URL=https://127.0.0.1:${update_port}/latest.json
 AUTO_PRO_UPDATE_LOCAL_DIGEST=1
-AUTO_PRO_UPDATE_HEALTH_TRIES=20
+AUTO_PRO_UPDATE_HEALTH_TRIES=40
 AUTO_PRO_SUPERVISOR_PROGRAM=auth_pro
-AUTO_PRO_SUPERVISOR_CONF=${SUP_CONF:-}
+AUTO_PRO_SUPERVISOR_CONF=${ctl_conf}
 AUTO_PRO_DB_HOST=127.0.0.1
 AUTO_PRO_DB_PORT=3306
 AUTO_PRO_DB_NAME=auth_pro_sim
@@ -244,20 +246,25 @@ EOF
   if [[ "$manager" != "none" ]]; then
     printf 'supervisor\n' > "$site/backend/process-manager"
   fi
-  cat > "$site/backend/start.sh" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$(readlink -f "$0" 2>/dev/null || realpath "$0")")"
-if [[ -f ./baota.env ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source ./baota.env
-  set +a
-fi
-export AUTO_PRO_PROCESS_MANAGER="${AUTO_PRO_PROCESS_MANAGER:-supervisor}"
-exec ./auth_pro
-EOF
+  cp "$ROOT/backend/handler/guardian_start.sh" "$site/backend/start.sh"
   chmod 755 "$site/backend/start.sh"
+}
+
+assert_under_supervisord() {
+  local pid="$1" name="$2" current i comm
+  current="$pid"
+  for i in 1 2 3 4 5 6; do
+    current="$(ps -o ppid= -p "$current" | tr -d ' ')"
+    [[ -n "$current" && "$current" != "0" ]] || fail "$name 找不到父进程"
+    if [[ "$current" == "1" ]]; then
+      fail "$name 进程脱离守护（父进程为 1）"
+    fi
+    comm="$(ps -o comm= -p "$current" | tr -d ' ')"
+    if [[ "$comm" == "supervisord" ]]; then
+      return 0
+    fi
+  done
+  fail "$name 的祖先里没有 supervisord"
 }
 
 wait_version() {
@@ -291,7 +298,7 @@ apply_update() {
 
 poll_job() {
   local port="$1" token="$2" id="$3" i body status
-  for i in $(seq 1 90); do
+  for i in $(seq 1 160); do
     body="$(curl -sS --max-time 3 -H "Authorization: Bearer ${token}" \
       "http://127.0.0.1:${port}/api/system/update/jobs/${id}" 2>/dev/null || true)"
     status="$(printf '%s' "$body" | python3 -c 'import json,sys
@@ -398,7 +405,7 @@ run_supervised() {
   src="$WORK/$name/src"
   mkdir -p "$src"
   UPDATE_PORT="$update_port" make_package "$version" "$package_bin" "$index_text" "$src"
-  write_site "$site" "$port" "$update_port" supervisor "$binary"
+  write_site "$site" "$port" "$update_port" supervisor "$binary" "$WORK/dummy-supervisor.conf"
   # 把本场景的启动命令写进 supervisord。先停掉上一个程序。
   supervisorctl -c "$SUP_CONF" stop auth_pro >/dev/null 2>&1 || true
   python3 - "$SUP_CONF" "$site" "$port" <<'PY'
@@ -426,7 +433,7 @@ PY
   supervisorctl -c "$SUP_CONF" update >/dev/null
   supervisorctl -c "$SUP_CONF" start auth_pro
   local old_body old_pid
-  old_body="$(wait_version "$port" "1.5.4")" || {
+  old_body="$(wait_version "$port" "1.5.7")" || {
     echo "---- server log ----"
     tail -n 80 "$site/backend/logs/supervisor.err" "$site/backend/logs/auto_pro.log" 2>/dev/null || true
     fail "$name 旧版本没有监听到 $port"
@@ -459,10 +466,23 @@ PY
   printf '新版本响应 %s\n' "$new_body"
   mapfile -t listeners < <(listener_pids "$port")
   [[ "${#listeners[@]}" -eq 1 ]] || fail "$name 端口上有 ${#listeners[@]} 个监听进程: ${listeners[*]-}"
+  auth_count=0
+  for proc in /proc/[0-9]*; do
+    exe="$(readlink "$proc/exe" 2>/dev/null || true)"
+    exe="${exe% (deleted)}"
+    if [[ "$exe" == "$site/backend/auth_pro" ]]; then
+      auth_count=$((auth_count + 1))
+    fi
+  done
+  [[ "$auth_count" -eq 1 ]] || fail "$name 有 ${auth_count} 个本站 auth_pro 进程"
   [[ "${listeners[0]}" != "$old_pid" ]] || fail "$name 仍是更新前的进程 $old_pid"
-  ppid="$(ps -o ppid= -p "${listeners[0]}" | tr -d ' ')"
-  comm="$(ps -o comm= -p "$ppid" | tr -d ' ')"
-  [[ "$comm" == "supervisord" ]] || fail "$name 新进程父进程是 $comm"
+  assert_under_supervisord "${listeners[0]}" "$name"
+  if [[ "$expect_status" == "success" || "$expect_status" == "failed" ]]; then
+    grep -R -q 'guardian owns pid' "$site/backend/logs" || fail "$name 没有走守护交接"
+    if grep -R -q '刚释放又被占用' "$site/backend/logs"; then
+      fail "$name 仍被守护立刻拉起打断"
+    fi
+  fi
   kill -0 "$old_pid" 2>/dev/null && fail "$name 旧进程 $old_pid 还在"
   if [[ "$expect_status" == "success" ]]; then
     grep -q "$index_text" "$site/index.html" || fail "$name 前端没有切到新版本"
@@ -478,11 +498,27 @@ PY
   ok "$name"
 }
 
-run_supervised success "$WORK/auth_pro_1.5.4" "$WORK/auth_pro_1.5.5" 1.5.5 "new-index-1.5.5" success 1.5.5
+cat > "$WORK/dummy-supervisor.conf" <<EOF
+[supervisord]
+nodaemon=true
+logfile=$WORK/dummy-supervisor.log
+pidfile=$WORK/dummy-supervisor.pid
+
+[unix_http_server]
+file=$WORK/dummy-supervisor.sock
+
+[supervisorctl]
+serverurl=unix://$WORK/dummy-supervisor.sock
+
+[rpcinterface:supervisor]
+supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+EOF
+
+run_supervised success "$WORK/auth_pro_1.5.7" "$WORK/auth_pro_1.5.8" 1.5.8 "new-index-1.5.8" success 1.5.8
 
 printf '#!/bin/sh\nprintf "broken\\n" >&2\nexit 1\n' > "$WORK/broken-auth-pro"
 chmod 755 "$WORK/broken-auth-pro"
-run_supervised rollback "$WORK/auth_pro_1.5.4" "$WORK/broken-auth-pro" 1.5.5 "broken-index" failed 1.5.4
+run_supervised rollback "$WORK/auth_pro_1.5.7" "$WORK/broken-auth-pro" 1.5.8 "broken-index" failed 1.5.7
 
 # 无守护：自行拉起，端口上只留新进程。
 STAND_PORT="$(free_port)"
@@ -490,8 +526,8 @@ STAND_UPDATE="$(free_port)"
 STAND_SITE="$WORK/standalone/site"
 STAND_SRC="$WORK/standalone/src"
 mkdir -p "$STAND_SRC"
-UPDATE_PORT="$STAND_UPDATE" make_package 1.5.5 "$WORK/auth_pro_1.5.5" "standalone-new-index" "$STAND_SRC"
-write_site "$STAND_SITE" "$STAND_PORT" "$STAND_UPDATE" none "$WORK/auth_pro_1.5.4"
+UPDATE_PORT="$STAND_UPDATE" make_package 1.5.8 "$WORK/auth_pro_1.5.8" "standalone-new-index" "$STAND_SRC"
+write_site "$STAND_SITE" "$STAND_PORT" "$STAND_UPDATE" none "$WORK/auth_pro_1.5.7"
 rm -f "$STAND_SITE/backend/process-manager"
 (
   cd "$STAND_SITE/backend"
@@ -505,7 +541,7 @@ rm -f "$STAND_SITE/backend/process-manager"
 )
 STAND_OLD="$(cat "$STAND_SITE/backend/auto_pro.pid")"
 PIDS+=("$STAND_OLD")
-wait_version "$STAND_PORT" "1.5.4" >/dev/null || {
+wait_version "$STAND_PORT" "1.5.7" >/dev/null || {
   tail -n 80 "$STAND_SITE/backend/logs/auto_pro.log" || true
   fail "无守护旧版本没有起来"
 }
@@ -518,7 +554,7 @@ STAND_JOB="$(printf '%s' "$STAND_APPLY" | python3 -c 'import json,sys; print(jso
 STAND_RESULT="$(poll_job "$STAND_PORT" "$STAND_TOKEN" "$STAND_JOB")" || fail "无守护更新没有结束: $STAND_RESULT"
 printf '无守护任务 %s\n' "$STAND_RESULT"
 printf '%s' "$STAND_RESULT" | grep -q '"status":"success"' || fail "无守护更新没有成功: $STAND_RESULT"
-wait_version "$STAND_PORT" "1.5.5" >/dev/null || fail "无守护重启后版本不是 1.5.5"
+wait_version "$STAND_PORT" "1.5.8" >/dev/null || fail "无守护重启后版本不是 1.5.8"
 mapfile -t STAND_LISTENERS < <(listener_pids "$STAND_PORT")
 [[ "${#STAND_LISTENERS[@]}" -eq 1 ]] || fail "无守护端口监听数不是 1: ${STAND_LISTENERS[*]-}"
 PIDS+=("${STAND_LISTENERS[0]}")
@@ -573,11 +609,11 @@ ORPHAN_UPDATE="$(free_port)"
 ORPHAN_SITE="$WORK/orphan-online/site"
 ORPHAN_SRC="$WORK/orphan-online/src"
 mkdir -p "$ORPHAN_SRC"
-UPDATE_PORT="$ORPHAN_UPDATE" make_package 1.5.5 "$WORK/auth_pro_1.5.5" "orphan-new-index" "$ORPHAN_SRC"
-write_site "$ORPHAN_SITE" "$ORPHAN_PORT" "$ORPHAN_UPDATE" supervisor "$WORK/auth_pro_1.5.4"
+UPDATE_PORT="$ORPHAN_UPDATE" make_package 1.5.8 "$WORK/auth_pro_1.5.8" "orphan-new-index" "$ORPHAN_SRC"
+write_site "$ORPHAN_SITE" "$ORPHAN_PORT" "$ORPHAN_UPDATE" supervisor "$WORK/auth_pro_1.5.7"
 point_supervisor "$ORPHAN_SITE"
 spawn_orphan "$ORPHAN_SITE/backend/start.sh"
-ORPHAN_BODY="$(wait_version "$ORPHAN_PORT" "1.5.4")" || {
+ORPHAN_BODY="$(wait_version "$ORPHAN_PORT" "1.5.7")" || {
   tail -n 40 "$ORPHAN_SITE/backend/logs/auto_pro.log" 2>/dev/null || true
   fail "孤儿旧版本没有起来"
 }
@@ -597,7 +633,7 @@ ORPHAN_RESULT="$(poll_job "$ORPHAN_PORT" "$ORPHAN_TOKEN" "$ORPHAN_JOB")" || {
 }
 printf '孤儿任务 %s\n' "$ORPHAN_RESULT"
 printf '%s' "$ORPHAN_RESULT" | grep -q '"status":"success"' || fail "孤儿在线更新没有成功: $ORPHAN_RESULT"
-wait_version "$ORPHAN_PORT" "1.5.5" >/dev/null || fail "孤儿更新后版本不是 1.5.5"
+wait_version "$ORPHAN_PORT" "1.5.8" >/dev/null || fail "孤儿更新后版本不是 1.5.8"
 kill -0 "$ORPHAN_OLD" 2>/dev/null && fail "PPID=1 的旧进程还在"
 mapfile -t ORPHAN_LISTENERS < <(listener_pids "$ORPHAN_PORT")
 [[ "${#ORPHAN_LISTENERS[@]}" -eq 1 ]] || fail "孤儿更新后监听数不是 1: ${ORPHAN_LISTENERS[*]-}"
@@ -611,7 +647,7 @@ ok "在线更新清掉 PPID=1 的旧进程并由守护启动新版"
 # 不响应的孤儿：占着端口、忽略 SIGTERM。baota-upgrade.sh 要 SIGKILL 它，再由守护启动新版。
 HUNG_PORT="$(free_port)"
 HUNG_SITE="$WORK/orphan-upgrade/site"
-write_site "$HUNG_SITE" "$HUNG_PORT" "9" supervisor "$WORK/auth_pro_1.5.4"
+write_site "$HUNG_SITE" "$HUNG_PORT" "9" supervisor "$WORK/auth_pro_1.5.7"
 cat > "$HUNG_SITE/backend/auth_pro" <<'EOF'
 #!/usr/bin/env python3
 import os, signal
@@ -666,11 +702,11 @@ done
 curl -fsS --max-time 1 "http://127.0.0.1:${KEEP_PORT}/" >/dev/null || fail "其它站点没有起来"
 UP_PAYLOAD="$WORK/upgrade-payload"
 mkdir -p "$UP_PAYLOAD/assets" "$UP_PAYLOAD/backend"
-cp "$WORK/auth_pro_1.5.5" "$UP_PAYLOAD/backend/auth_pro"
+cp "$WORK/auth_pro_1.5.8" "$UP_PAYLOAD/backend/auth_pro"
 chmod 755 "$UP_PAYLOAD/backend/auth_pro"
 printf '<html>upgrade-new</html>\n' > "$UP_PAYLOAD/index.html"
-printf '{"version":"1.5.5"}\n' > "$UP_PAYLOAD/version.json"
-printf '{"version":"1.5.5","frontendDir":".","backendFile":"backend/auth_pro","requiredFiles":[]}\n' > "$UP_PAYLOAD/manifest.json"
+printf '{"version":"1.5.8"}\n' > "$UP_PAYLOAD/version.json"
+printf '{"version":"1.5.8","frontendDir":".","backendFile":"backend/auth_pro","requiredFiles":[]}\n' > "$UP_PAYLOAD/manifest.json"
 printf 'asset-new\n' > "$UP_PAYLOAD/assets/app.js"
 cp "$WORK/backend-unavailable.html" "$UP_PAYLOAD/backend-unavailable.html"
 AUTH_PRO_TERM_WAIT=3 AUTH_PRO_YES=1 AUTH_PRO_START=1 AUTH_PRO_SKIP_MYSQL=1 \
@@ -679,7 +715,7 @@ AUTH_PRO_TERM_WAIT=3 AUTH_PRO_YES=1 AUTH_PRO_START=1 AUTH_PRO_SKIP_MYSQL=1 \
     --source "$UP_PAYLOAD" >"$ART/orphan-upgrade.out" 2>"$ART/orphan-upgrade.err"
 grep -q 'SIGKILL' "$ART/orphan-upgrade.out" "$ART/orphan-upgrade.err" || fail "升级没有在超时后 SIGKILL 不响应的孤儿"
 kill -0 "$HUNG_OLD" 2>/dev/null && fail "不响应的孤儿还在"
-wait_version "$HUNG_PORT" "1.5.5" >/dev/null || {
+wait_version "$HUNG_PORT" "1.5.8" >/dev/null || {
   echo "---- upgrade out ----"
   cat "$ART/orphan-upgrade.out" "$ART/orphan-upgrade.err" || true
   tail -n 40 "$HUNG_SITE/backend/logs/supervisor.err" "$HUNG_SITE/backend/logs/auto_pro.log" 2>/dev/null || true

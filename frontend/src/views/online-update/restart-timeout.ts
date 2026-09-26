@@ -2,7 +2,7 @@
 export const UPDATE_RESTART_TIMEOUT_MS = 3 * 60 * 1000
 
 export const UPDATE_RESTART_RECOVERY =
-  '在宝塔「进程守护」里先停止本站点，再执行 ss -lptn | grep 19127 查看占用端口的进程。结束的应是本站 backend/auth_pro。确认 backend/auth_pro 后，只由进程守护启动 backend/start.sh，运行目录为 backend/。不要再手动 nohup 一个脱离守护的进程。'
+  '进程守护会继续按 backend/start.sh 拉起本站点，运行目录为 backend/。请先看上面的失败原因。不要再手动 nohup 一份脱离守护的 backend/auth_pro。若守护状态变成 FATAL，在宝塔进程守护里重新启动该项。'
 
 const clockKey = (jobId: string) => `auth-pro-update-restart:${jobId}`
 

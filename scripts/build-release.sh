@@ -63,6 +63,8 @@ for baota_script in baota-install.sh baota-upgrade.sh baota-lib.sh; do
   cp "$ROOT_DIR/scripts/$baota_script" "$PACKAGE_DIR/$baota_script"
   chmod 755 "$PACKAGE_DIR/$baota_script"
 done
+cp "$ROOT_DIR/backend/handler/guardian_start.sh" "$PACKAGE_DIR/guardian-start.sh"
+chmod 755 "$PACKAGE_DIR/guardian-start.sh"
 
 printf '[3/5] Syncing client SDK assets and building Linux amd64 backend...\n'
 rm -rf "$BACKEND_DIR/handler/sdk_assets"

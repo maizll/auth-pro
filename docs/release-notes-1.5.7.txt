@@ -1,0 +1,21 @@
+auth-pro 1.5.7
+
+后台在线更新与宝塔「进程守护管理器」不再冲突。进程由 supervisor 或 systemd 托管时，更新程序不再尝试停止守护，也不再另外 nohup。它先替换程序和前端，再退出当前进程，由守护按原来的 backend/start.sh 拉起新版本。新版本起不来时，start.sh 会自动换回旧版本，更新页显示失败原因。
+
+这个行为只在服务器已经跑着 1.5.7 之后的下一次在线更新里生效。从 1.5.5 或 1.5.6 升到 1.5.7 这一次，请不要在后台点「在线更新」。1.5.5/1.5.6 的更新程序停不住宝塔自己的 supervisor，结束进程后守护会立刻拉起旧版本，更新会报「端口刚释放又被占用」并放弃。
+
+请用 1.5.7 压缩包里的 baota-upgrade.sh（不要用网站目录里旧的脚本）：
+
+1. 把 auth_pro-full-v1.5.7.tar.gz 放到 /tmp，不要先解压覆盖正在运行的站点。
+2. 解压到临时目录后执行（站点路径按实际修改）：
+
+   tar -xzf /tmp/auth_pro-full-v1.5.7.tar.gz -C /tmp/auth-pro-1.5.7
+   bash /tmp/auth-pro-1.5.7/baota-upgrade.sh --yes --start \
+     --site-root /www/wwwroot/auth.maizll.com \
+     --package /tmp/auth_pro-full-v1.5.7.tar.gz
+
+3. 脚本发现守护正在托管本站点时，不会去停守护。它替换文件后只结束本站进程，由守护拉起。
+4. 也可以先在宝塔「进程守护」里停止本站点，把上面的 --start 换成 --no-start，升级完成后再在守护里启动。
+5. 启动命令仍是站点 backend/start.sh，运行目录仍是 backend/。不要再手动 nohup 一份 auth_pro。
+
+装上 1.5.7 并确认 /api/system/version 返回 1.5.7 之后，以后的在线更新可以在守护开着时直接在后台执行。

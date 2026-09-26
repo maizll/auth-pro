@@ -25,6 +25,7 @@ PROCESS_MANAGER=__PROCESS_MANAGER__
 SUPERVISOR_PROGRAM=__SUPERVISOR_PROGRAM__
 SUPERVISOR_CONF=__SUPERVISOR_CONF__
 HEALTH_TRIES=__HEALTH_TRIES__
+GUARDIAN_START_B64='__GUARDIAN_START_B64__'
 STARTED_PID=""
 
 log() {
@@ -475,6 +476,224 @@ supervised_manager() {
   return 1
 }
 
+# 给 handoff.sh 写安全的单引号字面量。
+sq() {
+  printf '%s\n' "$1" | sed "s/'/'\\\\''/g; 1s/^/'/; \$s/\$/'/"
+}
+
+# 父进程链上有 supervisord，或这是 systemd 拉起的服务（带 INVOCATION_ID 且最终父进程为 1）。
+# 父进程直接是 1 且没有 INVOCATION_ID 的是孤儿，不能指望守护会重启它。
+guardian_owns_pid() {
+  pid="$1"
+  case "$pid" in
+    ''|*[!0-9]*|1) return 1 ;;
+  esac
+  current="$pid"
+  i=0
+  while [ "$i" -lt 8 ]; do
+    parent="$(ppid_of "$current")"
+    case "$parent" in
+      ''|*[!0-9]*) return 1 ;;
+    esac
+    if [ "$parent" = "1" ]; then
+      if tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^INVOCATION_ID='; then
+        return 0
+      fi
+      return 1
+    fi
+    comm="$(tr -d ' \n' < "/proc/$parent/comm" 2>/dev/null || true)"
+    case "$comm" in
+      supervisord|supervisor|systemd) return 0 ;;
+    esac
+    if tr '\0' ' ' < "/proc/$parent/cmdline" 2>/dev/null | grep -Fq 'supervisord'; then
+      return 0
+    fi
+    current="$parent"
+    i=$((i + 1))
+  done
+  return 1
+}
+
+install_guardian_start() {
+  if ! command -v base64 >/dev/null 2>&1; then
+    log "base64 is required to install start.sh"
+    return 1
+  fi
+  if ! command -v bash >/dev/null 2>&1; then
+    log "bash is required to install start.sh"
+    return 1
+  fi
+  mkdir -p "$DATA_DIR" || return 1
+  if ! printf '%s' "$GUARDIAN_START_B64" | base64 -d > "$DATA_DIR/start.sh.next"; then
+    rm -f "$DATA_DIR/start.sh.next"
+    return 1
+  fi
+  if ! grep -q 'auth-pro-guardian-start' "$DATA_DIR/start.sh.next"; then
+    rm -f "$DATA_DIR/start.sh.next"
+    log "decoded start.sh is missing the guardian marker"
+    return 1
+  fi
+  if ! bash -n "$DATA_DIR/start.sh.next"; then
+    rm -f "$DATA_DIR/start.sh.next"
+    return 1
+  fi
+  chmod 755 "$DATA_DIR/start.sh.next" || { rm -f "$DATA_DIR/start.sh.next"; return 1; }
+  mv -f "$DATA_DIR/start.sh.next" "$DATA_DIR/start.sh"
+}
+
+write_pending_handoff() {
+  pending="$DATA_DIR/updates/pending-restart"
+  rm -rf "$pending"
+  mkdir -p "$pending" || return 1
+  {
+    printf 'EXPECT_VERSION=%s\n' "$(sq "$VERSION")"
+    printf 'OLD_VERSION=%s\n' "$(sq "$OLD_VERSION")"
+    printf 'PORT=%s\n' "$(sq "$PORT")"
+    printf 'APP_BIN=%s\n' "$(sq "$APP_BIN")"
+    printf 'BACKUP_BIN=%s\n' "$(sq "$BACKUP_BIN")"
+    printf 'JOB_RESULT=%s\n' "$(sq "$JOB_RESULT")"
+    printf 'LOG_FILE=%s\n' "$(sq "$LOG_FILE")"
+    printf 'HEALTH_TRIES=%s\n' "$(sq "$HEALTH_TRIES")"
+    printf 'MAX_ATTEMPTS=%s\n' "2"
+    printf 'PENDING_DIR=%s\n' "$(sq "$pending")"
+    printf 'FRONTEND_MODE=%s\n' "$(sq "$FRONTEND_MODE")"
+    printf 'FRONTEND_CURRENT=%s\n' "$(sq "$FRONTEND_CURRENT")"
+    printf 'FRONTEND_BACKUP=%s\n' "$(sq "$FRONTEND_BACKUP")"
+    printf 'PREV_FRONTEND_TARGET=%s\n' "$(sq "$PREV_FRONTEND_TARGET")"
+    printf 'OVERLAY_MOVED=%s\n' "$(sq "$OVERLAY_MOVED")"
+    printf 'OVERLAY_PLACED=%s\n' "$(sq "$OVERLAY_PLACED")"
+    printf 'TS=%s\n' "$(sq "$TS")"
+  } > "$pending/handoff.sh" || return 1
+  cat >> "$pending/handoff.sh" <<'HANDOFF_FUNCS'
+log_handoff() {
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG_FILE"
+}
+
+finish_handoff() {
+  status="$1"
+  reason="${2:-}"
+  printf '%s\n%s\n' "$status" "$reason" > "${JOB_RESULT}.tmp"
+  mv -f "${JOB_RESULT}.tmp" "$JOB_RESULT"
+}
+
+handoff_port_listening() {
+  if command -v ss >/dev/null 2>&1; then
+    if ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)${PORT}$"; then
+      return 0
+    fi
+    return 1
+  fi
+  if command -v nc >/dev/null 2>&1; then
+    nc -z 127.0.0.1 "$PORT" >/dev/null 2>&1
+    return $?
+  fi
+  return 1
+}
+
+handoff_wait_port_free() {
+  i=0
+  while [ "$i" -lt 20 ]; do
+    if ! handoff_port_listening; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  log_handoff "port $PORT still busy"
+  return 1
+}
+
+handoff_health_ok() {
+  child="$1"
+  i=0
+  while [ "$i" -lt "$HEALTH_TRIES" ]; do
+    if ! kill -0 "$child" 2>/dev/null; then
+      log_handoff "new process exited before the health check passed"
+      return 1
+    fi
+    body=""
+    if command -v curl >/dev/null 2>&1; then
+      body=$(curl -fsS --max-time 2 "http://127.0.0.1:${PORT}/api/system/version" 2>/dev/null || true)
+    elif command -v wget >/dev/null 2>&1; then
+      body=$(wget -qO- -T 2 "http://127.0.0.1:${PORT}/api/system/version" 2>/dev/null || true)
+    fi
+    if printf '%s' "$body" | grep -Fq "\"version\":\"$EXPECT_VERSION\""; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  log_handoff "health check timed out waiting for $EXPECT_VERSION"
+  return 1
+}
+
+rollback_frontend_files() {
+  if [ "$FRONTEND_MODE" = "overlay" ]; then
+    for name in $OVERLAY_PLACED; do
+      rm -rf "$FRONTEND_CURRENT/$name"
+    done
+    for name in $OVERLAY_MOVED; do
+      if [ -e "$FRONTEND_BACKUP/$name" ] || [ -L "$FRONTEND_BACKUP/$name" ]; then
+        rm -rf "$FRONTEND_CURRENT/$name"
+        mv "$FRONTEND_BACKUP/$name" "$FRONTEND_CURRENT/$name" || true
+      fi
+    done
+    return 0
+  fi
+  if [ "$FRONTEND_MODE" = "rename" ]; then
+    if [ -n "$FRONTEND_BACKUP" ] && [ -d "$FRONTEND_BACKUP" ]; then
+      failed="${FRONTEND_CURRENT}.failed.$TS"
+      if [ -e "$FRONTEND_CURRENT" ] || [ -L "$FRONTEND_CURRENT" ]; then
+        mv "$FRONTEND_CURRENT" "$failed" || true
+      fi
+      if mv "$FRONTEND_BACKUP" "$FRONTEND_CURRENT"; then
+        rm -rf "$failed"
+      elif [ -e "$failed" ] || [ -L "$failed" ]; then
+        mv "$failed" "$FRONTEND_CURRENT" || true
+      fi
+    fi
+    return 0
+  fi
+  if [ "$FRONTEND_MODE" = "release" ]; then
+    if [ -n "$PREV_FRONTEND_TARGET" ]; then
+      rm -f "$FRONTEND_CURRENT"
+      ln -s "$PREV_FRONTEND_TARGET" "$FRONTEND_CURRENT" || true
+    elif [ -n "$FRONTEND_BACKUP" ] && [ -d "$FRONTEND_BACKUP" ]; then
+      rm -f "$FRONTEND_CURRENT"
+      mv "$FRONTEND_BACKUP" "$FRONTEND_CURRENT" || true
+    fi
+  fi
+  return 0
+}
+
+handoff_mark_success() {
+  log_handoff "update to $EXPECT_VERSION succeeded under the process guardian"
+  finish_handoff success ""
+  ls -1t "$APP_BIN".backup.* 2>/dev/null | awk 'NR>3' | while read -r old; do
+    rm -f "$old"
+  done || true
+  rm -rf "$PENDING_DIR"
+}
+
+handoff_rollback() {
+  reason="$1"
+  log_handoff "rolling back: $reason"
+  if [ -f "$BACKUP_BIN" ]; then
+    cp -a "$BACKUP_BIN" "$APP_BIN" || true
+    chmod 755 "$APP_BIN" || true
+  fi
+  rollback_frontend_files || true
+  finish_handoff failed "$reason" || true
+  rm -rf "$PENDING_DIR" || true
+}
+HANDOFF_FUNCS
+  if ! sh -n "$pending/handoff.sh"; then
+    rm -rf "$pending"
+    return 1
+  fi
+  return 0
+}
+
 if [ ! -f "$NEW_BIN" ]; then
   log "new backend binary not found: $NEW_BIN"
   rollback_frontend
@@ -487,6 +706,61 @@ if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
   finish_job failed "缺少 curl 或 wget，无法做启动健康检查"
   exit 1
 fi
+
+# BEGIN GUARDIAN HANDOFF
+# 守护正在托管本进程时，不要去停守护。宝塔面板自带的守护经常连不上更新脚本手里的控制命令，
+# 停不住就会在杀进程后立刻把旧二进制拉起来。先替换磁盘上的程序，写待验证标记，再只结束本进程。
+if supervised_manager && guardian_owns_pid "$APP_PID"; then
+  log "guardian owns pid $APP_PID; replacing files without stopping the guardian"
+  if ! cp "$APP_BIN" "$BACKUP_BIN"; then
+    rollback_frontend
+    finish_job failed "无法备份当前后端程序，没有退出进程"
+    exit 1
+  fi
+  if ! cp "$NEW_BIN" "$APP_STAGE"; then
+    rm -f "$BACKUP_BIN"
+    rollback_frontend
+    finish_job failed "无法写入新后端程序，没有退出进程"
+    exit 1
+  fi
+  if ! chmod 755 "$APP_STAGE"; then
+    rm -f "$APP_STAGE" "$BACKUP_BIN"
+    rollback_frontend
+    finish_job failed "无法设置新后端程序权限，没有退出进程"
+    exit 1
+  fi
+  if ! mv -f "$APP_STAGE" "$APP_BIN"; then
+    rm -f "$APP_STAGE"
+    rollback_frontend
+    finish_job failed "无法替换后端程序，没有退出进程"
+    exit 1
+  fi
+  chmod 755 "$APP_BIN" || true
+  if ! install_guardian_start; then
+    if [ -f "$BACKUP_BIN" ]; then
+      cp -a "$BACKUP_BIN" "$APP_BIN" || true
+      chmod 755 "$APP_BIN" || true
+    fi
+    rollback_frontend
+    finish_job failed "无法更新启动脚本 start.sh，已恢复旧程序，没有退出进程"
+    exit 1
+  fi
+  if ! write_pending_handoff; then
+    if [ -f "$BACKUP_BIN" ]; then
+      cp -a "$BACKUP_BIN" "$APP_BIN" || true
+      chmod 755 "$APP_BIN" || true
+    fi
+    rollback_frontend
+    finish_job failed "无法写入待验证标记，已恢复旧程序，没有退出进程"
+    exit 1
+  fi
+  log "signaling pid $APP_PID so the process guardian can start start.sh"
+  stop_pid "$APP_PID"
+  exit 0
+fi
+# END GUARDIAN HANDOFF
+
+# BEGIN STANDALONE RESTART
 cp "$APP_BIN" "$BACKUP_BIN" || { rollback_frontend; finish_job failed "无法备份当前后端程序"; exit 1; }
 cp "$NEW_BIN" "$APP_STAGE" || { rollback_frontend; finish_job failed "无法写入新后端程序暂存文件"; exit 1; }
 chmod 755 "$APP_STAGE" || { rm -f "$APP_STAGE"; rollback_frontend; finish_job failed "无法设置新后端程序权限"; exit 1; }
@@ -597,3 +871,4 @@ fi
 log "$reason"
 finish_job failed "$reason"
 exit 1
+# END STANDALONE RESTART

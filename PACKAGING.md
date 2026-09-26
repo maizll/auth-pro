@@ -66,7 +66,7 @@ tar -xzf auth_pro-full-vX.Y.Z.tar.gz
 bash baota-install.sh
 ```
 
-已有站点升级。不要先把新包解压覆盖正在运行的目录。先在「进程守护」里停止本站点，再执行：
+已有站点升级。不要先把新包解压覆盖正在运行的目录。1.5.7 起，守护仍在托管本进程时用新包里的脚本加 `--start`，脚本会替换文件后只结束本站进程。也可以先在「进程守护」里停止本站点，再执行 `--no-start`：
 
 ```bash
 bash baota-upgrade.sh \
@@ -82,7 +82,7 @@ bash baota-upgrade.sh \
 - 启动命令：`/www/wwwroot/example.com/backend/start.sh`
 - 运行目录：`/www/wwwroot/example.com/backend`
 - 环境在 `backend/baota.env`（默认 `PORT=19127`、`HOST=127.0.0.1`）
-- 升级或清理残留进程前先停止守护，否则进程会被立刻拉起
+- 在线更新（1.5.7 及以后）会退出并交给守护拉起。手工替换或 `--no-start` 前先停止守护，否则进程会被立刻拉起
 
 Nginx 反代到 `127.0.0.1:19127`，并把 `backend/baota-nginx.snippet.conf` 里的 `location` 放进站点 `server`，至少拦截 `/backend/`、`db.json`、`install.lock`。同一说明也写在 `backend/baota-guardian.txt`。非交互执行可设 `AUTH_PRO_YES=1`；只看步骤用 `--dry-run`。
 
@@ -90,7 +90,7 @@ Nginx 反代到 `127.0.0.1:19127`，并把 `backend/baota-nginx.snippet.conf` �
 
 ## 版本号单一信源
 
-仓库根目录 `VERSION`（当前 `1.5.6`）是产品线默认版本：
+仓库根目录 `VERSION`（当前 `1.5.7`）是产品线默认版本：
 
 - 后端 `auto_pro/config.AppVersion` 仓库默认与 `VERSION` 一致；`./scripts/build-release.sh` / `.ps1` 无参数时读该文件，并用 `-ldflags` 注入 `AppVersion` / `BuildTime`。
 - 前端 `VITE_VERSION` 与 `vite.config.ts` 的 `version.json` 同样对齐 `VERSION`；发布脚本会把参数版本写入 `VITE_VERSION`。
