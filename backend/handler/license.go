@@ -1127,6 +1127,11 @@ func LicenseDelete(c *gin.Context) {
 		return
 	}
 
+	if err := revokeCommercialRightsForLicense(db, id, "授权已删除"); err != nil {
+		log.Printf("revoke commercial rights before license delete failed: id=%s err=%v", id, err)
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "删除失败"})
+		return
+	}
 	db.Exec("DELETE FROM license_domains WHERE license_id = ?", id)
 	db.Exec("DELETE FROM verify_logs WHERE license_id = ?", id)
 	_, err = db.Exec("DELETE FROM licenses WHERE id = ?", id)
