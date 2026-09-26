@@ -162,7 +162,7 @@
           <el-input v-model="form.priceYuan" :disabled="!canEditMeta" placeholder="0" />
           <p class="field-help">
             填 0 表示免费，请使用公开地址。大于 0
-            为买断：上传压缩包或填写公开地址，安装包由本站保管。付费上架尚未开放。
+            为买断：上传压缩包或填写公开地址，安装包由本站保管。已公开的免费条目可以改为收费，保存前会确认老用户是否继续免费。付费上架尚未开放。
           </p>
         </el-form-item>
         <el-form-item label="包来源">
@@ -455,6 +455,13 @@
         <el-button type="primary" :loading="rebindSaving" @click="handleRebind">确定切换</el-button>
       </template>
     </el-dialog>
+
+    <CatalogPriceSwitchDialog
+      v-model="priceSwitchVisible"
+      developer
+      :narrow="isNarrow"
+      @confirm="confirmPriceSwitch"
+    />
   </div>
 </template>
 
@@ -462,7 +469,8 @@
   import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import type { FormInstance, FormRules, UploadFile } from 'element-plus'
-  import { ElMessage } from 'element-plus'
+  import { ElMessage, ElMessageBox } from 'element-plus'
+  import CatalogPriceSwitchDialog from '@/views/source-station/components/CatalogPriceSwitchDialog.vue'
   import { SOURCE_ITEM_STATUS, SOURCE_VERSION_STATUS } from '@/api/source-station'
   import {
     DEVELOPER_INFO_KEY,
@@ -503,6 +511,7 @@
     resolveCatalogPriceCents,
     suggestCatalogSlug
   } from '@/utils/form/catalog-slug'
+  import { catalogPriceSwitchAction } from '@/utils/form/catalog-package-source'
   import {
     developerCatalogBlockReason,
     type CatalogPackageSource
@@ -528,6 +537,9 @@
   const formLabelPosition = computed(() => (isNarrow.value ? 'top' : 'right'))
   const loading = ref(false)
   const saving = ref(false)
+  const priceSwitchVisible = ref(false)
+  const pendingPriceSwitch = ref<'grandfather' | 'purchase_only' | ''>('')
+  const pendingSubmitAfter = ref(false)
   const pullingId = ref('')
   const hashing = ref<'form' | 'version' | ''>('')
   const uploading = ref(false)
@@ -1183,6 +1195,33 @@
       ElMessage.warning(priced.error)
       return
     }
+    const switchAction =
+      isEdit.value && currentItem.value
+        ? catalogPriceSwitchAction(
+            currentItem.value.priceCents || 0,
+            priced.cents,
+            currentItem.value.status,
+            currentItem.value.latestVersion || ''
+          )
+        : ''
+    const chosenSwitch = pendingPriceSwitch.value
+    if (switchAction === 'to-paid' && !chosenSwitch) {
+      pendingSubmitAfter.value = submitAfter
+      priceSwitchVisible.value = true
+      return
+    }
+    if (switchAction === 'to-free') {
+      try {
+        await ElMessageBox.confirm(
+          '改回免费后，安装包会重新提供公开下载地址。已经发给老用户的免费权益会保留。',
+          '改回免费',
+          { confirmButtonText: '确认改回免费', cancelButtonText: '取消', type: 'warning' }
+        )
+      } catch {
+        return
+      }
+    }
+    pendingPriceSwitch.value = ''
     saving.value = true
     try {
       const authorName = form.authorName.trim() || currentDeveloperName()
@@ -1202,7 +1241,8 @@
               packageSource: form.packageSource,
               priceCents: priced.cents,
               changelog: form.changelog.trim(),
-              author: authorName ? { name: authorName } : undefined
+              author: authorName ? { name: authorName } : undefined,
+              ...(chosenSwitch ? { priceSwitch: chosenSwitch } : {})
             })
           : await upsertSourceDeveloperPlugin({
               id: form.id.trim(),
@@ -1217,7 +1257,8 @@
               packageSource: form.packageSource,
               priceCents: priced.cents,
               changelog: form.changelog.trim(),
-              author: authorName ? { name: authorName } : undefined
+              author: authorName ? { name: authorName } : undefined,
+              ...(chosenSwitch ? { priceSwitch: chosenSwitch } : {})
             })
       const saveBody = unwrapCode(saveRes)
       if (!saveBody) return
@@ -1247,6 +1288,11 @@
       saving.value = false
       requirePackageFields.value = false
     }
+  }
+
+  function confirmPriceSwitch(policy: 'grandfather' | 'purchase_only') {
+    pendingPriceSwitch.value = policy
+    void handleSave(pendingSubmitAfter.value)
   }
 
   async function handleSubmit(row: SourceDeveloperCatalogItem) {

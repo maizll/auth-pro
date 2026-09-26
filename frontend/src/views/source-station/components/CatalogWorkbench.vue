@@ -349,7 +349,7 @@
         <el-form-item label="售价（元）">
           <el-input v-model="editForm.priceYuan" placeholder="0" />
           <p class="card-hint">
-            填 0 表示免费。大于 0 请到「上传安装包」上传压缩包或填写公开地址。
+            填 0 表示免费。已公开的免费条目可以改为收费，保存前会确认老用户是否继续免费。改回 0 会恢复公开下载。
           </p>
         </el-form-item>
         <el-form-item label="下载地址" prop="location">
@@ -382,6 +382,8 @@
         <el-button type="primary" :loading="editing" @click="handleEdit">保存</el-button>
       </template>
     </el-dialog>
+
+    <CatalogPriceSwitchDialog v-model="priceSwitchVisible" @confirm="confirmPriceSwitch" />
 
     <el-dialog v-model="registerVisible" title="登记外部地址" width="560px" destroy-on-close>
       <el-form ref="registerRef" :model="registerForm" :rules="registerRules" label-width="110px">
@@ -616,6 +618,7 @@
   import { useRoute } from 'vue-router'
   import type { FormInstance, FormRules, UploadFile } from 'element-plus'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import CatalogPriceSwitchDialog from './CatalogPriceSwitchDialog.vue'
   import {
     SOURCE_ITEM_STATUS,
     SOURCE_VERSION_STATUS,
@@ -653,7 +656,7 @@
     deleteCatalogCategoryConfirmMessage,
     extrasAfterDeletingCategory
   } from '@/utils/form/catalog-category'
-  import { catalogUploadBlockReason } from '@/utils/form/catalog-package-source'
+  import { catalogPriceSwitchAction, catalogUploadBlockReason } from '@/utils/form/catalog-package-source'
   import {
     formatCatalogPriceLabel,
     formatCatalogPriceYuan,
@@ -742,6 +745,8 @@
   })
   const editVisible = ref(false)
   const editing = ref(false)
+  const priceSwitchVisible = ref(false)
+  const pendingPriceSwitch = ref<'grandfather' | 'purchase_only' | ''>('')
   const editRef = ref<FormInstance>()
   const editingItem = ref<SourceCatalogItem | null>(null)
   const editForm = reactive({
@@ -1130,6 +1135,11 @@
     editVisible.value = true
   }
 
+  function confirmPriceSwitch(policy: 'grandfather' | 'purchase_only') {
+    pendingPriceSwitch.value = policy
+    void saveEdit(policy)
+  }
+
   async function handleEdit() {
     if (!editingItem.value) return
     await editRef.value?.validate()
@@ -1138,9 +1148,42 @@
       ElMessage.warning(priced.error)
       return
     }
+    const action = catalogPriceSwitchAction(
+      editingItem.value.priceCents || 0,
+      priced.cents,
+      editingItem.value.status,
+      editingItem.value.latestVersion
+    )
+    if (action === 'to-paid') {
+      pendingPriceSwitch.value = ''
+      priceSwitchVisible.value = true
+      return
+    }
+    if (action === 'to-free') {
+      try {
+        await ElMessageBox.confirm(
+          '改回免费后，安装包会重新提供公开下载地址。已经发给老用户的免费权益会保留。',
+          '改回免费',
+          { confirmButtonText: '确认改回免费', cancelButtonText: '取消', type: 'warning' }
+        )
+      } catch {
+        return
+      }
+    }
+    await saveEdit('')
+  }
+
+  async function saveEdit(priceSwitch: 'grandfather' | 'purchase_only' | '') {
+    if (!editingItem.value) return
+    const priced = resolveCatalogPriceCents(editForm.priceYuan, editForm.location)
+    if (priced.error) {
+      ElMessage.warning(priced.error)
+      return
+    }
     editing.value = true
     try {
       const note = editForm.note.trim() || '管理员编辑目录元数据（保持原状态）'
+      const switchField = priceSwitch ? { priceSwitch } : {}
       if (editIsTemplate.value) {
         await updateSourceTemplate(editingItem.value.id, {
           id: editingItem.value.id,
@@ -1156,7 +1199,8 @@
           changelog: editForm.changelog,
           category: editForm.category,
           author: { name: editForm.authorName },
-          note
+          note,
+          ...switchField
         })
       } else {
         await updateSourcePlugin(editingItem.value.id, {
@@ -1172,14 +1216,16 @@
           category: editForm.category,
           icon: editForm.icon,
           author: { name: editForm.authorName },
-          note
+          note,
+          ...switchField
         })
       }
-      ElMessage.success('已更新目录元数据')
+      ElMessage.success(priceSwitch === 'purchase_only' ? '已改为收费，所有人都需购买' : priceSwitch === 'grandfather' ? '已改为收费，老用户继续免费' : '已更新目录元数据')
       editVisible.value = false
       await loadItems()
     } finally {
       editing.value = false
+      pendingPriceSwitch.value = ''
     }
   }
 

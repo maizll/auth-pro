@@ -98,60 +98,68 @@ type sourceCatalogApp struct {
 }
 
 type sourcePlugin struct {
-	ID            string       `json:"id"`
-	DeveloperID   int64        `json:"developerId"`
-	AppID         int64        `json:"appId"`
-	Category      string       `json:"category"`
-	Name          string       `json:"name"`
-	Description   string       `json:"description"`
-	Icon          string       `json:"icon"`
-	Version       string       `json:"version"`
-	Author        sourceAuthor `json:"author"`
-	SHA256        string       `json:"sha256"`
-	DownloadURL   string       `json:"downloadUrl"`
-	OriginURL     string       `json:"-"`
-	OriginHealth  string       `json:"-"`
-	PriceCents    int64        `json:"priceCents"`
-	Billing       string       `json:"billing"`
-	Delivery      string       `json:"delivery"`
-	Changelog     string       `json:"changelog"`
-	LatestVersion string       `json:"latestVersion"`
-	MinVersion    string       `json:"minVersion"`
-	ForceUpdate   bool         `json:"forceUpdate"`
-	Status        string       `json:"status"`
-	ReviewNote    string       `json:"reviewNote"`
-	ReviewedBy    string       `json:"reviewedBy"`
-	UpdatedAt     time.Time    `json:"updatedAt"`
-	CreatedAt     time.Time    `json:"createdAt"`
+	ID             string       `json:"id"`
+	DeveloperID    int64        `json:"developerId"`
+	AppID          int64        `json:"appId"`
+	Category       string       `json:"category"`
+	Name           string       `json:"name"`
+	Description    string       `json:"description"`
+	Icon           string       `json:"icon"`
+	Version        string       `json:"version"`
+	Author         sourceAuthor `json:"author"`
+	SHA256         string       `json:"sha256"`
+	DownloadURL    string       `json:"downloadUrl"`
+	OriginURL      string       `json:"-"`
+	OriginHealth   string       `json:"-"`
+	PriceCents     int64        `json:"priceCents"`
+	Billing        string       `json:"billing"`
+	Delivery       string       `json:"delivery"`
+	PriceSwitch    string       `json:"-"`
+	switchMoves    map[string]catalogLocationMove
+	switchPrepared bool
+	touchOrigin    bool
+	Changelog      string    `json:"changelog"`
+	LatestVersion  string    `json:"latestVersion"`
+	MinVersion     string    `json:"minVersion"`
+	ForceUpdate    bool      `json:"forceUpdate"`
+	Status         string    `json:"status"`
+	ReviewNote     string    `json:"reviewNote"`
+	ReviewedBy     string    `json:"reviewedBy"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 type sourceTemplate struct {
-	ID            string       `json:"id"`
-	DeveloperID   int64        `json:"developerId"`
-	AppID         int64        `json:"appId"`
-	Category      string       `json:"category"`
-	TemplateKey   string       `json:"templateKey"`
-	Name          string       `json:"name"`
-	Description   string       `json:"description"`
-	Version       string       `json:"version"`
-	SchemaVersion int          `json:"schemaVersion"`
-	SHA256        string       `json:"sha256"`
-	TemplateURL   string       `json:"templateUrl"`
-	OriginURL     string       `json:"-"`
-	OriginHealth  string       `json:"-"`
-	PriceCents    int64        `json:"priceCents"`
-	Billing       string       `json:"billing"`
-	Delivery      string       `json:"delivery"`
-	Changelog     string       `json:"changelog"`
-	LatestVersion string       `json:"latestVersion"`
-	MinVersion    string       `json:"minVersion"`
-	ForceUpdate   bool         `json:"forceUpdate"`
-	Status        string       `json:"status"`
-	ReviewNote    string       `json:"reviewNote"`
-	ReviewedBy    string       `json:"reviewedBy"`
-	Author        sourceAuthor `json:"author"`
-	UpdatedAt     time.Time    `json:"updatedAt"`
-	CreatedAt     time.Time    `json:"createdAt"`
+	ID             string `json:"id"`
+	DeveloperID    int64  `json:"developerId"`
+	AppID          int64  `json:"appId"`
+	Category       string `json:"category"`
+	TemplateKey    string `json:"templateKey"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	Version        string `json:"version"`
+	SchemaVersion  int    `json:"schemaVersion"`
+	SHA256         string `json:"sha256"`
+	TemplateURL    string `json:"templateUrl"`
+	OriginURL      string `json:"-"`
+	OriginHealth   string `json:"-"`
+	PriceCents     int64  `json:"priceCents"`
+	Billing        string `json:"billing"`
+	Delivery       string `json:"delivery"`
+	PriceSwitch    string `json:"-"`
+	switchMoves    map[string]catalogLocationMove
+	switchPrepared bool
+	touchOrigin    bool
+	Changelog      string       `json:"changelog"`
+	LatestVersion  string       `json:"latestVersion"`
+	MinVersion     string       `json:"minVersion"`
+	ForceUpdate    bool         `json:"forceUpdate"`
+	Status         string       `json:"status"`
+	ReviewNote     string       `json:"reviewNote"`
+	ReviewedBy     string       `json:"reviewedBy"`
+	Author         sourceAuthor `json:"author"`
+	UpdatedAt      time.Time    `json:"updatedAt"`
+	CreatedAt      time.Time    `json:"createdAt"`
 }
 
 type sourceRelease struct {
@@ -334,6 +342,10 @@ func sourceItemReady(sha256Value, location string) bool {
 	return sha256HexPattern.MatchString(strings.TrimSpace(sha256Value)) && strings.TrimSpace(location) != ""
 }
 
+func packageFieldsFrozen(latest string, oldPrice, newPrice int64) bool {
+	return strings.TrimSpace(latest) != "" && oldPrice == newPrice
+}
+
 func catalogMetadataEditNote(note string) string {
 	note = strings.TrimSpace(note)
 	if note == "" {
@@ -372,7 +384,7 @@ func applyPluginMetadataPatch(existing, patch sourcePlugin) sourcePlugin {
 	if strings.TrimSpace(patch.Author.Name) != "" || strings.TrimSpace(patch.Author.URL) != "" || strings.TrimSpace(patch.Author.Email) != "" {
 		item.Author = patch.Author
 	}
-	return item
+	return applyPluginSwitchState(item, patch)
 }
 
 func applyTemplateMetadataPatch(existing, patch sourceTemplate) sourceTemplate {
@@ -405,7 +417,7 @@ func applyTemplateMetadataPatch(existing, patch sourceTemplate) sourceTemplate {
 	if strings.TrimSpace(patch.Author.Name) != "" || strings.TrimSpace(patch.Author.URL) != "" || strings.TrimSpace(patch.Author.Email) != "" {
 		item.Author = patch.Author
 	}
-	return item
+	return applyTemplateSwitchState(item, patch)
 }
 
 func sourceCatalogAuditAction(status string) string {
@@ -645,7 +657,7 @@ func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) 
 	}
 	plugin.PriceCents, plugin.Billing, plugin.Delivery = price, billing, delivery
 	if exists {
-		if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, plugin.PriceCents); err != nil {
+		if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, plugin.PriceCents, plugin.PriceSwitch); err != nil {
 			return sourcePlugin{}, err
 		}
 	}
@@ -688,7 +700,7 @@ func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) 
 			plugin.Status = existing.Status
 			plugin.ReviewNote = existing.ReviewNote
 			plugin.ReviewedBy = existing.ReviewedBy
-			if existing.LatestVersion != "" {
+			if packageFieldsFrozen(existing.LatestVersion, existing.PriceCents, plugin.PriceCents) {
 				plugin.Version = existing.Version
 				plugin.SHA256 = existing.SHA256
 				plugin.DownloadURL = existing.DownloadURL
@@ -721,6 +733,7 @@ func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) 
 			return sourcePlugin{}, err
 		}
 	}
+	store.applyVersionMovesLocked(sourceKindPlugin, plugin.ID, plugin.switchMoves)
 	return store.plugins[plugin.ID], nil
 }
 
@@ -737,7 +750,7 @@ func (store *memorySourceStore) UpdatePluginMetadata(id string, patch sourcePlug
 		return sourcePlugin{}, priceErr
 	}
 	item.PriceCents, item.Billing, item.Delivery = price, billing, delivery
-	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents); err != nil {
+	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents, item.PriceSwitch); err != nil {
 		return sourcePlugin{}, err
 	}
 	if item.Status == sourceItemPublished && !sourceItemReady(item.SHA256, item.DownloadURL) {
@@ -745,6 +758,7 @@ func (store *memorySourceStore) UpdatePluginMetadata(id string, patch sourcePlug
 	}
 	item.UpdatedAt = time.Now().UTC()
 	store.plugins[id] = item
+	store.applyVersionMovesLocked(sourceKindPlugin, id, item.switchMoves)
 	store.auditLocked("metadata_edit", "plugin", id, actor, catalogMetadataEditNote(note))
 	return item, nil
 }
@@ -816,7 +830,7 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 	}
 	item.PriceCents, item.Billing, item.Delivery = price, billing, delivery
 	if exists {
-		if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents); err != nil {
+		if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents, item.PriceSwitch); err != nil {
 			return sourceTemplate{}, err
 		}
 	}
@@ -858,7 +872,7 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 			item.Status = existing.Status
 			item.ReviewNote = existing.ReviewNote
 			item.ReviewedBy = existing.ReviewedBy
-			if existing.LatestVersion != "" {
+			if packageFieldsFrozen(existing.LatestVersion, existing.PriceCents, item.PriceCents) {
 				item.Version = existing.Version
 				item.SHA256 = existing.SHA256
 				item.TemplateURL = existing.TemplateURL
@@ -897,6 +911,7 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 			return sourceTemplate{}, err
 		}
 	}
+	store.applyVersionMovesLocked(sourceKindTemplate, item.ID, item.switchMoves)
 	return store.templates[item.ID], nil
 }
 
@@ -913,7 +928,7 @@ func (store *memorySourceStore) UpdateTemplateMetadata(id string, patch sourceTe
 		return sourceTemplate{}, priceErr
 	}
 	item.PriceCents, item.Billing, item.Delivery = price, billing, delivery
-	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents); err != nil {
+	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents, item.PriceSwitch); err != nil {
 		return sourceTemplate{}, err
 	}
 	if item.Status == sourceItemPublished && !sourceItemReady(item.SHA256, item.TemplateURL) {
@@ -921,6 +936,7 @@ func (store *memorySourceStore) UpdateTemplateMetadata(id string, patch sourceTe
 	}
 	item.UpdatedAt = time.Now().UTC()
 	store.templates[id] = item
+	store.applyVersionMovesLocked(sourceKindTemplate, id, item.switchMoves)
 	store.auditLocked("metadata_edit", "template", id, actor, catalogMetadataEditNote(note))
 	return item, nil
 }
@@ -1665,6 +1681,9 @@ func ensureSourceStationStorage(db *sql.DB) error {
 	if err := ensureCatalogForeignKeys(db); err != nil {
 		return err
 	}
+	if err := ensureCatalogPriceSwitchSchema(db); err != nil {
+		return err
+	}
 	if _, err := db.Exec(`INSERT IGNORE INTO roles (role_name, role_code, description, discount, enabled)
 		VALUES (?, ?, '软件源开发者，可提交插件与首页模板元数据', 10.0, 1)`,
 		sourceDeveloperRoleName, sourceDeveloperRoleCode); err != nil {
@@ -1775,7 +1794,7 @@ func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourceP
 	}
 	plugin.PriceCents, plugin.Billing, plugin.Delivery = price, billing, delivery
 	if err == nil {
-		if guardErr := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, plugin.PriceCents); guardErr != nil {
+		if guardErr := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, plugin.PriceCents, plugin.PriceSwitch); guardErr != nil {
 			return sourcePlugin{}, guardErr
 		}
 	}
@@ -1822,7 +1841,7 @@ func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourceP
 			plugin.Status = existing.Status
 			plugin.ReviewNote = existing.ReviewNote
 			plugin.ReviewedBy = existing.ReviewedBy
-			if existing.LatestVersion != "" {
+			if packageFieldsFrozen(existing.LatestVersion, existing.PriceCents, plugin.PriceCents) {
 				plugin.Version = existing.Version
 				plugin.SHA256 = existing.SHA256
 				plugin.DownloadURL = existing.DownloadURL
@@ -1865,6 +1884,9 @@ func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourceP
 			return sourcePlugin{}, err
 		}
 	}
+	if err := applyVersionMovesMySQL(sourceKindPlugin, plugin.ID, plugin.switchMoves); err != nil {
+		return sourcePlugin{}, err
+	}
 	return (mysqlSourceStore{}).GetPlugin(plugin.ID)
 }
 
@@ -1879,7 +1901,7 @@ func (mysqlSourceStore) UpdatePluginMetadata(id string, patch sourcePlugin, acto
 		return sourcePlugin{}, priceErr
 	}
 	item.PriceCents, item.Billing, item.Delivery = price, billing, delivery
-	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents); err != nil {
+	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents, item.PriceSwitch); err != nil {
 		return sourcePlugin{}, err
 	}
 	if item.Status == sourceItemPublished && !sourceItemReady(item.SHA256, item.DownloadURL) {
@@ -1895,10 +1917,13 @@ func (mysqlSourceStore) UpdatePluginMetadata(id string, patch sourcePlugin, acto
 	}
 	if _, err := db.Exec(`UPDATE source_catalog_plugins SET category=?, name=?, description=?, icon=?, version=?,
 		sha256=?, download_url=?, changelog=?, price_cents=?, billing=?, delivery=?, min_version=?, force_update=?,
-		author_name=?, author_url=?, author_email=? WHERE id=?`,
+		author_name=?, author_url=?, author_email=?, origin_url=?, origin_health=? WHERE id=?`,
 		item.Category, item.Name, item.Description, item.Icon, item.Version,
 		item.SHA256, item.DownloadURL, item.Changelog, item.PriceCents, item.Billing, item.Delivery, item.MinVersion, forceUpdate,
-		item.Author.Name, item.Author.URL, item.Author.Email, id); err != nil {
+		item.Author.Name, item.Author.URL, item.Author.Email, item.OriginURL, item.OriginHealth, id); err != nil {
+		return sourcePlugin{}, err
+	}
+	if err := applyVersionMovesMySQL(sourceKindPlugin, id, item.switchMoves); err != nil {
 		return sourcePlugin{}, err
 	}
 	mysqlAppendAudit(db, "metadata_edit", "plugin", id, actor, catalogMetadataEditNote(note))
@@ -2031,7 +2056,7 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 	}
 	item.PriceCents, item.Billing, item.Delivery = price, billing, delivery
 	if err == nil {
-		if guardErr := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents); guardErr != nil {
+		if guardErr := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents, item.PriceSwitch); guardErr != nil {
 			return sourceTemplate{}, guardErr
 		}
 	}
@@ -2078,7 +2103,7 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 			item.Status = existing.Status
 			item.ReviewNote = existing.ReviewNote
 			item.ReviewedBy = existing.ReviewedBy
-			if existing.LatestVersion != "" {
+			if packageFieldsFrozen(existing.LatestVersion, existing.PriceCents, item.PriceCents) {
 				item.Version = existing.Version
 				item.SHA256 = existing.SHA256
 				item.TemplateURL = existing.TemplateURL
@@ -2123,6 +2148,9 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 			return sourceTemplate{}, err
 		}
 	}
+	if err := applyVersionMovesMySQL(sourceKindTemplate, item.ID, item.switchMoves); err != nil {
+		return sourceTemplate{}, err
+	}
 	return (mysqlSourceStore{}).GetTemplate(item.ID)
 }
 
@@ -2137,7 +2165,7 @@ func (mysqlSourceStore) UpdateTemplateMetadata(id string, patch sourceTemplate, 
 		return sourceTemplate{}, priceErr
 	}
 	item.PriceCents, item.Billing, item.Delivery = price, billing, delivery
-	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents); err != nil {
+	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents, item.PriceSwitch); err != nil {
 		return sourceTemplate{}, err
 	}
 	if item.Status == sourceItemPublished && !sourceItemReady(item.SHA256, item.TemplateURL) {
@@ -2153,10 +2181,13 @@ func (mysqlSourceStore) UpdateTemplateMetadata(id string, patch sourceTemplate, 
 	}
 	if _, err := db.Exec(`UPDATE source_catalog_templates SET category=?, name=?, description=?, version=?,
 		schema_version=?, sha256=?, template_url=?, changelog=?, price_cents=?, billing=?, delivery=?, min_version=?, force_update=?,
-		author_name=?, author_url=?, author_email=? WHERE id=?`,
+		author_name=?, author_url=?, author_email=?, origin_url=?, origin_health=? WHERE id=?`,
 		item.Category, item.Name, item.Description, item.Version,
 		item.SchemaVersion, item.SHA256, item.TemplateURL, item.Changelog, item.PriceCents, item.Billing, item.Delivery, item.MinVersion, forceUpdate,
-		item.Author.Name, item.Author.URL, item.Author.Email, id); err != nil {
+		item.Author.Name, item.Author.URL, item.Author.Email, item.OriginURL, item.OriginHealth, id); err != nil {
+		return sourceTemplate{}, err
+	}
+	if err := applyVersionMovesMySQL(sourceKindTemplate, id, item.switchMoves); err != nil {
 		return sourceTemplate{}, err
 	}
 	mysqlAppendAudit(db, "metadata_edit", "template", id, actor, catalogMetadataEditNote(note))

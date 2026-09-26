@@ -119,16 +119,15 @@ func AdminSourceUpdatePlugin(c *gin.Context) {
 	}
 	req.ID = existing.ID
 	req.AppID = existing.AppID
+	req.DownloadURL, req.SHA256 = preferSealedLocation(existing.DownloadURL, existing.SHA256, req.DownloadURL, req.SHA256)
 	plugin, err := adminPluginFromRequest(req)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
-	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, plugin.PriceCents); err != nil {
-		writeCatalogPriceError(c, err)
-		return
-	}
-	plugin, err = finalizePluginPackage(plugin)
+	plugin.PriceSwitch = strings.TrimSpace(req.PriceSwitch)
+	beforePrice := existing.PriceCents
+	plugin, err = preparePluginPriceChange(existing, plugin)
 	if err != nil {
 		writeCatalogPriceError(c, err)
 		return
@@ -138,7 +137,22 @@ func AdminSourceUpdatePlugin(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	if saved.Status == sourceItemPublished {
+	if publicFreeBecomingPaid(existing.Status, existing.LatestVersion, beforePrice, saved.PriceCents) || (beforePrice > 0 && saved.PriceCents <= 0) {
+		if _, err := recordCatalogPriceSwitch(sourceKindPlugin, saved.ID, saved.AppID, saved.DeveloperID, beforePrice, saved.PriceCents, plugin.PriceSwitch, "admin", c.GetString("username"), plugin.switchMoves); err != nil {
+			writeCatalogPriceError(c, err)
+			return
+		}
+	}
+	if saved.PriceCents > 0 {
+		if err := withdrawDeveloperPaidListing(sourceKindPlugin, saved.DeveloperID, saved.Status, saved.ID, c.GetString("username")); err != nil {
+			writeSourceDeveloperStoreError(c, err)
+			return
+		}
+		if reloaded, reloadErr := currentSourceStationStore().GetPlugin(saved.ID); reloadErr == nil {
+			saved = reloaded
+		}
+	}
+	if saved.Status == sourceItemPublished || existing.Status == sourceItemPublished {
 		persistIndexSnapshot(c.GetString("username"))
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已更新目录元数据（未改变审核状态）", "data": sourcePluginView(saved)})
@@ -244,16 +258,15 @@ func AdminSourceUpdateTemplate(c *gin.Context) {
 	req.ID = existing.ID
 	req.TemplateKey = existing.TemplateKey
 	req.AppID = existing.AppID
+	req.TemplateURL, req.SHA256 = preferSealedLocation(existing.TemplateURL, existing.SHA256, req.TemplateURL, req.SHA256)
 	item, err := adminTemplateFromRequest(req)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
-	if err := rejectPaidPriceOnPublicItem(existing.Status, existing.LatestVersion, existing.PriceCents, item.PriceCents); err != nil {
-		writeCatalogPriceError(c, err)
-		return
-	}
-	item, err = finalizeTemplatePackage(item)
+	item.PriceSwitch = strings.TrimSpace(req.PriceSwitch)
+	beforePrice := existing.PriceCents
+	item, err = prepareTemplatePriceChange(existing, item)
 	if err != nil {
 		writeCatalogPriceError(c, err)
 		return
@@ -263,7 +276,22 @@ func AdminSourceUpdateTemplate(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	if saved.Status == sourceItemPublished {
+	if publicFreeBecomingPaid(existing.Status, existing.LatestVersion, beforePrice, saved.PriceCents) || (beforePrice > 0 && saved.PriceCents <= 0) {
+		if _, err := recordCatalogPriceSwitch(sourceKindTemplate, saved.ID, saved.AppID, saved.DeveloperID, beforePrice, saved.PriceCents, item.PriceSwitch, "admin", c.GetString("username"), item.switchMoves); err != nil {
+			writeCatalogPriceError(c, err)
+			return
+		}
+	}
+	if saved.PriceCents > 0 {
+		if err := withdrawDeveloperPaidListing(sourceKindTemplate, saved.DeveloperID, saved.Status, saved.ID, c.GetString("username")); err != nil {
+			writeSourceDeveloperStoreError(c, err)
+			return
+		}
+		if reloaded, reloadErr := currentSourceStationStore().GetTemplate(saved.ID); reloadErr == nil {
+			saved = reloaded
+		}
+	}
+	if saved.Status == sourceItemPublished || existing.Status == sourceItemPublished {
 		persistIndexSnapshot(c.GetString("username"))
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已更新目录元数据（未改变审核状态）", "data": sourceTemplateView(saved)})

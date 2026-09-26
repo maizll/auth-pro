@@ -35,6 +35,7 @@ type sourcePluginDraftRequest struct {
 	Shelf         bool         `json:"shelf"`
 	Note          string       `json:"note"`
 	PackageSource string       `json:"packageSource"`
+	PriceSwitch   string       `json:"priceSwitch"`
 }
 
 type sourceTemplateDraftRequest struct {
@@ -58,6 +59,7 @@ type sourceTemplateDraftRequest struct {
 	Shelf         bool         `json:"shelf"`
 	Note          string       `json:"note"`
 	PackageSource string       `json:"packageSource"`
+	PriceSwitch   string       `json:"priceSwitch"`
 }
 
 type sourceReleaseDraftRequest struct {
@@ -292,6 +294,10 @@ func SourceDeveloperUpsertPlugin(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
+	var before sourcePlugin
+	if existing, getErr := currentSourceStationStore().GetPlugin(plugin.ID); getErr == nil {
+		before = existing
+	}
 	plugin, err = guardAndFinalizePlugin(plugin)
 	if err != nil {
 		writeCatalogPriceError(c, err)
@@ -302,7 +308,26 @@ func SourceDeveloperUpsertPlugin(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "插件草稿已保存", "data": developerPluginView(saved)})
+	if publicFreeBecomingPaid(before.Status, before.LatestVersion, before.PriceCents, saved.PriceCents) || (before.PriceCents > 0 && saved.PriceCents <= 0 && before.ID != "") {
+		if _, err := recordCatalogPriceSwitch(sourceKindPlugin, saved.ID, saved.AppID, saved.DeveloperID, before.PriceCents, saved.PriceCents, plugin.PriceSwitch, "developer", developer.Username, plugin.switchMoves); err != nil {
+			writeCatalogPriceError(c, err)
+			return
+		}
+	}
+	if saved.PriceCents > 0 {
+		if err := withdrawDeveloperPaidListing(sourceKindPlugin, saved.DeveloperID, saved.Status, saved.ID, developer.Username); err != nil {
+			writeSourceDeveloperStoreError(c, err)
+			return
+		}
+		if reloaded, reloadErr := currentSourceStationStore().GetPlugin(saved.ID); reloadErr == nil {
+			saved = reloaded
+		}
+	}
+	msg := "插件草稿已保存"
+	if saved.Status == sourceItemHidden && saved.PriceCents > 0 && before.PriceCents <= 0 && before.ID != "" {
+		msg = "已改为收费。第三方付费条目暂不能上架，已从公开目录下架"
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": developerPluginView(saved)})
 }
 
 func SourceDeveloperSubmitPlugin(c *gin.Context) {
@@ -370,6 +395,10 @@ func SourceDeveloperUpsertTemplate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
+	var before sourceTemplate
+	if existing, getErr := currentSourceStationStore().GetTemplate(item.ID); getErr == nil {
+		before = existing
+	}
 	item, err = guardAndFinalizeTemplate(item)
 	if err != nil {
 		writeCatalogPriceError(c, err)
@@ -380,7 +409,26 @@ func SourceDeveloperUpsertTemplate(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "模板草稿已保存", "data": developerTemplateView(saved)})
+	if publicFreeBecomingPaid(before.Status, before.LatestVersion, before.PriceCents, saved.PriceCents) || (before.PriceCents > 0 && saved.PriceCents <= 0 && before.ID != "") {
+		if _, err := recordCatalogPriceSwitch(sourceKindTemplate, saved.ID, saved.AppID, saved.DeveloperID, before.PriceCents, saved.PriceCents, item.PriceSwitch, "developer", developer.Username, item.switchMoves); err != nil {
+			writeCatalogPriceError(c, err)
+			return
+		}
+	}
+	if saved.PriceCents > 0 {
+		if err := withdrawDeveloperPaidListing(sourceKindTemplate, saved.DeveloperID, saved.Status, saved.ID, developer.Username); err != nil {
+			writeSourceDeveloperStoreError(c, err)
+			return
+		}
+		if reloaded, reloadErr := currentSourceStationStore().GetTemplate(saved.ID); reloadErr == nil {
+			saved = reloaded
+		}
+	}
+	msg := "模板草稿已保存"
+	if saved.Status == sourceItemHidden && saved.PriceCents > 0 && before.PriceCents <= 0 && before.ID != "" {
+		msg = "已改为收费。第三方付费条目暂不能上架，已从公开目录下架"
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": developerTemplateView(saved)})
 }
 
 func SourceDeveloperSubmitTemplate(c *gin.Context) {
@@ -712,6 +760,7 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 		}
 	}
 	return sourcePlugin{
+		PriceSwitch:  strings.TrimSpace(req.PriceSwitch),
 		ID:           pluginID,
 		DeveloperID:  developer.ID,
 		AppID:        req.AppID,
@@ -806,6 +855,7 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 		}
 	}
 	return sourceTemplate{
+		PriceSwitch:   strings.TrimSpace(req.PriceSwitch),
 		ID:            templateKey,
 		DeveloperID:   developer.ID,
 		AppID:         req.AppID,
@@ -845,7 +895,7 @@ func writeSourceDeveloperStoreError(c *gin.Context, err error) {
 		errors.Is(err, errSourceAppNotFound), errors.Is(err, errAdApplicationReviewed):
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 	case errors.Is(err, errSourcePaidListingClosed), errors.Is(err, errSourcePaidExternal),
-		errors.Is(err, errSourcePaidYearly), errors.Is(err, errSourcePaidAlreadyPublic):
+		errors.Is(err, errSourcePaidYearly), errors.Is(err, errCatalogPriceSwitchRequired):
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 	case errors.Is(err, errSourceForbidden), errors.Is(err, errDeveloperDisabled), errors.Is(err, errDeveloperNotBound):
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": err.Error()})

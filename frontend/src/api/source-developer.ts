@@ -239,6 +239,7 @@ export interface SourceDeveloperPluginDraft {
   minVersion?: string
   forceUpdate?: boolean
   author?: { name?: string; url?: string; email?: string }
+  priceSwitch?: 'grandfather' | 'purchase_only'
 }
 
 export interface SourceDeveloperTemplateDraft {
@@ -260,6 +261,7 @@ export interface SourceDeveloperTemplateDraft {
   minVersion?: string
   forceUpdate?: boolean
   author?: { name?: string; url?: string; email?: string }
+  priceSwitch?: 'grandfather' | 'purchase_only'
 }
 
 export interface SourceDeveloperVersionDraft {

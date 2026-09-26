@@ -201,6 +201,15 @@ func buyerFeatureEnabled(c *gin.Context, feature string) bool {
 	return view.Snapshot.AllPaidItems && feature != ""
 }
 
+func buyerOwnsCatalogItem(view buyerAccessView, kind, id string) bool {
+	for _, item := range view.Snapshot.Items {
+		if item.Kind == kind && item.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func buyerItemEntitled(view buyerAccessView, kind, id string) bool {
 	if view.Edition == storeEditionCommercial && view.Snapshot.AllPaidItems {
 		return true
@@ -235,7 +244,9 @@ func rejectPaidPluginEnable(c *gin.Context, id string) bool {
 	}
 	item := findPaidCatalog("plugin", id)
 	view := currentBuyerAccess(c)
-	if paidEnableAllowed(item.PriceCents, view.Edition == storeEditionCommercial, buyerItemEntitled(view, "plugin", id)) {
+	commercial := view.Edition == storeEditionCommercial && !catalogItemPurchaseOnly("plugin", id)
+	entitled := buyerOwnsCatalogItem(view, "plugin", id) || (commercial && view.Snapshot.AllPaidItems)
+	if paidEnableAllowed(item.PriceCents, commercial, entitled) {
 		return false
 	}
 	writeEditionRequired(c, "paid_plugin")
@@ -260,7 +271,9 @@ func rejectPaidTemplateEnable(c *gin.Context, rawID string) bool {
 	if id == "" {
 		id = rawID
 	}
-	if paidEnableAllowed(item.PriceCents, view.Edition == storeEditionCommercial, buyerItemEntitled(view, "template", id)) {
+	commercial := view.Edition == storeEditionCommercial && !catalogItemPurchaseOnly("template", id)
+	entitled := buyerOwnsCatalogItem(view, "template", id) || (commercial && view.Snapshot.AllPaidItems)
+	if paidEnableAllowed(item.PriceCents, commercial, entitled) {
 		return false
 	}
 	writeEditionRequired(c, "paid_template")

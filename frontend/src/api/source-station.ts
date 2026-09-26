@@ -271,6 +271,7 @@ export interface SourcePluginDraft {
   forceUpdate?: boolean
   author?: SourceAuthor
   shelf?: boolean
+  priceSwitch?: 'grandfather' | 'purchase_only'
 }
 
 export interface SourceTemplateDraft {
@@ -290,6 +291,7 @@ export interface SourceTemplateDraft {
   forceUpdate?: boolean
   author?: SourceAuthor
   shelf?: boolean
+  priceSwitch?: 'grandfather' | 'purchase_only'
 }
 
 export interface SourceVersionDraft {

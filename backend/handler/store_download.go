@@ -141,6 +141,9 @@ func licenseCanDownloadPaid(db *sql.DB, licenseID int64, kind, itemID string) bo
 		return false
 	}
 	_, _, _, active := loadCommercialEdition(db, licenseID)
+	if catalogItemPurchaseOnly(kind, itemID) {
+		active = false
+	}
 	var count int
 	err := db.QueryRow(`SELECT COUNT(*) FROM plugin_entitlements
 		WHERE license_id = ? AND item_kind = ? AND item_id = ? AND status = 'active'

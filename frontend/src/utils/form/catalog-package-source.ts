@@ -1,6 +1,20 @@
 import { isHttpsLocation, isTemplateLocation, parseCatalogPriceYuan } from './catalog-slug'
 
 export type CatalogPackageSource = 'upload' | 'public'
+export type CatalogPriceSwitchPolicy = 'grandfather' | 'purchase_only'
+
+/** 已公开的免费条目要改成收费，或收费条目改回免费。 */
+export function catalogPriceSwitchAction(
+  currentCents: number,
+  nextCents: number,
+  status: string,
+  latestVersion: string
+): '' | 'to-paid' | 'to-free' {
+  const visible = status === 'published' || status === 'hidden' || String(latestVersion || '').trim() !== ''
+  if ((currentCents || 0) <= 0 && nextCents > 0 && visible) return 'to-paid'
+  if ((currentCents || 0) > 0 && nextCents <= 0) return 'to-free'
+  return ''
+}
 
 export interface CatalogUploadGateInput {
   appId: number

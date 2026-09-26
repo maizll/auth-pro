@@ -25,10 +25,10 @@ const (
 )
 
 var (
-	errSourcePaidListingClosed = errors.New("付费条目暂不能上架，购买与交付将在后续版本开放")
-	errSourcePaidExternal      = errors.New("付费条目请上传 ZIP，或填写 HTTPS 外链由本站拉取托管")
-	errSourcePaidYearly        = errors.New("年付尚未开放，当前只支持买断")
-	errSourcePaidAlreadyPublic = errors.New("已公开的免费条目不能直接改为付费")
+	errSourcePaidListingClosed    = errors.New("付费条目暂不能上架，购买与交付将在后续版本开放")
+	errSourcePaidExternal         = errors.New("付费条目请上传 ZIP，或填写 HTTPS 外链由本站拉取托管")
+	errSourcePaidYearly           = errors.New("年付尚未开放，当前只支持买断")
+	errCatalogPriceSwitchRequired = errors.New("改为收费前请选择：已下载过的老用户继续免费，或所有人都需购买")
 )
 
 func stationPaidPackageDirPath() string {
@@ -92,14 +92,33 @@ func normalizeCatalogPrice(cents int64, billing, delivery string) (int64, string
 	return cents, billing, delivery, nil
 }
 
-func rejectPaidPriceOnPublicItem(status, latestVersion string, existingPrice, newPrice int64) error {
+func publicFreeBecomingPaid(status, latestVersion string, existingPrice, newPrice int64) bool {
 	if newPrice <= 0 || existingPrice > 0 {
+		return false
+	}
+	return status == sourceItemPublished || status == sourceItemHidden || strings.TrimSpace(latestVersion) != ""
+}
+
+func normalizeCatalogPriceSwitch(policy string, required bool) (string, error) {
+	switch strings.TrimSpace(policy) {
+	case catalogSwitchGrandfather, "keep_free":
+		return catalogSwitchGrandfather, nil
+	case catalogSwitchPurchaseOnly, "require_purchase", "everyone":
+		return catalogSwitchPurchaseOnly, nil
+	default:
+		if !required {
+			return "", nil
+		}
+		return "", errCatalogPriceSwitchRequired
+	}
+}
+
+func rejectPaidPriceOnPublicItem(status, latestVersion string, existingPrice, newPrice int64, policy string) error {
+	if !publicFreeBecomingPaid(status, latestVersion, existingPrice, newPrice) {
 		return nil
 	}
-	if status == sourceItemPublished || status == sourceItemHidden || strings.TrimSpace(latestVersion) != "" {
-		return errSourcePaidAlreadyPublic
-	}
-	return nil
+	_, err := normalizeCatalogPriceSwitch(policy, true)
+	return err
 }
 
 func paidPublishError(developerID, price int64, delivery, location string) error {
@@ -433,25 +452,25 @@ func parseCatalogPriceCents(raw string) (int64, error) {
 }
 
 func guardAndFinalizePlugin(plugin sourcePlugin) (sourcePlugin, error) {
-	status, latest, existingPrice, err := pluginPriceContext(plugin.ID)
+	existing, err := currentSourceStationStore().GetPlugin(plugin.ID)
+	if errors.Is(err, errSourceNotFound) {
+		return finalizePluginPackage(plugin)
+	}
 	if err != nil {
 		return plugin, err
 	}
-	if err := rejectPaidPriceOnPublicItem(status, latest, existingPrice, plugin.PriceCents); err != nil {
-		return plugin, err
-	}
-	return finalizePluginPackage(plugin)
+	return preparePluginPriceChange(existing, plugin)
 }
 
 func guardAndFinalizeTemplate(item sourceTemplate) (sourceTemplate, error) {
-	status, latest, existingPrice, err := templatePriceContext(item.ID)
+	existing, err := currentSourceStationStore().GetTemplate(item.ID)
+	if errors.Is(err, errSourceNotFound) {
+		return finalizeTemplatePackage(item)
+	}
 	if err != nil {
 		return item, err
 	}
-	if err := rejectPaidPriceOnPublicItem(status, latest, existingPrice, item.PriceCents); err != nil {
-		return item, err
-	}
-	return finalizeTemplatePackage(item)
+	return prepareTemplatePriceChange(existing, item)
 }
 
 func guardReleasePackage(rel sourceRelease) (sourceRelease, error) {
