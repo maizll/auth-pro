@@ -283,34 +283,13 @@
           <template #default="{ row }">{{ sourceTypeLabel(row.sourceType) }}</template>
         </ElTableColumn>
         <ElTableColumn prop="url" label="地址" show-overflow-tooltip />
-        <ElTableColumn label="操作" width="220" align="center">
+        <ElTableColumn label="操作" width="148" align="center">
           <template #default="{ row }">
-            <div class="source-actions">
-              <ElButton
-                link
-                type="primary"
-                size="small"
-                :loading="refreshingSourceId === row.id"
-                @click="handleRefreshSource(row)"
-                >刷新</ElButton
-              >
-              <ElButton link type="danger" size="small" @click="handleDeleteSource(row)"
-                >删除</ElButton
-              >
-              <template v-if="sourceAppGone(row)">
-                <ElButton
-                  v-if="row.restoreAppId"
-                  link
-                  type="primary"
-                  size="small"
-                  @click="handleRestoreSourceApp(row)"
-                  >恢复应用</ElButton
-                >
-                <ElButton link type="primary" size="small" @click="openRetarget(row)"
-                  >更换源地址</ElButton
-                >
-              </template>
-            </div>
+            <RowActions
+              :primary="sourcePrimary(row)"
+              :more="sourceMore(row)"
+              @click="(action) => onSourceAction(row, action)"
+            />
           </template>
         </ElTableColumn>
         <template #empty>
@@ -357,6 +336,7 @@
 
 <script setup lang="ts">
   import TemplateActions from '@/views/home-template/TemplateActions.vue'
+  import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
   import { fetchStoreAccount, fetchStoreCatalog, type StoreAccount, type StoreCatalogItem } from '@/api/store'
   import { fetchSourceCatalogApps, type SourceCatalogApp } from '@/api/source-station'
@@ -412,6 +392,39 @@
   const sourceTypeLabel = (sourceType?: string) => (sourceType === 'git' ? 'Git 仓库' : 'JSON 目录')
   const sourceAppGone = (source: PluginSource) =>
     String(source.lastError || '').includes('该软件源对应的应用已删除或归档')
+
+  function sourcePrimary(source: PluginSource): RowActionItem[] {
+    const items: RowActionItem[] = [
+      { key: 'refresh', label: '刷新', disabled: refreshingSourceId.value === source.id }
+    ]
+    if (!sourceAppGone(source)) items.push({ key: 'delete', label: '删除', danger: true })
+    return items
+  }
+
+  function sourceMore(source: PluginSource): RowActionItem[] {
+    if (!sourceAppGone(source)) return []
+    const items: RowActionItem[] = [{ key: 'delete', label: '删除', danger: true }]
+    if (source.restoreAppId) items.push({ key: 'restore', label: '恢复应用' })
+    items.push({ key: 'retarget', label: '更换源地址' })
+    return items
+  }
+
+  function onSourceAction(source: PluginSource, action: RowActionItem) {
+    switch (action.key) {
+      case 'refresh':
+        handleRefreshSource(source)
+        break
+      case 'delete':
+        handleDeleteSource(source)
+        break
+      case 'restore':
+        handleRestoreSourceApp(source)
+        break
+      case 'retarget':
+        openRetarget(source)
+        break
+    }
+  }
   const retargetVisible = ref(false)
   const retargetSaving = ref(false)
   const retargetSource = ref<PluginSource | null>(null)

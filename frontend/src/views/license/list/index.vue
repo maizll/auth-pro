@@ -2,7 +2,7 @@
 <!-- art-full-height 自动计算出页面剩余高度 -->
 <!-- art-table-card 一个符合系统样式的 class，同时自动撑满剩余高度 -->
 <template>
-  <div class="license-list-page art-full-height">
+  <div class="license-list-page art-full-height" :class="{ 'is-narrow': narrow }">
     <!-- 搜索栏 -->
     <LicenseSearch v-model="searchForm" @search="handleSearch" @reset="resetSearchParams" />
 
@@ -26,6 +26,31 @@
         @pagination:size-change="handleSizeChange"
         @pagination:current-change="handleCurrentChange"
       >
+        <template #domain="{ row }">
+          <div class="domain-cell" :title="row.domain">
+            <span class="domain-cell__value">{{ row.domain || '--' }}</span>
+            <span v-if="narrow" class="domain-cell__owner">
+              {{ row.ownerType === 'agent' ? '代理' : '用户' }} ·
+              {{ row.ownerName || `ID ${row.ownerId}` }}
+            </span>
+            <span v-if="narrow && row.sourceLabel" class="domain-cell__owner">{{ row.sourceLabel }}</span>
+          </div>
+        </template>
+
+        <template #expireAt="{ row }">
+          <span
+            v-if="narrow && compactExpire(row.expireAt)"
+            class="expire-compact"
+            :title="row.expireAt"
+          >
+            <span>{{ compactExpire(row.expireAt)?.main }}</span>
+            <span v-if="compactExpire(row.expireAt)?.sub" class="expire-compact__sub">
+              {{ compactExpire(row.expireAt)?.sub }}
+            </span>
+          </span>
+          <span v-else :title="row.expireAt">{{ row.expireAt || '--' }}</span>
+        </template>
+
         <!-- 归属账号 -->
         <template #owner="{ row }">
           <div class="owner-cell">
@@ -69,21 +94,11 @@
         </template>
 
         <template #operation="{ row }">
-          <ElButton v-if="row.type === 'key'" link type="primary" @click="openSiteDialog(row)">
-            站点
-          </ElButton>
-          <ElButton v-if="!row.commercialActive" link type="primary" @click="handleGrantCommercial(row)">
-            授予商业版
-          </ElButton>
-          <ElButton v-else link type="warning" @click="handleRevokeCommercial(row)">
-            吊销商业版
-          </ElButton>
-          <ElButton link type="primary" @click="openChangeQuota(row)">调整次数</ElButton>
-          <ElButton link type="primary" @click="handleEdit(row)">编辑</ElButton>
-          <ElButton link type="primary" @click="handleToggle(row)">
-            {{ row.status === 'active' ? '禁用' : '启用' }}
-          </ElButton>
-          <ElButton link type="danger" @click="handleDelete(row)">删除</ElButton>
+          <RowActions
+            :primary="[{ key: 'edit', label: '编辑' }]"
+            :more="licenseMoreActions(row)"
+            @click="(action) => onLicenseAction(row, action)"
+          />
         </template>
       </ArtTable>
     </ElCard>
@@ -258,6 +273,8 @@
   import { ElMessage, ElMessageBox } from 'element-plus'
   import CommercialReissueBanner from '@/components/business/commercial/CommercialReissueBanner.vue'
   import { showCaughtError } from '@/utils/http/error-toast'
+  import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
+  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchLicenseList,
@@ -401,7 +418,9 @@
     refreshData,
     refreshCreate,
     refreshUpdate,
-    refreshRemove
+    refreshRemove,
+    toggleColumn,
+    updateColumn
   } = useTable({
     // 核心配置
     core: {
@@ -418,11 +437,11 @@
       },
       columnsFactory: () => [
         { type: 'index', width: 60, label: '序号' }, // 序号
-        { prop: 'domain', label: '域名/IP/密钥', minWidth: 200, showOverflowTooltip: true },
+        { prop: 'domain', label: '域名/IP/密钥', minWidth: 150, useSlot: true },
         {
           prop: 'owner',
           label: '归属账号',
-          minWidth: 180,
+          minWidth: 120,
           showOverflowTooltip: true,
           useSlot: true
         },
@@ -430,7 +449,7 @@
         { prop: 'source', label: '来源', width: 110, align: 'center', useSlot: true },
         { prop: 'typeLabel', label: '类型', width: 90, align: 'center', useSlot: true },
         { prop: 'statusLabel', label: '状态', width: 90, align: 'center', useSlot: true },
-        { prop: 'expireAt', label: '到期时间', width: 160 },
+        { prop: 'expireAt', label: '到期时间', width: 160, useSlot: true },
         { prop: 'verifyCount', label: '验证次数', width: 100, align: 'center' },
         { prop: 'sites', label: '站点', width: 120, align: 'center', useSlot: true },
         { prop: 'freeSiteChanges', label: '剩余更换', width: 110, align: 'center', useSlot: true },
@@ -438,8 +457,7 @@
         {
           prop: 'operation',
           label: '操作',
-          width: 400,
-          fixed: 'right',
+          width: 112,
           useSlot: true
         }
       ]
@@ -454,6 +472,85 @@
       }
     }
   })
+
+  const narrow = useNarrowScreen()
+  const licenseSecondaryColumns = [
+    '__index__',
+    'owner',
+    'source',
+    'typeLabel',
+    'verifyCount',
+    'sites',
+    'freeSiteChanges',
+    'createdAt'
+  ]
+  const licenseWideColumns = [
+    { prop: 'domain', updates: { label: '域名/IP/密钥', width: undefined, minWidth: 150 } },
+    { prop: 'appName', updates: { width: 120, minWidth: undefined } },
+    { prop: 'statusLabel', updates: { width: 90, minWidth: undefined } },
+    { prop: 'expireAt', updates: { label: '到期时间', width: 160, minWidth: undefined } },
+    { prop: 'operation', updates: { width: 112, minWidth: undefined } }
+  ]
+  const licenseNarrowColumns = [
+    { prop: 'domain', updates: { label: '授权码', width: 74, minWidth: 74 } },
+    { prop: 'appName', updates: { width: 50, minWidth: 50 } },
+    { prop: 'statusLabel', updates: { width: 44, minWidth: 44 } },
+    { prop: 'expireAt', updates: { label: '到期', width: 52, minWidth: 52 } },
+    { prop: 'operation', updates: { width: 74, minWidth: 74 } }
+  ]
+  watch(
+    narrow,
+    (value) => {
+      toggleColumn?.(licenseSecondaryColumns, !value)
+      updateColumn?.(value ? licenseNarrowColumns : licenseWideColumns)
+    },
+    { immediate: true }
+  )
+
+  function compactExpire(value?: string) {
+    if (!value) return null
+    const matched = /^(\d{4})-(\d{2}-\d{2})/.exec(value)
+    if (!matched) return null
+    return { main: matched[2], sub: matched[1] }
+  }
+
+  function licenseMoreActions(row: LicenseItem): RowActionItem[] {
+    return [
+      ...(row.type === 'key' ? [{ key: 'sites', label: '站点' }] : []),
+      row.commercialActive
+        ? { key: 'revoke', label: '吊销商业版', danger: true }
+        : { key: 'grant', label: '授予商业版' },
+      { key: 'quota', label: '调整次数' },
+      { key: 'toggle', label: row.status === 'active' ? '禁用' : '启用' },
+      { key: 'delete', label: '删除', danger: true }
+    ]
+  }
+
+  function onLicenseAction(row: LicenseItem, action: RowActionItem) {
+    switch (action.key) {
+      case 'edit':
+        handleEdit(row)
+        break
+      case 'sites':
+        openSiteDialog(row)
+        break
+      case 'grant':
+        handleGrantCommercial(row)
+        break
+      case 'revoke':
+        handleRevokeCommercial(row)
+        break
+      case 'quota':
+        openChangeQuota(row)
+        break
+      case 'toggle':
+        handleToggle(row)
+        break
+      case 'delete':
+        handleDelete(row)
+        break
+    }
+  }
 
   // ==================== 表单校验 ====================
 
@@ -846,6 +943,52 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+    }
+
+    .domain-cell__value,
+    .domain-cell__owner {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .domain-cell__owner {
+      margin-top: 2px;
+      font-size: 11px;
+      line-height: 1.2;
+      color: var(--el-text-color-secondary);
+    }
+
+    .expire-compact {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.15;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .expire-compact__sub {
+      font-size: 11px;
+      color: var(--el-text-color-secondary);
+    }
+
+    &.is-narrow {
+      :deep(.el-table .el-table__cell) {
+        padding-top: 4px;
+        padding-bottom: 4px;
+      }
+
+      :deep(.el-table .cell) {
+        padding-right: 4px;
+        padding-left: 4px;
+        line-height: 1.25;
+      }
+
+      :deep(.row-actions .el-button.is-link) {
+        padding: 0 2px;
+        font-size: 13px;
       }
     }
 

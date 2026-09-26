@@ -20,6 +20,24 @@
 
       <!-- 表格 -->
       <ArtTable :loading="loading" :data="data" :columns="columns">
+        <template #name="{ row }">
+          <div class="app-name-cell">
+            <span class="app-name-cell__title">{{ row.name }}</span>
+            <div v-if="narrow && row.commercialProduct" class="sale-status">
+              <ElTag type="warning" size="small">商业版产品</ElTag>
+              <ElTag v-if="!row.saleGaps?.length" type="success" size="small">可售</ElTag>
+              <ElButton
+                v-for="gap in row.saleGaps || []"
+                :key="gap.code"
+                link
+                type="danger"
+                @click="handleSaleGap(row, gap)"
+              >
+                {{ gap.label }}
+              </ElButton>
+            </div>
+          </div>
+        </template>
         <!-- 授权方式 -->
         <template #purchaseLicenseTypes="{ row }">
           <div v-if="row.purchaseLicenseTypes?.length" class="license-type-tags">
@@ -88,14 +106,14 @@
 
         <!-- 操作 -->
         <template #operation="{ row }">
-          <ElButton link type="primary" @click="handleVersions(row)">版本</ElButton>
-          <ElButton link type="primary" @click="handleSDKPack(row)">SDK 包</ElButton>
-          <ElButton link type="primary" @click="handleEdit(row)">编辑</ElButton>
-          <ElButton link type="primary" @click="handleResetSecret(row)">重置密钥</ElButton>
-          <ElButton v-if="!row.archived" link type="danger" @click="handleDelete(row)"
-            >归档</ElButton
-          >
-          <ElButton v-else link type="primary" @click="handleRestore(row)">恢复</ElButton>
+          <RowActions
+            :primary="[
+              { key: 'edit', label: '编辑' },
+              { key: 'versions', label: '版本' }
+            ]"
+            :more="appMoreActions(row)"
+            @click="(action) => onAppAction(row, action)"
+          />
         </template>
       </ArtTable>
     </ElCard>
@@ -223,6 +241,8 @@
     openCommercialUpgrade,
     rememberCommercialAccount
   } from '@/utils/commercial'
+  import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
+  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchLicenseAppList,
@@ -281,14 +301,14 @@
     name: [{ required: true, message: '请输入应用名称', trigger: 'blur' }]
   }
 
-  const { columns, columnChecks, data, loading, refreshData, refreshRemove } = useTable({
+  const { columns, columnChecks, data, loading, refreshData, refreshRemove, toggleColumn } = useTable({
     // 核心配置
     core: {
       apiFn: fetchLicenseAppList,
       apiParams: {},
       columnsFactory: () => [
         { type: 'index', width: 60, label: '序号' }, // 序号
-        { prop: 'name', label: '应用名称', minWidth: 150, showOverflowTooltip: true },
+        { prop: 'name', label: '应用名称', minWidth: 150, useSlot: true },
         { prop: 'sale', label: '商业版', minWidth: 220, useSlot: true },
         { prop: 'appKey', label: 'AppKey', minWidth: 220, showOverflowTooltip: true },
         {
@@ -312,8 +332,7 @@
         {
           prop: 'operation',
           label: '操作',
-          width: 230,
-          fixed: 'right',
+          width: 168,
           useSlot: true
         }
       ]
@@ -334,6 +353,61 @@
       }
     }
   })
+
+  const narrow = useNarrowScreen()
+  watch(
+    narrow,
+    (value) => {
+      toggleColumn?.(
+        [
+          '__index__',
+          'sale',
+          'appKey',
+          'purchaseLicenseTypes',
+          'appSecret',
+          'licenseCount',
+          'version',
+          'licenseRequired',
+          'createdAt'
+        ],
+        !value
+      )
+    },
+    { immediate: true }
+  )
+
+  function appMoreActions(row: AppRow): RowActionItem[] {
+    return [
+      { key: 'sdk', label: 'SDK 包' },
+      { key: 'secret', label: '重置密钥', danger: true },
+      row.archived
+        ? { key: 'restore', label: '恢复' }
+        : { key: 'archive', label: '归档', danger: true }
+    ]
+  }
+
+  function onAppAction(row: AppRow, action: RowActionItem) {
+    switch (action.key) {
+      case 'edit':
+        handleEdit(row)
+        break
+      case 'versions':
+        handleVersions(row)
+        break
+      case 'sdk':
+        handleSDKPack(row)
+        break
+      case 'secret':
+        handleResetSecret(row)
+        break
+      case 'archive':
+        handleDelete(row)
+        break
+      case 'restore':
+        handleRestore(row)
+        break
+    }
+  }
 
   const orderedPurchaseLicenseTypes = (types: string[] = []) => {
     return purchaseLicenseTypeOrder.filter((licenseType) => types.includes(licenseType))
@@ -665,6 +739,13 @@
 
     .license-type-options :deep(.el-checkbox) {
       margin-right: 12px;
+    }
+
+    .app-name-cell__title {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .sale-status {

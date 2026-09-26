@@ -65,10 +65,15 @@
 
         <!-- 操作 -->
         <template #operation="{ row }">
-          <ElButton link type="primary" @click="openDetail(row)">详情</ElButton>
-          <ElButton link type="primary" @click="openEditDialog(row)">编辑</ElButton>
-          <ElButton link type="primary" @click="downloadPackage(row)">下载</ElButton>
-          <ElButton link type="danger" @click="handleDelete(row)">删除</ElButton>
+          <RowActions
+            :primary="[{ key: 'edit', label: '编辑' }]"
+            :more="[
+              { key: 'detail', label: '详情' },
+              { key: 'download', label: '下载' },
+              { key: 'delete', label: '删除', danger: true }
+            ]"
+            @click="(action) => onVersionAction(row, action)"
+          />
         </template>
       </ArtTable>
     </ElCard>
@@ -283,6 +288,7 @@
   } from 'element-plus'
   import { ElMessage, ElMessageBox, genFileId } from 'element-plus'
   import ArtSvgIcon from '@/components/core/base/art-svg-icon/index.vue'
+  import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import { useTable } from '@/hooks/core/useTable'
   import { defaultResponseAdapter } from '@/utils/table/tableUtils'
   import {
@@ -425,8 +431,7 @@
         {
           prop: 'operation',
           label: '操作',
-          width: 220,
-          fixed: 'right',
+          width: 112,
           useSlot: true
         }
       ]
@@ -581,6 +586,23 @@
       }
     } finally {
       submitting.value = false
+    }
+  }
+
+  function onVersionAction(row: AppVersionItem, action: RowActionItem) {
+    switch (action.key) {
+      case 'edit':
+        openEditDialog(row)
+        break
+      case 'detail':
+        openDetail(row)
+        break
+      case 'download':
+        downloadPackage(row)
+        break
+      case 'delete':
+        handleDelete(row)
+        break
     }
   }
 
