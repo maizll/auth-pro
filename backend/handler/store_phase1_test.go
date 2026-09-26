@@ -127,9 +127,36 @@ func TestTamperedSnapshotFailsVerify(t *testing.T) {
 	}
 }
 
+func TestEmbeddedStoreSnapshotPublicKeyIsProduction(t *testing.T) {
+	const want = "pwAizm/sOyWCu+qi8+Dl/xJr0Upuamh5u7vL3wGT14A="
+	if productionStoreSnapshotPublicKey != want || embeddedStoreSnapshotPublicKey != want {
+		t.Fatalf("embedded public key = %q, want production key", embeddedStoreSnapshotPublicKey)
+	}
+	raw, err := base64.StdEncoding.DecodeString(embeddedStoreSnapshotPublicKey)
+	if err != nil || len(raw) != ed25519.PublicKeySize {
+		t.Fatalf("embedded key is not a 32-byte Ed25519 public key: %v len=%d", err, len(raw))
+	}
+	if embeddedStoreSnapshotPublicKey == storeSnapshotPublicKeyPlaceholder || !storeSnapshotPublicKeyConfigured() {
+		t.Fatal("production public key was not applied")
+	}
+	storeSnapshotKeyMu.RLock()
+	applied := base64.StdEncoding.EncodeToString(storeSnapshotPublic)
+	storeSnapshotKeyMu.RUnlock()
+	if applied != productionStoreSnapshotPublicKey {
+		t.Fatalf("applied public key = %q", applied)
+	}
+}
+
 func TestPlaceholderPublicKeyRejectsSnapshots(t *testing.T) {
-	if embeddedStoreSnapshotPublicKey != storeSnapshotPublicKeyPlaceholder || storeSnapshotPublicKeyConfigured() {
-		t.Fatal("source build must keep the unconfigured placeholder")
+	prev := embeddedStoreSnapshotPublicKey
+	embeddedStoreSnapshotPublicKey = storeSnapshotPublicKeyPlaceholder
+	applyEmbeddedStoreSnapshotPublicKey()
+	t.Cleanup(func() {
+		embeddedStoreSnapshotPublicKey = prev
+		applyEmbeddedStoreSnapshotPublicKey()
+	})
+	if storeSnapshotPublicKeyConfigured() {
+		t.Fatal("placeholder must not count as configured")
 	}
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -151,6 +178,44 @@ func TestPlaceholderPublicKeyRejectsSnapshots(t *testing.T) {
 	view := currentBuyerAccess(nil)
 	if view.Edition != storeEditionFree || !view.GraceWarning || view.Reason != storeReasonSnapshotKeyUnconfigured || view.SnapshotValid {
 		t.Fatal("buyer must stay on the free tier and surface the unconfigured warning")
+	}
+}
+
+func TestFreshKeygenPrivateKeyDoesNotMatchEmbeddedPublicKey(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	if _, err := generateStoreSnapshotKey(false); err != nil {
+		t.Fatal(err)
+	}
+	_, err := signStoreSnapshot(storeSnapshot{BindingID: "sb_mismatch", Items: []storeSnapshotItem{}})
+	if err == nil || !strings.Contains(err.Error(), "商店签名私钥与发行包公钥不匹配") {
+		t.Fatalf("mismatched private key must refuse signing, err=%v", err)
+	}
+}
+
+func TestMatchingPrivateKeyFileCanSign(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := embeddedStoreSnapshotPublicKey
+	embeddedStoreSnapshotPublicKey = base64.StdEncoding.EncodeToString(pub)
+	applyEmbeddedStoreSnapshotPublicKey()
+	t.Cleanup(func() {
+		embeddedStoreSnapshotPublicKey = prev
+		applyEmbeddedStoreSnapshotPublicKey()
+	})
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	path := storeSnapshotPrivateKeyPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	payload := base64.StdEncoding.EncodeToString(priv) + "\n"
+	if err := os.WriteFile(path, []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	signed, err := signStoreSnapshot(storeSnapshot{BindingID: "sb_match", Domain: "shop.example.com", Edition: storeEditionCommercial, Items: []storeSnapshotItem{}})
+	if err != nil || !verifyStoreSnapshot(signed) {
+		t.Fatalf("matching private key must sign, err=%v", err)
 	}
 }
 

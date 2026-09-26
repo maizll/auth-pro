@@ -90,7 +90,7 @@ Nginx 反代到 `127.0.0.1:19127`，并把 `backend/baota-nginx.snippet.conf` �
 
 ## 版本号单一信源
 
-仓库根目录 `VERSION`（当前 `1.5.5`）是产品线默认版本：
+仓库根目录 `VERSION`（当前 `1.5.6`）是产品线默认版本：
 
 - 后端 `auto_pro/config.AppVersion` 仓库默认与 `VERSION` 一致；`./scripts/build-release.sh` / `.ps1` 无参数时读该文件，并用 `-ldflags` 注入 `AppVersion` / `BuildTime`。
 - 前端 `VITE_VERSION` 与 `vite.config.ts` 的 `version.json` 同样对齐 `VERSION`；发布脚本会把参数版本写入 `VITE_VERSION`。
@@ -99,9 +99,9 @@ Nginx 反代到 `127.0.0.1:19127`，并把 `backend/baota-nginx.snippet.conf` �
 
 ## 商店快照验签公钥
 
-发行包默认不带可用的快照验签公钥，源码里的值是占位符 `PLACEHOLDER_NOT_CONFIGURED`。未替换时，买方站点把快照一律视为无效并保持免费版，源站拒绝签发。私钥不要打进包，也不要写进本文件。
+自 1.5.6 起，源码默认内置源站 Ed25519 公钥 `pwAizm/sOyWCu+qi8+Dl/xJr0Upuamh5u7vL3wGT14A=`。`./scripts/build-release.sh` 在未设置 `AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY` 时直接使用这个默认值。源站升级到 1.5.6 后可以签发快照，买方可以验签。私钥不要打进包，也不要写进本文件。源站升级时保留数据目录 `store/snapshot-ed25519.key`，不要重新执行 `store-keygen`。
 
-发布前在源站执行 `auth_pro store-keygen`（或 `auth_pro --store-keygen`）。命令把私钥写入该机数据目录 `store/snapshot-ed25519.key`（权限 `0600`），已存在则拒绝覆盖，除非加上 `--force`。标准输出只有公钥的 base64 和一行中文提示。把公钥交给维护者，再嵌入构建：
+私钥和内置公钥不一致时，源站拒绝签发。构建时仍可用环境变量或 `-ldflags` 覆盖公钥，用于更换密钥。覆盖值不能是占位符 `PLACEHOLDER_NOT_CONFIGURED`，且必须是 32 字节公钥的标准 base64。覆盖成占位符或空字符串的包会把快照一律视为无效：买方保持免费版，源站拒绝签发。
 
 ```bash
 AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY='<打印出的公钥>' ./scripts/build-release.sh
@@ -120,7 +120,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1
 go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出的公钥>" -o auth_pro .
 ```
 
-`<打印出的公钥>` 只替换成 `store-keygen` 打印的第一行。打好包后再发布。源站和买方都要装这份带公钥的包，源站同时保留本机私钥文件。
+`<打印出的公钥>` 只替换成 `store-keygen` 打印的第一行。换钥后的包要同时装到源站和买方站点，源站同时保留本机私钥文件。
 
 ## 构建命令
 
