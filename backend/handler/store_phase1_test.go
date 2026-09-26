@@ -504,5 +504,5 @@ var phaseRegisterMu sync.Mutex
 
 func init() {
 	_ = json.Marshal
-	_ = phaseRegisterMu
+	_ = &phaseRegisterMu
 }

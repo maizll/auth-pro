@@ -206,5 +206,5 @@ function resolveProductVersion(envVersion?: string): string {
       return fromFile
     }
   }
-  return '1.5.4'
+  return '1.5.5'
 }
