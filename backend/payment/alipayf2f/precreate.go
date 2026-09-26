@@ -5,12 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"auto_pro/payment"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 const precreateMethod = "alipay.trade.precreate"
@@ -73,11 +77,15 @@ func Precreate(cfg Config, req payment.CreateRequest, client *http.Client) (paym
 	if client == nil {
 		client = httpClient
 	}
+	endpoint, err := gatewayEndpoint(cfg.gatewayURL())
+	if err != nil {
+		return payment.CreateResult{}, err
+	}
 	form := url.Values{}
 	for k, v := range params {
 		form.Set(k, v)
 	}
-	httpResp, err := client.PostForm(cfg.gatewayURL(), form)
+	httpResp, err := postGateway(client, endpoint, form)
 	if err != nil {
 		return payment.CreateResult{}, fmt.Errorf("请求支付宝网关失败")
 	}
@@ -86,19 +94,51 @@ func Precreate(cfg Config, req payment.CreateRequest, client *http.Client) (paym
 	if err != nil {
 		return payment.CreateResult{}, errors.New("读取支付宝响应失败")
 	}
-	qrCode, err := parsePrecreateBody(body)
+	qrCode, err := parsePrecreateBody(httpResp.Header.Get("Content-Type"), body)
 	if err != nil {
 		return payment.CreateResult{}, err
 	}
 	return payment.CreateResult{Mode: payment.ModeQRCode, QRCode: qrCode}, nil
 }
 
-func parsePrecreateBody(body []byte) (string, error) {
+// gatewayEndpoint 把 charset=utf-8 放进网关 URL 查询串。
+// 支付宝网关在查询串里看不到 charset 时按 GBK 验签，UTF-8 签名会被判失败，错误正文也是 GBK。
+func gatewayEndpoint(raw string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", errors.New("支付宝网关地址无效")
+	}
+	query := parsed.Query()
+	query.Set("charset", "utf-8")
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
+}
+
+func postGateway(client *http.Client, endpoint string, form url.Values) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
+	return client.Do(req)
+}
+
+func parsePrecreateBody(contentType string, body []byte) (string, error) {
+	body = decodeGatewayCharset(contentType, body)
 	var wrapped map[string]json.RawMessage
 	if err := json.Unmarshal(body, &wrapped); err != nil {
 		return "", errors.New("支付宝响应解析失败")
 	}
 	raw, ok := wrapped["alipay_trade_precreate_response"]
+	if !ok {
+		raw, ok = wrapped["error_response"]
+	}
+	if !ok {
+		if _, hasCode := wrapped["code"]; hasCode {
+			raw = body
+			ok = true
+		}
+	}
 	if !ok {
 		return "", errors.New("支付宝未返回预下单结果")
 	}
@@ -113,18 +153,83 @@ func parsePrecreateBody(body []byte) (string, error) {
 		return "", errors.New("支付宝预下单结果解析失败")
 	}
 	if node.Code != "10000" {
-		detail := strings.TrimSpace(node.SubMsg)
-		if detail == "" {
-			detail = strings.TrimSpace(node.Msg)
-		}
-		if detail == "" {
-			detail = "预下单失败"
-		}
-		return "", errors.New(detail)
+		return "", errors.New(explainAlipayFailure(node.SubCode, node.SubMsg, node.Msg))
 	}
 	qr := strings.TrimSpace(node.QRCode)
 	if qr == "" {
 		return "", errors.New("支付宝未返回收款码")
 	}
 	return qr, nil
+}
+
+func decodeGatewayCharset(contentType string, body []byte) []byte {
+	charset := charsetFromContentType(contentType)
+	switch charset {
+	case "gbk", "gb2312", "gb18030":
+		return decodeGB18030(body)
+	case "utf-8", "utf8":
+		if utf8.Valid(body) {
+			return body
+		}
+		return decodeGB18030(body)
+	default:
+		if utf8.Valid(body) {
+			return body
+		}
+		return decodeGB18030(body)
+	}
+}
+
+func charsetFromContentType(contentType string) string {
+	if strings.TrimSpace(contentType) == "" {
+		return ""
+	}
+	_, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(params["charset"]))
+}
+
+func decodeGB18030(body []byte) []byte {
+	decoded, err := simplifiedchinese.GB18030.NewDecoder().Bytes(body)
+	if err != nil || len(decoded) == 0 {
+		return body
+	}
+	return decoded
+}
+
+func explainAlipayFailure(subCode, subMsg, msg string) string {
+	switch strings.TrimSpace(subCode) {
+	case "isv.invalid-signature":
+		return "验签失败。请核对应用私钥与开放平台的应用公钥是否为一对，支付宝公钥要填开放平台给出的「支付宝公钥」，不要填成应用公钥。"
+	case "isv.missing-signature":
+		return "请求缺少签名。"
+	case "isv.invalid-signature-type":
+		return "签名类型不正确。当面付需要使用 RSA2。"
+	case "isv.invalid-app-id", "isv.missing-app-id", "isv.app-not-exist":
+		return "AppID 不正确。请核对开放平台应用的 APPID。"
+	case "isv.insufficient-isv-permissions", "isv.insufficient-user-permissions":
+		return "该应用没有当面付权限。请在开放平台为这个应用开通「当面付」。"
+	case "isv.missing-method":
+		return "请求缺少接口名称。"
+	case "ACQ.INVALID_PARAMETER":
+		return "下单参数不正确。" + suffixAlipayDetail(subMsg)
+	}
+	detail := strings.TrimSpace(subMsg)
+	if detail == "" {
+		detail = strings.TrimSpace(msg)
+	}
+	if detail == "" {
+		return "预下单失败"
+	}
+	return detail
+}
+
+func suffixAlipayDetail(subMsg string) string {
+	detail := strings.TrimSpace(subMsg)
+	if detail == "" {
+		return ""
+	}
+	return "（" + detail + "）"
 }

@@ -53,6 +53,10 @@ func TestSignAndVerifyNotify(t *testing.T) {
 	if !VerifyRSA2(params, publicKey) {
 		t.Fatal("expected notify signature to verify")
 	}
+	params["sign"] = strings.ReplaceAll(sign, "+", " ")
+	if !VerifyRSA2(params, publicKey) {
+		t.Fatal("form-decoded sign must treat spaces as base64 plus")
+	}
 }
 
 func TestVerifyNotifyRejectsTamperedAmount(t *testing.T) {
