@@ -60,7 +60,7 @@ try {
   await page.goto(`${state.buyer}/plugin-store`, { waitUntil: 'domcontentloaded' })
   await page.getByText('商业版 · 永久').first().waitFor()
   await page.getByText('浏览并安装插件和首页模板').waitFor()
-  await page.getByRole('button', { name: '查看授权' }).waitFor()
+  await page.locator('#app-header').getByRole('button', { name: '商业版' }).waitFor()
   if (await page.getByRole('button', { name: '升级商业版' }).count()) {
     throw new Error('商业版仍显示升级按钮')
   }
@@ -69,7 +69,7 @@ try {
   await page.goto(`${state.buyer}/license/apps`, { waitUntil: 'domcontentloaded' })
   await page.getByText('买家第二个应用').waitFor()
   await page.getByText('买家主应用').waitFor()
-  await page.getByRole('button', { name: '查看授权' }).waitFor()
+  await page.locator('#app-header').getByRole('button', { name: '商业版' }).waitFor()
   if (await page.getByRole('button', { name: '升级商业版' }).count()) {
     throw new Error('应用管理仍显示升级商业版')
   }
