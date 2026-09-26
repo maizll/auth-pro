@@ -651,6 +651,10 @@ func AdminPaymentOrderList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化商店订单失败"})
 		return
 	}
+	if err := ensureSiteChangeSchema(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化更换订单失败"})
+		return
+	}
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
@@ -722,10 +726,20 @@ func AdminPaymentOrderList(c *gin.Context) {
 			FROM store_purchase_orders o
 			LEFT JOIN users u ON u.id = o.owner_id AND o.owner_type = 'user'
 			LEFT JOIN agents a ON a.id = o.owner_id AND o.owner_type = 'agent'
+			WHERE ` + innerSQL + `
+			UNION ALL
+			SELECT o.order_no, 'site_change' AS subject_type, o.owner_id AS subject_id,
+			       COALESCE(u.nickname, u.email, a.name, '') AS subject_name,
+			       o.amount, o.paid_amount, COALESCE(o.pay_channel, ''), COALESCE(o.pay_method, ''), o.status,
+			       COALESCE(o.gateway_trade_no, ''), '更换授权站点',
+			       o.created_at, o.paid_at
+			FROM license_site_change_orders o
+			LEFT JOIN users u ON u.id = o.owner_id AND o.owner_type = 'user'
+			LEFT JOIN agents a ON a.id = o.owner_id AND o.owner_type = 'agent'
 			WHERE ` + innerSQL
 
 	var total int64
-	countArgs := append(append(append([]any{}, innerArgs...), innerArgs...), innerArgs...)
+	countArgs := append(append(append(append([]any{}, innerArgs...), innerArgs...), innerArgs...), innerArgs...)
 	countArgs = append(countArgs, outerArgs...)
 	countSQL := `SELECT COUNT(*) FROM (` + unionSQL + `) t WHERE ` + outerSQL
 	if err := db.QueryRow(countSQL, countArgs...).Scan(&total); err != nil {
@@ -738,7 +752,7 @@ func AdminPaymentOrderList(c *gin.Context) {
 
 	offset := (page - 1) * pageSize
 	listSQL := `SELECT * FROM (` + unionSQL + `) t WHERE ` + outerSQL + ` ORDER BY t.created_at DESC LIMIT ? OFFSET ?`
-	queryArgs := append(append(append([]any{}, innerArgs...), innerArgs...), innerArgs...)
+	queryArgs := append(append(append(append([]any{}, innerArgs...), innerArgs...), innerArgs...), innerArgs...)
 	queryArgs = append(queryArgs, outerArgs...)
 	queryArgs = append(queryArgs, pageSize, offset)
 	rows, err := db.Query(listSQL, queryArgs...)

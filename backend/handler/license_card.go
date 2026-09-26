@@ -765,6 +765,9 @@ func redeemLicenseCard(db *sql.DB, cardCode, ownerType string, ownerID int64) (l
 	if err != nil {
 		return licenseCardRedemption{}, "", err
 	}
+	if err := snapshotLicenseSiteChange(tx, licenseID, planID); err != nil {
+		return licenseCardRedemption{}, "", err
+	}
 	result, err = tx.Exec(`
 		UPDATE license_cards SET status = 'redeemed', redeemed_by_type = ?, redeemed_by_id = ?,
 		license_id = ?, redeemed_at = ? WHERE id = ? AND status = 'unused'

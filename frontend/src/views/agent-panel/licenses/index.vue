@@ -56,6 +56,7 @@
               <span v-if="row.type === 'key'" class="bound-count">
                 已绑定 {{ row.boundSites ?? 0 }}{{ Number(row.maxSites) ? ` / ${row.maxSites}` : '' }}
               </span>
+              <span class="change-quota">{{ freeChangeText(row) }}</span>
             </div>
           </template>
         </el-table-column>
@@ -241,11 +242,13 @@
         </el-table-column>
         <el-table-column prop="firstSeenAt" label="首次绑定" width="160" />
         <el-table-column prop="lastSeenAt" label="最近验证" width="160" />
-        <el-table-column label="操作" width="80" align="center">
+        <el-table-column label="操作" min-width="220" align="center">
           <template #default="{ row }">
-            <el-button link type="danger" size="small" @click="handleUnbindSite(row)"
-              >解绑</el-button
-            >
+            <div class="site-replace">
+              <el-input v-model="siteReplace[row.id]" size="small" placeholder="新域名或 IP" />
+              <el-button size="small" type="primary" plain @click="replaceSite(row)">更换</el-button>
+              <el-button link type="danger" size="small" @click="handleUnbindSite(row)">解绑</el-button>
+            </div>
           </template>
         </el-table-column>
         <template #empty>
@@ -253,6 +256,18 @@
         </template>
       </el-table>
     </el-dialog>
+
+    <SiteChangePayDialog
+      :visible="changePay.visible"
+      :price="changePay.price"
+      panel="agent"
+      :license-id="changePay.licenseId"
+      :action="changePay.action"
+      :site-id="changePay.siteId"
+      :target="changePay.target"
+      @close="changePay.visible = false"
+      @paid="onChangePaid"
+    />
 
     <el-dialog v-model="redeemDialog.visible" title="兑换卡密" width="460px" destroy-on-close>
       <el-alert
@@ -328,6 +343,7 @@
   import { useRoute, useRouter } from 'vue-router'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { licenseTargetError } from '@/utils/license-target'
+  import SiteChangePayDialog from '@/components/core/pay/SiteChangePayDialog.vue'
   import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
   import LicenseVersionsDialog from '@/components/core/panels/LicenseVersionsDialog.vue'
@@ -420,6 +436,42 @@
 
   function isDomainLicense(type: string) {
     return domainLicenseTypes.has(type)
+  }
+
+  const siteReplace = reactive<Record<number, string>>({})
+  const changePay = reactive({
+    visible: false,
+    price: 0,
+    licenseId: 0,
+    action: 'replace' as 'replace' | 'unbind',
+    siteId: 0,
+    target: ''
+  })
+
+  function freeChangeText(row: { freeSiteChanges?: number }) {
+    const left = Number(row.freeSiteChanges)
+    if (!Number.isFinite(left) || left < 0) return '剩余免费更换 不限'
+    return `剩余免费更换 ${left} 次`
+  }
+
+  function openChangePay(payload: {
+    price: number
+    licenseId: number
+    action: 'replace' | 'unbind'
+    siteId?: number
+    target?: string
+  }) {
+    changePay.price = payload.price
+    changePay.licenseId = payload.licenseId
+    changePay.action = payload.action
+    changePay.siteId = payload.siteId || 0
+    changePay.target = payload.target || ''
+    changePay.visible = true
+  }
+
+  function onChangePaid() {
+    fetchList()
+    if (siteDialog.visible) fetchLicenseSites()
   }
 
   function getToken() {
@@ -517,6 +569,14 @@
         ElMessage.success(data.msg || (editDialog.bindingPending ? '已绑定域名' : '已更换域名'))
         editDialog.visible = false
         await fetchList()
+      } else if (data.code === 402 && data.data?.needPay) {
+        editDialog.visible = false
+        openChangePay({
+          price: Number(data.data.price),
+          licenseId: editDialog.id,
+          action: 'replace',
+          target
+        })
       } else {
         editDialog.serverError = data.msg || '更新失败'
       }
@@ -542,6 +602,12 @@
       if (data.code === 200) {
         ElMessage.success(data.msg || '已解绑域名')
         await fetchList()
+      } else if (data.code === 402 && data.data?.needPay) {
+        openChangePay({
+          price: Number(data.data.price),
+          licenseId: row.id,
+          action: 'unbind'
+        })
       } else {
         ElMessage.error(data.msg || '解绑失败')
       }
@@ -606,6 +672,35 @@
     }
   }
 
+  async function replaceSite(row: any) {
+    const target = (siteReplace[row.id] || '').trim()
+    if (!target) {
+      ElMessage.warning('请填写新的域名或 IP')
+      return
+    }
+    const { data } = await axios.post(
+      `/api/agent-panel/licenses/${siteDialog.licenseId}/sites/${row.id}/replace`,
+      { target },
+      { headers: authHeaders() }
+    )
+    if (data.code === 200) {
+      ElMessage.success(data.msg || '已更换')
+      siteReplace[row.id] = ''
+      await fetchLicenseSites()
+      await fetchList()
+    } else if (data.code === 402 && data.data?.needPay) {
+      openChangePay({
+        price: Number(data.data.price),
+        licenseId: siteDialog.licenseId,
+        action: 'replace',
+        siteId: row.id,
+        target
+      })
+    } else {
+      ElMessage.error(data.msg || '更换失败')
+    }
+  }
+
   async function handleUnbindSite(row: any) {
     try {
       await ElMessageBox.confirm(`确定解绑站点「${row.target}」？解绑后名额立即释放。`, '提示', {
@@ -619,6 +714,13 @@
         ElMessage.success(data.msg || '解绑成功')
         await fetchLicenseSites()
         await fetchList()
+      } else if (data.code === 402 && data.data?.needPay) {
+        openChangePay({
+          price: Number(data.data.price),
+          licenseId: siteDialog.licenseId,
+          action: 'unbind',
+          siteId: row.id
+        })
       } else {
         ElMessage.error(data.msg || '解绑失败')
       }
@@ -843,6 +945,19 @@
     flex-wrap: wrap;
     gap: 2px 8px;
     justify-content: center;
+  }
+
+  .change-quota {
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+  }
+
+  .site-replace {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    justify-content: flex-end;
   }
 
   .bound-count {

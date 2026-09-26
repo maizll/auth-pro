@@ -42,6 +42,8 @@ export interface LicenseItem {
   verifyCount: number
   boundSites?: number
   maxSites?: number
+  freeSiteChanges?: number
+  siteChangePrice?: number | null
   remark: string
   createdAt: string
 }
@@ -113,6 +115,8 @@ export interface PlanItem {
   durationText: string
   price: number
   maxSites: number
+  freeSiteChanges?: number
+  siteChangePrice?: number | null
   sort: number
   enabled: boolean
   remark: string
@@ -261,6 +265,13 @@ export function fetchLicenseSites(licenseId: number) {
 }
 
 /** 解绑站点 */
+export function fetchAdjustLicenseSiteChanges(
+  id: number,
+  data: { unlimited?: boolean; delta?: number; value?: number }
+) {
+  return request.put<{ freeSiteChanges: number }>({ url: `/api/license/${id}/site-changes`, data })
+}
+
 export function fetchUnbindLicenseSite(licenseId: number, siteId: number) {
   return request.del({ url: `/api/license/${licenseId}/sites/${siteId}` })
 }
@@ -391,6 +402,8 @@ export interface PlanPayload {
   durationDays: number
   price: number
   maxSites: number
+  freeSiteChanges?: number | null
+  siteChangePrice?: number | null
   sort: number
   enabled: boolean
   remark: string

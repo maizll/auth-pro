@@ -870,6 +870,9 @@ func settleLicensePurchaseOrder(db *sql.DB, orderNo string, paidCents int64, pay
 		return err
 	}
 	licenseID, _ := licenseResult.LastInsertId()
+	if err := snapshotLicenseSiteChange(tx, licenseID, planID); err != nil {
+		return err
+	}
 
 	commercial, err := appIsCommercialProduct(db, appID)
 	if err != nil {

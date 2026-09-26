@@ -30,6 +30,10 @@ func PlanList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取商业版产品失败"})
 		return
 	}
+	if err := ensureSiteChangeSchema(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化更换次数失败"})
+		return
+	}
 
 	appID := c.Query("appId")
 	keyword := c.Query("keyword")
@@ -53,7 +57,7 @@ func PlanList(c *gin.Context) {
 
 	query := fmt.Sprintf(`
 		SELECT p.id, p.app_id, a.app_name, COALESCE(a.commercial_product, 0), p.name, p.license_type, p.duration_days, p.price,
-		       COALESCE(p.max_sites, 0), p.sort, p.enabled, p.remark, p.created_at
+		       COALESCE(p.max_sites, 0), COALESCE(p.free_site_changes, -1), p.site_change_price, p.sort, p.enabled, p.remark, p.created_at
 		FROM license_plans p
 		LEFT JOIN apps a ON a.id = p.app_id
 		WHERE %s
@@ -68,20 +72,22 @@ func PlanList(c *gin.Context) {
 	defer rows.Close()
 
 	type planItem struct {
-		ID                int64   `json:"id"`
-		AppID             int64   `json:"appId"`
-		AppName           string  `json:"appName"`
-		CommercialProduct bool    `json:"commercialProduct"`
-		Name              string  `json:"name"`
-		LicenseType       string  `json:"licenseType"`
-		DurationDays      int     `json:"durationDays"`
-		DurationText      string  `json:"durationText"`
-		Price             float64 `json:"price"`
-		MaxSites          int     `json:"maxSites"`
-		Sort              int     `json:"sort"`
-		Enabled           bool    `json:"enabled"`
-		Remark            string  `json:"remark"`
-		CreatedAt         string  `json:"createdAt"`
+		ID                int64    `json:"id"`
+		AppID             int64    `json:"appId"`
+		AppName           string   `json:"appName"`
+		CommercialProduct bool     `json:"commercialProduct"`
+		Name              string   `json:"name"`
+		LicenseType       string   `json:"licenseType"`
+		DurationDays      int      `json:"durationDays"`
+		DurationText      string   `json:"durationText"`
+		Price             float64  `json:"price"`
+		MaxSites          int      `json:"maxSites"`
+		FreeSiteChanges   int      `json:"freeSiteChanges"`
+		SiteChangePrice   *float64 `json:"siteChangePrice"`
+		Sort              int      `json:"sort"`
+		Enabled           bool     `json:"enabled"`
+		Remark            string   `json:"remark"`
+		CreatedAt         string   `json:"createdAt"`
 	}
 
 	var list []planItem
@@ -89,9 +95,14 @@ func PlanList(c *gin.Context) {
 		var item planItem
 		var enabled, commercial int
 		var remark sql.NullString
+		var changePrice sql.NullFloat64
 		var createdAt time.Time
 		if err := rows.Scan(&item.ID, &item.AppID, &item.AppName, &commercial, &item.Name, &item.LicenseType, &item.DurationDays,
-			&item.Price, &item.MaxSites, &item.Sort, &enabled, &remark, &createdAt); err == nil {
+			&item.Price, &item.MaxSites, &item.FreeSiteChanges, &changePrice, &item.Sort, &enabled, &remark, &createdAt); err == nil {
+			if changePrice.Valid {
+				price := changePrice.Float64
+				item.SiteChangePrice = &price
+			}
 			item.Enabled = enabled == 1
 			item.CommercialProduct = commercial == 1
 			if item.DurationDays == 0 {
@@ -128,17 +139,31 @@ func validatePlanLicenseTypeForApp(db *sql.DB, appID int64, licenseType string) 
 }
 
 // PlanCreate 新增套餐
+func parsePlanSiteChange(free *int, price *float64) (int, any, string) {
+	count, msg := normalizePlanFreeChanges(free)
+	if msg != "" {
+		return 0, nil, msg
+	}
+	normalized, msg := normalizePlanChangePrice(price)
+	if msg != "" {
+		return 0, nil, msg
+	}
+	return count, siteChangePriceArg(normalized), ""
+}
+
 func PlanCreate(c *gin.Context) {
 	var req struct {
-		AppID        int64   `json:"appId" binding:"required"`
-		Name         string  `json:"name" binding:"required"`
-		LicenseType  string  `json:"licenseType"`
-		DurationDays int     `json:"durationDays"`
-		Price        float64 `json:"price"`
-		MaxSites     int     `json:"maxSites"`
-		Sort         int     `json:"sort"`
-		Enabled      bool    `json:"enabled"`
-		Remark       string  `json:"remark"`
+		AppID           int64    `json:"appId" binding:"required"`
+		Name            string   `json:"name" binding:"required"`
+		LicenseType     string   `json:"licenseType"`
+		DurationDays    int      `json:"durationDays"`
+		Price           float64  `json:"price"`
+		MaxSites        int      `json:"maxSites"`
+		FreeSiteChanges *int     `json:"freeSiteChanges"`
+		SiteChangePrice *float64 `json:"siteChangePrice"`
+		Sort            int      `json:"sort"`
+		Enabled         bool     `json:"enabled"`
+		Remark          string   `json:"remark"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
@@ -150,6 +175,11 @@ func PlanCreate(c *gin.Context) {
 	}
 	if req.MaxSites < 0 {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "最大站点数不能小于0"})
+		return
+	}
+	freeChanges, changePrice, changeMsg := parsePlanSiteChange(req.FreeSiteChanges, req.SiteChangePrice)
+	if changeMsg != "" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": changeMsg})
 		return
 	}
 	req.LicenseType = strings.ToLower(strings.TrimSpace(req.LicenseType))
@@ -165,6 +195,10 @@ func PlanCreate(c *gin.Context) {
 	}
 	if err := ensurePlanLicenseType(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化套餐授权方式失败: " + err.Error()})
+		return
+	}
+	if err := ensureSiteChangeSchema(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化更换次数失败: " + err.Error()})
 		return
 	}
 
@@ -181,9 +215,9 @@ func PlanCreate(c *gin.Context) {
 	}
 
 	result, err := db.Exec(`
-		INSERT INTO license_plans (app_id, name, license_type, duration_days, price, max_sites, sort, enabled, remark)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, req.AppID, req.Name, req.LicenseType, req.DurationDays, req.Price, req.MaxSites, req.Sort, req.Enabled, req.Remark)
+		INSERT INTO license_plans (app_id, name, license_type, duration_days, price, max_sites, free_site_changes, site_change_price, sort, enabled, remark)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, req.AppID, req.Name, req.LicenseType, req.DurationDays, req.Price, req.MaxSites, freeChanges, changePrice, req.Sort, req.Enabled, req.Remark)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建失败: " + err.Error()})
 		return
@@ -197,15 +231,17 @@ func PlanCreate(c *gin.Context) {
 func PlanUpdate(c *gin.Context) {
 	id := c.Param("id")
 	var req struct {
-		AppID        int64   `json:"appId" binding:"required"`
-		Name         string  `json:"name" binding:"required"`
-		LicenseType  string  `json:"licenseType"`
-		DurationDays int     `json:"durationDays"`
-		Price        float64 `json:"price"`
-		MaxSites     int     `json:"maxSites"`
-		Sort         int     `json:"sort"`
-		Enabled      bool    `json:"enabled"`
-		Remark       string  `json:"remark"`
+		AppID           int64    `json:"appId" binding:"required"`
+		Name            string   `json:"name" binding:"required"`
+		LicenseType     string   `json:"licenseType"`
+		DurationDays    int      `json:"durationDays"`
+		Price           float64  `json:"price"`
+		MaxSites        int      `json:"maxSites"`
+		FreeSiteChanges *int     `json:"freeSiteChanges"`
+		SiteChangePrice *float64 `json:"siteChangePrice"`
+		Sort            int      `json:"sort"`
+		Enabled         bool     `json:"enabled"`
+		Remark          string   `json:"remark"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
@@ -217,6 +253,11 @@ func PlanUpdate(c *gin.Context) {
 	}
 	if req.MaxSites < 0 {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "最大站点数不能小于0"})
+		return
+	}
+	freeChanges, changePrice, changeMsg := parsePlanSiteChange(req.FreeSiteChanges, req.SiteChangePrice)
+	if changeMsg != "" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": changeMsg})
 		return
 	}
 	req.LicenseType = strings.ToLower(strings.TrimSpace(req.LicenseType))
@@ -234,6 +275,10 @@ func PlanUpdate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化套餐授权方式失败: " + err.Error()})
 		return
 	}
+	if err := ensureSiteChangeSchema(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化更换次数失败: " + err.Error()})
+		return
+	}
 	if err := validatePlanLicenseTypeForApp(db, req.AppID, req.LicenseType); err != nil {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
@@ -248,9 +293,10 @@ func PlanUpdate(c *gin.Context) {
 
 	_, err = db.Exec(`
 		UPDATE license_plans
-		SET app_id = ?, name = ?, license_type = ?, duration_days = ?, price = ?, max_sites = ?, sort = ?, enabled = ?, remark = ?
+		SET app_id = ?, name = ?, license_type = ?, duration_days = ?, price = ?, max_sites = ?,
+		    free_site_changes = ?, site_change_price = ?, sort = ?, enabled = ?, remark = ?
 		WHERE id = ?
-	`, req.AppID, req.Name, req.LicenseType, req.DurationDays, req.Price, req.MaxSites, req.Sort, req.Enabled, req.Remark, id)
+	`, req.AppID, req.Name, req.LicenseType, req.DurationDays, req.Price, req.MaxSites, freeChanges, changePrice, req.Sort, req.Enabled, req.Remark, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更新失败: " + err.Error()})
 		return

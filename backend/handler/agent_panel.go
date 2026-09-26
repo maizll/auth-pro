@@ -408,6 +408,10 @@ func AgentPanelLicenseList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
+	if err := ensureSiteChangeSchema(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化更换次数失败"})
+		return
+	}
 
 	keyword := strings.TrimSpace(c.Query("keyword"))
 	appID := strings.TrimSpace(c.Query("appId"))
@@ -447,7 +451,8 @@ func AgentPanelLicenseList(c *gin.Context) {
 	querySQL := fmt.Sprintf(`
 		SELECT l.id, l.license_no, l.app_id, a.app_name, l.type, l.status,
 		       l.source, l.expired_at, l.created_at, l.license_key,
-		       COALESCE(l.max_domains, 0), COUNT(DISTINCT ld.id),
+		       COALESCE(l.max_domains, 0), COALESCE(l.free_site_changes, -1), l.site_change_price,
+		       COUNT(DISTINCT ld.id),
 		       GROUP_CONCAT(ld.domain SEPARATOR ', ') as domains
 		FROM licenses l
 		LEFT JOIN apps a ON a.id = l.app_id
@@ -468,21 +473,23 @@ func AgentPanelLicenseList(c *gin.Context) {
 	typeLabels := map[string]string{"domain": "单域名", "wildcard": "泛域名", "ip": "IP", "key": "密钥"}
 	sourceLabels := map[string]string{"admin": "管理员开通", "agent": "代理商开通", "user_purchase": "自助购买", "card": "卡密兑换"}
 	type licenseItem struct {
-		ID             int64  `json:"id"`
-		LicenseNo      string `json:"licenseNo"`
-		AppID          int64  `json:"appId"`
-		AppName        string `json:"appName"`
-		Type           string `json:"type"`
-		TypeLabel      string `json:"typeLabel"`
-		Status         string `json:"status"`
-		StatusLabel    string `json:"statusLabel"`
-		Source         string `json:"source"`
-		Domain         string `json:"domain"`
-		BindingPending bool   `json:"bindingPending"`
-		BoundSites     int64  `json:"boundSites"`
-		MaxSites       int    `json:"maxSites"`
-		ExpireAt       string `json:"expireAt"`
-		CreatedAt      string `json:"createdAt"`
+		ID              int64    `json:"id"`
+		LicenseNo       string   `json:"licenseNo"`
+		AppID           int64    `json:"appId"`
+		AppName         string   `json:"appName"`
+		Type            string   `json:"type"`
+		TypeLabel       string   `json:"typeLabel"`
+		Status          string   `json:"status"`
+		StatusLabel     string   `json:"statusLabel"`
+		Source          string   `json:"source"`
+		Domain          string   `json:"domain"`
+		BindingPending  bool     `json:"bindingPending"`
+		BoundSites      int64    `json:"boundSites"`
+		MaxSites        int      `json:"maxSites"`
+		FreeSiteChanges int      `json:"freeSiteChanges"`
+		SiteChangePrice *float64 `json:"siteChangePrice"`
+		ExpireAt        string   `json:"expireAt"`
+		CreatedAt       string   `json:"createdAt"`
 	}
 
 	list := []licenseItem{}
@@ -492,8 +499,13 @@ func AgentPanelLicenseList(c *gin.Context) {
 		var createdAt sql.NullTime
 		var licenseKey, source string
 		var domains sql.NullString
-		if err := rows.Scan(&item.ID, &item.LicenseNo, &item.AppID, &item.AppName, &item.Type, &item.Status, &source, &expiredAt, &createdAt, &licenseKey, &item.MaxSites, &item.BoundSites, &domains); err != nil {
+		var changePrice sql.NullFloat64
+		if err := rows.Scan(&item.ID, &item.LicenseNo, &item.AppID, &item.AppName, &item.Type, &item.Status, &source, &expiredAt, &createdAt, &licenseKey, &item.MaxSites, &item.FreeSiteChanges, &changePrice, &item.BoundSites, &domains); err != nil {
 			continue
+		}
+		if changePrice.Valid {
+			price := changePrice.Float64
+			item.SiteChangePrice = &price
 		}
 		item.TypeLabel = typeLabels[item.Type]
 		item.Source = sourceLabels[source]
@@ -578,16 +590,13 @@ func AgentPanelLicenseUpdate(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	var existingID uint64
 	var licenseType string
-	var appID int64
-	var oldDomain string
 	err = tx.QueryRow(`
-		SELECT l.id, l.type, l.app_id, COALESCE((SELECT domain FROM license_domains WHERE license_id = l.id ORDER BY id LIMIT 1), '')
+		SELECT l.type
 		FROM licenses l
 		WHERE l.id = ? AND l.owner_type = 'agent' AND l.owner_id = ?
 		FOR UPDATE
-	`, licenseID, agentID).Scan(&existingID, &licenseType, &appID, &oldDomain)
+	`, licenseID, agentID).Scan(&licenseType)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "授权不存在或不属于当前代理商"})
 		return
@@ -609,71 +618,15 @@ func AgentPanelLicenseUpdate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "密钥授权请使用刷新密钥功能"})
 		return
 	}
+	if err = tx.Rollback(); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "系统错误"})
+		return
+	}
+	action := "replace"
 	if req.Unbind {
-		if _, err = tx.Exec("DELETE FROM license_domains WHERE license_id = ?", licenseID); err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "解绑域名失败"})
-			return
-		}
-		if err = tx.Commit(); err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "解绑域名失败"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已解绑域名"})
-		return
+		action = "unbind"
 	}
-
-	validatedTarget, errMsg := validateLicenseTargetForSave(licenseType, req.Target)
-	if errMsg != "" {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": errMsg})
-		return
-	}
-	if licenseType == "domain" {
-		if err := guardProductDomainChange(db, int64(licenseID), validatedTarget, false); err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
-			return
-		}
-	}
-	if normalizeLicenseDomain(oldDomain) != normalizeLicenseDomain(validatedTarget) {
-		taken, takenErr := licenseDomainTaken(db, appID, int64(licenseID), validatedTarget)
-		if takenErr != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "检查域名占用失败"})
-			return
-		}
-		if taken {
-			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": licenseDomainOccupied})
-			return
-		}
-	}
-
-	if _, err = tx.Exec("DELETE FROM license_domains WHERE license_id = ?", licenseID); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "清理旧授权目标失败"})
-		return
-	}
-	isWildcard := 0
-	if licenseType == "wildcard" {
-		isWildcard = 1
-	}
-	if _, err = tx.Exec(`
-		INSERT INTO license_domains (license_id, domain, is_wildcard)
-		VALUES (?, ?, ?)
-	`, licenseID, validatedTarget, isWildcard); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存授权目标失败"})
-		return
-	}
-
-	if err = tx.Commit(); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "提交更新失败"})
-		return
-	}
-	if licenseType == "domain" {
-		finishProductDomainChange(db, int64(licenseID), oldDomain, validatedTarget, "agent")
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "授权已更新",
-		"data": gin.H{"id": existingID, "type": licenseType, "target": validatedTarget},
-	})
+	userOrAgentSiteChange(c, "agent", int64(agentID), siteChangeApply{Action: action, Target: req.Target})
 }
 
 // AgentPanelLicenseRefreshKey rotates a key license to a new random 16-character key.
@@ -1260,6 +1213,10 @@ func AgentPanelPurchase(c *gin.Context) {
 	}
 
 	licenseID, _ := licenseResult.LastInsertId()
+	if err := snapshotLicenseSiteChange(tx, licenseID, req.PlanID); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建授权失败: " + err.Error()})
+		return
+	}
 	if req.Type != "key" && req.Domain != "" {
 		isWildcard := 0
 		if req.Type == "wildcard" {

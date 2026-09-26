@@ -41,6 +41,13 @@
           <span v-if="row.licenseType === 'key'">{{ Number(row.maxSites || 0) || '不限' }}</span>
           <span v-else class="text-secondary">--</span>
         </template>
+        <template #freeSiteChanges="{ row }">
+          {{ Number(row.freeSiteChanges) < 0 ? '不限' : row.freeSiteChanges }}
+        </template>
+        <template #siteChangePrice="{ row }">
+          <span v-if="row.siteChangePrice">¥{{ Number(row.siteChangePrice).toFixed(2) }}</span>
+          <span v-else class="text-secondary">不可付费更换</span>
+        </template>
 
         <!-- 状态 -->
         <template #enabled="{ row }">
@@ -61,8 +68,8 @@
     </ElCard>
 
     <!-- 新增/编辑弹窗 -->
-    <ElDialog v-model="dialogVisible" :title="dialogTitle" width="520px" destroy-on-close>
-      <ElForm ref="formRef" :model="formData" :rules="formRules" label-width="90px">
+    <ElDialog v-model="dialogVisible" :title="dialogTitle" width="min(560px, 92vw)" destroy-on-close>
+      <ElForm ref="formRef" :model="formData" :rules="formRules" label-width="118px">
         <ElFormItem label="所属应用" prop="appId">
           <ElSelect
             v-model="formData.appId"
@@ -130,6 +137,39 @@
             controls-position="right"
           />
           <span class="form-tip">0 表示不限制</span>
+        </ElFormItem>
+        <ElFormItem label="免费更换次数">
+          <ElRadioGroup v-model="formData.freeMode">
+            <ElRadio value="unlimited">不限</ElRadio>
+            <ElRadio value="limited">指定次数</ElRadio>
+          </ElRadioGroup>
+          <ElInputNumber
+            v-if="formData.freeMode === 'limited'"
+            v-model="formData.freeCount"
+            :min="0"
+            :precision="0"
+            controls-position="right"
+          />
+          <div class="form-tip block">
+            0 表示不允许免费更换。选择「不限」表示不限制次数。已有套餐默认不限，避免影响旧授权。
+          </div>
+        </ElFormItem>
+        <ElFormItem label="超出后价格">
+          <ElRadioGroup v-model="formData.priceMode">
+            <ElRadio value="off">用完后不可更换</ElRadio>
+            <ElRadio value="paid">允许付费更换</ElRadio>
+          </ElRadioGroup>
+          <ElInputNumber
+            v-if="formData.priceMode === 'paid'"
+            v-model="formData.changePrice"
+            :min="0.01"
+            :precision="2"
+            :step="1"
+            controls-position="right"
+          />
+          <div class="form-tip block">
+            填写大于 0 的价格后，免费次数用完可以付款更换。不填表示用完后不能再更换。
+          </div>
         </ElFormItem>
         <ElFormItem label="排序">
           <ElInputNumber
@@ -202,6 +242,10 @@
     durationDays: 30,
     price: 0,
     maxSites: 0,
+    freeMode: 'unlimited' as 'unlimited' | 'limited',
+    freeCount: 0,
+    priceMode: 'off' as 'off' | 'paid',
+    changePrice: 1,
     sort: 0,
     enabled: true,
     remark: ''
@@ -270,6 +314,8 @@
         { prop: 'durationText', label: '授权时长', width: 120 },
         { prop: 'price', label: '价格', width: 120, align: 'right', useSlot: true },
         { prop: 'maxSites', label: '最大站点数', width: 110, align: 'center', useSlot: true },
+        { prop: 'freeSiteChanges', label: '免费更换', width: 100, align: 'center', useSlot: true },
+        { prop: 'siteChangePrice', label: '付费更换', width: 120, align: 'center', useSlot: true },
         { prop: 'sort', label: '排序', width: 80, align: 'center' },
         { prop: 'enabled', label: '状态', width: 90, align: 'center', useSlot: true },
         { prop: 'remark', label: '备注', minWidth: 160, showOverflowTooltip: true },
@@ -320,6 +366,10 @@
       durationDays: 30,
       price: 0,
       maxSites: 0,
+      freeMode: 'unlimited',
+      freeCount: 0,
+      priceMode: 'off',
+      changePrice: 1,
       sort: 0,
       enabled: true,
       remark: ''
@@ -354,6 +404,10 @@
       durationDays: row.durationDays,
       price: Number(row.price || 0),
       maxSites: Number(row.maxSites || 0),
+      freeMode: Number(row.freeSiteChanges) < 0 ? 'unlimited' : 'limited',
+      freeCount: Number(row.freeSiteChanges) < 0 ? 0 : Number(row.freeSiteChanges),
+      priceMode: row.siteChangePrice ? 'paid' : 'off',
+      changePrice: Number(row.siteChangePrice || 1),
       sort: row.sort || 0,
       enabled: row.enabled,
       remark: row.remark || ''
@@ -366,6 +420,14 @@
     const valid = await formRef.value?.validate().catch(() => false)
     if (!valid) return
 
+    if (formData.freeMode === 'limited' && formData.freeCount < 0) {
+      ElMessage.warning('免费更换次数不能小于 0')
+      return
+    }
+    if (formData.priceMode === 'paid' && !(formData.changePrice > 0)) {
+      ElMessage.warning('更换价格要大于 0，不填表示用完后不能付费更换')
+      return
+    }
     const payload: PlanPayload = {
       appId: formData.appId,
       name: formData.name,
@@ -373,6 +435,8 @@
       durationDays: formData.durationDays,
       price: formData.price,
       maxSites: formData.maxSites,
+      freeSiteChanges: formData.freeMode === 'unlimited' ? -1 : formData.freeCount,
+      siteChangePrice: formData.priceMode === 'paid' ? formData.changePrice : null,
       sort: formData.sort,
       enabled: formData.enabled,
       remark: formData.remark

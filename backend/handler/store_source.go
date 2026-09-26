@@ -481,6 +481,11 @@ func insertFreeMainLicense(tx *sql.Tx, appID int64, planID, ownerType string, ow
 	if err != nil {
 		return "", 0, err
 	}
+	if planID, ok := plan.(int64); ok {
+		if err := snapshotLicenseSiteChange(tx, id, planID); err != nil {
+			return "", 0, err
+		}
+	}
 	if _, err := tx.Exec(`INSERT INTO license_domains (license_id, domain, is_wildcard) VALUES (?, ?, 0)`, id, domain); err != nil {
 		return "", 0, err
 	}

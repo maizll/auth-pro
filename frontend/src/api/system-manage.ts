@@ -394,6 +394,7 @@ export type PaymentOrderSubjectType =
   | 'store_edition'
   | 'store_plugin'
   | 'store_template'
+  | 'site_change'
 export type PaymentOrderStatus = 'pending' | 'paid' | 'failed' | 'cancelled'
 
 export interface PaymentOrderSearchParams {

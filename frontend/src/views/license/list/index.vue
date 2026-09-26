@@ -58,6 +58,9 @@
           </span>
           <span v-else class="text-secondary">--</span>
         </template>
+        <template #freeSiteChanges="{ row }">
+          {{ Number(row.freeSiteChanges) < 0 ? '不限' : `${row.freeSiteChanges} 次` }}
+        </template>
 
         <!-- 操作 -->
         <template #source="{ row }">
@@ -75,6 +78,7 @@
           <ElButton v-else link type="warning" @click="handleRevokeCommercial(row)">
             吊销商业版
           </ElButton>
+          <ElButton link type="primary" @click="openChangeQuota(row)">调整次数</ElButton>
           <ElButton link type="primary" @click="handleEdit(row)">编辑</ElButton>
           <ElButton link type="primary" @click="handleToggle(row)">
             {{ row.status === 'active' ? '禁用' : '启用' }}
@@ -226,6 +230,27 @@
         </template>
       </ElTable>
     </ElDialog>
+
+    <ElDialog v-model="quotaDialog.visible" title="调整剩余更换次数" width="min(460px, 92vw)" destroy-on-close>
+      <p class="quota-current">当前剩余：{{ quotaDialog.currentText }}</p>
+      <ElRadioGroup v-model="quotaDialog.mode">
+        <ElRadio value="unlimited">设为不限</ElRadio>
+        <ElRadio value="value">设为具体次数</ElRadio>
+        <ElRadio value="delta">加减次数</ElRadio>
+      </ElRadioGroup>
+      <ElInputNumber
+        v-if="quotaDialog.mode !== 'unlimited'"
+        v-model="quotaDialog.amount"
+        :precision="0"
+        controls-position="right"
+        class="quota-input"
+      />
+      <p class="form-tip">不限次数时不能直接加减，需要先设为具体次数。</p>
+      <template #footer>
+        <ElButton @click="quotaDialog.visible = false">取消</ElButton>
+        <ElButton type="primary" :loading="quotaDialog.submitting" @click="submitChangeQuota">确定</ElButton>
+      </template>
+    </ElDialog>
   </div>
 </template>
 
@@ -245,6 +270,7 @@
     fetchRevokeCommercialEdition,
     fetchLicenseSites,
     fetchUnbindLicenseSite,
+    fetchAdjustLicenseSiteChanges,
     fetchPlanList,
     type LicenseItem,
     type LicenseOwnerOption,
@@ -323,6 +349,43 @@
     maxSites: 0,
     list: [] as LicenseSiteItem[]
   })
+  const quotaDialog = reactive({
+    visible: false,
+    submitting: false,
+    licenseId: 0,
+    current: -1,
+    currentText: '不限',
+    mode: 'delta' as 'unlimited' | 'value' | 'delta',
+    amount: 1
+  })
+
+  function openChangeQuota(row: LicenseItem) {
+    const current = Number(row.freeSiteChanges)
+    quotaDialog.licenseId = row.id
+    quotaDialog.current = Number.isFinite(current) ? current : -1
+    quotaDialog.currentText = quotaDialog.current < 0 ? '不限' : `${quotaDialog.current} 次`
+    quotaDialog.mode = quotaDialog.current < 0 ? 'value' : 'delta'
+    quotaDialog.amount = 1
+    quotaDialog.visible = true
+  }
+
+  async function submitChangeQuota() {
+    const payload: { unlimited?: boolean; delta?: number; value?: number } = {}
+    if (quotaDialog.mode === 'unlimited') payload.unlimited = true
+    else if (quotaDialog.mode === 'value') payload.value = quotaDialog.amount
+    else payload.delta = quotaDialog.amount
+    quotaDialog.submitting = true
+    try {
+      await fetchAdjustLicenseSiteChanges(quotaDialog.licenseId, payload)
+      ElMessage.success('已调整剩余更换次数')
+      quotaDialog.visible = false
+      refreshData()
+    } catch (error) {
+      showCaughtError(error, '调整失败')
+    } finally {
+      quotaDialog.submitting = false
+    }
+  }
 
   const {
     columns,
@@ -370,11 +433,12 @@
         { prop: 'expireAt', label: '到期时间', width: 160 },
         { prop: 'verifyCount', label: '验证次数', width: 100, align: 'center' },
         { prop: 'sites', label: '站点', width: 120, align: 'center', useSlot: true },
+        { prop: 'freeSiteChanges', label: '剩余更换', width: 110, align: 'center', useSlot: true },
         { prop: 'createdAt', label: '创建时间', width: 160 },
         {
           prop: 'operation',
           label: '操作',
-          width: 320,
+          width: 400,
           fixed: 'right',
           useSlot: true
         }
@@ -762,6 +826,14 @@
       font-size: 12px;
       line-height: 18px;
       color: var(--el-text-color-secondary);
+    }
+
+    .quota-current {
+      margin: 0 0 12px;
+    }
+
+    .quota-input {
+      margin-top: 12px;
     }
 
     .owner-cell {

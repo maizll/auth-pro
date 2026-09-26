@@ -120,6 +120,8 @@ func onlineSettlementRoute(orderNo string) string {
 		return "upgrade"
 	case strings.HasPrefix(orderNo, storeOrderPrefix):
 		return "store"
+	case strings.HasPrefix(orderNo, siteChangeOrderPrefix):
+		return "site_change"
 	default:
 		return "recharge_or_license"
 	}

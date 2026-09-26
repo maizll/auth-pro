@@ -288,6 +288,8 @@ func (conn *licenseCardTestConn) ExecContext(_ context.Context, query string, ar
 		return licenseCardTestResult{affected: 1}, nil
 	case strings.Contains(query, "INSERT INTO operation_logs"):
 		return licenseCardTestResult{id: 1, affected: 1}, nil
+	case strings.Contains(query, "free_site_changes"):
+		return licenseCardTestResult{affected: 1}, nil
 	default:
 		return nil, errors.New("unexpected exec: " + query)
 	}

@@ -44,6 +44,10 @@ func LicenseList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化授权来源失败"})
 		return
 	}
+	if err := ensureSiteChangeSchema(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化更换次数失败"})
+		return
+	}
 
 	keyword := c.Query("keyword")
 	lType := c.Query("type")
@@ -128,7 +132,8 @@ func LicenseList(c *gin.Context) {
 		         ORDER BY e.id DESC LIMIT 1), '') AS commercial_status,
 		       l.expired_at, l.remark, l.created_at,
 		       (SELECT COUNT(*) FROM verify_logs v WHERE v.license_id = l.id) as verify_count,
-		       COUNT(DISTINCT ld.id) AS bound_sites, COALESCE(l.max_domains, 0) AS max_sites
+		       COUNT(DISTINCT ld.id) AS bound_sites, COALESCE(l.max_domains, 0) AS max_sites,
+		       COALESCE(l.free_site_changes, -1), l.site_change_price
 		FROM licenses l
 		LEFT JOIN apps a ON a.id = l.app_id
 		LEFT JOIN users u ON l.owner_type = 'user' AND u.id = l.owner_id
@@ -152,26 +157,28 @@ func LicenseList(c *gin.Context) {
 	statusLabels := map[string]string{"active": "正常", "expired": "已过期", "revoked": "已禁用"}
 
 	type listItem struct {
-		ID               int64  `json:"id"`
-		Domain           string `json:"domain"`
-		AppName          string `json:"appName"`
-		AppID            int64  `json:"appId"`
-		Type             string `json:"type"`
-		TypeLabel        string `json:"typeLabel"`
-		Status           string `json:"status"`
-		StatusLabel      string `json:"statusLabel"`
-		OwnerType        string `json:"ownerType"`
-		OwnerID          int64  `json:"ownerId"`
-		OwnerName        string `json:"ownerName"`
-		Source           string `json:"source"`
-		SourceLabel      string `json:"sourceLabel"`
-		CommercialActive bool   `json:"commercialActive"`
-		ExpireAt         string `json:"expireAt"`
-		VerifyCount      int64  `json:"verifyCount"`
-		BoundSites       int64  `json:"boundSites"`
-		MaxSites         int    `json:"maxSites"`
-		CreatedAt        string `json:"createdAt"`
-		Remark           string `json:"remark"`
+		ID               int64    `json:"id"`
+		Domain           string   `json:"domain"`
+		AppName          string   `json:"appName"`
+		AppID            int64    `json:"appId"`
+		Type             string   `json:"type"`
+		TypeLabel        string   `json:"typeLabel"`
+		Status           string   `json:"status"`
+		StatusLabel      string   `json:"statusLabel"`
+		OwnerType        string   `json:"ownerType"`
+		OwnerID          int64    `json:"ownerId"`
+		OwnerName        string   `json:"ownerName"`
+		Source           string   `json:"source"`
+		SourceLabel      string   `json:"sourceLabel"`
+		CommercialActive bool     `json:"commercialActive"`
+		ExpireAt         string   `json:"expireAt"`
+		VerifyCount      int64    `json:"verifyCount"`
+		BoundSites       int64    `json:"boundSites"`
+		MaxSites         int      `json:"maxSites"`
+		FreeSiteChanges  int      `json:"freeSiteChanges"`
+		SiteChangePrice  *float64 `json:"siteChangePrice"`
+		CreatedAt        string   `json:"createdAt"`
+		Remark           string   `json:"remark"`
 	}
 
 	var list []listItem
@@ -181,12 +188,17 @@ func LicenseList(c *gin.Context) {
 		var createdAt time.Time
 		var remark sql.NullString
 		var commercialStatus string
+		var changePrice sql.NullFloat64
 		err := rows.Scan(&item.ID, &item.Domain, &item.AppName, &item.AppID,
 			&item.Type, &item.Status, &item.OwnerType, &item.OwnerID, &item.OwnerName,
 			&item.Source, &commercialStatus,
-			&expiredAt, &remark, &createdAt, &item.VerifyCount, &item.BoundSites, &item.MaxSites)
+			&expiredAt, &remark, &createdAt, &item.VerifyCount, &item.BoundSites, &item.MaxSites, &item.FreeSiteChanges, &changePrice)
 		if err != nil {
 			continue
+		}
+		if changePrice.Valid {
+			price := changePrice.Float64
+			item.SiteChangePrice = &price
 		}
 		item.TypeLabel = typeLabels[item.Type]
 		item.SourceLabel = sourceLabels[item.Source]
@@ -859,6 +871,10 @@ func LicenseCreate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建授权失败"})
 		return
 	}
+	if err := snapshotLicenseSiteChange(tx, licenseID, req.PlanID); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建授权失败"})
+		return
+	}
 
 	// 如果是域名/泛域名/IP类型，写入 license_domains
 	if req.Type != "key" && req.Domain != "" {
@@ -1021,6 +1037,7 @@ func LicenseUpdate(c *gin.Context) {
 	if req.Type == "domain" {
 		if licenseID, convErr := strconv.ParseInt(id, 10, 64); convErr == nil {
 			finishProductDomainChange(db, licenseID, previousDomain, req.Domain, "admin")
+			recordAdminLicenseSiteEdit(c, db, licenseID, previousDomain, req.Domain)
 		}
 	}
 

@@ -260,6 +260,8 @@ CREATE TABLE `license_plans` (
   `duration_days` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '授权天数，0表示永久',
   `price`         DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '套餐价格',
   `max_sites`     INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '密钥授权最大站点数, 0表示不限',
+  `free_site_changes` INT NOT NULL DEFAULT -1 COMMENT '免费更换次数，-1不限，0不允许免费更换',
+  `site_change_price` DECIMAL(12,2) NULL COMMENT '超出后每次更换价格，空表示不可付费更换',
   `sort`          INT DEFAULT 0 COMMENT '排序',
   `enabled`       TINYINT(1) DEFAULT 1 COMMENT '是否启用',
   `remark`        VARCHAR(255) DEFAULT '' COMMENT '备注',
@@ -324,6 +326,8 @@ CREATE TABLE `licenses` (
   `expired_at`       DATETIME DEFAULT NULL COMMENT '到期时间(永久授权为NULL)',
   `license_key`      VARCHAR(255) DEFAULT '' COMMENT '密钥(type=key时生成的授权key)',
   `max_domains`      INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '密钥授权最大站点数快照, 0表示不限',
+  `free_site_changes` INT NOT NULL DEFAULT -1 COMMENT '剩余免费更换次数，-1不限',
+  `site_change_price` DECIMAL(12,2) NULL COMMENT '超出后每次更换价格快照，空表示不可付费更换',
   `remark`           VARCHAR(255) DEFAULT '' COMMENT '备注',
   `created_at`       DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at`       DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -671,6 +675,48 @@ CREATE TABLE `operation_logs` (
   KEY `idx_target` (`target_type`, `target_id`),
   KEY `idx_time` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='操作日志表';
+
+-- -----------------------------------------------------------
+-- 16.1 license_site_change_orders 更换授权站点订单
+-- -----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `license_site_change_orders` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `order_no` VARCHAR(64) NOT NULL,
+  `owner_type` VARCHAR(20) NOT NULL,
+  `owner_id` BIGINT UNSIGNED NOT NULL,
+  `license_id` BIGINT UNSIGNED NOT NULL,
+  `action` VARCHAR(20) NOT NULL,
+  `site_id` BIGINT UNSIGNED NULL,
+  `old_target` VARCHAR(255) NOT NULL DEFAULT '',
+  `new_target` VARCHAR(255) NOT NULL DEFAULT '',
+  `amount` DECIMAL(12,2) NOT NULL,
+  `paid_amount` DECIMAL(12,2) NULL,
+  `pay_channel` VARCHAR(30) NOT NULL DEFAULT '',
+  `pay_method` VARCHAR(30) NOT NULL DEFAULT '',
+  `gateway_trade_no` VARCHAR(100) NOT NULL DEFAULT '',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'pending',
+  `return_url` VARCHAR(500) NOT NULL DEFAULT '',
+  `notify_payload` TEXT NULL,
+  `paid_at` DATETIME NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_site_change_order_no` (`order_no`),
+  KEY `idx_site_change_license` (`license_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='更换授权站点订单';
+
+CREATE TABLE IF NOT EXISTS `license_site_change_logs` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `license_id` BIGINT UNSIGNED NOT NULL,
+  `action` VARCHAR(40) NOT NULL,
+  `actor_type` VARCHAR(20) NOT NULL,
+  `actor_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `order_no` VARCHAR(64) NOT NULL DEFAULT '',
+  `detail` JSON NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_site_change_log_license` (`license_id`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权站点更换记录';
 
 -- -----------------------------------------------------------
 -- 17. system_configs 系统配置表

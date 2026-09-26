@@ -21,6 +21,8 @@ func dispatchVerifiedOnlinePayment(db *sql.DB, orderNo string, paidCents int64, 
 		return settleAgentUpgradeOnlinePayment(db, orderNo, paidCents, channel, payMethod, tradeNo, payload)
 	case "store":
 		return settleStorePurchaseOrder(db, orderNo, paidCents, channel, payMethod, tradeNo, payload)
+	case "site_change":
+		return settleSiteChangeOrder(db, orderNo, paidCents, channel, payMethod, tradeNo, payload)
 	default:
 		if err := settleRechargeOrder(db, orderNo, paidCents, tradeNo, payMethod, payload); err == nil {
 			return nil

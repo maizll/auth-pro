@@ -151,7 +151,8 @@
     test: '支付测试',
     store_edition: '商业版',
     store_plugin: '付费插件',
-    store_template: '付费模板'
+    store_template: '付费模板',
+    site_change: '更换授权站点'
   }
 
   const subjectTagTypes: Record<string, 'primary' | 'success' | 'warning' | 'info'> = {

@@ -35,11 +35,13 @@ func AdminLicenseSiteUnbind(c *gin.Context) {
 }
 
 func UserLicenseSiteUnbind(c *gin.Context) {
-	licenseSiteUnbind(c, licenseSiteActor{Type: "user", ID: contextUserID(c)})
+	siteID, _ := strconv.ParseInt(strings.TrimSpace(c.Param("siteId")), 10, 64)
+	userOrAgentSiteChange(c, "user", contextUserID(c), siteChangeApply{Action: "unbind", SiteID: siteID})
 }
 
 func AgentLicenseSiteUnbind(c *gin.Context) {
-	licenseSiteUnbind(c, licenseSiteActor{Type: "agent", ID: contextUserID(c)})
+	siteID, _ := strconv.ParseInt(strings.TrimSpace(c.Param("siteId")), 10, 64)
+	userOrAgentSiteChange(c, "agent", contextUserID(c), siteChangeApply{Action: "unbind", SiteID: siteID})
 }
 
 func contextUserID(c *gin.Context) int64 {
@@ -160,6 +162,12 @@ func licenseSiteUnbind(c *gin.Context, actor licenseSiteActor) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
+	if actor.Type == "admin" {
+		if err := ensureSiteChangeSchema(db); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化更换记录失败"})
+			return
+		}
+	}
 
 	tx, err := db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
@@ -205,6 +213,14 @@ func licenseSiteUnbind(c *gin.Context, actor licenseSiteActor) {
 	`, actor.Type, actor.ID, licenseID, siteID, targetType, target, serverIP, c.ClientIP()); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "记录解绑审计失败"})
 		return
+	}
+	if actor.Type == "admin" {
+		if err := insertLicenseSiteChangeLog(tx, licenseID, "license_site_unbind", "admin", actor.ID, "", map[string]any{
+			"action": "unbind", "siteId": siteID, "oldTarget": target, "deducted": false,
+		}); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "记录解绑审计失败"})
+			return
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "解绑失败"})

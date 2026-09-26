@@ -788,8 +788,17 @@ func TestAdminLicenseCreationIgnoresPurchaseTypeMask(t *testing.T) {
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if state.execCount != 1 {
-		t.Fatalf("admin manual license executed %d writes, want 1", state.execCount)
+	if state.execCount != 2 {
+		t.Fatalf("admin manual license executed %d writes, want license insert plus site-change snapshot", state.execCount)
+	}
+	foundSnapshot := false
+	for _, query := range state.execQueries {
+		if strings.Contains(query, "free_site_changes") {
+			foundSnapshot = true
+		}
+	}
+	if !foundSnapshot {
+		t.Fatal("admin manual license did not snapshot site change quota")
 	}
 	for _, query := range state.queries {
 		if strings.Contains(query, "purchase_license_type_mask") {

@@ -107,6 +107,9 @@ func main() {
 			agentSecured.POST("/licenses/:id/refresh-key", handler.AgentPanelLicenseRefreshKey)
 			agentSecured.GET("/licenses/:id/sites", handler.AgentLicenseSiteList)
 			agentSecured.DELETE("/licenses/:id/sites/:siteId", handler.AgentLicenseSiteUnbind)
+			agentSecured.POST("/licenses/:id/sites/:siteId/replace", handler.AgentLicenseSiteReplace)
+			agentSecured.POST("/licenses/:id/site-change/pay", handler.AgentLicenseSiteChangePay)
+			agentSecured.GET("/licenses/:id/site-change/orders/:orderNo", handler.AgentLicenseSiteChangeOrderStatus)
 			agentSecured.GET("/balance", handler.AgentPanelBalance)
 			agentSecured.GET("/profile", handler.AgentPanelProfile)
 			agentSecured.PUT("/profile", handler.AgentPanelUpdateProfile)
@@ -178,6 +181,9 @@ func main() {
 			userSecured.POST("/licenses/:id/refresh-key", handler.UserLicenseRefreshKey)
 			userSecured.GET("/licenses/:id/sites", handler.UserLicenseSiteList)
 			userSecured.DELETE("/licenses/:id/sites/:siteId", handler.UserLicenseSiteUnbind)
+			userSecured.POST("/licenses/:id/sites/:siteId/replace", handler.UserLicenseSiteReplace)
+			userSecured.POST("/licenses/:id/site-change/pay", handler.UserLicenseSiteChangePay)
+			userSecured.GET("/licenses/:id/site-change/orders/:orderNo", handler.UserLicenseSiteChangeOrderStatus)
 			userSecured.GET("/apps", handler.UserAppList)
 			userSecured.GET("/apps/purchase", handler.UserAppListForPurchase)
 			userSecured.GET("/balance", handler.UserGetBalance)
@@ -301,6 +307,8 @@ func main() {
 			secured.GET("/license/list", handler.LicenseList)
 			secured.GET("/license/:id/sites", handler.AdminLicenseSiteList)
 			licenseList.DELETE("/license/:id/sites/:siteId", handler.AdminLicenseSiteUnbind)
+			licenseList.PUT("/license/:id/site-changes", handler.AdminLicenseSiteChangeAdjust)
+			licenseList.GET("/license/:id/site-change-logs", handler.AdminLicenseSiteChangeLogs)
 			secured.GET("/license/query-by-user", handler.UserLicenseQuery)
 			secured.GET("/license/cards/batches", handler.AdminLicenseCardBatchList)
 			licenseCards.POST("/license/cards/batches", handler.AdminLicenseCardBatchCreate)
@@ -483,6 +491,9 @@ func main() {
 		}
 		if err := ensureLicenseSiteLimitSchema(db); err != nil {
 			log.Printf("ensure license site limit schema failed: %v", err)
+		}
+		if err := handler.EnsureSiteChangeSchema(db); err != nil {
+			log.Printf("ensure site change schema failed: %v", err)
 		}
 		if err := handler.EnsureSourceStationSchema(); err != nil {
 			log.Fatalf("ensure source station schema failed: %v", err)

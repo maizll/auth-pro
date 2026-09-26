@@ -294,6 +294,10 @@ func UserLicenseList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化授权价格快照失败"})
 		return
 	}
+	if err := ensureSiteChangeSchema(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化更换次数失败"})
+		return
+	}
 
 	keyword := c.Query("keyword")
 	appId := c.Query("appId")
@@ -336,7 +340,8 @@ func UserLicenseList(c *gin.Context) {
 	querySQL := fmt.Sprintf(`
 		SELECT l.id, l.license_no, l.app_id, a.app_name, l.type, l.status,
 		       l.source, l.original_price, l.expired_at, l.created_at, l.license_key,
-		       COALESCE(l.max_domains, 0), COUNT(DISTINCT ld.id),
+		       COALESCE(l.max_domains, 0), COALESCE(l.free_site_changes, -1), l.site_change_price,
+		       COUNT(DISTINCT ld.id),
 		       GROUP_CONCAT(ld.domain SEPARATOR ', ') as domains
 		FROM licenses l
 		LEFT JOIN apps a ON a.id = l.app_id
@@ -359,22 +364,24 @@ func UserLicenseList(c *gin.Context) {
 	sourceLabels := map[string]string{"admin": "管理员开通", "agent": "代理开通", "user_purchase": "自助购买", "card": "卡密兑换"}
 
 	type licenseItem struct {
-		ID             int64    `json:"id"`
-		LicenseNo      string   `json:"licenseNo"`
-		AppID          int64    `json:"appId"`
-		AppName        string   `json:"appName"`
-		Type           string   `json:"type"`
-		TypeLabel      string   `json:"typeLabel"`
-		Status         string   `json:"status"`
-		StatusLabel    string   `json:"statusLabel"`
-		Source         string   `json:"source"`
-		Amount         *float64 `json:"amount"`
-		Domain         string   `json:"domain"`
-		BindingPending bool     `json:"bindingPending"`
-		BoundSites     int64    `json:"boundSites"`
-		MaxSites       int      `json:"maxSites"`
-		ExpireAt       string   `json:"expireAt"`
-		CreatedAt      string   `json:"createdAt"`
+		ID              int64    `json:"id"`
+		LicenseNo       string   `json:"licenseNo"`
+		AppID           int64    `json:"appId"`
+		AppName         string   `json:"appName"`
+		Type            string   `json:"type"`
+		TypeLabel       string   `json:"typeLabel"`
+		Status          string   `json:"status"`
+		StatusLabel     string   `json:"statusLabel"`
+		Source          string   `json:"source"`
+		Amount          *float64 `json:"amount"`
+		Domain          string   `json:"domain"`
+		BindingPending  bool     `json:"bindingPending"`
+		BoundSites      int64    `json:"boundSites"`
+		MaxSites        int      `json:"maxSites"`
+		FreeSiteChanges int      `json:"freeSiteChanges"`
+		SiteChangePrice *float64 `json:"siteChangePrice"`
+		ExpireAt        string   `json:"expireAt"`
+		CreatedAt       string   `json:"createdAt"`
 	}
 
 	var list []licenseItem
@@ -385,9 +392,14 @@ func UserLicenseList(c *gin.Context) {
 		var licenseKey, source string
 		var originalPrice sql.NullFloat64
 		var domains sql.NullString
+		var changePrice sql.NullFloat64
 
 		rows.Scan(&item.ID, &item.LicenseNo, &item.AppID, &item.AppName, &item.Type,
-			&item.Status, &source, &originalPrice, &expiredAt, &createdAt, &licenseKey, &item.MaxSites, &item.BoundSites, &domains)
+			&item.Status, &source, &originalPrice, &expiredAt, &createdAt, &licenseKey, &item.MaxSites, &item.FreeSiteChanges, &changePrice, &item.BoundSites, &domains)
+		if changePrice.Valid {
+			price := changePrice.Float64
+			item.SiteChangePrice = &price
+		}
 
 		item.TypeLabel = typeLabels[item.Type]
 		item.Source = sourceLabels[source]
@@ -494,16 +506,16 @@ func UserLicenseUpdateTarget(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "该授权类型不允许用户修改"})
 		return
 	}
+	if licenseType != "key" {
+		action := "replace"
+		if req.Unbind {
+			action = "unbind"
+		}
+		userOrAgentSiteChange(c, "user", contextUserID(c), siteChangeApply{Action: action, Target: req.Target})
+		return
+	}
 	if req.Unbind {
-		if licenseType == "key" {
-			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "密钥授权请在站点列表里解绑"})
-			return
-		}
-		if _, err = db.Exec("DELETE FROM license_domains WHERE license_id = ?", licenseID); err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "解绑域名失败"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已解绑域名"})
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "密钥授权请在站点列表里解绑"})
 		return
 	}
 
@@ -1023,6 +1035,10 @@ func UserPurchase(c *gin.Context) {
 	}
 
 	licenseID, _ := result.LastInsertId()
+	if err := snapshotLicenseSiteChange(tx, licenseID, req.PlanID); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建授权失败: " + err.Error()})
+		return
+	}
 
 	// 绑定域名/IP
 	if req.Type != "key" && req.Domain != "" {

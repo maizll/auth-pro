@@ -50,7 +50,8 @@
     { label: '支付测试', value: 'test' },
     { label: '商业版', value: 'store_edition' },
     { label: '付费插件', value: 'store_plugin' },
-    { label: '付费模板', value: 'store_template' }
+    { label: '付费模板', value: 'store_template' },
+    { label: '更换授权站点', value: 'site_change' }
   ])
 
   /**
