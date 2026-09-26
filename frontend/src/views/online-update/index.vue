@@ -51,7 +51,7 @@
         class="update-alert"
       />
       <ElAlert
-        v-if="job?.status === 'restarting' && !restartTimedOut"
+        v-if="(job?.status === 'restarting' || awaitingRestart) && !restartTimedOut && job?.status !== 'failed'"
         title="服务正在重启，页面稍后可能短暂无法访问"
         type="success"
         show-icon
@@ -250,12 +250,18 @@
   } from '@/api/update'
   import { HttpError } from '@/utils/http/error'
   import { setBackendUnreachableRedirectPaused } from '@/utils/http/backend-unavailable'
+  import { UPDATE_RESTART_RECOVERY, clearRestartStart } from './restart-timeout'
   import {
-    UPDATE_RESTART_RECOVERY,
-    clearRestartStart,
-    rememberRestartStart,
-    restartTimedOut as restartWaitExceeded
-  } from './restart-timeout'
+    clearUpdateWait,
+    interpretUpdatePoll,
+    markUpdateReloaded,
+    rememberRestartingSince,
+    rememberUpdateWaitStart,
+    sampleFromVersionHTTP,
+    updateAlreadyReloaded,
+    versionPollURL,
+    type UpdatePollClock
+  } from './restart-watch'
 
   defineOptions({ name: 'OnlineUpdate' })
 
@@ -270,11 +276,14 @@
   const job = ref<OnlineUpdateJob | null>(null)
   const jobSectionRef = ref<HTMLElement | null>(null)
   const restartTimedOut = ref(false)
+  const awaitingRestart = ref(false)
   const restartFailureReason = ref('在限定时间内没有确认新版本已经启动。若服务已经恢复，请刷新页面查看版本号。')
   const restartRecovery = UPDATE_RESTART_RECOVERY
   let jobTimer: ReturnType<typeof setInterval> | undefined
   let redirectScheduled = false
-  let restartSince = 0
+  let reloadScheduled = false
+  let updateWatching = false
+  let pollClock: UpdatePollClock = { startedAt: 0, restartingSince: 0 }
 
   const latest = computed(() => checkResult.value?.latest || status.value?.latest || null)
   const currentVersion = computed(
@@ -393,64 +402,132 @@
 
   const startJobPolling = (id: string) => {
     stopJobPolling()
-    trackRestart(id)
-    jobTimer = setInterval(async () => {
-      try {
-        const nextJob = await fetchOnlineUpdateJob(id)
-        job.value = nextJob
-        if (nextJob.status === 'restarting') trackRestart(id)
-        if (nextJob.status === 'success') {
-          finishRestartWait()
-          stopJobPolling()
-          ElMessage.success(`已更新到 v${nextJob.version}，正在刷新`)
-          window.setTimeout(() => window.location.reload(), 600)
-          return
-        }
-        if (nextJob.status === 'failed') {
-          finishRestartWait()
-          stopJobPolling()
-          ElMessage.error(nextJob.error || nextJob.message || '更新失败，已尝试回滚')
-          return
-        }
-        if (markRestartTimeoutIfNeeded()) return
-      } catch (error) {
-        if (handleUpdateError(error)) return
-        if (job.value?.status === 'restarting') {
-          markRestartTimeoutIfNeeded()
-          return
-        }
-        stopJobPolling()
-      }
+    updateWatching = true
+    pollClock = {
+      startedAt: rememberUpdateWaitStart(id, Date.now(), window.sessionStorage),
+      restartingSince: 0
+    }
+    const savedRestart = Number(window.sessionStorage.getItem(`auth-pro-update-restarting:${id}`))
+    if (Number.isFinite(savedRestart) && savedRestart > 0) pollClock.restartingSince = savedRestart
+    setBackendUnreachableRedirectPaused(true)
+    void pollUpdate(id)
+    jobTimer = setInterval(() => {
+      void pollUpdate(id)
     }, 2000)
   }
 
-  const trackRestart = (id: string) => {
-    if (job.value?.status !== 'restarting') {
-      restartSince = 0
-      setBackendUnreachableRedirectPaused(false)
+  const pollUpdate = async (id: string) => {
+    if (!updateWatching) return
+    const now = Date.now()
+    let sample = sampleFromVersionHTTP(undefined, undefined, '', true)
+    try {
+      const response = await fetch(versionPollURL(now), {
+        cache: 'no-store',
+        headers: { Accept: 'application/json', 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
+      })
+      sample = sampleFromVersionHTTP(
+        response.status,
+        response.headers.get('content-type') || '',
+        await response.text()
+      )
+    } catch {
+      sample = sampleFromVersionHTTP(undefined, undefined, '', true)
+    }
+    const decision = interpretUpdatePoll(sample, job.value?.version || '', pollClock, now)
+    pollClock.restartingSince = decision.restartingSince
+    if (decision.restartingSince > 0) {
+      rememberRestartingSince(id, decision.restartingSince, window.sessionStorage)
+      awaitingRestart.value = true
+    }
+    if (decision.action === 'reload') {
+      finishUpdate('更新完成，正在刷新')
       return
     }
-    restartSince = rememberRestartStart(id, Date.now(), window.sessionStorage)
-    setBackendUnreachableRedirectPaused(true)
+    if (decision.action === 'rollback') {
+      failUpdate(decision.reason)
+      return
+    }
+    if (decision.action === 'timeout') {
+      timeoutUpdate(decision.reason)
+      return
+    }
+    if (decision.action === 'auth') {
+      stopJobPolling()
+      ElMessage.error('登录已失效，请重新登录')
+      redirectToAdminLogin()
+      return
+    }
+    if (decision.action === 'wait') awaitingRestart.value = decision.restarting
+
+    try {
+      const nextJob = await fetchOnlineUpdateJob(id)
+      job.value = nextJob
+      if (nextJob.status === 'restarting') awaitingRestart.value = true
+      if (nextJob.status === 'success') {
+        finishUpdate('更新完成，正在刷新')
+        return
+      }
+      if (nextJob.status === 'failed') {
+        failUpdate(nextJob.error || nextJob.message || '更新失败，已回滚到更新前的版本。')
+      }
+    } catch (error) {
+      if (handleUpdateError(error)) return
+      // 502/504、断网或 nginx 的 HTML 错误页都当作重启中，继续等版本接口。
+      awaitingRestart.value = true
+    }
+  }
+
+  const finishUpdate = (message: string) => {
+    const id = job.value?.id
+    if (id && updateAlreadyReloaded(id, window.sessionStorage)) {
+      stopJobPolling()
+      clearUpdateWait(id, window.sessionStorage)
+      setBackendUnreachableRedirectPaused(false)
+      awaitingRestart.value = false
+      if (job.value) job.value = { ...job.value, status: 'success', progress: 100, message }
+      return
+    }
+    if (reloadScheduled) return
+    reloadScheduled = true
+    if (id) markUpdateReloaded(id, window.sessionStorage)
+    if (job.value) job.value = { ...job.value, status: 'success', progress: 100, message }
+    stopJobPolling()
+    setBackendUnreachableRedirectPaused(false)
+    ElMessage.success(message)
+    window.setTimeout(() => window.location.reload(), 600)
+  }
+
+  const failUpdate = (reason: string) => {
+    awaitingRestart.value = false
+    restartTimedOut.value = false
+    if (job.value) {
+      job.value = { ...job.value, status: 'failed', error: reason, message: '更新失败，已回滚到更新前的版本' }
+    }
+    finishRestartWait()
+    stopJobPolling()
+    ElMessage.error(reason)
+  }
+
+  const timeoutUpdate = (reason: string) => {
+    restartTimedOut.value = true
+    restartFailureReason.value = reason
+    awaitingRestart.value = false
+    finishRestartWait()
+    stopJobPolling()
+    ElMessage.error(reason)
   }
 
   const finishRestartWait = () => {
-    if (job.value?.id) clearRestartStart(job.value.id, window.sessionStorage)
-    restartSince = 0
+    if (job.value?.id) {
+      clearRestartStart(job.value.id, window.sessionStorage)
+      clearUpdateWait(job.value.id, window.sessionStorage)
+    }
+    pollClock = { startedAt: 0, restartingSince: 0 }
     setBackendUnreachableRedirectPaused(false)
   }
 
-  const markRestartTimeoutIfNeeded = () => {
-    if (!restartWaitExceeded(restartSince, Date.now(), job.value?.status || '')) return false
-    restartTimedOut.value = true
-    restartFailureReason.value = job.value?.error || restartFailureReason.value
-    finishRestartWait()
-    stopJobPolling()
-    ElMessage.error('更新重启失败')
-    return true
-  }
-
   const stopJobPolling = () => {
+    updateWatching = false
     if (jobTimer) clearInterval(jobTimer)
     jobTimer = undefined
   }

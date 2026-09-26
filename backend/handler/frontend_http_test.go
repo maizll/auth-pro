@@ -32,6 +32,16 @@ func TestRegisterFrontendServesDiskRoot(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "disk-root") {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	if cache := rec.Header().Get("Cache-Control"); !strings.Contains(cache, "no-store") {
+		t.Fatalf("index.html Cache-Control = %q", cache)
+	}
+	indexReq := httptest.NewRequest(http.MethodGet, "/index.html", nil)
+	indexReq.Header.Set("If-Modified-Since", "Mon, 02 Jan 2006 15:04:05 GMT")
+	indexRec := httptest.NewRecorder()
+	router.ServeHTTP(indexRec, indexReq)
+	if indexRec.Code != http.StatusOK || !strings.Contains(indexRec.Header().Get("Cache-Control"), "no-store") {
+		t.Fatalf("index.html status=%d cache=%q", indexRec.Code, indexRec.Header().Get("Cache-Control"))
+	}
 	if strings.Contains(rec.Body.String(), "stale-embed") {
 		t.Fatal("disk root must not fall back to embed")
 	}
@@ -96,5 +106,8 @@ func TestRegisterFrontendServesEmbedWhenOptedIn(t *testing.T) {
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "bootstrap-embed") {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if cache := rec.Header().Get("Cache-Control"); !strings.Contains(cache, "no-store") {
+		t.Fatalf("embed index Cache-Control = %q", cache)
 	}
 }

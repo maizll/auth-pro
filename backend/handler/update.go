@@ -123,18 +123,88 @@ var updateReleasesCache struct {
 	value cachedOnlineUpdateReleases
 }
 
+type onlineUpdateVersionHint struct {
+	JobID         string `json:"jobId,omitempty"`
+	TargetVersion string `json:"targetVersion,omitempty"`
+	Status        string `json:"status,omitempty"`
+	RolledBack    bool   `json:"rolledBack,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+}
+
 // SystemVersion 返回当前系统整体版本。健康检查脚本也会访问它。
+// 在线更新页用它判断新进程是否已经起来；失败回滚时带上原因，避免页面一直停在重启中。
 func SystemVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "",
-		"data": gin.H{
-			"version":   config.AppVersion,
-			"buildTime": config.BuildTime,
-			"os":        runtime.GOOS,
-			"arch":      runtime.GOARCH,
-		},
-	})
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+	data := gin.H{
+		"version":   config.AppVersion,
+		"buildTime": config.BuildTime,
+		"os":        runtime.GOOS,
+		"arch":      runtime.GOARCH,
+	}
+	if hint := latestOnlineUpdateHint(); hint != nil {
+		data["update"] = hint
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": data})
+}
+
+func sameProductVersion(left, right string) bool {
+	trim := func(value string) string {
+		value = strings.TrimSpace(value)
+		value = strings.TrimPrefix(value, "v")
+		value = strings.TrimPrefix(value, "V")
+		return value
+	}
+	return trim(left) != "" && trim(left) == trim(right)
+}
+
+func latestOnlineUpdateHint() *onlineUpdateVersionHint {
+	dir := config.GetUpdateDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	type candidate struct {
+		id   string
+		when time.Time
+	}
+	list := make([]candidate, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".tmp") {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			continue
+		}
+		list = append(list, candidate{id: strings.TrimSuffix(name, ".json"), when: info.ModTime()})
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].when.After(list[j].when) })
+	for _, item := range list {
+		job := loadOnlineUpdateJob(item.id)
+		if job == nil {
+			continue
+		}
+		hint := &onlineUpdateVersionHint{
+			JobID:         job.ID,
+			TargetVersion: job.Version,
+			Status:        job.Status,
+		}
+		if job.Status == "failed" && !sameProductVersion(job.Version, config.AppVersion) {
+			hint.RolledBack = true
+			hint.Reason = strings.TrimSpace(job.Error)
+			if hint.Reason == "" {
+				hint.Reason = strings.TrimSpace(job.Message)
+			}
+			if hint.Reason == "" {
+				hint.Reason = "更新失败，已回滚到更新前的版本"
+			}
+		}
+		return hint
+	}
+	return nil
 }
 
 // AdminOnlineUpdateStatus 返回当前版本、更新地址、最近一次清单和任务状态。

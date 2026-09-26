@@ -66,7 +66,7 @@ func serveDiskFrontend(c *gin.Context, dir string, diskServer http.Handler) {
 		return
 	}
 	cleanPath := strings.TrimPrefix(path.Clean(c.Request.URL.Path), "/")
-	if cleanPath != "." {
+	if cleanPath != "." && cleanPath != "index.html" {
 		full := filepath.Join(dir, cleanPath)
 		if info, err := os.Stat(full); err == nil && !info.IsDir() {
 			if IsInstalledPackageFile(full) {
@@ -77,12 +77,26 @@ func serveDiskFrontend(c *gin.Context, dir string, diskServer http.Handler) {
 			return
 		}
 	}
-	c.File(filepath.Join(dir, "index.html"))
+	writeNoCacheHTMLFile(c, filepath.Join(dir, "index.html"))
+}
+
+// writeNoCacheHTMLFile 提供 SPA 入口。带哈希的静态资源仍可长期缓存，入口页不行，
+// 否则在线更新完成后浏览器会继续用旧的 index.html。
+func writeNoCacheHTMLFile(c *gin.Context, fullPath string) {
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+	c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 }
 
 func serveEmbedFrontend(c *gin.Context, embedFS fs.FS) {
 	cleanPath := strings.TrimPrefix(path.Clean(c.Request.URL.Path), "/")
-	if cleanPath != "." {
+	if cleanPath != "." && cleanPath != "index.html" {
 		if info, err := fs.Stat(embedFS, cleanPath); err == nil && !info.IsDir() {
 			http.FileServer(http.FS(embedFS)).ServeHTTP(c.Writer, c.Request)
 			return
@@ -93,6 +107,9 @@ func serveEmbedFrontend(c *gin.Context, embedFS fs.FS) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "前端入口文件不存在"})
 		return
 	}
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 }
 

@@ -988,6 +988,22 @@ location = /backend-unavailable.html {
     root ${site_root};
     default_type text/html;
 }
+
+# 入口页不要缓存。在线更新完成后浏览器必须重新获取 index.html，才能加载新的前端资源。
+location = /index.html {
+    proxy_pass http://127.0.0.1:${port};
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_hide_header Cache-Control;
+    proxy_hide_header Pragma;
+    proxy_hide_header Expires;
+    add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+    add_header Pragma "no-cache" always;
+    add_header Expires "0" always;
+}
 EOF
   baota_info "已写入 $file"
 }
@@ -1060,20 +1076,47 @@ baota_configure_nginx_error_page() {
         continue
       fi
       found=1
-      if grep -Fq "location = /backend-unavailable.html" "$conf"; then
-        baota_info "Nginx 已包含后端不可达页面：$conf"
+      if grep -Fq "location = /backend-unavailable.html" "$conf" && grep -Fq "BEGIN AUTH_PRO_INDEX_NO_CACHE" "$conf"; then
+        baota_info "Nginx 已包含后端不可达页面和入口页 no-cache：$conf"
         continue
       fi
       backup="${conf}.bak.auth-pro-$(date '+%Y%m%d%H%M%S')"
       cp -a "$conf" "$backup" || { baota_warn "无法备份 $conf ，已跳过"; continue; }
-      if ! python3 - "$conf" "$site" <<'PY'
+      if ! python3 - "$conf" "$site" "$port" <<'PY'
 import pathlib, sys
-path, site = sys.argv[1], sys.argv[2]
+path, site, port = sys.argv[1], sys.argv[2], sys.argv[3]
 if any(ch in site for ch in "\n;{}\\"):
     raise SystemExit("网站根不能包含换行或 nginx 元字符")
+if not port.isdigit():
+    raise SystemExit("端口不正确")
 text = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
 marker = "# BEGIN AUTH_PRO_BACKEND_UNAVAILABLE"
+index_marker = "# BEGIN AUTH_PRO_INDEX_NO_CACHE"
 if marker in text or "location = /backend-unavailable.html" in text:
+    if index_marker in text or "location = /index.html" in text:
+        raise SystemExit(0)
+    index_block = f"""
+    {index_marker}
+    location = /index.html {{
+        proxy_pass http://127.0.0.1:{port};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_hide_header Cache-Control;
+        proxy_hide_header Pragma;
+        proxy_hide_header Expires;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+    }}
+    # END AUTH_PRO_INDEX_NO_CACHE
+"""
+    idx = text.rfind("}")
+    if idx < 0:
+        raise SystemExit("找不到 server 块结束括号")
+    pathlib.Path(path).write_text(text[:idx] + index_block + "\n" + text[idx:], encoding="utf-8")
     raise SystemExit(0)
 block = f"""
     {marker}
@@ -1082,6 +1125,22 @@ block = f"""
         root {site};
         default_type text/html;
     }}
+    {index_marker}
+    location = /index.html {{
+        proxy_pass http://127.0.0.1:{port};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_hide_header Cache-Control;
+        proxy_hide_header Pragma;
+        proxy_hide_header Expires;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+    }}
+    # END AUTH_PRO_INDEX_NO_CACHE
     # END AUTH_PRO_BACKEND_UNAVAILABLE
 """
 idx = text.rfind("}")
