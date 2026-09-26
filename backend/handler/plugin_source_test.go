@@ -132,6 +132,41 @@ func TestExplainGitCloneFailureHidesRawOutput(t *testing.T) {
 	}
 }
 
+func TestGoneSoftwareSourceRefreshIsChinese(t *testing.T) {
+	var refs int
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if strings.Contains(request.URL.Path, "info/refs") {
+			refs++
+		}
+		response.Header().Set("Content-Type", "application/json")
+		response.WriteHeader(http.StatusGone)
+		_, _ = io.WriteString(response, `{"error":"app_gone","message":"该软件源对应的应用已删除或归档","appKey":"app_4e85b4724223_2603"}`)
+	}))
+	defer server.Close()
+	rawURL := server.URL + "/software-source/app_4e85b4724223_2603/index.json"
+	_, _, _, err := fetchPluginSourceManifest(context.Background(), rawURL)
+	if err == nil || err.Error() != softwareSourceAppGoneMessage {
+		t.Fatalf("error=%v", err)
+	}
+	if refs != 0 || strings.Contains(err.Error(), "fatal") || strings.Contains(err.Error(), "Cloning") {
+		t.Fatalf("refs=%d err=%v", refs, err)
+	}
+	if pluginSourceFailureMessage("软件源刷新失败：", err) != softwareSourceAppGoneMessage {
+		t.Fatalf("message=%s", pluginSourceFailureMessage("软件源刷新失败：", err))
+	}
+}
+
+func TestRewriteSoftwareSourceURLKeepsHost(t *testing.T) {
+	rewritten, err := rewriteSoftwareSourceURL("https://auth.maizll.com/software-source/app_old/index.json", "app-b")
+	if err != nil || rewritten != "https://auth.maizll.com/software-source/app-b/index.json" {
+		t.Fatalf("rewritten=%s err=%v", rewritten, err)
+	}
+	queryURL, err := rewriteSoftwareSourceURL("https://auth.maizll.com/software-source/index.json?app_key=app_old", "app-b")
+	if err != nil || !strings.Contains(queryURL, "app_key=app-b") || strings.Contains(queryURL, "app_old") {
+		t.Fatalf("query=%s err=%v", queryURL, err)
+	}
+}
+
 func TestPluginSourceURLClassification(t *testing.T) {
 	if !pluginSourceURLLooksLikeJSON("https://auth.maizll.com/software-source/app_4e85b4724223_2603/index.json") {
 		t.Fatal("site index must be json")

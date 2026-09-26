@@ -64,6 +64,7 @@ type categoryGroup struct {
 type cachedPluginSource struct {
 	Manifest  []byte
 	ExpiresAt time.Time
+	LastError string
 }
 
 func ensurePluginSourceStorage(db *sql.DB) error {
@@ -172,6 +173,9 @@ func resolvePluginSourceFromHTTP(ctx context.Context, rawURL, requested string, 
 	}
 	if jsonURL {
 		if err != nil {
+			if err.Error() == softwareSourceAppGoneMessage {
+				return nil, true, err
+			}
 			return nil, true, fmt.Errorf("%s：%s", pluginSourceJSONFetchFailed, err.Error())
 		}
 		return nil, true, errors.New(pluginSourceJSONInvalid)
@@ -299,7 +303,7 @@ func pluginSourceFailureMessage(prefix string, err error) string {
 	if err == nil {
 		return prefix
 	}
-	if err.Error() == errPluginSourceNotGitRepo || strings.HasPrefix(err.Error(), pluginSourceJSONFetchFailed) || err.Error() == pluginSourceJSONInvalid {
+	if err.Error() == errPluginSourceNotGitRepo || err.Error() == softwareSourceAppGoneMessage || strings.HasPrefix(err.Error(), pluginSourceJSONFetchFailed) || err.Error() == pluginSourceJSONInvalid {
 		return err.Error()
 	}
 	return prefix + err.Error()
@@ -344,6 +348,9 @@ func loadPluginSourceIndex(ctx context.Context, db *sql.DB, source pluginSourceR
 	cache, cacheErr := readCachedPluginSource(db, source.ID)
 	if !force && cacheErr == nil && time.Now().Before(cache.ExpiresAt) {
 		index, err := parsePluginSourceManifest(cache.Manifest)
+		if err == nil && cache.LastError == softwareSourceAppGoneMessage {
+			return index, "", errors.New(softwareSourceAppGoneMessage)
+		}
 		return index, "", err
 	}
 	resolved, fetchErr := resolvePluginSource(ctx, source.URL, source.SourceType)
@@ -383,8 +390,8 @@ func cachePluginSourceManifest(db *sql.DB, sourceID int64, sourceType string, ma
 
 func readCachedPluginSource(db *sql.DB, sourceID int64) (cachedPluginSource, error) {
 	var cache cachedPluginSource
-	err := db.QueryRow("SELECT manifest_json, expires_at FROM plugin_source_cache WHERE source_id=?", sourceID).
-		Scan(&cache.Manifest, &cache.ExpiresAt)
+	err := db.QueryRow("SELECT manifest_json, expires_at, last_error FROM plugin_source_cache WHERE source_id=?", sourceID).
+		Scan(&cache.Manifest, &cache.ExpiresAt, &cache.LastError)
 	return cache, err
 }
 
@@ -454,6 +461,7 @@ func AdminPluginList(c *gin.Context) {
 	}
 	remote := make([]pluginInfo, 0)
 	sourceOK := make(map[int64]bool)
+	sourceErrors := make(map[int64]string)
 	indexes := make([]*remotePluginIndex, 0)
 	prices := map[string]int64{}
 	if sourceFilter != "local" {
@@ -462,6 +470,9 @@ func AdminPluginList(c *gin.Context) {
 				continue
 			}
 			index, _, loadErr := loadPluginSourceIndex(c.Request.Context(), db, source, false)
+			if loadErr != nil {
+				sourceErrors[source.ID] = loadErr.Error()
+			}
 			if index == nil {
 				sourceOK[source.ID] = false
 				continue
@@ -512,9 +523,11 @@ func AdminPluginList(c *gin.Context) {
 				state = "error"
 			}
 		}
-		sourceStates = append(sourceStates, gin.H{
-			"id": source.ID, "name": source.Name, "url": source.URL, "sourceType": source.SourceType, "state": state,
-		})
+		lastError := ""
+		if loadErr, failed := sourceErrors[source.ID]; failed {
+			lastError = loadErr
+		}
+		sourceStates = append(sourceStates, pluginSourceStateView(source, state, lastError))
 	}
 	writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"categories": groups, "sources": sourceStates}})
 }
@@ -572,6 +585,106 @@ func AdminPluginSourceAdd(c *gin.Context) {
 		"msg":  pluginSourceAddedMessage(resolved.notice, len(index.Plugins)),
 		"data": gin.H{"sourceType": sourceType, "corrected": resolved.notice != ""},
 	})
+}
+
+func pluginSourceStateView(source pluginSourceRecord, state, lastError string) gin.H {
+	view := gin.H{
+		"id": source.ID, "name": source.Name, "url": source.URL, "sourceType": source.SourceType,
+		"state": state, "lastError": lastError, "restoreAppId": 0,
+	}
+	if lastError != softwareSourceAppGoneMessage {
+		return view
+	}
+	appKey := parsePublicSoftwareSourceAppKey(source.URL)
+	view["goneAppKey"] = appKey
+	if appKey == "" {
+		return view
+	}
+	app, err := currentSourceStationStore().GetCatalogAppByKey(appKey)
+	if err == nil && app.Archived {
+		view["restoreAppId"] = app.ID
+	}
+	return view
+}
+
+func AdminPluginSourceRetarget(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	var request struct {
+		TargetAppID int64  `json:"targetAppId"`
+		URL         string `json:"url"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+	db, err := openSystemConfigDB()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
+		return
+	}
+	if err := ensurePluginStorage(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})
+		return
+	}
+	var source pluginSourceRecord
+	if err := db.QueryRow("SELECT id, name, url, source_type FROM plugin_sources WHERE id=?", id).Scan(&source.ID, &source.Name, &source.URL, &source.SourceType); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "软件源不存在"})
+		return
+	}
+	newURL := strings.TrimSpace(request.URL)
+	msg := "软件源地址已更换"
+	if request.TargetAppID > 0 {
+		appKey := parsePublicSoftwareSourceAppKey(source.URL)
+		if appKey == "" {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "这条软件源地址里没有应用标识"})
+			return
+		}
+		if err := saveSoftwareSourceAlias(appKey, request.TargetAppID, true); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+			return
+		}
+		target, err := currentSourceStationStore().GetCatalogAppByID(request.TargetAppID)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "目标应用不存在"})
+			return
+		}
+		newURL, err = rewriteSoftwareSourceURL(source.URL, target.AppKey)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+			return
+		}
+		msg = "已更换软件源地址，旧地址也会打开目标应用的目录"
+	}
+	if newURL == "" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请选择目标应用或填写新的软件源地址"})
+		return
+	}
+	newURL, err = validatePluginSourceURL(newURL)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	if _, err := db.Exec("UPDATE plugin_sources SET url=?, source_type=? WHERE id=?", newURL, pluginSourceTypeJSON, source.ID); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更换软件源地址失败"})
+		return
+	}
+	source.URL = newURL
+	source.SourceType = pluginSourceTypeJSON
+	index, notice, err := loadPluginSourceIndex(c.Request.Context(), db, source, true)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": pluginSourceFailureMessage("软件源地址已更换，但刷新失败：", err)})
+		return
+	}
+	if notice != "" {
+		msg = notice
+	}
+	pluginCount := 0
+	if index != nil {
+		pluginCount = len(index.Plugins)
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": gin.H{
+		"url": newURL, "sourceType": pluginSourceTypeJSON, "plugins": pluginCount,
+	}})
 }
 
 func AdminPluginSourceDelete(c *gin.Context) {

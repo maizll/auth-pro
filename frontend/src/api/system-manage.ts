@@ -581,6 +581,9 @@ export interface PluginSource {
   url: string
   sourceType?: 'json' | 'git' | string
   state: 'ok' | 'error' | 'unknown'
+  lastError?: string
+  goneAppKey?: string
+  restoreAppId?: number
 }
 
 export interface PluginListData {
@@ -711,6 +714,17 @@ export interface SoftwareSourceData {
 export function fetchSoftwareSourcePlugins() {
   return request.get<SoftwareSourceData>({
     url: '/api/software-source/plugins'
+  })
+}
+
+export function fetchRetargetPluginSource(
+  id: number,
+  payload: { targetAppId?: number; url?: string }
+) {
+  return request.post<{ url: string; sourceType: string; plugins: number }>({
+    url: `/api/system/plugin-sources/${id}/retarget`,
+    data: payload,
+    showSuccessMessage: true
   })
 }
 

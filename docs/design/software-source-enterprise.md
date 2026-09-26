@@ -282,7 +282,7 @@ stateDiagram-v2
 | GET | `/api/v1/public/advertisements` | 广告投放 |
 | POST | `/api/internal/software-source/cache/invalidate` | 远程目录刷新，需 `X-Software-Source-Key` |
 
-未知 `app_key`：HTTP 404。公开 index 响应头 `Cache-Control: no-store`。
+未知 `app_key`，或应用已归档且没有把地址转到其他应用：HTTP 410，JSON `{"error":"app_gone","message":"该软件源对应的应用已删除或归档","appKey":"..."}`，不含 `plugins`。已映射的旧标识返回目标应用目录（HTTP 200）。公开 index 响应头 `Cache-Control: no-store`。
 
 **开发者（JWT + `RequireDeveloper`）**
 
@@ -584,7 +584,7 @@ sequenceDiagram
 | AC-14 | `template.json` 缺 kind | 拒绝 `kind/required` | 已具备 |
 | AC-15 | 插件 category=`home-template` | 拒绝「该分类属于首页模板」 | 已具备 |
 | AC-16 | 未带 app_key 的 index | 空数组，不串应用 | 已具备 |
-| AC-17 | 未知 app_key | HTTP 404 | 已具备 |
+| AC-17 | 未知或已归档且未转走地址的 app_key | HTTP 410 JSON，中文「该软件源对应的应用已删除或归档」 | 已调整 |
 | AC-18 | starter ZIP 过硬校验 | parse 200 | 已具备 |
 | AC-19 | 开发者上传 ZIP | 进入 draft/pending_review，永不 published | **待补齐** |
 | AC-20 | `apply-publish` | 审计 + 待上架标记；index 不变直到管理员 shelf | **待补齐** |

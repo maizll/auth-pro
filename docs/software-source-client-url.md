@@ -28,7 +28,15 @@ $pluginSourceIndexUrl = rtrim($origin, '/') . '/software-source/' . rawurlencode
 | `/software-source/index.json?appKey={app_key}` | 与授权 JSON 字段同名 |
 | `/auth-pro/{app_key}/index.json` | 旧路径别名 |
 
-未指定应用的 `/software-source/index.json` 返回空目录（`plugins: []`），**禁止**当默认源固化进 SDK。未知 `app_key` 为 HTTP 404。
+未指定应用的 `/software-source/index.json` 返回空目录（`plugins: []`），**禁止**当默认源固化进 SDK。
+
+应用不存在、或已归档且没有把地址转走时，上述地址返回 HTTP 410，正文是 JSON（不是 HTML，也不是空的 404 页）：
+
+```json
+{"error":"app_gone","message":"该软件源对应的应用已删除或归档","appKey":"app_4e85b4724223_2603"}
+```
+
+响应里没有 `plugins`。刷新软件源的一方显示这句中文。归档时如果勾选把软件源地址转到另一个应用，或在源站设置里把旧标识映射到现有应用，旧地址仍返回 HTTP 200，正文是目标应用的目录。同一个旧标识再保存一次只更新目标。应用恢复后，映射去掉，旧地址重新返回它自己的目录。
 
 ## 清单字段
 

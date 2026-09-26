@@ -156,25 +156,49 @@
       </template>
     </ElDialog>
 
-    <ElDialog v-model="migrateVisible" title="归档应用" width="480px">
-      <p>
+    <ElDialog v-model="migrateVisible" title="归档应用" width="520px">
+      <p v-if="migrateCount > 0">
         应用「{{ migrateSource?.name }}」下还有
         {{ migrateCount }}
         条软件目录条目。可以迁到另一个应用再归档，也可以直接归档，条目仍挂在这个应用上。授权、套餐和版本都会保留。
       </p>
+      <p v-else>
+        归档应用「{{ migrateSource?.name }}」后，授权记录和版本都会保留，只是不能再往这个应用登记新的目录条目。
+      </p>
       <ElSelect
-        v-if="migrateTargets.length"
+        v-if="migrateCount > 0 && migrateTargets.length"
         v-model="migrateAppId"
-        placeholder="请选择目标应用"
+        placeholder="目录条目迁到哪个应用"
         style="width: 100%; margin-top: 12px"
       >
         <ElOption v-for="app in migrateTargets" :key="app.id" :label="app.name" :value="app.id" />
       </ElSelect>
-      <p v-else>没有其他应用可以接收这些目录条目，请先新建应用。</p>
+      <p v-else-if="migrateCount > 0">没有其他应用可以接收这些目录条目，请先新建应用。</p>
+      <ElCheckbox v-model="redirectSource" style="margin-top: 14px">
+        把该应用的软件源地址转到另一个应用
+      </ElCheckbox>
+      <p class="form-tip">
+        勾选后，旧地址 /software-source/{{ migrateSource?.appKey }}/index.json
+        会继续返回目标应用的目录，已经订阅这条地址的客户端不用改。
+      </p>
+      <ElSelect
+        v-if="redirectSource"
+        v-model="redirectAppId"
+        placeholder="软件源地址转到哪个应用"
+        style="width: 100%; margin-top: 8px"
+      >
+        <ElOption
+          v-for="app in migrateTargets.filter((item) => !item.archived)"
+          :key="app.id"
+          :label="app.name"
+          :value="app.id"
+        />
+      </ElSelect>
       <template #footer>
         <ElButton @click="migrateVisible = false">取消</ElButton>
         <ElButton :loading="archiveSaving" @click="confirmArchiveInPlace">直接归档</ElButton>
         <ElButton
+          v-if="migrateCount > 0"
           type="danger"
           :loading="migrateSaving"
           :disabled="!migrateTargets.length"
@@ -479,6 +503,8 @@
   const archiveSaving = ref(false)
   const migrateCount = ref(0)
   const migrateAppId = ref<number>()
+  const redirectSource = ref(false)
+  const redirectAppId = ref<number>()
   const migrateSource = ref<AppRow | null>(null)
   const migrateTargets = computed(() =>
     ((data.value || []) as AppRow[]).filter((item) => item.id !== migrateSource.value?.id)
@@ -492,8 +518,17 @@
     }
     migrateSaving.value = true
     try {
-      await fetchDeleteLicenseApp(row.id, { migrateAppId: migrateAppId.value })
-      ElMessage.success('目录条目已迁移，应用已归档')
+      if (redirectSource.value && !redirectAppId.value) {
+        ElMessage.warning('请选择要接收软件源地址的应用')
+        return
+      }
+      await fetchDeleteLicenseApp(row.id, {
+        migrateAppId: migrateAppId.value,
+        redirectAppId: redirectSource.value ? redirectAppId.value : undefined
+      })
+      ElMessage.success(
+        redirectSource.value ? '目录条目已迁移，软件源地址已转到目标应用' : '目录条目已迁移，应用已归档'
+      )
       migrateVisible.value = false
       refreshRemove()
     } finally {
@@ -506,8 +541,21 @@
     if (!row) return
     archiveSaving.value = true
     try {
-      await fetchDeleteLicenseApp(row.id, { archive: true })
-      ElMessage.success('应用已归档，目录条目仍挂在该应用下')
+      if (redirectSource.value && !redirectAppId.value) {
+        ElMessage.warning('请选择要接收软件源地址的应用')
+        return
+      }
+      await fetchDeleteLicenseApp(row.id, {
+        archive: true,
+        redirectAppId: redirectSource.value ? redirectAppId.value : undefined
+      })
+      ElMessage.success(
+        redirectSource.value
+          ? '应用已归档，软件源地址已转到目标应用'
+          : migrateCount.value > 0
+            ? '应用已归档，目录条目仍挂在该应用下'
+            : '应用已归档'
+      )
       migrateVisible.value = false
       refreshRemove()
     } finally {
@@ -533,21 +581,15 @@
   const handleDelete = async (row: AppRow) => {
     try {
       const usage = await fetchCatalogAppUsage(row.id)
-      if (usage.count > 0) {
-        migrateSource.value = row
-        migrateCount.value = usage.count
-        migrateAppId.value = ((data.value || []) as AppRow[]).find((item) => item.id !== row.id)?.id
-        migrateVisible.value = true
-        return
-      }
-      await ElMessageBox.confirm(
-        `归档应用「${row.name}」后，授权记录和版本都会保留，只是不能再往这个应用登记新的目录条目。确定归档？`,
-        '归档应用',
-        { type: 'warning' }
+      migrateSource.value = row
+      migrateCount.value = usage.count
+      const firstTarget = ((data.value || []) as AppRow[]).find(
+        (item) => item.id !== row.id && !item.archived
       )
-      await fetchDeleteLicenseApp(row.id)
-      ElMessage.success('应用已归档')
-      refreshRemove()
+      migrateAppId.value = firstTarget?.id
+      redirectAppId.value = firstTarget?.id
+      redirectSource.value = false
+      migrateVisible.value = true
     } catch {
       // 用户取消操作时保留当前数据。
     }

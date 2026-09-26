@@ -652,6 +652,15 @@ CREATE TABLE `plugin_source_cache` (
   PRIMARY KEY (`source_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权系统插件清单缓存';
 
+DROP TABLE IF EXISTS `software_source_app_aliases`;
+CREATE TABLE `software_source_app_aliases` (
+  `old_app_key` VARCHAR(64) NOT NULL COMMENT '已删除或归档应用的 app_key',
+  `target_app_id` BIGINT NOT NULL COMMENT '旧软件源地址转到的应用',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`old_app_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='已删除或归档应用的软件源地址映射';
+
 DROP TABLE IF EXISTS `plugin_sources`;
 CREATE TABLE `plugin_sources` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
