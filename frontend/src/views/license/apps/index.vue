@@ -74,8 +74,8 @@
 
         <!-- 状态 -->
         <template #enabled="{ row }">
-          <ElTag :type="row.enabled ? 'success' : 'info'" size="small">
-            {{ row.enabled ? '启用' : '禁用' }}
+          <ElTag :type="row.archived ? 'warning' : row.enabled ? 'success' : 'info'" size="small">
+            {{ row.archived ? '已归档' : row.enabled ? '启用' : '禁用' }}
           </ElTag>
         </template>
 
@@ -94,7 +94,10 @@
           <ElButton link type="primary" @click="handleSDKPack(row)">SDK 包</ElButton>
           <ElButton link type="primary" @click="handleEdit(row)">编辑</ElButton>
           <ElButton link type="primary" @click="handleResetSecret(row)">重置密钥</ElButton>
-          <ElButton link type="danger" @click="handleDelete(row)">删除</ElButton>
+          <ElButton v-if="!row.archived" link type="danger" @click="handleDelete(row)"
+            >归档</ElButton
+          >
+          <ElButton v-else link type="primary" @click="handleRestore(row)">恢复</ElButton>
         </template>
       </ArtTable>
     </ElCard>
@@ -154,6 +157,35 @@
         <ElButton type="primary" @click="handleSubmit">确定</ElButton>
       </template>
     </ElDialog>
+
+    <ElDialog v-model="migrateVisible" title="归档应用" width="480px">
+      <p>
+        应用「{{ migrateSource?.name }}」下还有
+        {{ migrateCount }}
+        条软件目录条目。可以迁到另一个应用再归档，也可以直接归档，条目仍挂在这个应用上。授权、套餐和版本都会保留。
+      </p>
+      <ElSelect
+        v-if="migrateTargets.length"
+        v-model="migrateAppId"
+        placeholder="请选择目标应用"
+        style="width: 100%; margin-top: 12px"
+      >
+        <ElOption v-for="app in migrateTargets" :key="app.id" :label="app.name" :value="app.id" />
+      </ElSelect>
+      <p v-else>没有其他应用可以接收这些目录条目，请先新建应用。</p>
+      <template #footer>
+        <ElButton @click="migrateVisible = false">取消</ElButton>
+        <ElButton :loading="archiveSaving" @click="confirmArchiveInPlace">直接归档</ElButton>
+        <ElButton
+          type="danger"
+          :loading="migrateSaving"
+          :disabled="!migrateTargets.length"
+          @click="confirmMigrateAndDelete"
+        >
+          迁移并归档
+        </ElButton>
+      </template>
+    </ElDialog>
   </div>
 </template>
 
@@ -176,12 +208,14 @@
     fetchCreateLicenseApp,
     fetchUpdateLicenseApp,
     fetchDeleteLicenseApp,
+    fetchRestoreLicenseApp,
     fetchResetAppSecret,
     fetchUpdateAppLicenseRequired,
     fetchEnsureStoreSnapshotKey,
     type AppSaleGap,
     type LicenseAppItem
   } from '@/api/license-manage'
+  import { fetchCatalogAppUsage } from '@/api/source-station'
 
   defineOptions({ name: 'LicenseApps' })
 
@@ -444,15 +478,79 @@
     router.push({ name: 'SdkIndex', query: { appId: String(row.id) } })
   }
 
-  const handleDelete = async (row: AppRow) => {
+  const migrateVisible = ref(false)
+  const migrateSaving = ref(false)
+  const archiveSaving = ref(false)
+  const migrateCount = ref(0)
+  const migrateAppId = ref<number>()
+  const migrateSource = ref<AppRow | null>(null)
+  const migrateTargets = computed(() =>
+    ((data.value || []) as AppRow[]).filter((item) => item.id !== migrateSource.value?.id)
+  )
+
+  const confirmMigrateAndDelete = async () => {
+    const row = migrateSource.value
+    if (!row || !migrateAppId.value) {
+      ElMessage.warning('请选择要迁移到的应用')
+      return
+    }
+    migrateSaving.value = true
+    try {
+      await fetchDeleteLicenseApp(row.id, { migrateAppId: migrateAppId.value })
+      ElMessage.success('目录条目已迁移，应用已归档')
+      migrateVisible.value = false
+      refreshRemove()
+    } finally {
+      migrateSaving.value = false
+    }
+  }
+
+  const confirmArchiveInPlace = async () => {
+    const row = migrateSource.value
+    if (!row) return
+    archiveSaving.value = true
+    try {
+      await fetchDeleteLicenseApp(row.id, { archive: true })
+      ElMessage.success('应用已归档，目录条目仍挂在该应用下')
+      migrateVisible.value = false
+      refreshRemove()
+    } finally {
+      archiveSaving.value = false
+    }
+  }
+
+  const handleRestore = async (row: AppRow) => {
     try {
       await ElMessageBox.confirm(
-        `删除应用「${row.name}」将同时清除其所有授权记录，确定？`,
-        '危险操作',
-        { type: 'error' }
+        `恢复应用「${row.name}」后，可以继续往上面登记目录条目。原有授权和版本都还在。`,
+        '恢复应用',
+        { type: 'warning' }
+      )
+      await fetchRestoreLicenseApp(row.id)
+      ElMessage.success('应用已恢复')
+      refreshData()
+    } catch {
+      // 用户取消时保留当前数据。
+    }
+  }
+
+  const handleDelete = async (row: AppRow) => {
+    try {
+      const usage = await fetchCatalogAppUsage(row.id)
+      if (usage.count > 0) {
+        migrateSource.value = row
+        migrateCount.value = usage.count
+        migrateAppId.value = ((data.value || []) as AppRow[]).find((item) => item.id !== row.id)?.id
+        migrateVisible.value = true
+        return
+      }
+      await ElMessageBox.confirm(
+        `归档应用「${row.name}」后，授权记录和版本都会保留，只是不能再往这个应用登记新的目录条目。确定归档？`,
+        '归档应用',
+        { type: 'warning' }
       )
       await fetchDeleteLicenseApp(row.id)
-      ElMessage.success('删除成功')
+      ElMessage.success('应用已归档')
       refreshRemove()
     } catch {
       // 用户取消操作时保留当前数据。

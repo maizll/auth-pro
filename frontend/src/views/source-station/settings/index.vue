@@ -6,7 +6,8 @@
           <div>
             <span class="card-title">发布仓库令牌</span>
             <p class="card-hint">
-              校验通过的压缩包可以推送到 GitHub 或 Gitee 的发布页。源站只保存下载地址和校验码。令牌只存在服务器上，页面只显示掩码。「测试连接」只检查仓库和令牌是否可用，不会创建发布。
+              校验通过的压缩包可以推送到 GitHub 或 Gitee
+              的发布页。源站只保存下载地址和校验码。令牌只存在服务器上，页面只显示掩码。「测试连接」只检查仓库和令牌是否可用，不会创建发布。
             </p>
           </div>
           <div class="table-actions">
@@ -58,6 +59,54 @@
         </el-form-item>
       </el-form>
     </el-card>
+
+    <el-card v-loading="githubLoading" shadow="never" class="art-card github-paid-card">
+      <template #header>
+        <div class="table-header">
+          <div>
+            <span class="card-title">收费仓库</span>
+            <p class="card-hint">
+              站长和开发者的收费安装包都放在这一个私有 GitHub 仓库。令牌需要 Contents 读写，用来上传
+              Release 资产，并在买家付款后换取几分钟有效的下载地址。令牌加密保存，页面不回显明文。
+            </p>
+          </div>
+          <div class="table-actions">
+            <el-button :loading="githubTesting" @click="handleGitHubTest">测试令牌</el-button>
+            <el-button type="primary" :loading="githubSaving" @click="handleGitHubSave"
+              >保存</el-button
+            >
+          </div>
+        </div>
+      </template>
+      <el-alert
+        :title="githubConfigured ? '已配置收费仓库' : '尚未配置收费仓库'"
+        :type="githubConfigured ? 'success' : 'warning'"
+        :closable="false"
+        show-icon
+        class="mb-4"
+      >
+        {{
+          githubReminder ||
+          '在 GitHub 创建 fine-grained personal access token，只授权这一个私有仓库，Contents 选 Read and write。'
+        }}
+      </el-alert>
+      <el-form label-width="140px" class="settings-form">
+        <el-form-item label="所有者">
+          <el-input v-model.trim="githubOwner" placeholder="例如 my-org" />
+        </el-form-item>
+        <el-form-item label="仓库">
+          <el-input v-model.trim="githubRepo" placeholder="例如 paid-plugins" />
+        </el-form-item>
+        <el-form-item label="读写令牌">
+          <el-input
+            v-model="githubToken"
+            type="password"
+            show-password
+            :placeholder="githubConfigured ? '已配置，留空不修改' : '粘贴 Contents 读写令牌'"
+          />
+        </el-form-item>
+      </el-form>
+    </el-card>
   </div>
 </template>
 
@@ -65,8 +114,11 @@
   import { computed, onMounted, reactive, ref } from 'vue'
   import { ElMessage } from 'element-plus'
   import {
+    fetchGitHubPaidToken,
     fetchSourceReleaseSettings,
+    saveGitHubPaidToken,
     saveSourceReleaseSettings,
+    testGitHubPaidToken,
     testSourceReleaseSettings,
     type SourceReleaseSettings
   } from '@/api/source-station'
@@ -74,6 +126,14 @@
   const loading = ref(false)
   const saving = ref(false)
   const testing = ref(false)
+  const githubLoading = ref(false)
+  const githubSaving = ref(false)
+  const githubTesting = ref(false)
+  const githubConfigured = ref(false)
+  const githubOwner = ref('')
+  const githubRepo = ref('')
+  const githubReminder = ref('')
+  const githubToken = ref('')
   const settings = ref<SourceReleaseSettings>({
     provider: 'github',
     owner: '',
@@ -123,6 +183,53 @@
     }
     return '尚未配置完整，上传时需粘贴外部 https 地址。'
   })
+
+  async function loadGitHubToken() {
+    githubLoading.value = true
+    try {
+      const data = await fetchGitHubPaidToken()
+      githubConfigured.value = Boolean(data.configured)
+      githubOwner.value = data.owner || ''
+      githubRepo.value = data.repo || ''
+      githubReminder.value = data.reminder || ''
+      githubToken.value = ''
+    } finally {
+      githubLoading.value = false
+    }
+  }
+
+  async function handleGitHubSave() {
+    githubSaving.value = true
+    try {
+      const data = await saveGitHubPaidToken({
+        token: githubToken.value.trim(),
+        owner: githubOwner.value.trim(),
+        repo: githubRepo.value.trim()
+      })
+      githubConfigured.value = Boolean(data.configured)
+      githubOwner.value = data.owner || githubOwner.value
+      githubRepo.value = data.repo || githubRepo.value
+      githubReminder.value = data.reminder || ''
+      githubToken.value = ''
+      ElMessage.success(githubConfigured.value ? '已保存收费仓库' : '已保留现有令牌')
+    } finally {
+      githubSaving.value = false
+    }
+  }
+
+  async function handleGitHubTest() {
+    githubTesting.value = true
+    try {
+      await testGitHubPaidToken({
+        token: githubToken.value.trim(),
+        owner: githubOwner.value.trim(),
+        repo: githubRepo.value.trim()
+      })
+      ElMessage.success('令牌可用')
+    } finally {
+      githubTesting.value = false
+    }
+  }
 
   async function loadSettings() {
     loading.value = true
@@ -179,6 +286,7 @@
 
   onMounted(() => {
     void loadSettings()
+    void loadGitHubToken()
   })
 </script>
 
@@ -225,6 +333,10 @@
 
   .mb-4 {
     margin-bottom: 16px;
+  }
+
+  .github-paid-card {
+    margin-top: 16px;
   }
 
   .settings-form {

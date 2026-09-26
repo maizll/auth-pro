@@ -5,7 +5,7 @@
         <div>
           <h2 class="welcome-title">欢迎回来，{{ profile.displayName || profile.username || '开发者' }}</h2>
           <p class="welcome-desc">
-            在侧栏提交插件、首页模板或广告申请。目录按应用隔离。ZIP 可上传到本站，也可以登记外部 HTTPS。免费外链在提交审核时校验；付费外链会由本站立即拉取并私有托管。
+            在侧栏提交插件、首页模板或广告申请。目录按应用隔离。免费条目登记公开地址；收费条目上传压缩包或填写公开地址，安装包由本站保管。
           </p>
           <div class="welcome-actions">
             <el-button type="primary" @click="router.push('/developer-panel/plugins?create=1')">

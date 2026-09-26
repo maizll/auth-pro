@@ -54,6 +54,9 @@ export interface SourceDeveloperCatalogItem {
   originUrl?: string
   originHealth?: string
   originHint?: string
+  fulfillmentHint?: string
+  packageSource?: string
+  storedBySite?: boolean
   templateKey?: string
   changelog?: string
   latestVersion?: string
@@ -72,6 +75,7 @@ export interface SourceDeveloperCatalogApp {
   appKey: string
   name: string
   enabled: boolean
+  archived?: boolean
   indexUrl?: string
 }
 
@@ -164,6 +168,17 @@ export function fetchSourceDeveloperMe() {
   })
 }
 
+export function rebindSourceDeveloperCatalogItems(
+  appId: number,
+  items: Array<{ kind: 'plugin' | 'template'; id: string }>
+) {
+  return axios.post<{ code: number; msg: string; data: { count: number } }>(
+    `${BASE}/items/rebind`,
+    { appId, items },
+    { headers: developerAuthHeaders() }
+  )
+}
+
 export function fetchSourceDeveloperItems(status?: string) {
   return axios.get<{ code: number; msg: string; data: SourceDeveloperItems }>(`${BASE}/items`, {
     headers: developerAuthHeaders(),
@@ -198,6 +213,8 @@ export interface SourceDeveloperVersion {
   downloadUrl?: string
   templateUrl?: string
   originUrl?: string
+  packageSource?: string
+  storedBySite?: boolean
   reviewNote?: string
   reviewedBy?: string
   createdAt?: string
@@ -214,6 +231,8 @@ export interface SourceDeveloperPluginDraft {
   version: string
   sha256?: string
   downloadUrl?: string
+  packageSource?: 'upload' | 'public'
+  storedBySite?: boolean
   priceCents?: number
   billing?: string
   changelog?: string
@@ -233,6 +252,8 @@ export interface SourceDeveloperTemplateDraft {
   schemaVersion?: number
   sha256?: string
   templateUrl?: string
+  packageSource?: 'upload' | 'public'
+  storedBySite?: boolean
   priceCents?: number
   billing?: string
   changelog?: string
@@ -247,6 +268,8 @@ export interface SourceDeveloperVersionDraft {
   sha256?: string
   downloadUrl?: string
   templateUrl?: string
+  packageSource?: 'upload' | 'public'
+  storedBySite?: boolean
 }
 
 export interface SourceDeveloperAdApplication {
@@ -419,6 +442,7 @@ export interface SourceDeveloperPackageUpload {
   icon?: string
   schemaVersion?: number
   stored: boolean
+  storedBySite?: boolean
 }
 
 export function uploadSourceDeveloperPackage(data: FormData) {

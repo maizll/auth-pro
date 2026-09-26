@@ -35,27 +35,52 @@ func StoreDownloadTicket(c *gin.Context) {
 		storeFail(c, 403, "当前授权不能下载该付费包")
 		return
 	}
-	location, version := lookupPaidPackageLocation(db, req.Kind, req.ID)
-	name, ok := privatePackageName(location)
-	if !ok {
+	location, version, sha, _ := lookupPaidPackageLocation(db, req.Kind, req.ID)
+	driverName, objectKey := classifyPackageRef(location)
+	switch driverName {
+	case packageStorageGitHub:
+		driver, ok := packageStorageByName(packageStorageGitHub)
+		if !ok {
+			storeFail(c, 400, "付费包不存在")
+			return
+		}
+		tempURL, urlErr := driver.SignedURL(c.Request.Context(), objectKey, 5*time.Minute)
+		if urlErr != nil {
+			storeFail(c, 400, urlErr.Error())
+			return
+		}
+		storeData(c, gin.H{
+			"url":       tempURL,
+			"sha256":    sha,
+			"expiresIn": 300,
+		})
+		return
+	case packageStorageLocal:
+		name := objectKey
+		if _, ok := privatePackageName(sourcePaidPackagePrefix + name); !ok {
+			storeFail(c, 404, "付费包不存在")
+			return
+		}
+		if req.Version == "" {
+			req.Version = version
+		}
+		token, err := createStoreDownloadToken(storeDownloadClaims{
+			LicenseID: row.LicenseID, ItemKind: req.Kind, ItemID: req.ID, Version: req.Version, StorageKey: name, Source: "commercial",
+		})
+		if err != nil {
+			storeFail(c, 500, "签发下载票失败")
+			return
+		}
+		storeData(c, gin.H{
+			"token":     token,
+			"expiresIn": int(storeDownloadTTL.Seconds()),
+			"url":       buildRequestURL(c, "/api/v1/store/packages/"+token),
+		})
+		return
+	default:
 		storeFail(c, 404, "付费包不存在")
 		return
 	}
-	if req.Version == "" {
-		req.Version = version
-	}
-	token, err := createStoreDownloadToken(storeDownloadClaims{
-		LicenseID: row.LicenseID, ItemKind: req.Kind, ItemID: req.ID, Version: req.Version, StorageKey: name, Source: "commercial",
-	})
-	if err != nil {
-		storeFail(c, 500, "签发下载票失败")
-		return
-	}
-	storeData(c, gin.H{
-		"token":     token,
-		"expiresIn": int(storeDownloadTTL.Seconds()),
-		"url":       buildRequestURL(c, "/api/v1/store/packages/"+token),
-	})
 }
 
 func StorePackageDownload(c *gin.Context) {
@@ -91,7 +116,21 @@ func StorePackageDownload(c *gin.Context) {
 	c.Data(http.StatusOK, "application/zip", payload)
 }
 
+func licenseDownloadAllowed(licenseStatus string, commercialActive bool, developerID int64, entitlementActive bool) bool {
+	if licenseStatus != "active" {
+		return false
+	}
+	if commercialActive && developerID == 0 {
+		return true
+	}
+	return entitlementActive
+}
+
 func licenseCanDownloadPaid(db *sql.DB, licenseID int64, kind, itemID string) bool {
+	var licenseStatus string
+	if err := db.QueryRow(`SELECT status FROM licenses WHERE id = ?`, licenseID).Scan(&licenseStatus); err != nil {
+		return false
+	}
 	var developerID int64
 	switch kind {
 	case "plugin":
@@ -102,22 +141,19 @@ func licenseCanDownloadPaid(db *sql.DB, licenseID int64, kind, itemID string) bo
 		return false
 	}
 	_, _, _, active := loadCommercialEdition(db, licenseID)
-	if active && developerID == 0 {
-		return true
-	}
 	var count int
 	err := db.QueryRow(`SELECT COUNT(*) FROM plugin_entitlements
 		WHERE license_id = ? AND item_kind = ? AND item_id = ? AND status = 'active'
 		AND (expires_at IS NULL OR expires_at > NOW())`, licenseID, kind, itemID).Scan(&count)
-	return err == nil && count > 0
+	return licenseDownloadAllowed(licenseStatus, active, developerID, err == nil && count > 0)
 }
 
-func lookupPaidPackageLocation(db *sql.DB, kind, itemID string) (location, version string) {
+func lookupPaidPackageLocation(db *sql.DB, kind, itemID string) (location, version, sha string, developerID int64) {
 	switch kind {
 	case "plugin":
-		_ = db.QueryRow(`SELECT download_url, version FROM source_catalog_plugins WHERE id = ?`, itemID).Scan(&location, &version)
+		_ = db.QueryRow(`SELECT download_url, version, sha256, developer_id FROM source_catalog_plugins WHERE id = ?`, itemID).Scan(&location, &version, &sha, &developerID)
 	case "template":
-		_ = db.QueryRow(`SELECT template_url, version FROM source_catalog_templates WHERE id = ? OR template_key = ?`, itemID, itemID).Scan(&location, &version)
+		_ = db.QueryRow(`SELECT template_url, version, sha256, developer_id FROM source_catalog_templates WHERE id = ? OR template_key = ?`, itemID, itemID).Scan(&location, &version, &sha, &developerID)
 	}
-	return location, version
+	return location, version, sha, developerID
 }

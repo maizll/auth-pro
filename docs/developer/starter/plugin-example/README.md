@@ -9,6 +9,6 @@ unzip -l /tmp/demo-widget.zip
 sha256sum /tmp/demo-widget.zip
 ```
 
-登记插件时：标识填 `demo-widget`，分类选「其他」。包来源可以上传这个 ZIP（本站回填地址和校验码），或填写外部 HTTPS 并粘贴 sha256。简介与清单 `description` 相同。售价默认 0。大于 0 时可以上传这个 ZIP，也可以填它的 HTTPS 地址，由本站立即拉取并私有托管、自动计算校验码；付费上架尚未开放。价格不写进 `plugin.json`。
+登记插件时：标识填 `demo-widget`，分类选「其他」。免费时包来源选公开地址，填写这个 ZIP 的 https 地址并粘贴 sha256。收费时上传这个 ZIP，或填写公开地址让本站拉一次。不用自己的仓库，也不填令牌。简介与清单 `description` 相同。售价默认 0。付费上架尚未开放。价格不写进 `plugin.json`。
 
 规范：[章程](../../charter.md)。

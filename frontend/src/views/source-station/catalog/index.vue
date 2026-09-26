@@ -30,7 +30,7 @@
             <el-option
               v-for="app in apps"
               :key="app.id"
-              :label="app.enabled ? `${app.name}（${app.appKey}）` : `${app.name}（${app.appKey}）· 已停用`"
+              :label="appOptionLabel(app)"
               :value="app.id"
             />
           </el-select>
@@ -96,10 +96,16 @@
   const selectedApp = computed(
     () => apps.value.find((item) => item.id === selectedAppId.value) || null
   )
+  function appOptionLabel(app: SourceCatalogApp) {
+    const base = `${app.name}（${app.appKey}）`
+    if (app.archived) return `${base}· 已归档`
+    return app.enabled ? base : `${base}· 已停用`
+  }
+
   const selectedAppHint = computed(() => {
     const app = selectedApp.value
     if (!app) return '-'
-    return `${app.name}（${app.appKey}）`
+    return appOptionLabel(app)
   })
   const publicIndexUrl = computed(() => {
     const app = selectedApp.value

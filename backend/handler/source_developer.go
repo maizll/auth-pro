@@ -16,24 +16,25 @@ import (
 )
 
 type sourcePluginDraftRequest struct {
-	ID          string       `json:"id"`
-	AppID       int64        `json:"appId"`
-	Category    string       `json:"category"`
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Icon        string       `json:"icon"`
-	Version     string       `json:"version"`
-	SHA256      string       `json:"sha256"`
-	DownloadURL string       `json:"downloadUrl"`
-	PriceCents  int64        `json:"priceCents"`
-	Billing     string       `json:"billing"`
-	Delivery    string       `json:"delivery"`
-	Changelog   string       `json:"changelog"`
-	MinVersion  string       `json:"minVersion"`
-	ForceUpdate bool         `json:"forceUpdate"`
-	Author      sourceAuthor `json:"author"`
-	Shelf       bool         `json:"shelf"`
-	Note        string       `json:"note"`
+	ID            string       `json:"id"`
+	AppID         int64        `json:"appId"`
+	Category      string       `json:"category"`
+	Name          string       `json:"name"`
+	Description   string       `json:"description"`
+	Icon          string       `json:"icon"`
+	Version       string       `json:"version"`
+	SHA256        string       `json:"sha256"`
+	DownloadURL   string       `json:"downloadUrl"`
+	PriceCents    int64        `json:"priceCents"`
+	Billing       string       `json:"billing"`
+	Delivery      string       `json:"delivery"`
+	Changelog     string       `json:"changelog"`
+	MinVersion    string       `json:"minVersion"`
+	ForceUpdate   bool         `json:"forceUpdate"`
+	Author        sourceAuthor `json:"author"`
+	Shelf         bool         `json:"shelf"`
+	Note          string       `json:"note"`
+	PackageSource string       `json:"packageSource"`
 }
 
 type sourceTemplateDraftRequest struct {
@@ -56,14 +57,16 @@ type sourceTemplateDraftRequest struct {
 	Author        sourceAuthor `json:"author"`
 	Shelf         bool         `json:"shelf"`
 	Note          string       `json:"note"`
+	PackageSource string       `json:"packageSource"`
 }
 
 type sourceReleaseDraftRequest struct {
-	Version     string `json:"version"`
-	Changelog   string `json:"changelog"`
-	SHA256      string `json:"sha256"`
-	DownloadURL string `json:"downloadUrl"`
-	TemplateURL string `json:"templateUrl"`
+	Version       string `json:"version"`
+	Changelog     string `json:"changelog"`
+	SHA256        string `json:"sha256"`
+	DownloadURL   string `json:"downloadUrl"`
+	TemplateURL   string `json:"templateUrl"`
+	PackageSource string `json:"packageSource"`
 }
 
 func sourceDeveloperApplyGate() gin.HandlerFunc {
@@ -266,13 +269,13 @@ func SourceDeveloperItems(c *gin.Context) {
 	ownedPlugins := make([]gin.H, 0)
 	for _, plugin := range plugins {
 		if plugin.DeveloperID == developer.ID && includeSourceCatalogItem(plugin.Status, status) {
-			ownedPlugins = append(ownedPlugins, sourcePluginView(plugin))
+			ownedPlugins = append(ownedPlugins, developerPluginView(plugin))
 		}
 	}
 	ownedTemplates := make([]gin.H, 0)
 	for _, template := range templates {
 		if template.DeveloperID == developer.ID && includeSourceCatalogItem(template.Status, status) {
-			ownedTemplates = append(ownedTemplates, sourceTemplateView(template))
+			ownedTemplates = append(ownedTemplates, developerTemplateView(template))
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"plugins": ownedPlugins, "homeTemplates": ownedTemplates}})
@@ -299,7 +302,7 @@ func SourceDeveloperUpsertPlugin(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "插件草稿已保存", "data": sourcePluginView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "插件草稿已保存", "data": developerPluginView(saved)})
 }
 
 func SourceDeveloperSubmitPlugin(c *gin.Context) {
@@ -327,7 +330,7 @@ func SourceDeveloperSubmitPlugin(c *gin.Context) {
 		return
 	}
 	notifyCatalogSubmitted(sourceKindPlugin, saved.ID, saved.Name)
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已提交审核", "data": sourcePluginView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已提交审核", "data": developerPluginView(saved)})
 }
 
 func SourceDeveloperPluginVersions(c *gin.Context) {
@@ -377,7 +380,7 @@ func SourceDeveloperUpsertTemplate(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "模板草稿已保存", "data": sourceTemplateView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "模板草稿已保存", "data": developerTemplateView(saved)})
 }
 
 func SourceDeveloperSubmitTemplate(c *gin.Context) {
@@ -405,7 +408,7 @@ func SourceDeveloperSubmitTemplate(c *gin.Context) {
 		return
 	}
 	notifyCatalogSubmitted(sourceKindTemplate, saved.ID, saved.Name)
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已提交审核", "data": sourceTemplateView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已提交审核", "data": developerTemplateView(saved)})
 }
 
 func SourceDeveloperTemplateVersions(c *gin.Context) {
@@ -573,6 +576,24 @@ func sourceApplicationView(item sourceApplication) gin.H {
 	}
 }
 
+func developerPluginView(item sourcePlugin) gin.H {
+	view := sourcePluginView(item)
+	concealDeveloperPaidStorage(view)
+	return view
+}
+
+func developerTemplateView(item sourceTemplate) gin.H {
+	view := sourceTemplateView(item)
+	concealDeveloperPaidStorage(view)
+	return view
+}
+
+func developerReleaseView(item sourceRelease) gin.H {
+	view := sourceReleaseView(item)
+	concealDeveloperPaidStorage(view)
+	return view
+}
+
 func sourcePluginView(item sourcePlugin) gin.H {
 	view := gin.H{
 		"id": item.ID, "developerId": item.DeveloperID, "appId": item.AppID, "category": item.Category, "name": item.Name,
@@ -584,6 +605,7 @@ func sourcePluginView(item sourcePlugin) gin.H {
 		"updatedAt": item.UpdatedAt.Format(time.RFC3339), "createdAt": item.CreatedAt.Format(time.RFC3339),
 	}
 	attachPaidOriginView(view, item.OriginURL, item.OriginHealth)
+	attachGitHubPaidView(view, item.PriceCents, item.DownloadURL, item.OriginHealth)
 	return view
 }
 
@@ -602,6 +624,7 @@ func sourceTemplateView(item sourceTemplate) gin.H {
 		"updatedAt": item.UpdatedAt.Format(time.RFC3339), "createdAt": item.CreatedAt.Format(time.RFC3339),
 	}
 	attachPaidOriginView(view, item.OriginURL, item.OriginHealth)
+	attachGitHubPaidView(view, item.PriceCents, item.TemplateURL, item.OriginHealth)
 	return view
 }
 
@@ -619,6 +642,7 @@ func sourceReleaseView(item sourceRelease) gin.H {
 	if strings.TrimSpace(item.OriginURL) != "" {
 		view["originUrl"] = item.OriginURL
 	}
+	attachGitHubPaidView(view, 0, item.Location, "")
 	return view
 }
 
@@ -855,7 +879,7 @@ func writeSourceVersionList(c *gin.Context, kind, itemID string) {
 	}
 	list := make([]gin.H, 0, len(items))
 	for _, item := range items {
-		list = append(list, sourceReleaseView(item))
+		list = append(list, developerReleaseView(item))
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": list, "total": len(list)}})
 }
@@ -882,7 +906,7 @@ func sourceDeveloperWriteVersion(c *gin.Context, kind string) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本草稿已保存", "data": sourceReleaseView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本草稿已保存", "data": developerReleaseView(saved)})
 }
 
 func sourceDeveloperSubmitVersion(c *gin.Context, kind string) {
@@ -934,7 +958,7 @@ func sourceDeveloperSubmitVersion(c *gin.Context, kind string) {
 		return
 	}
 	notifyCatalogVersionSubmitted(kind, itemID, saved.Version)
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本已提交审核", "data": sourceReleaseView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本已提交审核", "data": developerReleaseView(saved)})
 }
 
 func bindSourceReleaseDraft(c *gin.Context, kind string) (sourceRelease, error) {
@@ -955,6 +979,9 @@ func bindSourceReleaseDraft(c *gin.Context, kind string) (sourceRelease, error) 
 		return sourceRelease{}, err
 	}
 	itemID := strings.TrimSpace(c.Param("id"))
+	if _, priceErr := catalogItemPrice(kind, itemID); priceErr != nil && !errors.Is(priceErr, errSourceNotFound) {
+		return sourceRelease{}, priceErr
+	}
 	var originURL string
 	location, sha256Value, originURL, err = adoptPaidVersionLocation(kind, itemID, version, location, sha256Value)
 	if err != nil {

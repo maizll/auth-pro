@@ -75,7 +75,7 @@ func TestPublicIndexOmitsPaidPackageLocation(t *testing.T) {
 func TestPublicPackageRouteRefusesPrivatePaidFiles(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AUTO_PRO_DATA_DIR", dataDir)
-	router, _ := sourceStationRouter(t)
+	router, store := sourceStationRouter(t)
 	_, dev, _ := sourceApproveDeveloper(t, router, "seal-dev", "secret")
 
 	freePayload := sourcePluginTestZIP(t)
@@ -139,8 +139,12 @@ func TestPublicPackageRouteRefusesPrivatePaidFiles(t *testing.T) {
 	}
 	body := `{"appId":1,"id":"paid-plugin","name":"付费插件","version":"1.0.0","description":"封口测试","category":"other","priceCents":1990,"downloadUrl":"` + paidPublic + `","sha256":"` + uploaded.Data.SHA256 + `"}`
 	saved := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins", dev, body)
-	if sourceBodyCode(t, saved) != 200 || !strings.Contains(saved.Body.String(), `"billing":"one_time"`) || !strings.Contains(saved.Body.String(), `"paid:`) {
+	if sourceBodyCode(t, saved) != 200 || !strings.Contains(saved.Body.String(), `"billing":"one_time"`) || !strings.Contains(saved.Body.String(), `"storedBySite":true`) || strings.Contains(saved.Body.String(), `"paid:`) {
 		t.Fatalf("seal save=%s", saved.Body.String())
+	}
+	sealed, err := store.GetPlugin("paid-plugin")
+	if err != nil || !isPrivatePackageRef(sealed.DownloadURL) {
+		t.Fatalf("sealed item=%#v err=%v", sealed, err)
 	}
 	if got := sourceJSON(t, router, http.MethodGet, paidPublic, "", ""); got.Code != http.StatusNotFound || strings.Contains(got.Body.String(), "PK") {
 		t.Fatalf("sealed public file still served: status=%d", got.Code)

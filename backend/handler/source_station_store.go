@@ -90,10 +90,11 @@ type sourceAuthor struct {
 }
 
 type sourceCatalogApp struct {
-	ID      int64  `json:"id"`
-	AppKey  string `json:"appKey"`
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
+	ID       int64  `json:"id"`
+	AppKey   string `json:"appKey"`
+	Name     string `json:"name"`
+	Enabled  bool   `json:"enabled"`
+	Archived bool   `json:"archived"`
 }
 
 type sourcePlugin struct {
@@ -154,18 +155,20 @@ type sourceTemplate struct {
 }
 
 type sourceRelease struct {
-	Kind       string    `json:"kind"`
-	ItemID     string    `json:"itemId"`
-	Version    string    `json:"version"`
-	Changelog  string    `json:"changelog"`
-	Location   string    `json:"location"`
-	OriginURL  string    `json:"-"`
-	SHA256     string    `json:"sha256"`
-	Status     string    `json:"status"`
-	ReviewNote string    `json:"reviewNote"`
-	ReviewedBy string    `json:"reviewedBy"`
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	Kind          string    `json:"kind"`
+	ItemID        string    `json:"itemId"`
+	Version       string    `json:"version"`
+	Changelog     string    `json:"changelog"`
+	Location      string    `json:"location"`
+	StorageDriver string    `json:"storageDriver"`
+	ObjectKey     string    `json:"objectKey"`
+	OriginURL     string    `json:"-"`
+	SHA256        string    `json:"sha256"`
+	Status        string    `json:"status"`
+	ReviewNote    string    `json:"reviewNote"`
+	ReviewedBy    string    `json:"reviewedBy"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
 type sourceApplication struct {
@@ -292,6 +295,7 @@ type sourceStationStore interface {
 	ListCatalogApps() ([]sourceCatalogApp, error)
 	GetCatalogAppByID(id int64) (sourceCatalogApp, error)
 	GetCatalogAppByKey(appKey string) (sourceCatalogApp, error)
+	SetCatalogAppID(kind, id string, appID int64) error
 
 	AppendAudit(entry sourceAuditEntry) error
 	ListAudit(limit int) ([]sourceAuditEntry, error)
@@ -442,9 +446,18 @@ func sourceTransitionAllowed(from, to string) bool {
 		return from == sourceItemPublished
 	case sourceItemDeprecated:
 		return from == sourceItemPublished || from == sourceItemHidden || from == sourceItemApproved
+	case sourceItemDraft:
+		return from == sourceItemDeprecated
 	default:
 		return false
 	}
+}
+
+func catalogStatusAuditAction(from, to string) string {
+	if from == sourceItemDeprecated && to == sourceItemDraft {
+		return "restore"
+	}
+	return sourceCatalogAuditAction(to)
 }
 
 type memorySourceStore struct {
@@ -462,6 +475,9 @@ type memorySourceStore struct {
 	audits           []sourceAuditEntry
 	snapshot         sourceIndexSnapshot
 	releaseSettings  sourceReleaseSettings
+	githubPaidToken  string
+	githubPaidOwner  string
+	githubPaidRepo   string
 	categoryExtras   []sourceCatalogCategory
 	catalogApps      map[int64]sourceCatalogApp
 	nextAppID        int64
@@ -517,6 +533,33 @@ func (store *memorySourceStore) GetCatalogAppByID(id int64) (sourceCatalogApp, e
 		return sourceCatalogApp{}, errSourceAppNotFound
 	}
 	return item, nil
+}
+
+func (store *memorySourceStore) SetCatalogAppID(kind, id string, appID int64) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	now := time.Now().UTC()
+	switch kind {
+	case sourceKindPlugin:
+		item, ok := store.plugins[id]
+		if !ok {
+			return errSourceNotFound
+		}
+		item.AppID = appID
+		item.UpdatedAt = now
+		store.plugins[id] = item
+	case sourceKindTemplate:
+		item, ok := store.templates[id]
+		if !ok {
+			return errSourceNotFound
+		}
+		item.AppID = appID
+		item.UpdatedAt = now
+		store.templates[id] = item
+	default:
+		return errSourceNotFound
+	}
+	return nil
 }
 
 func (store *memorySourceStore) GetCatalogAppByKey(appKey string) (sourceCatalogApp, error) {
@@ -713,7 +756,8 @@ func (store *memorySourceStore) SetPluginStatus(id, status, actor, note string) 
 	if !ok {
 		return sourcePlugin{}, errSourceNotFound
 	}
-	if !sourceTransitionAllowed(item.Status, status) {
+	fromStatus := item.Status
+	if !sourceTransitionAllowed(fromStatus, status) {
 		return sourcePlugin{}, errSourceInvalidStatus
 	}
 	if status == sourceItemPublished {
@@ -733,7 +777,7 @@ func (store *memorySourceStore) SetPluginStatus(id, status, actor, note string) 
 	item.ReviewedBy = actor
 	item.UpdatedAt = time.Now().UTC()
 	store.plugins[id] = item
-	store.auditLocked(sourceCatalogAuditAction(status), "plugin", id, actor, note)
+	store.auditLocked(catalogStatusAuditAction(fromStatus, status), "plugin", id, actor, note)
 	return item, nil
 }
 
@@ -888,7 +932,8 @@ func (store *memorySourceStore) SetTemplateStatus(id, status, actor, note string
 	if !ok {
 		return sourceTemplate{}, errSourceNotFound
 	}
-	if !sourceTransitionAllowed(item.Status, status) {
+	fromStatus := item.Status
+	if !sourceTransitionAllowed(fromStatus, status) {
 		return sourceTemplate{}, errSourceInvalidStatus
 	}
 	if status == sourceItemPublished {
@@ -908,7 +953,7 @@ func (store *memorySourceStore) SetTemplateStatus(id, status, actor, note string
 	item.ReviewedBy = actor
 	item.UpdatedAt = time.Now().UTC()
 	store.templates[id] = item
-	store.auditLocked(sourceCatalogAuditAction(status), "template", id, actor, note)
+	store.auditLocked(catalogStatusAuditAction(fromStatus, status), "template", id, actor, note)
 	return item, nil
 }
 
@@ -1578,6 +1623,8 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			download_url VARCHAR(500) NOT NULL DEFAULT '',
 			sha256 CHAR(64) NOT NULL DEFAULT '',
 			origin_url VARCHAR(500) NOT NULL DEFAULT '',
+			storage_driver VARCHAR(20) NOT NULL DEFAULT '',
+			object_key VARCHAR(500) NOT NULL DEFAULT '',
 			status VARCHAR(20) NOT NULL DEFAULT 'draft',
 			review_note VARCHAR(500) NOT NULL DEFAULT '',
 			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
@@ -1593,6 +1640,8 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			template_url VARCHAR(500) NOT NULL DEFAULT '',
 			sha256 CHAR(64) NOT NULL DEFAULT '',
 			origin_url VARCHAR(500) NOT NULL DEFAULT '',
+			storage_driver VARCHAR(20) NOT NULL DEFAULT '',
+			object_key VARCHAR(500) NOT NULL DEFAULT '',
 			status VARCHAR(20) NOT NULL DEFAULT 'draft',
 			review_note VARCHAR(500) NOT NULL DEFAULT '',
 			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
@@ -1608,6 +1657,12 @@ func ensureSourceStationStorage(db *sql.DB) error {
 		}
 	}
 	if err := ensureSourceStationMigrations(db); err != nil {
+		return err
+	}
+	if err := ensureAppDeletedAt(db); err != nil {
+		return err
+	}
+	if err := ensureCatalogForeignKeys(db); err != nil {
 		return err
 	}
 	if _, err := db.Exec(`INSERT IGNORE INTO roles (role_name, role_code, description, discount, enabled)
@@ -1881,7 +1936,7 @@ func (mysqlSourceStore) SetPluginStatus(id, status, actor, note string) (sourceP
 		status, truncateText(note, 500), actor, id); err != nil {
 		return sourcePlugin{}, err
 	}
-	mysqlAppendAudit(db, sourceCatalogAuditAction(status), "plugin", id, actor, note)
+	mysqlAppendAudit(db, catalogStatusAuditAction(item.Status, status), "plugin", id, actor, note)
 	return (mysqlSourceStore{}).GetPlugin(id)
 }
 
@@ -2139,7 +2194,7 @@ func (mysqlSourceStore) SetTemplateStatus(id, status, actor, note string) (sourc
 		status, truncateText(note, 500), actor, id); err != nil {
 		return sourceTemplate{}, err
 	}
-	mysqlAppendAudit(db, sourceCatalogAuditAction(status), "template", id, actor, note)
+	mysqlAppendAudit(db, catalogStatusAuditAction(item.Status, status), "template", id, actor, note)
 	return (mysqlSourceStore{}).GetTemplate(id)
 }
 
@@ -2945,7 +3000,10 @@ func (mysqlSourceStore) ListCatalogApps() ([]sourceCatalogApp, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(`SELECT id, app_key, app_name, enabled FROM apps ORDER BY id ASC`)
+	if err := ensureAppDeletedAt(db); err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`SELECT id, app_key, app_name, enabled, deleted_at FROM apps ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -2954,10 +3012,12 @@ func (mysqlSourceStore) ListCatalogApps() ([]sourceCatalogApp, error) {
 	for rows.Next() {
 		var item sourceCatalogApp
 		var enabled int
-		if err := rows.Scan(&item.ID, &item.AppKey, &item.Name, &enabled); err != nil {
+		var deletedAt sql.NullTime
+		if err := rows.Scan(&item.ID, &item.AppKey, &item.Name, &enabled, &deletedAt); err != nil {
 			return nil, err
 		}
 		item.Enabled = enabled == 1
+		item.Archived = deletedAt.Valid
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -2971,9 +3031,13 @@ func (mysqlSourceStore) GetCatalogAppByID(id int64) (sourceCatalogApp, error) {
 	if err != nil {
 		return sourceCatalogApp{}, err
 	}
+	if err := ensureAppDeletedAt(db); err != nil {
+		return sourceCatalogApp{}, err
+	}
 	var item sourceCatalogApp
 	var enabled int
-	err = db.QueryRow(`SELECT id, app_key, app_name, enabled FROM apps WHERE id=?`, id).Scan(&item.ID, &item.AppKey, &item.Name, &enabled)
+	var deletedAt sql.NullTime
+	err = db.QueryRow(`SELECT id, app_key, app_name, enabled, deleted_at FROM apps WHERE id=?`, id).Scan(&item.ID, &item.AppKey, &item.Name, &enabled, &deletedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceCatalogApp{}, errSourceAppNotFound
 	}
@@ -2981,6 +3045,7 @@ func (mysqlSourceStore) GetCatalogAppByID(id int64) (sourceCatalogApp, error) {
 		return sourceCatalogApp{}, err
 	}
 	item.Enabled = enabled == 1
+	item.Archived = deletedAt.Valid
 	return item, nil
 }
 
@@ -2993,9 +3058,13 @@ func (mysqlSourceStore) GetCatalogAppByKey(appKey string) (sourceCatalogApp, err
 	if err != nil {
 		return sourceCatalogApp{}, err
 	}
+	if err := ensureAppDeletedAt(db); err != nil {
+		return sourceCatalogApp{}, err
+	}
 	var item sourceCatalogApp
 	var enabled int
-	err = db.QueryRow(`SELECT id, app_key, app_name, enabled FROM apps WHERE app_key=?`, appKey).Scan(&item.ID, &item.AppKey, &item.Name, &enabled)
+	var deletedAt sql.NullTime
+	err = db.QueryRow(`SELECT id, app_key, app_name, enabled, deleted_at FROM apps WHERE app_key=?`, appKey).Scan(&item.ID, &item.AppKey, &item.Name, &enabled, &deletedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceCatalogApp{}, errSourceAppNotFound
 	}
@@ -3003,7 +3072,36 @@ func (mysqlSourceStore) GetCatalogAppByKey(appKey string) (sourceCatalogApp, err
 		return sourceCatalogApp{}, err
 	}
 	item.Enabled = enabled == 1
+	item.Archived = deletedAt.Valid
 	return item, nil
+}
+
+func (mysqlSourceStore) SetCatalogAppID(kind, id string, appID int64) error {
+	table := ""
+	switch kind {
+	case sourceKindPlugin:
+		table = "source_catalog_plugins"
+	case sourceKindTemplate:
+		table = "source_catalog_templates"
+	default:
+		return errSourceNotFound
+	}
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	if err := ensureSourceStationStorage(db); err != nil {
+		return err
+	}
+	result, err := db.Exec(`UPDATE `+table+` SET app_id=? WHERE id=?`, appID, id)
+	if err != nil {
+		return err
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		return errSourceNotFound
+	}
+	return nil
 }
 
 func sourceCatalogJSON() ([]byte, ginHCatalog, error) {

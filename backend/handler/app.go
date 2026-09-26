@@ -4,9 +4,12 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"auto_pro/config"
@@ -23,7 +26,11 @@ func AppList(c *gin.Context) {
 		return
 	}
 
-	rows, err := db.Query("SELECT id, app_name FROM apps WHERE enabled = 1 ORDER BY id ASC")
+	if err := ensureAppDeletedAt(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用归档字段失败"})
+		return
+	}
+	rows, err := db.Query("SELECT id, app_name FROM apps WHERE enabled = 1 AND deleted_at IS NULL ORDER BY id ASC")
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "查询失败"})
 		return
@@ -72,6 +79,10 @@ func AppManageList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化版本数据失败"})
 		return
 	}
+	if err := ensureAppDeletedAt(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用归档字段失败"})
+		return
+	}
 	if err := prepareCommercialProduct(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化商业版产品失败"})
 		return
@@ -85,7 +96,7 @@ func AppManageList(c *gin.Context) {
 
 	rows, err := db.Query(`
 		SELECT a.id, a.app_name, a.app_key, a.app_secret, a.description, a.enabled, a.commercial_product,
-		       a.license_required, a.purchase_license_type_mask, a.created_at,
+		       a.license_required, a.purchase_license_type_mask, a.created_at, a.deleted_at,
 		       (SELECT COUNT(*) FROM licenses l WHERE l.app_id = a.id) AS license_count,
 		       (SELECT COUNT(*) FROM app_versions v WHERE v.app_id = a.id) AS version_count,
 		       COALESCE((
@@ -107,6 +118,7 @@ func AppManageList(c *gin.Context) {
 		AppSecret              string              `json:"appSecret"`
 		Remark                 string              `json:"remark"`
 		Enabled                bool                `json:"enabled"`
+		Archived               bool                `json:"archived"`
 		LicenseRequired        bool                `json:"licenseRequired"`
 		PurchaseLicenseTypes   []string            `json:"purchaseLicenseTypes"`
 		CommercialProduct      bool                `json:"commercialProduct"`
@@ -124,12 +136,14 @@ func AppManageList(c *gin.Context) {
 	for rows.Next() {
 		var item appManageItem
 		var createdAt time.Time
+		var deletedAt sql.NullTime
 		var desc string
 		var purchaseLicenseTypeMask uint8
 		var commercial int
 		if err := rows.Scan(&item.ID, &item.Name, &item.AppKey, &item.AppSecret,
-			&desc, &item.Enabled, &commercial, &item.LicenseRequired, &purchaseLicenseTypeMask, &createdAt, &item.LicenseCount, &item.VersionCount,
+			&desc, &item.Enabled, &commercial, &item.LicenseRequired, &purchaseLicenseTypeMask, &createdAt, &deletedAt, &item.LicenseCount, &item.VersionCount,
 			&item.RecentVersion); err == nil {
+			item.Archived = deletedAt.Valid
 			item.Remark = desc
 			item.CommercialProduct = commercial == 1
 			item.PurchaseLicenseTypes = purchaseLicenseTypesFromMask(purchaseLicenseTypeMask)
@@ -408,76 +422,127 @@ func AppResetSecret(c *gin.Context) {
 // AppDelete 删除应用
 func AppDelete(c *gin.Context) {
 	id := c.Param("id")
+	appID, convErr := strconv.ParseInt(strings.TrimSpace(id), 10, 64)
+	if convErr != nil || appID <= 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用不存在"})
+		return
+	}
+	migrateAppID, migrateErr := parseMigrateAppID(c)
+	if migrateErr != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": migrateErr.Error()})
+		return
+	}
+	archiveInPlace := requestAppArchiveInPlace(c)
+	if err := relocateCatalogBeforeAppDelete(appID, migrateAppID, archiveInPlace, c.GetString("username")); err != nil {
+		var required appCatalogMigrateRequiredError
+		if errors.As(err, &required) {
+			c.JSON(http.StatusOK, gin.H{"code": 409, "msg": err.Error(), "data": gin.H{"count": required.Count}})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
 
 	db, err := config.DB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	if err := EnsureAppVersionsTable(db); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化版本数据失败"})
+	if err := ensureAppDeletedAt(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用归档字段失败"})
 		return
 	}
 
 	tx, err := db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "删除应用失败"})
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "归档应用失败"})
 		return
 	}
 	defer tx.Rollback()
-	var lockedAppID int64
-	if err := tx.QueryRow("SELECT id FROM apps WHERE id = ? FOR UPDATE", id).Scan(&lockedAppID); err != nil {
-		if err == sql.ErrNoRows {
-			c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "应用不存在"})
-		} else {
-			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "锁定应用失败"})
-		}
-		return
-	}
-
-	rows, err := tx.Query("SELECT package_path FROM app_versions WHERE app_id = ? AND package_path <> '' FOR UPDATE", id)
+	result, err := tx.Exec(`UPDATE apps SET deleted_at = UTC_TIMESTAMP(), enabled = 0 WHERE id = ? AND deleted_at IS NULL`, id)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "查询应用版本失败"})
-		return
-	}
-	var packagePaths []string
-	for rows.Next() {
-		var packagePath string
-		if scanErr := rows.Scan(&packagePath); scanErr != nil {
-			rows.Close()
-			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取应用版本失败"})
-			return
-		}
-		packagePaths = append(packagePaths, packagePath)
-	}
-	if err := rows.Close(); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取应用版本失败"})
-		return
-	}
-
-	if _, err = tx.Exec("DELETE FROM app_versions WHERE app_id = ?", id); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "删除应用版本失败"})
-		return
-	}
-	result, err := tx.Exec("DELETE FROM apps WHERE id = ?", id)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "删除失败"})
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "归档失败"})
 		return
 	}
 	affected, _ := result.RowsAffected()
 	if affected != 1 {
-		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "应用不存在"})
+		var deletedAt sql.NullTime
+		scanErr := tx.QueryRow(`SELECT deleted_at FROM apps WHERE id = ?`, id).Scan(&deletedAt)
+		if scanErr == sql.ErrNoRows {
+			c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "应用不存在"})
+			return
+		}
+		if scanErr != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "归档失败"})
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "归档应用失败"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "应用已归档"})
 		return
 	}
 	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "删除应用失败"})
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "归档应用失败"})
 		return
 	}
-	for _, packagePath := range packagePaths {
-		_ = removeReleasePackage(packagePath)
+	detail := "归档应用，授权、套餐和版本保留"
+	if migrateAppID > 0 {
+		detail = fmt.Sprintf("目录条目已迁移到应用 %d 后归档", migrateAppID)
+	} else if archiveInPlace {
+		detail = "直接归档，目录条目仍绑定本应用"
 	}
+	_ = currentSourceStationStore().AppendAudit(sourceAuditEntry{
+		ActorType: "admin", ActorName: c.GetString("username"), Action: "archive_app",
+		TargetType: "app", TargetID: id, Detail: detail,
+	})
 
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "删除成功"})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "应用已归档"})
+}
+
+// AppRestore 把已归档的应用恢复为可继续登记的状态。授权、版本和目录绑定保持不变。
+func AppRestore(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	appID, convErr := strconv.ParseInt(id, 10, 64)
+	if convErr != nil || appID <= 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用不存在"})
+		return
+	}
+	db, err := config.DB()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
+		return
+	}
+	if err := ensureAppDeletedAt(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用归档字段失败"})
+		return
+	}
+	result, err := db.Exec(`UPDATE apps SET deleted_at = NULL, enabled = 1 WHERE id = ? AND deleted_at IS NOT NULL`, id)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "恢复应用失败"})
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected != 1 {
+		var exists int
+		scanErr := db.QueryRow(`SELECT COUNT(*) FROM apps WHERE id = ?`, id).Scan(&exists)
+		if scanErr != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "恢复应用失败"})
+			return
+		}
+		if exists == 0 {
+			c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "应用不存在"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "该应用未归档"})
+		return
+	}
+	_ = currentSourceStationStore().AppendAudit(sourceAuditEntry{
+		ActorType: "admin", ActorName: c.GetString("username"), Action: "restore_app",
+		TargetType: "app", TargetID: id, Detail: "恢复已归档的应用，授权、版本和目录绑定保持不变",
+	})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "应用已恢复"})
 }
 
 func randomHex(n int) string {

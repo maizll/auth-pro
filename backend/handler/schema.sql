@@ -49,6 +49,7 @@ CREATE TABLE `apps` (
   `purchase_license_type_mask` TINYINT UNSIGNED NOT NULL DEFAULT 15 COMMENT '允许用户和代理购买的授权类型位掩码',
   `created_at`  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at`  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted_at`  DATETIME     NULL DEFAULT NULL COMMENT '归档时间，非空表示已归档',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_app_key` (`app_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='应用表';
@@ -884,6 +885,8 @@ CREATE TABLE `source_catalog_plugin_versions` (
   `download_url` VARCHAR(500) NOT NULL DEFAULT '',
   `sha256` CHAR(64) NOT NULL DEFAULT '',
   `origin_url` VARCHAR(500) NOT NULL DEFAULT '',
+  `storage_driver` VARCHAR(20) NOT NULL DEFAULT '',
+  `object_key` VARCHAR(500) NOT NULL DEFAULT '',
   `status` VARCHAR(20) NOT NULL DEFAULT 'draft',
   `review_note` VARCHAR(500) NOT NULL DEFAULT '',
   `reviewed_by` VARCHAR(50) NOT NULL DEFAULT '',
@@ -901,6 +904,8 @@ CREATE TABLE `source_catalog_template_versions` (
   `template_url` VARCHAR(500) NOT NULL DEFAULT '',
   `sha256` CHAR(64) NOT NULL DEFAULT '',
   `origin_url` VARCHAR(500) NOT NULL DEFAULT '',
+  `storage_driver` VARCHAR(20) NOT NULL DEFAULT '',
+  `object_key` VARCHAR(500) NOT NULL DEFAULT '',
   `status` VARCHAR(20) NOT NULL DEFAULT 'draft',
   `review_note` VARCHAR(500) NOT NULL DEFAULT '',
   `reviewed_by` VARCHAR(50) NOT NULL DEFAULT '',

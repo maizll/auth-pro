@@ -176,12 +176,13 @@ func AdminSourceCatalogCategoriesSave(c *gin.Context) {
 func AdminSourceCatalogItems(c *gin.Context) {
 	status := strings.TrimSpace(c.Query("status"))
 	category := strings.ToLower(strings.TrimSpace(c.Query("category")))
+	unassigned := requestSourceCatalogUnassigned(c)
 	appID, err := requestSourceCatalogAppID(c)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
-	items, err := listSourceCatalogItems(status, category, appID)
+	items, err := listSourceCatalogItems(status, category, appID, unassigned)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取软件目录失败"})
 		return
@@ -189,7 +190,7 @@ func AdminSourceCatalogItems(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": items, "total": len(items)}})
 }
 
-func listSourceCatalogItems(status, category string, appID int64) ([]gin.H, error) {
+func listSourceCatalogItems(status, category string, appID int64, unassigned bool) ([]gin.H, error) {
 	plugins, err := currentSourceStationStore().ListPlugins(status)
 	if err != nil {
 		return nil, err
@@ -198,9 +199,16 @@ func listSourceCatalogItems(status, category string, appID int64) ([]gin.H, erro
 	if err != nil {
 		return nil, err
 	}
+	var live map[int64]struct{}
+	if unassigned {
+		live, err = liveCatalogAppIDs()
+		if err != nil {
+			return nil, err
+		}
+	}
 	items := make([]gin.H, 0, len(plugins)+len(templates))
 	for _, plugin := range plugins {
-		if !matchSourceCatalogAppID(plugin.AppID, appID) {
+		if !catalogItemMatchesApp(plugin.AppID, appID, unassigned, live) {
 			continue
 		}
 		if !includeSourceCatalogItem(plugin.Status, status) {
@@ -212,7 +220,7 @@ func listSourceCatalogItems(status, category string, appID int64) ([]gin.H, erro
 		}
 	}
 	for _, template := range templates {
-		if !matchSourceCatalogAppID(template.AppID, appID) {
+		if !catalogItemMatchesApp(template.AppID, appID, unassigned, live) {
 			continue
 		}
 		if !includeSourceCatalogItem(template.Status, status) {

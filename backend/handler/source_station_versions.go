@@ -118,6 +118,7 @@ func (store *memorySourceStore) upsertVersionLocked(rel sourceRelease, developer
 			if rel.Changelog != "" {
 				existing.Changelog = rel.Changelog
 			}
+			stampReleaseStorage(&existing)
 			existing.Status = sourceVersionDraft
 			existing.ReviewNote = ""
 			existing.ReviewedBy = ""
@@ -139,6 +140,7 @@ func (store *memorySourceStore) upsertVersionLocked(rel sourceRelease, developer
 		if rel.Changelog != "" {
 			existing.Changelog = rel.Changelog
 		}
+		stampReleaseStorage(&existing)
 		existing.UpdatedAt = now
 		bucket[rel.ItemID][rel.Version] = existing
 		if err := store.denormalizeLatestLocked(rel.Kind, rel.ItemID); err != nil {
@@ -149,6 +151,7 @@ func (store *memorySourceStore) upsertVersionLocked(rel sourceRelease, developer
 	if rel.Status == "" {
 		rel.Status = sourceVersionDraft
 	}
+	stampReleaseStorage(&rel)
 	rel.CreatedAt = now
 	rel.UpdatedAt = now
 	bucket[rel.ItemID][rel.Version] = rel
@@ -314,16 +317,21 @@ func (store *memorySourceStore) applyItemStatusToVersionsLocked(kind, itemID, st
 			rel, ok = store.pickVersionLocked(kind, itemID, preferred, sourceVersionDraft)
 		}
 		if !ok {
+			rel, ok = store.pickVersionLocked(kind, itemID, preferred, sourceVersionPublished)
+		}
+		if !ok {
 			return errSourceNotFound
 		}
-		if !sourceItemReady(rel.SHA256, rel.Location) {
-			return errSourcePublishIncomplete
+		if rel.Status != sourceVersionPublished {
+			if !sourceItemReady(rel.SHA256, rel.Location) {
+				return errSourcePublishIncomplete
+			}
+			rel.Status = sourceVersionPublished
+			rel.ReviewNote = truncateText(note, 500)
+			rel.ReviewedBy = actor
+			rel.UpdatedAt = time.Now().UTC()
+			store.versionMap(kind)[itemID][rel.Version] = rel
 		}
-		rel.Status = sourceVersionPublished
-		rel.ReviewNote = truncateText(note, 500)
-		rel.ReviewedBy = actor
-		rel.UpdatedAt = time.Now().UTC()
-		store.versionMap(kind)[itemID][rel.Version] = rel
 		if err := store.setLatestLocked(kind, itemID, rel.Version, actor, note); err != nil {
 			return err
 		}
@@ -542,15 +550,16 @@ func (mysqlSourceStore) UpsertVersion(rel sourceRelease, developerID int64, asAd
 	rel.Changelog = truncateText(rel.Changelog, 2000)
 	rel.Location = strings.TrimSpace(rel.Location)
 	rel.SHA256 = strings.ToLower(strings.TrimSpace(rel.SHA256))
-	existing, err := (mysqlSourceStore{}).GetVersion(rel.Kind, rel.ItemID, rel.Version)
-	if err != nil && !errors.Is(err, errSourceNotFound) {
-		return sourceRelease{}, err
+	existing, getErr := (mysqlSourceStore{}).GetVersion(rel.Kind, rel.ItemID, rel.Version)
+	if getErr != nil && !errors.Is(getErr, errSourceNotFound) {
+		return sourceRelease{}, getErr
 	}
 	db, err := config.DB()
 	if err != nil {
 		return sourceRelease{}, err
 	}
-	if err == nil {
+	// config.DB 会覆盖 err。版本不存在时不能再拿那个 err 判断，否则会把空状态写进去，上架就报「目录项不存在」。
+	if getErr == nil {
 		if existing.Status == sourceVersionPublished || existing.Status == sourceVersionDeprecated {
 			if !asAdmin && (existing.Location != rel.Location || existing.SHA256 != rel.SHA256) && (rel.Location != "" || rel.SHA256 != "") {
 				return sourceRelease{}, errSourceVersionImmutable
@@ -737,9 +746,16 @@ func (mysqlSourceStore) applyItemStatusToVersions(kind, itemID, status, actor, n
 			rel, ok = pick(sourceVersionDraft)
 		}
 		if !ok {
+			rel, ok = pick(sourceVersionPublished)
+		}
+		if !ok {
 			return errSourceNotFound
 		}
-		if _, err := (mysqlSourceStore{}).SetVersionStatus(kind, itemID, rel.Version, sourceVersionPublished, actor, note); err != nil {
+		if rel.Status != sourceVersionPublished {
+			if _, err := (mysqlSourceStore{}).SetVersionStatus(kind, itemID, rel.Version, sourceVersionPublished, actor, note); err != nil {
+				return err
+			}
+		} else if err := (mysqlSourceStore{}).pointLatest(kind, itemID, rel.Version); err != nil {
 			return err
 		}
 	case sourceItemRejected:
@@ -885,7 +901,7 @@ func mysqlVersionListQuery(kind, itemID string) (string, []any) {
 	if kind == sourceKindTemplate {
 		loc = "template_url"
 	}
-	return `SELECT ` + idCol + `, version, changelog, ` + loc + `, sha256, origin_url, status, review_note, reviewed_by, created_at, updated_at FROM ` + table + ` WHERE ` + idCol + `=? ORDER BY created_at DESC, version DESC`, []any{itemID}
+	return `SELECT ` + idCol + `, version, changelog, ` + loc + `, sha256, origin_url, status, review_note, reviewed_by, created_at, updated_at, storage_driver, object_key FROM ` + table + ` WHERE ` + idCol + `=? ORDER BY created_at DESC, version DESC`, []any{itemID}
 }
 
 func mysqlVersionGetQuery(kind, itemID, version string) (string, []any) {
@@ -894,38 +910,45 @@ func mysqlVersionGetQuery(kind, itemID, version string) (string, []any) {
 	if kind == sourceKindTemplate {
 		loc = "template_url"
 	}
-	return `SELECT ` + idCol + `, version, changelog, ` + loc + `, sha256, origin_url, status, review_note, reviewed_by, created_at, updated_at FROM ` + table + ` WHERE ` + idCol + `=? AND version=?`, []any{itemID, version}
+	return `SELECT ` + idCol + `, version, changelog, ` + loc + `, sha256, origin_url, status, review_note, reviewed_by, created_at, updated_at, storage_driver, object_key FROM ` + table + ` WHERE ` + idCol + `=? AND version=?`, []any{itemID, version}
 }
 
 func scanSourceRelease(scanner interface{ Scan(dest ...any) error }, kind string) (sourceRelease, error) {
 	var item sourceRelease
 	var createdAt, updatedAt time.Time
 	item.Kind = kind
-	if err := scanner.Scan(&item.ItemID, &item.Version, &item.Changelog, &item.Location, &item.SHA256, &item.OriginURL, &item.Status, &item.ReviewNote, &item.ReviewedBy, &createdAt, &updatedAt); err != nil {
+	if err := scanner.Scan(&item.ItemID, &item.Version, &item.Changelog, &item.Location, &item.SHA256, &item.OriginURL, &item.Status, &item.ReviewNote, &item.ReviewedBy, &createdAt, &updatedAt, &item.StorageDriver, &item.ObjectKey); err != nil {
 		return sourceRelease{}, err
 	}
 	item.CreatedAt, item.UpdatedAt = createdAt.UTC(), updatedAt.UTC()
+	if strings.TrimSpace(item.StorageDriver) == "" {
+		stampReleaseStorage(&item)
+	}
 	return item, nil
 }
 
 func mysqlWriteVersion(db *sql.DB, kind, itemID, version string, rel sourceRelease, status string) error {
+	if strings.TrimSpace(status) == "" {
+		status = sourceVersionDraft
+	}
+	stampReleaseStorage(&rel)
 	if kind == sourceKindTemplate {
 		_, err := db.Exec(`INSERT INTO source_catalog_template_versions
-			(template_id, version, changelog, template_url, sha256, origin_url, status, review_note, reviewed_by)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(template_id, version, changelog, template_url, sha256, origin_url, storage_driver, object_key, status, review_note, reviewed_by)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON DUPLICATE KEY UPDATE changelog=VALUES(changelog), template_url=VALUES(template_url), sha256=VALUES(sha256),
-				origin_url=VALUES(origin_url),
+				origin_url=VALUES(origin_url), storage_driver=VALUES(storage_driver), object_key=VALUES(object_key),
 				status=VALUES(status), review_note=VALUES(review_note), reviewed_by=VALUES(reviewed_by)`,
-			itemID, version, rel.Changelog, rel.Location, rel.SHA256, rel.OriginURL, status, rel.ReviewNote, rel.ReviewedBy)
+			itemID, version, rel.Changelog, rel.Location, rel.SHA256, rel.OriginURL, rel.StorageDriver, rel.ObjectKey, status, rel.ReviewNote, rel.ReviewedBy)
 		return err
 	}
 	_, err := db.Exec(`INSERT INTO source_catalog_plugin_versions
-		(plugin_id, version, changelog, download_url, sha256, origin_url, status, review_note, reviewed_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(plugin_id, version, changelog, download_url, sha256, origin_url, storage_driver, object_key, status, review_note, reviewed_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE changelog=VALUES(changelog), download_url=VALUES(download_url), sha256=VALUES(sha256),
-			origin_url=VALUES(origin_url),
+			origin_url=VALUES(origin_url), storage_driver=VALUES(storage_driver), object_key=VALUES(object_key),
 			status=VALUES(status), review_note=VALUES(review_note), reviewed_by=VALUES(reviewed_by)`,
-		itemID, version, rel.Changelog, rel.Location, rel.SHA256, rel.OriginURL, status, rel.ReviewNote, rel.ReviewedBy)
+		itemID, version, rel.Changelog, rel.Location, rel.SHA256, rel.OriginURL, rel.StorageDriver, rel.ObjectKey, status, rel.ReviewNote, rel.ReviewedBy)
 	return err
 }
 
@@ -940,5 +963,6 @@ func coalesceRelease(existing, incoming sourceRelease) sourceRelease {
 	if incoming.Changelog != "" {
 		existing.Changelog = incoming.Changelog
 	}
+	stampReleaseStorage(&existing)
 	return existing
 }

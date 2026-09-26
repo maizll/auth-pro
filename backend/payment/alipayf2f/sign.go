@@ -45,6 +45,8 @@ func VerifyRSA2(params map[string]string, publicKey *rsa.PublicKey) bool {
 	if signText == "" {
 		return false
 	}
+	// 表单解析会把 base64 里的 + 当成空格。签名本身不含空格。
+	signText = strings.ReplaceAll(signText, " ", "+")
 	signature, err := base64.StdEncoding.DecodeString(signText)
 	if err != nil {
 		return false

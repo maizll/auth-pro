@@ -327,6 +327,18 @@ func installPaidPackage(ctx context.Context, kind, id string) error {
 	if err != nil {
 		return err
 	}
+	if len(payload) > 0 && payload[0] == '{' {
+		var envelope struct {
+			Code int    `json:"code"`
+			Msg  string `json:"msg"`
+		}
+		if json.Unmarshal(payload, &envelope) == nil && envelope.Code != 0 && envelope.Code != 200 {
+			if strings.TrimSpace(envelope.Msg) == "" {
+				return errors.New("下载付费包失败")
+			}
+			return errors.New(envelope.Msg)
+		}
+	}
 	if kind == "plugin" {
 		if err := installPluginZIP(payload, pluginInfo{ID: id, Name: id, Category: "other"}); err != nil {
 			return err

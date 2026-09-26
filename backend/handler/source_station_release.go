@@ -148,6 +148,7 @@ func pushSourcePackageRelease(ctx context.Context, settings sourceReleaseSetting
 
 type gitHubReleaseDTO struct {
 	ID            int64            `json:"id"`
+	TagName       string           `json:"tag_name"`
 	UploadURL     string           `json:"upload_url"`
 	HTMLURL       string           `json:"html_url"`
 	Assets        []gitHubAssetDTO `json:"assets"`

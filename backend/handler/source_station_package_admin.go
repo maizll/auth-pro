@@ -78,7 +78,7 @@ func AdminSourceReleaseSettingsTest(c *gin.Context) {
 
 func AdminSourcePackageParse(c *gin.Context) {
 	defer discardSourceMultipart(c)
-	filename, payload, err := readSourcePackageUpload(c)
+	filename, payload, _, err := readSourcePackageSource(c)
 	if err != nil {
 		writeSourcePackageReject(c, err)
 		return
@@ -94,7 +94,7 @@ func AdminSourcePackageParse(c *gin.Context) {
 
 func AdminSourcePackagePublish(c *gin.Context) {
 	defer discardSourceMultipart(c)
-	filename, payload, err := readSourcePackageUpload(c)
+	filename, payload, remoteURL, err := readSourcePackageSource(c)
 	if err != nil {
 		writeSourcePackageReject(c, err)
 		return
@@ -106,6 +106,9 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		return
 	}
 	location := strings.TrimSpace(sourceFirstNonEmpty(c.PostForm("downloadUrl"), c.PostForm("templateUrl")))
+	if remoteURL != "" {
+		location = remoteURL
+	}
 	settings, err := currentSourceStationStore().GetReleaseSettings()
 	if err != nil {
 		payload = nil
@@ -113,6 +116,11 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		return
 	}
 	pushRequested := formFlag(c, "push") || formFlag(c, "pushRelease")
+	if pushRequested && remoteURL != "" {
+		payload = nil
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "推送 Release 时请上传压缩包"})
+		return
+	}
 	// Strictly honor checkbox: never auto-push when unchecked.
 	pushed := false
 	provider := ""
@@ -131,6 +139,19 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		location = assetURL
 		pushed = true
 		provider = settings.Provider
+	}
+	priceCentsEarly, priceEarlyErr := parseCatalogPriceCents(c.PostForm("priceCents"))
+	paidLocalFallback := false
+	if priceEarlyErr == nil && priceCentsEarly > 0 && len(payload) > 0 && !pushRequested {
+		ref, fileSHA, local, settleErr := settlePaidZipBytes(c.Request.Context(), manifest.Kind, manifest.ID, manifest.Version, payload)
+		payload = nil
+		if settleErr != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": settleErr.Error()})
+			return
+		}
+		location = ref
+		manifest.SHA256 = fileSHA
+		paidLocalFallback = local
 	}
 	payload = nil
 	if location == "" {
@@ -161,10 +182,12 @@ func AdminSourcePackagePublish(c *gin.Context) {
 	}
 
 	var (
-		pluginView   gin.H
-		templateView gin.H
-		itemID       string
-		kind         = manifest.Kind
+		pluginView    gin.H
+		templateView  gin.H
+		itemID        string
+		kind          = manifest.Kind
+		savedLocation = location
+		savedSHA      = manifest.SHA256
 	)
 	if kind == sourceKindTemplate {
 		item, convErr := adminTemplateFromRequest(sourceTemplateDraftRequest{
@@ -176,6 +199,12 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		if convErr != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": convErr.Error()})
 			return
+		}
+		if priceCents > 0 && remoteURL != "" && strings.TrimSpace(item.OriginURL) == "" {
+			item.OriginURL = remoteURL
+			if item.OriginHealth == "" {
+				item.OriginHealth = paidOriginHealthOK
+			}
 		}
 		item, convErr = guardAndFinalizeTemplate(item)
 		if convErr != nil {
@@ -207,6 +236,8 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		}
 		templateView = sourceTemplateView(saved)
 		itemID = saved.ID
+		savedLocation = saved.TemplateURL
+		savedSHA = saved.SHA256
 	} else {
 		item, convErr := adminPluginFromRequest(sourcePluginDraftRequest{
 			ID: manifest.ID, AppID: appID, Category: manifest.Category, Name: manifest.Name, Description: manifest.Description,
@@ -217,6 +248,12 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		if convErr != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": convErr.Error()})
 			return
+		}
+		if priceCents > 0 && remoteURL != "" && strings.TrimSpace(item.OriginURL) == "" {
+			item.OriginURL = remoteURL
+			if item.OriginHealth == "" {
+				item.OriginHealth = paidOriginHealthOK
+			}
 		}
 		item, convErr = guardAndFinalizePlugin(item)
 		if convErr != nil {
@@ -248,32 +285,53 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		}
 		pluginView = sourcePluginView(saved)
 		itemID = saved.ID
+		savedLocation = saved.DownloadURL
+		savedSHA = saved.SHA256
 	}
 
-	detail := location
+	detail := savedLocation
 	if pushed {
-		detail = provider + " " + location
+		detail = provider + " " + savedLocation
 	}
 	_ = currentSourceStationStore().AppendAudit(sourceAuditEntry{
 		ActorType: "admin", ActorName: actor, Action: "package_publish",
 		TargetType: kind, TargetID: itemID + "@" + manifest.Version, Detail: truncateText(detail, 500),
 	})
+	hosted := isPrivatePackageRef(savedLocation)
+	githubPaid := isGitHubPackageRef(savedLocation)
 	data := gin.H{
-		"kind": kind, "id": itemID, "version": manifest.Version, "sha256": manifest.SHA256,
-		"downloadUrl": location, "pushed": pushed, "storedPackage": false, "manifest": manifest.view(),
+		"kind": kind, "id": itemID, "version": manifest.Version, "sha256": savedSHA,
+		"downloadUrl": savedLocation, "pushed": pushed, "storedPackage": hosted, "manifest": manifest.view(),
 	}
 	if kind == sourceKindTemplate {
-		data["templateUrl"] = location
+		data["templateUrl"] = savedLocation
 		delete(data, "downloadUrl")
 		data["item"] = templateView
 	} else {
 		data["item"] = pluginView
 	}
 	msg := "校验通过，已保存为草稿（包已丢弃，源站不保存源码）。请走审核/上架"
+	if githubPaid {
+		msg = "校验通过，已存入收费仓库并删除本站临时文件，校验码已自动填写"
+	} else if paidLocalFallback {
+		msg = "校验通过，安装包已暂存在本站，校验码已自动填写。" + paidLocalFallbackText
+	} else if remoteURL != "" && hosted {
+		msg = "校验通过，已拉取外链并私有托管，校验码已自动填写"
+	} else if remoteURL != "" {
+		msg = "校验通过，已保存元数据并自动填写校验码（安装包仍由外部地址提供）"
+	}
 	if pushed {
 		msg = "校验通过，已推送到 " + provider + " Release 并保存为草稿（包已丢弃）"
 	}
-	if shelf {
+	if shelf && githubPaid {
+		msg = "校验通过，已存入收费仓库并删除本站临时文件后上架，校验码已自动填写"
+	} else if shelf && paidLocalFallback {
+		msg = "校验通过，安装包已暂存在本站并上架，校验码已自动填写。" + paidLocalFallbackText
+	} else if shelf && remoteURL != "" && hosted {
+		msg = "校验通过，已拉取外链并私有托管后上架，校验码已自动填写"
+	} else if shelf && remoteURL != "" && !hosted {
+		msg = "校验通过，已保存并上架，校验码已按外部地址自动填写"
+	} else if shelf {
 		msg = "校验通过，已保存并上架（包已丢弃）"
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": data})

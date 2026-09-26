@@ -43,6 +43,7 @@ export interface SourceCatalogApp {
   appKey: string
   name: string
   enabled: boolean
+  archived?: boolean
   indexUrl?: string
 }
 
@@ -132,6 +133,12 @@ export interface SourceCatalogItem {
   originUrl?: string
   originHealth?: string
   originHint?: string
+  fulfillmentHint?: string
+  packageSource?: string
+  githubOwner?: string
+  githubRepo?: string
+  githubTag?: string
+  githubAsset?: string
   location?: string
   schemaVersion?: number
   templateKey?: string
@@ -394,7 +401,6 @@ export function cancelSourceDeveloper(id: number, note?: string) {
   return freezeSourceDeveloper(id, note)
 }
 
-
 export function fetchSourceCatalogApps() {
   return request.get<SourceListResponse<SourceCatalogApp>>({ url: `${BASE}/apps` })
 }
@@ -405,21 +411,45 @@ export function fetchSourceCatalogCategories() {
   })
 }
 
-export function saveSourceCatalogCategories(extras: Array<Pick<SourceCatalogCategory, 'key' | 'label' | 'kind'>>) {
+export function saveSourceCatalogCategories(
+  extras: Array<Pick<SourceCatalogCategory, 'key' | 'label' | 'kind'>>
+) {
   return request.put<{ list: SourceCatalogCategory[]; extras: SourceCatalogCategory[] }>({
     url: `${BASE}/categories`,
     data: { extras }
   })
 }
 
-export function fetchSourceCatalogItems(status?: string, category?: string, appId?: number) {
+export function fetchSourceCatalogItems(
+  status?: string,
+  category?: string,
+  appId?: number,
+  unassigned = false
+) {
   return request.get<SourceListResponse<SourceCatalogItem>>({
     url: `${BASE}/catalog-items`,
     params: {
       ...(status ? { status } : {}),
       ...(category ? { category } : {}),
-      ...(appId && appId > 0 ? { app_id: appId } : {})
+      ...(unassigned ? { unassigned: 1 } : appId && appId > 0 ? { app_id: appId } : {})
     }
+  })
+}
+
+export function fetchCatalogAppUsage(appId: number) {
+  return request.get<{ count: number; pluginCount: number; templateCount: number }>({
+    url: `${BASE}/catalog-app-usage`,
+    params: { app_id: appId }
+  })
+}
+
+export function rebindSourceCatalogItems(
+  appId: number,
+  items: Array<{ kind: 'plugin' | 'template'; id: string }>
+) {
+  return request.post<{ count: number }>({
+    url: `${BASE}/catalog-items/rebind`,
+    data: { appId, items }
   })
 }
 
@@ -452,7 +482,7 @@ export function pullSourcePlugin(id: string) {
 
 export function setSourcePluginStatus(
   id: string,
-  action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate',
+  action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate' | 'restore',
   note?: string
 ) {
   return request.post<SourcePlugin>({
@@ -515,7 +545,7 @@ export function pullSourceTemplate(id: string) {
 
 export function setSourceTemplateStatus(
   id: string,
-  action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate',
+  action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate' | 'restore',
   note?: string
 ) {
   return request.post<SourceTemplate>({
@@ -585,6 +615,31 @@ export function fetchSourceStoreSettings() {
 
 export function saveSourceStoreSettings(payload: SourceStoreSettings) {
   return request.put<SourceStoreSettings>({ url: `${BASE}/settings/store`, data: payload })
+}
+
+export interface GitHubPaidSettings {
+  configured: boolean
+  owner?: string
+  repo?: string
+  reminder?: string
+}
+
+export function fetchGitHubPaidToken() {
+  return request.get<GitHubPaidSettings>({ url: `${BASE}/settings/github-paid` })
+}
+
+export function saveGitHubPaidToken(payload: { token?: string; owner: string; repo: string }) {
+  return request.put<GitHubPaidSettings>({
+    url: `${BASE}/settings/github-paid`,
+    data: payload
+  })
+}
+
+export function testGitHubPaidToken(payload: { token?: string; owner?: string; repo?: string }) {
+  return request.post<GitHubPaidSettings>({
+    url: `${BASE}/settings/github-paid/test`,
+    data: payload
+  })
 }
 
 export function fetchSourceReleaseSettings() {

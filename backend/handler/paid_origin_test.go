@@ -203,7 +203,7 @@ func TestRefetchPaidPackageKeepsOldOnFailure(t *testing.T) {
 func TestPaidHTTPSImportHiddenFromBuyers(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AUTO_PRO_DATA_DIR", dataDir)
-	router, _ := sourceStationRouter(t)
+	router, store := sourceStationRouter(t)
 	_, dev, _ := sourceApproveDeveloper(t, router, "paid-url", "secret")
 	var body atomic.Value
 	first := makeTestZIP(t, testZIPEntry{name: "paid-remote/plugin.json", data: `{
@@ -238,14 +238,18 @@ func TestPaidHTTPSImportHiddenFromBuyers(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantSHA := sha256Hex(first)
-	if created.Data.SHA256 != wantSHA || created.Data.Version != "1.2.0" || created.Data.OriginURL != rawURL || !isPrivatePackageRef(created.Data.DownloadURL) {
-		t.Fatalf("created=%+v sha=%s", created.Data, wantSHA)
+	stored, err := store.GetPlugin("paid-remote")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Data.SHA256 != wantSHA || created.Data.Version != "1.2.0" || created.Data.OriginURL != rawURL || created.Data.DownloadURL != "" || !strings.Contains(saved.Body.String(), `"storedBySite":true`) || !isPrivatePackageRef(stored.DownloadURL) {
+		t.Fatalf("created=%+v stored=%s sha=%s", created.Data, stored.DownloadURL, wantSHA)
 	}
 	if created.Data.OriginHealth != paidOriginHealthOK {
 		t.Fatalf("health=%s", created.Data.OriginHealth)
 	}
 	index := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
-	if strings.Contains(index.Body.String(), originHost) || strings.Contains(index.Body.String(), "originUrl") || strings.Contains(index.Body.String(), created.Data.DownloadURL) {
+	if strings.Contains(index.Body.String(), originHost) || strings.Contains(index.Body.String(), "originUrl") || strings.Contains(index.Body.String(), stored.DownloadURL) {
 		t.Fatalf("public index leaked origin or private ref: %s", index.Body.String())
 	}
 	items := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/items", dev, "")
@@ -257,8 +261,12 @@ func TestPaidHTTPSImportHiddenFromBuyers(t *testing.T) {
 	if sourceBodyCode(t, pulled) != 200 || !strings.Contains(pulled.Body.String(), sha256Hex(next)) || !strings.Contains(pulled.Body.String(), `"version":"1.3.0"`) {
 		t.Fatalf("pull=%s", pulled.Body.String())
 	}
-	if strings.Contains(pulled.Body.String(), created.Data.DownloadURL) {
-		t.Fatalf("pull kept old package ref: %s", pulled.Body.String())
+	afterPull, err := store.GetPlugin("paid-remote")
+	if err != nil || afterPull.DownloadURL == stored.DownloadURL || afterPull.SHA256 != sha256Hex(next) {
+		t.Fatalf("pull kept old package ref: %#v err=%v", afterPull, err)
+	}
+	if strings.Contains(pulled.Body.String(), stored.DownloadURL) || strings.Contains(pulled.Body.String(), afterPull.DownloadURL) {
+		t.Fatalf("pull showed storage ref: %s", pulled.Body.String())
 	}
 	again := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	if strings.Contains(again.Body.String(), originHost) {

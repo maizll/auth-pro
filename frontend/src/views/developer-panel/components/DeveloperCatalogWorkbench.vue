@@ -6,17 +6,29 @@
           <div>
             <span class="card-title">{{ title }}（共 {{ items.length }} 条）</span>
             <p class="card-hint">
-              可以上传压缩包，由本站保存并自动填写地址和校验码；也可以登记外部网址。免费外链在提交审核时检查能否下载、是不是压缩包、校验码是否一致。付费条目填写 https 网址时，保存时本站立即拉取并私有托管，买家看不到外链。
+              免费用公开地址。收费时上传压缩包，或填写公开地址让本站拉一次。安装包由本站保管，不用自己准备仓库。旧的收费公开地址会标注「需要重新上传
+              zip 或填写公开地址，才能继续收费出售」。
             </p>
           </div>
-          <el-button type="primary" @click="openEdit()">{{ createLabel }}</el-button>
+          <div class="table-actions">
+            <el-button :disabled="!selectedRows.length" @click="openRebind(selectedRows)">
+              切换绑定应用
+            </el-button>
+            <el-button type="primary" @click="openEdit()">{{ createLabel }}</el-button>
+          </div>
         </div>
       </template>
 
       <el-empty v-if="!items.length" :description="emptyText" />
-      <el-table v-else :data="items" stripe>
+      <el-table v-else :data="items" stripe @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="42" />
         <el-table-column prop="id" label="标识" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
+        <el-table-column label="名称" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.name }}</span>
+            <p v-if="row.fulfillmentHint" class="field-help">{{ row.fulfillmentHint }}</p>
+          </template>
+        </el-table-column>
         <el-table-column label="应用" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">{{ appLabel(row.appId) }}</template>
         </el-table-column>
@@ -36,9 +48,9 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="来源外链" min-width="180" show-overflow-tooltip>
+        <el-table-column label="来源" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">
-            <span>{{ row.originUrl || '-' }}</span>
+            <span>{{ sourceLabel(row) }}</span>
             <p v-if="row.originHint" class="field-help">{{ row.originHint }}</p>
           </template>
         </el-table-column>
@@ -46,8 +58,11 @@
           <template #default="{ row }">{{ row.reviewNote || '-' }}</template>
         </el-table-column>
         <el-table-column prop="updatedAt" label="更新时间" width="180" />
-        <el-table-column label="操作" width="300" fixed="right">
+        <el-table-column label="操作" width="360" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="openRebind([row])"
+              >切换应用</el-button
+            >
             <el-button link type="primary" size="small" @click="openEdit(row)">
               {{ canEditItem(row) ? '编辑' : '查看' }}
             </el-button>
@@ -98,7 +113,7 @@
             :disabled="isEdit"
           >
             <el-option
-              v-for="app in apps"
+              v-for="app in liveApps"
               :key="app.id"
               :label="appLabel(app.id)"
               :value="app.id"
@@ -146,7 +161,8 @@
         <el-form-item label="售价（元）">
           <el-input v-model="form.priceYuan" :disabled="!canEditMeta" placeholder="0" />
           <p class="field-help">
-            填 0 表示免费。大于 0 为买断：可上传压缩包，或填写 https 网址由本站立即拉取并私有托管。付费上架尚未开放。
+            填 0 表示免费，请使用公开地址。大于 0
+            为买断：上传压缩包或填写公开地址，安装包由本站保管。付费上架尚未开放。
           </p>
         </el-form-item>
         <el-form-item label="包来源">
@@ -155,10 +171,12 @@
             :disabled="!canEditPackage"
             @change="onPackageSourceChange('form')"
           >
-            <el-radio value="upload">上传压缩包（本站托管）</el-radio>
-            <el-radio value="external">外部 HTTPS</el-radio>
+            <el-radio value="upload">上传压缩包</el-radio>
+            <el-radio value="public">公开地址</el-radio>
           </el-radio-group>
           <p class="field-help">{{ packageSourceHelp }}</p>
+          <p v-if="draftBlockReason" class="field-help">{{ draftBlockReason }}</p>
+          <p v-else-if="submitBlockReason" class="field-help">{{ submitBlockReason }}</p>
         </el-form-item>
         <el-form-item v-if="form.packageSource === 'upload'" label="压缩包">
           <el-upload
@@ -170,13 +188,14 @@
           >
             <el-button :loading="uploading" :disabled="!canEditPackage">选择压缩包</el-button>
           </el-upload>
-          <p class="field-help">上传后自动填写地址和校验码。不合规的包不会保存。</p>
+          <p class="field-help">上传后自动填写校验码。收费包由本站保管，这里不显示仓库地址。</p>
         </el-form-item>
         <el-form-item :label="locationLabel" prop="location">
           <el-input
-            v-model="form.location"
+            :model-value="shownLocation(form)"
             :disabled="!canEditPackage || form.packageSource === 'upload'"
-            :placeholder="form.packageSource === 'upload' ? '上传压缩包后自动填写' : locationPlaceholder"
+            :placeholder="locationPlaceholderFor(form.packageSource)"
+            @update:model-value="onLocationInput('form', $event)"
           />
           <p class="field-help">{{ locationHelp }}</p>
         </el-form-item>
@@ -190,11 +209,11 @@
           <div class="checksum-row">
             <el-input
               v-model="form.sha256"
-              :disabled="!canEditPackage || form.packageSource === 'upload' || formServerPulls"
+              :disabled="!canEditPackage || form.packageSource !== 'public'"
               placeholder="64 位十六进制，可稍后补"
             />
             <el-button
-              v-if="form.packageSource === 'external' && !formServerPulls"
+              v-if="form.packageSource === 'public' && formPriceCents <= 0"
               :disabled="!canEditPackage || !canAutoHash(form.location)"
               :loading="hashing === 'form'"
               @click="handleAutoHash('form')"
@@ -204,11 +223,9 @@
           </div>
           <p class="field-help">
             {{
-              form.packageSource === 'upload'
+              form.packageSource === 'upload' || formPriceCents > 0
                 ? '由本站按压缩包内容计算，不能手改。'
-                : formServerPulls
-                  ? '付费外链由本站拉取后自动计算，不用手填。'
-                  : '64 位。粘贴下载地址后也可以稍后补上'
+                : '64 位。粘贴下载地址后也可以稍后补上'
             }}
           </p>
         </el-form-item>
@@ -265,13 +282,17 @@
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
-        <el-button :loading="saving" :disabled="!canEditMeta" @click="handleSave(false)">
+        <el-button
+          :loading="saving"
+          :disabled="!canEditMeta || Boolean(draftBlockReason)"
+          @click="handleSave(false)"
+        >
           保存草稿
         </el-button>
         <el-button
           type="primary"
           :loading="saving"
-          :disabled="!canSubmitCurrent"
+          :disabled="!canSubmitCurrent || Boolean(submitBlockReason)"
           @click="handleSave(true)"
         >
           提交审核
@@ -306,7 +327,7 @@
         </el-table-column>
         <el-table-column label="地址" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">
-            {{ kind === 'template' ? row.templateUrl : row.downloadUrl }}
+            {{ versionLocationLabel(row) }}
           </template>
         </el-table-column>
         <el-table-column label="来源外链" min-width="160" show-overflow-tooltip>
@@ -345,9 +366,10 @@
               v-model="versionForm.packageSource"
               @change="onPackageSourceChange('version')"
             >
-              <el-radio value="upload">上传压缩包（本站托管）</el-radio>
-              <el-radio value="external">外部 HTTPS</el-radio>
+              <el-radio value="upload">上传压缩包</el-radio>
+              <el-radio value="public">公开地址</el-radio>
             </el-radio-group>
+            <p v-if="versionBlockReason" class="field-help">{{ versionBlockReason }}</p>
           </el-form-item>
           <el-form-item v-if="versionForm.packageSource === 'upload'" label="压缩包">
             <el-upload
@@ -362,9 +384,10 @@
           </el-form-item>
           <el-form-item :label="locationLabel" required>
             <el-input
-              v-model="versionForm.location"
+              :model-value="shownLocation(versionForm)"
               :disabled="versionForm.packageSource === 'upload'"
-              :placeholder="versionForm.packageSource === 'upload' ? '上传压缩包后自动填写' : locationPlaceholder"
+              :placeholder="locationPlaceholderFor(versionForm.packageSource)"
+              @update:model-value="onLocationInput('version', $event)"
             />
             <p class="field-help">{{ versionLocationHelp }}</p>
           </el-form-item>
@@ -372,11 +395,11 @@
             <div class="checksum-row">
               <el-input
                 v-model="versionForm.sha256"
-                :disabled="versionForm.packageSource === 'upload' || versionServerPulls"
+                :disabled="versionForm.packageSource !== 'public'"
                 placeholder="64 位十六进制"
               />
               <el-button
-                v-if="versionForm.packageSource === 'external' && !versionServerPulls"
+                v-if="versionForm.packageSource === 'public' && (currentItem?.priceCents || 0) <= 0"
                 :disabled="!canAutoHash(versionForm.location)"
                 :loading="hashing === 'version'"
                 @click="handleAutoHash('version')"
@@ -386,11 +409,9 @@
             </div>
             <p class="field-help">
               {{
-                versionForm.packageSource === 'upload'
+                versionForm.packageSource === 'upload' || (currentItem?.priceCents || 0) > 0
                   ? '由本站按压缩包内容计算。'
-                  : versionServerPulls
-                    ? '付费外链由本站拉取后自动计算，不用手填。'
-                    : '64 位。提交审核时会核对文件。'
+                  : '64 位。提交审核时会核对文件。'
               }}
             </p>
           </el-form-item>
@@ -405,12 +426,35 @@
         </el-form>
         <template #footer>
           <el-button @click="versionFormVisible = false">取消</el-button>
-          <el-button type="primary" :loading="versionSaving" @click="handleAddVersion">
+          <el-button
+            type="primary"
+            :loading="versionSaving"
+            :disabled="Boolean(versionBlockReason)"
+            @click="handleAddVersion"
+          >
             保存草稿
           </el-button>
         </template>
       </el-dialog>
     </el-drawer>
+
+    <el-dialog v-model="rebindVisible" title="切换绑定应用" width="480px" destroy-on-close>
+      <p class="field-help">
+        只能改到你能登记、且还没归档的应用。版本、价格和安装包跟着走，标识不变。目标应用里已有相同标识时会拒绝。
+      </p>
+      <el-select v-model="rebindAppId" placeholder="请选择目标应用" style="width: 100%">
+        <el-option
+          v-for="app in liveApps"
+          :key="app.id"
+          :label="appLabel(app.id)"
+          :value="app.id"
+        />
+      </el-select>
+      <template #footer>
+        <el-button @click="rebindVisible = false">取消</el-button>
+        <el-button type="primary" :loading="rebindSaving" @click="handleRebind">确定切换</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -426,6 +470,7 @@
     fetchSourceDeveloperCatalogApps,
     fetchSourceDeveloperCategories,
     fetchSourceDeveloperItems,
+    rebindSourceDeveloperCatalogItems,
     fetchSourceDeveloperMe,
     fetchSourceDeveloperPluginVersions,
     fetchSourceDeveloperTemplateVersions,
@@ -452,13 +497,16 @@
     formatCatalogPriceYuan,
     parseCatalogPriceYuan,
     isHttpsLocation,
-    isPaidHttpsImportLocation,
     isPrivatePackageLocation,
     isStationPackageLocation,
     isTemplateLocation,
     resolveCatalogPriceCents,
     suggestCatalogSlug
   } from '@/utils/form/catalog-slug'
+  import {
+    developerCatalogBlockReason,
+    type CatalogPackageSource
+  } from '@/utils/form/catalog-package-source'
 
   const props = defineProps<{
     kind: 'plugin' | 'template'
@@ -484,7 +532,13 @@
   const hashing = ref<'form' | 'version' | ''>('')
   const uploading = ref(false)
   const items = ref<SourceDeveloperCatalogItem[]>([])
+  const selectedRows = ref<SourceDeveloperCatalogItem[]>([])
+  const rebindVisible = ref(false)
+  const rebindSaving = ref(false)
+  const rebindAppId = ref<number>()
+  const rebindItems = ref<SourceDeveloperCatalogItem[]>([])
   const apps = ref<SourceDeveloperCatalogApp[]>([])
+  const liveApps = computed(() => apps.value.filter((app) => !app.archived))
   const categories = ref<SourceDeveloperCategory[]>([])
   const formVisible = ref(false)
   const isEdit = ref(false)
@@ -509,7 +563,8 @@
     location: '',
     sha256: '',
     priceYuan: '0',
-    packageSource: 'external' as 'upload' | 'external',
+    packageSource: 'public' as CatalogPackageSource,
+    storedBySite: false,
     authorName: '',
     changelog: ''
   })
@@ -518,7 +573,8 @@
     location: '',
     sha256: '',
     changelog: '',
-    packageSource: 'external' as 'upload' | 'external'
+    packageSource: 'public' as CatalogPackageSource,
+    storedBySite: false
   })
 
   const title = computed(() => (props.kind === 'template' ? '我的模板' : '我的插件'))
@@ -529,28 +585,25 @@
       : '还没有插件。点右上角「登记插件」添加第一条。'
   )
   const locationLabel = computed(() => (props.kind === 'template' ? '模板地址' : '下载地址'))
-  const locationPlaceholder = 'https://你的文件地址.zip'
   const formPriceCents = computed(() => parseCatalogPriceYuan(form.priceYuan) || 0)
-  const formServerPulls = computed(
-    () => form.packageSource === 'external' && formPriceCents.value > 0
-  )
-  const versionServerPulls = computed(
-    () =>
-      versionForm.packageSource === 'external' && (currentItem.value?.priceCents || 0) > 0
-  )
   const packageSourceHelp = computed(() => {
+    if (form.packageSource === 'upload') {
+      return '上传压缩包即可。收费包由本站保管，不用填写仓库或令牌。'
+    }
     if (formPriceCents.value > 0) {
-      return '付费条目可以上传压缩包，或填写 https 网址。外链会立即拉取到本站私有目录，并自动计算校验码。买家看不到外链。'
+      return '填写公开 https 地址。本站拉取校验后保管安装包，不用自己准备仓库。'
     }
     return props.kind === 'template'
-      ? '上传压缩包由本站托管；外部地址可以是 https 网址，或本站上已有文件的相对路径。'
-      : '上传压缩包由本站托管并生成地址；外部地址必须是 https 网址。'
+      ? '免费条目直接使用这条地址。可以是 https 网址，或本站上已有文件的相对路径。'
+      : '免费条目直接使用这条 https 地址。提交审核时会下载并核对压缩包与校验码。'
   })
-  function locationHelpFor(source: 'upload' | 'external', cents: number) {
-    if (source === 'upload') return '本站地址由上传结果填入，提交时只核对本地文件。'
-    if (cents > 0) {
-      return '填写 https 网址。保存时本站立即拉取压缩包、校验并私有托管，自动填写校验码。失败不会保存。'
-    }
+  function locationPlaceholderFor(source: CatalogPackageSource) {
+    if (source === 'upload') return '上传压缩包后显示为本站保管'
+    return 'https://你的文件地址.zip'
+  }
+  function locationHelpFor(source: CatalogPackageSource, cents: number) {
+    if (source === 'upload') return '收费包保存后这里显示「本站保管」，不显示仓库地址。'
+    if (cents > 0) return '本站会拉取一次并保管安装包，校验码自动填写。'
     return props.kind === 'template'
       ? '填写 https 网址，或本站上已有文件的相对路径。提交审核时会下载并核对压缩包与校验码。'
       : '填写 https 网址。提交审核时会下载并核对是不是压缩包、校验码是否一致。'
@@ -558,6 +611,39 @@
   const locationHelp = computed(() => locationHelpFor(form.packageSource, formPriceCents.value))
   const versionLocationHelp = computed(() =>
     locationHelpFor(versionForm.packageSource, currentItem.value?.priceCents || 0)
+  )
+  const draftBlockReason = computed(() =>
+    developerCatalogBlockReason({
+      kind: props.kind,
+      source: form.packageSource,
+      location: form.location,
+      sha256: form.sha256,
+      priceYuan: form.priceYuan,
+      hasStoredPackage: form.storedBySite,
+      requirePackage: false
+    })
+  )
+  const submitBlockReason = computed(() =>
+    developerCatalogBlockReason({
+      kind: props.kind,
+      source: form.packageSource,
+      location: form.location,
+      sha256: form.sha256,
+      priceYuan: form.priceYuan,
+      hasStoredPackage: form.storedBySite,
+      requirePackage: true
+    })
+  )
+  const versionBlockReason = computed(() =>
+    developerCatalogBlockReason({
+      kind: props.kind,
+      source: versionForm.packageSource,
+      location: versionForm.location,
+      sha256: versionForm.sha256,
+      priceYuan: ((currentItem.value?.priceCents || 0) / 100).toFixed(2),
+      hasStoredPackage: versionForm.storedBySite,
+      requirePackage: true
+    })
   )
   const categoryOptions = computed(() =>
     categories.value.filter((item) => item.kind === props.kind)
@@ -600,6 +686,10 @@
         validator: (_: unknown, value: string, callback: (error?: Error) => void) => {
           const raw = String(value || '').trim()
           if (!raw) {
+            if (form.storedBySite || form.packageSource === 'upload') {
+              callback()
+              return
+            }
             if (requirePackageFields.value) {
               callback(new Error(`提交审核前请填写${locationLabel.value}`))
               return
@@ -607,7 +697,11 @@
             callback()
             return
           }
-          if (isStationPackageLocation(raw) || isPrivatePackageLocation(raw)) {
+          if (
+            isStationPackageLocation(raw) ||
+            isPrivatePackageLocation(raw) ||
+            raw.startsWith('github:')
+          ) {
             callback()
             return
           }
@@ -636,7 +730,7 @@
         validator: (_: unknown, value: string, callback: (error?: Error) => void) => {
           const raw = String(value || '').trim()
           if (!raw) {
-            if (formServerPulls.value) {
+            if (form.packageSource === 'upload' || formPriceCents.value > 0) {
               callback()
               return
             }
@@ -714,7 +808,8 @@
     if (!appId) return '-'
     const app = apps.value.find((item) => item.id === appId)
     if (!app) return `应用 #${appId}`
-    return `${app.name}（${app.appKey}）`
+    const base = `${app.name}（${app.appKey}）`
+    return app.archived ? `${base}· 已归档` : base
   }
 
   function categoryLabel(key?: string) {
@@ -766,6 +861,46 @@
     }
   }
 
+  function onSelectionChange(rows: SourceDeveloperCatalogItem[]) {
+    selectedRows.value = rows
+  }
+
+  function openRebind(rows: SourceDeveloperCatalogItem[]) {
+    if (!rows.length) {
+      ElMessage.warning('请选择要切换的条目')
+      return
+    }
+    rebindItems.value = rows
+    rebindAppId.value =
+      liveApps.value.find((app) => app.id !== rows[0]?.appId)?.id || liveApps.value[0]?.id
+    rebindVisible.value = true
+  }
+
+  async function handleRebind() {
+    if (!rebindAppId.value) {
+      ElMessage.warning('请选择目标应用')
+      return
+    }
+    rebindSaving.value = true
+    try {
+      const res = await rebindSourceDeveloperCatalogItems(
+        rebindAppId.value,
+        rebindItems.value.map((row) => ({ kind: props.kind, id: row.id }))
+      )
+      const body = unwrapCode(res)
+      if (!body) return
+      if (body.code !== 200) {
+        ElMessage.error(body.msg || '切换失败')
+        return
+      }
+      ElMessage.success(body.msg || '已切换绑定应用')
+      rebindVisible.value = false
+      await loadAll()
+    } finally {
+      rebindSaving.value = false
+    }
+  }
+
   async function loadAll() {
     loading.value = true
     try {
@@ -803,7 +938,7 @@
     requirePackageFields.value = false
     idManuallyEdited.value = false
     advancedOpen.value = []
-    form.appId = apps.value[0]?.id || 0
+    form.appId = liveApps.value[0]?.id || 0
     form.category =
       categoryOptions.value[0]?.key || (props.kind === 'template' ? 'home-template' : 'other')
     form.id = ''
@@ -814,7 +949,8 @@
     form.location = ''
     form.sha256 = ''
     form.priceYuan = '0'
-    form.packageSource = 'external'
+    form.packageSource = 'public'
+    form.storedBySite = false
     form.authorName = currentDeveloperName()
     form.changelog = ''
   }
@@ -839,10 +975,7 @@
       form.location = (props.kind === 'template' ? row.templateUrl : row.downloadUrl) || ''
       form.sha256 = row.sha256 || ''
       form.priceYuan = formatCatalogPriceYuan(row.priceCents)
-      form.packageSource =
-        isStationPackageLocation(form.location) || isPrivatePackageLocation(form.location)
-          ? 'upload'
-          : 'external'
+      applyStoredPackageSource(form, row)
       form.authorName = row.author?.name || currentDeveloperName()
       form.changelog = row.changelog || ''
     } else {
@@ -857,21 +990,86 @@
     versionForm.location = ''
     versionForm.sha256 = ''
     versionForm.changelog = ''
-    versionForm.packageSource = 'external'
+    versionForm.packageSource = 'public'
+    versionForm.storedBySite = false
     versionFormVisible.value = true
+  }
+
+  function siteKeptLocation(raw: string) {
+    return raw.startsWith('github:') || raw.startsWith('paid:') || isPrivatePackageLocation(raw)
+  }
+
+  function shownLocation(bucket: {
+    location: string
+    storedBySite: boolean
+    packageSource: CatalogPackageSource
+  }) {
+    if (
+      bucket.storedBySite ||
+      (bucket.packageSource === 'upload' && siteKeptLocation(bucket.location))
+    ) {
+      return '本站保管'
+    }
+    return bucket.location
+  }
+
+  function onLocationInput(target: 'form' | 'version', value: string) {
+    const bucket = target === 'form' ? form : versionForm
+    if (bucket.packageSource !== 'public') return
+    bucket.location = value
+    bucket.storedBySite = false
+  }
+
+  function sourceLabel(row: {
+    storedBySite?: boolean
+    originUrl?: string
+    downloadUrl?: string
+    templateUrl?: string
+  }) {
+    if (row.storedBySite) return '本站保管'
+    return row.originUrl || (props.kind === 'template' ? row.templateUrl : row.downloadUrl) || '-'
+  }
+
+  function versionLocationLabel(row: SourceDeveloperVersion) {
+    if (row.storedBySite) return '本站保管'
+    const raw = (props.kind === 'template' ? row.templateUrl : row.downloadUrl) || ''
+    if (siteKeptLocation(raw)) return '本站保管'
+    return raw || row.originUrl || '-'
+  }
+
+  function applyStoredPackageSource(
+    bucket: {
+      location: string
+      packageSource: CatalogPackageSource
+      storedBySite: boolean
+    },
+    row: SourceDeveloperCatalogItem
+  ) {
+    const raw = bucket.location
+    bucket.storedBySite = Boolean(row.storedBySite) || siteKeptLocation(raw)
+    if (bucket.storedBySite) {
+      bucket.packageSource = 'upload'
+      if (siteKeptLocation(raw)) bucket.location = raw
+      return
+    }
+    bucket.packageSource = isStationPackageLocation(raw) ? 'upload' : 'public'
+  }
+
+  function packageLocationToSave(bucket: { location: string }) {
+    return bucket.location.trim()
   }
 
   function onPackageSourceChange(target: 'form' | 'version') {
     const bucket = target === 'form' ? form : versionForm
-    const hosted =
-      isStationPackageLocation(bucket.location) || isPrivatePackageLocation(bucket.location)
-    if (bucket.packageSource === 'upload' && !hosted) {
+    const hosted = isStationPackageLocation(bucket.location) || siteKeptLocation(bucket.location)
+    if (bucket.packageSource === 'upload' && !hosted && !bucket.storedBySite) {
       bucket.location = ''
       bucket.sha256 = ''
     }
-    if (bucket.packageSource === 'external' && hosted) {
+    if (bucket.packageSource === 'public' && (hosted || bucket.storedBySite)) {
       bucket.location = ''
       bucket.sha256 = ''
+      bucket.storedBySite = false
     }
   }
 
@@ -883,6 +1081,11 @@
       const data = new FormData()
       data.append('file', selected)
       data.append('kind', props.kind)
+      const cents =
+        target === 'form'
+          ? parseCatalogPriceYuan(form.priceYuan) || 0
+          : currentItem.value?.priceCents || 0
+      if (cents > 0) data.append('priceCents', String(cents))
       const res = await uploadSourceDeveloperPackage(data)
       const body = unwrapCode(res)
       if (!body) return
@@ -894,6 +1097,7 @@
       if (target === 'form') {
         form.packageSource = 'upload'
         form.location = manifest.url
+        form.storedBySite = Boolean(manifest.storedBySite) || siteKeptLocation(manifest.url)
         form.sha256 = manifest.sha256
         if (!isEdit.value) {
           if (!form.name.trim() && manifest.name) form.name = manifest.name
@@ -902,13 +1106,16 @@
             idManuallyEdited.value = true
           }
           if (manifest.version) form.version = manifest.version
-          if (!form.description.trim() && manifest.description) form.description = manifest.description
+          if (!form.description.trim() && manifest.description) {
+            form.description = manifest.description
+          }
           if (manifest.category) form.category = manifest.category
           if (props.kind === 'plugin' && manifest.icon) form.icon = manifest.icon
         }
       } else {
         versionForm.packageSource = 'upload'
         versionForm.location = manifest.url
+        versionForm.storedBySite = Boolean(manifest.storedBySite) || siteKeptLocation(manifest.url)
         versionForm.sha256 = manifest.sha256
         if (!versionForm.version.trim() && manifest.version) versionForm.version = manifest.version
       }
@@ -962,10 +1169,16 @@
       }
       return
     }
+    const blocked = submitAfter ? submitBlockReason.value : draftBlockReason.value
+    if (blocked) {
+      ElMessage.warning(blocked)
+      return
+    }
     if (!form.id.trim()) {
       form.id = suggestCatalogSlug(form.name, props.kind, '')
     }
-    const priced = resolveCatalogPriceCents(form.priceYuan, form.location)
+    const location = packageLocationToSave(form)
+    const priced = resolveCatalogPriceCents(form.priceYuan, location)
     if (priced.error) {
       ElMessage.warning(priced.error)
       return
@@ -985,7 +1198,8 @@
               version: form.version.trim() || '1.0.0',
               schemaVersion: 1,
               sha256: form.sha256.trim(),
-              templateUrl: form.location.trim(),
+              templateUrl: location,
+              packageSource: form.packageSource,
               priceCents: priced.cents,
               changelog: form.changelog.trim(),
               author: authorName ? { name: authorName } : undefined
@@ -999,7 +1213,8 @@
               icon: form.icon.trim() || defaultIcon(),
               version: form.version.trim() || '1.0.0',
               sha256: form.sha256.trim(),
-              downloadUrl: form.location.trim(),
+              downloadUrl: location,
+              packageSource: form.packageSource,
               priceCents: priced.cents,
               changelog: form.changelog.trim(),
               author: authorName ? { name: authorName } : undefined
@@ -1036,7 +1251,7 @@
 
   async function handleSubmit(row: SourceDeveloperCatalogItem) {
     const location = props.kind === 'template' ? row.templateUrl : row.downloadUrl
-    if (!row.sha256 || !location) {
+    if (!row.sha256 || (!location && !row.storedBySite)) {
       ElMessage.warning(`提交审核前请先填写${locationLabel.value}和校验码`)
       openEdit(row)
       return
@@ -1100,54 +1315,27 @@
       ElMessage.warning('请填写版本')
       return
     }
-    if (!versionForm.location.trim()) {
-      ElMessage.warning(`请填写${locationLabel.value}`)
+    if (versionBlockReason.value) {
+      ElMessage.warning(versionBlockReason.value)
       return
     }
-    const locationOk =
-      isStationPackageLocation(versionForm.location) ||
-      (props.kind === 'template'
-        ? isTemplateLocation(versionForm.location)
-        : isHttpsLocation(versionForm.location))
-    if (!locationOk) {
-      ElMessage.warning(
-        props.kind === 'template'
-          ? '模板地址须为 https 开头，或相对路径如 templates/demo-home.json'
-          : '下载地址须为 https 开头的外链'
-      )
-      return
-    }
-    const versionCents = currentItem.value.priceCents || 0
-    if (
-      versionCents > 0 &&
-      !isStationPackageLocation(versionForm.location) &&
-      !isPrivatePackageLocation(versionForm.location) &&
-      !isHttpsLocation(versionForm.location)
-    ) {
-      ElMessage.warning('付费条目请上传压缩包，或填写 https 网址由本站拉取托管')
-      return
-    }
-    if (
-      !isPaidHttpsImportLocation(versionForm.location, versionCents) &&
-      !SHA256_HEX_PATTERN.test(versionForm.sha256.trim())
-    ) {
-      ElMessage.warning('请填写 64 位校验码')
-      return
-    }
+    const location = packageLocationToSave(versionForm)
     versionSaving.value = true
     try {
       const payload =
         props.kind === 'template'
           ? {
               version: versionForm.version.trim(),
-              templateUrl: versionForm.location.trim(),
+              templateUrl: location,
               sha256: versionForm.sha256.trim(),
+              packageSource: versionForm.packageSource,
               changelog: versionForm.changelog.trim()
             }
           : {
               version: versionForm.version.trim(),
-              downloadUrl: versionForm.location.trim(),
+              downloadUrl: location,
               sha256: versionForm.sha256.trim(),
+              packageSource: versionForm.packageSource,
               changelog: versionForm.changelog.trim()
             }
       const res =
@@ -1166,7 +1354,8 @@
       versionForm.location = ''
       versionForm.sha256 = ''
       versionForm.changelog = ''
-      versionForm.packageSource = 'external'
+      versionForm.packageSource = 'public'
+      versionForm.storedBySite = false
       await openVersions(currentItem.value)
     } finally {
       versionSaving.value = false
@@ -1215,6 +1404,14 @@
 
   .card-title {
     font-weight: 600;
+  }
+
+  .token-card {
+    margin-bottom: 16px;
+  }
+
+  .token-form {
+    margin-top: 16px;
   }
 
   .card-hint {

@@ -148,7 +148,7 @@ func sourcePublicPluginEntry(plugin sourcePlugin) map[string]any {
 		"priceCents": plugin.PriceCents, "billing": catalogBillingLabel(plugin.Billing),
 		"forceUpdate": plugin.ForceUpdate,
 	}
-	if plugin.PriceCents <= 0 && !isPrivatePackageRef(plugin.DownloadURL) {
+	if plugin.PriceCents <= 0 && !isPrivatePackageRef(plugin.DownloadURL) && !isGitHubPackageRef(plugin.DownloadURL) {
 		entry["downloadUrl"] = plugin.DownloadURL
 		entry["sha256"] = plugin.SHA256
 	}
@@ -176,7 +176,7 @@ func sourcePublicTemplateEntry(template sourceTemplate) map[string]any {
 		"priceCents": template.PriceCents, "billing": catalogBillingLabel(template.Billing),
 		"forceUpdate": template.ForceUpdate,
 	}
-	if template.PriceCents <= 0 && !isPrivatePackageRef(template.TemplateURL) {
+	if template.PriceCents <= 0 && !isPrivatePackageRef(template.TemplateURL) && !isGitHubPackageRef(template.TemplateURL) {
 		entry["sha256"] = template.SHA256
 		entry["templateUrl"] = template.TemplateURL
 	}
@@ -192,6 +192,7 @@ func sourcePublicTemplateEntry(template sourceTemplate) map[string]any {
 func sourceCatalogAppView(app sourceCatalogApp) gin.H {
 	return gin.H{
 		"id": app.ID, "appKey": app.AppKey, "name": app.Name, "enabled": app.Enabled,
+		"archived": app.Archived,
 		"indexUrl": sourceStationPublicIndexPath(app.AppKey),
 	}
 }

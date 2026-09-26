@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -41,7 +43,8 @@ func importPaidPackageFromURL(ctx context.Context, kind, category, rawURL string
 	if err != nil {
 		return paidImportResult{}, err
 	}
-	ref, fileSHA, err := storePaidPackageBytes(payload)
+	ver := strings.TrimSpace(manifest.Version)
+	ref, fileSHA, _, err := settlePaidZipBytes(ctx, sourceFirstNonEmpty(kind, manifest.Kind), manifest.ID, ver, payload)
 	if err != nil {
 		return paidImportResult{}, err
 	}
@@ -52,6 +55,75 @@ func importPaidPackageFromURL(ctx context.Context, kind, category, rawURL string
 	return paidImportResult{
 		Ref: ref, SHA256: fileSHA, Version: manifest.Version, Origin: rawURL, Health: paidOriginHealthOK,
 	}, nil
+}
+
+// settlePaidZipBytes 把校验过的收费 ZIP 放进站长的私有仓库。未配置仓库时暂存本站，并返回 local=true。
+// 已配置时上传失败不会改回本站托管。
+func settlePaidZipBytes(ctx context.Context, kind, id, version string, payload []byte) (string, string, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !isZipPayload(payload) {
+		return "", "", false, errors.New("必须上传 ZIP 压缩包")
+	}
+	sum := sha256.Sum256(payload)
+	fileSHA := hex.EncodeToString(sum[:])
+	version = strings.TrimSpace(version)
+	if version == "" {
+		version = "1.0.0"
+	}
+	if githubPaidRepoConfigured() {
+		driver, ok := packageStorageByName(packageStorageGitHub)
+		if !ok {
+			return "", "", false, errors.New("收费仓库驱动不可用")
+		}
+		storedKey, err := driver.Put(ctx, paidStoragePutKey(kind, strings.TrimSpace(id), version), payload)
+		if err != nil {
+			return "", "", false, err
+		}
+		return githubPackagePrefix + storedKey, fileSHA, false, nil
+	}
+	driver, ok := packageStorageByName(packageStorageLocal)
+	if !ok {
+		return "", "", false, errors.New("本站存储驱动不可用")
+	}
+	storedKey, err := driver.Put(ctx, "", payload)
+	if err != nil {
+		return "", "", false, err
+	}
+	return sourcePaidPackagePrefix + storedKey, fileSHA, true, nil
+}
+
+func readStationHostedZip(location string) ([]byte, error) {
+	publicURL, _, err := stationPackageIdentity(location)
+	if err != nil {
+		return nil, err
+	}
+	name, ok := stationPackageNameFromURL(publicURL)
+	if !ok {
+		return nil, errors.New("本站托管地址不合法")
+	}
+	payload, err := os.ReadFile(filepath.Join(stationPackageDir(), name))
+	if err != nil || len(payload) == 0 || !isZipPayload(payload) {
+		return nil, errors.New("本站托管的 ZIP 不存在")
+	}
+	return payload, nil
+}
+
+func dropUnusedStationPackage(location, kind, itemID string) {
+	publicURL, _, err := stationPackageIdentity(location)
+	if err != nil {
+		return
+	}
+	kept, err := otherCatalogItemUsesPackage(publicURL, kind, itemID)
+	if err != nil || kept {
+		return
+	}
+	name, ok := stationPackageNameFromURL(publicURL)
+	if !ok {
+		return
+	}
+	_ = os.Remove(filepath.Join(stationPackageDir(), name))
 }
 
 func fetchPaidOriginZIP(ctx context.Context, rawURL string) ([]byte, error) {
@@ -150,14 +222,37 @@ func adoptPaidItemLocation(kind, category, itemID, location, sha, version string
 		return location, sha, version, "", "", nil
 	}
 	if location == "" {
+		if kept, keptSHA, origin, health, ok := existingPaidLocation(kind, itemID); ok {
+			if strings.TrimSpace(sha) == "" {
+				sha = keptSHA
+			}
+			return kept, sha, version, origin, health, nil
+		}
 		return "", sha, version, "", "", nil
 	}
-	if isStationHostedPackageURL(location) {
-		return location, sha, version, "", "", nil
+	if isGitHubPackageRef(location) {
+		return location, sha, version, "", paidOriginHealthOK, nil
 	}
 	if isPrivatePackageRef(location) {
 		origin, health := matchingPaidItemOrigin(kind, itemID, location)
 		return location, sha, version, origin, health, nil
+	}
+	if isStationHostedPackageURL(location) {
+		if !githubPaidRepoConfigured() {
+			return location, sha, version, "", "", nil
+		}
+		payload, err := readStationHostedZip(location)
+		if err != nil {
+			return "", "", "", "", "", err
+		}
+		ref, fileSHA, _, err := settlePaidZipBytes(context.Background(), kind, itemID, version, payload)
+		if err != nil {
+			return "", "", "", "", "", err
+		}
+		if isGitHubPackageRef(ref) {
+			dropUnusedStationPackage(location, kind, itemID)
+		}
+		return ref, fileSHA, version, "", paidOriginHealthOK, nil
 	}
 	if !isHTTPSLocation(location) {
 		if hasURLScheme(location) {
@@ -197,14 +292,38 @@ func adoptPaidVersionLocation(kind, itemID, version, location, sha string) (stri
 		return location, sha, "", nil
 	}
 	if location == "" {
+		if rel, err := currentSourceStationStore().GetVersion(kind, itemID, version); err == nil &&
+			(isGitHubPackageRef(rel.Location) || isPrivatePackageRef(rel.Location)) {
+			if strings.TrimSpace(sha) == "" {
+				sha = rel.SHA256
+			}
+			return rel.Location, sha, rel.OriginURL, nil
+		}
 		return "", sha, "", nil
-	}
-	if isStationHostedPackageURL(location) {
-		return location, sha, "", nil
 	}
 	if isPrivatePackageRef(location) {
 		origin := matchingPaidVersionOrigin(kind, itemID, version, location)
 		return location, sha, origin, nil
+	}
+	if isGitHubPackageRef(location) {
+		return location, sha, "", nil
+	}
+	if isStationHostedPackageURL(location) {
+		if !githubPaidRepoConfigured() {
+			return location, sha, "", nil
+		}
+		payload, err := readStationHostedZip(location)
+		if err != nil {
+			return "", "", "", err
+		}
+		ref, fileSHA, _, err := settlePaidZipBytes(context.Background(), kind, itemID, version, payload)
+		if err != nil {
+			return "", "", "", err
+		}
+		if isGitHubPackageRef(ref) {
+			dropUnusedStationPackage(location, kind, itemID)
+		}
+		return ref, fileSHA, "", nil
 	}
 	if !isHTTPSLocation(location) {
 		if hasURLScheme(location) {
@@ -213,9 +332,14 @@ func adoptPaidVersionLocation(kind, itemID, version, location, sha string) (stri
 		return "", "", "", errSourcePaidExternal
 	}
 	if rel, err := currentSourceStationStore().GetVersion(kind, itemID, version); err == nil &&
-		strings.TrimSpace(rel.OriginURL) == location && isPrivatePackageRef(rel.Location) {
-		if _, fileSHA, verr := verifyPrivatePackage(rel.Location, ""); verr == nil {
-			return rel.Location, fileSHA, rel.OriginURL, nil
+		strings.TrimSpace(rel.OriginURL) == location {
+		if isGitHubPackageRef(rel.Location) && len(strings.TrimSpace(rel.SHA256)) == 64 {
+			return rel.Location, rel.SHA256, rel.OriginURL, nil
+		}
+		if isPrivatePackageRef(rel.Location) {
+			if _, fileSHA, verr := verifyPrivatePackage(rel.Location, ""); verr == nil {
+				return rel.Location, fileSHA, rel.OriginURL, nil
+			}
 		}
 	}
 	imported, err := importPaidPackageFromURL(context.Background(), kind, paidItemCategory(kind, itemID), location)
@@ -223,6 +347,27 @@ func adoptPaidVersionLocation(kind, itemID, version, location, sha string) (stri
 		return "", "", "", err
 	}
 	return imported.Ref, imported.SHA256, imported.Origin, nil
+}
+
+func existingPaidLocation(kind, itemID string) (location, sha, origin, health string, ok bool) {
+	switch kind {
+	case sourceKindTemplate:
+		item, err := currentSourceStationStore().GetTemplate(itemID)
+		if err != nil {
+			return "", "", "", "", false
+		}
+		location, sha, origin, health = item.TemplateURL, item.SHA256, item.OriginURL, item.OriginHealth
+	default:
+		item, err := currentSourceStationStore().GetPlugin(itemID)
+		if err != nil {
+			return "", "", "", "", false
+		}
+		location, sha, origin, health = item.DownloadURL, item.SHA256, item.OriginURL, item.OriginHealth
+	}
+	if isGitHubPackageRef(location) || isPrivatePackageRef(location) {
+		return location, sha, origin, health, true
+	}
+	return "", "", "", "", false
 }
 
 func matchingPaidItemOrigin(kind, itemID, location string) (string, string) {
@@ -258,7 +403,29 @@ func reusePaidItemOrigin(kind, itemID, rawURL string) (paidImportResult, bool) {
 		}
 		origin, health, location, version = item.OriginURL, item.OriginHealth, item.DownloadURL, item.Version
 	}
-	if strings.TrimSpace(origin) != strings.TrimSpace(rawURL) || !isPrivatePackageRef(location) {
+	if strings.TrimSpace(origin) != strings.TrimSpace(rawURL) {
+		return paidImportResult{}, false
+	}
+	if isGitHubPackageRef(location) {
+		sha := ""
+		switch kind {
+		case sourceKindTemplate:
+			item, err := currentSourceStationStore().GetTemplate(itemID)
+			if err == nil {
+				sha = item.SHA256
+			}
+		default:
+			item, err := currentSourceStationStore().GetPlugin(itemID)
+			if err == nil {
+				sha = item.SHA256
+			}
+		}
+		if health == "" {
+			health = paidOriginHealthOK
+		}
+		return paidImportResult{Ref: location, SHA256: sha, Version: version, Origin: origin, Health: health}, sha != ""
+	}
+	if !isPrivatePackageRef(location) {
 		return paidImportResult{}, false
 	}
 	ref, fileSHA, err := verifyPrivatePackage(location, "")
@@ -405,6 +572,7 @@ func (store *memorySourceStore) rememberPaidVersionLocked(kind, id, version, loc
 	rel.Location = location
 	rel.SHA256 = sha
 	rel.OriginURL = origin
+	stampReleaseStorage(&rel)
 	rel.UpdatedAt = now
 	bucket[id][version] = rel
 }
@@ -458,7 +626,11 @@ func (mysqlSourceStore) SetPaidOriginHealth(kind, id, health string) error {
 	if kind == sourceKindTemplate {
 		table = "source_catalog_templates"
 	}
-	_, err = db.Exec(`UPDATE `+table+` SET origin_health=? WHERE id=? AND origin_url<>''`, health, id)
+	locationColumn := "download_url"
+	if kind == sourceKindTemplate {
+		locationColumn = "template_url"
+	}
+	_, err = db.Exec(`UPDATE `+table+` SET origin_health=? WHERE id=? AND (origin_url<>'' OR `+locationColumn+` LIKE 'github:%' OR `+locationColumn+` LIKE 'paid:%')`, health, id)
 	return err
 }
 
@@ -470,7 +642,7 @@ func (store *memorySourceStore) SetPaidOriginHealth(kind, id, health string) err
 		if !ok {
 			return errSourceNotFound
 		}
-		if strings.TrimSpace(item.OriginURL) == "" {
+		if strings.TrimSpace(item.OriginURL) == "" && !isGitHubPackageRef(item.TemplateURL) && !isPrivatePackageRef(item.TemplateURL) {
 			return nil
 		}
 		item.OriginHealth = health
@@ -481,7 +653,7 @@ func (store *memorySourceStore) SetPaidOriginHealth(kind, id, health string) err
 	if !ok {
 		return errSourceNotFound
 	}
-	if strings.TrimSpace(item.OriginURL) == "" {
+	if strings.TrimSpace(item.OriginURL) == "" && !isGitHubPackageRef(item.DownloadURL) && !isPrivatePackageRef(item.DownloadURL) {
 		return nil
 	}
 	item.OriginHealth = health
@@ -514,12 +686,16 @@ func checkPaidOriginHealth(ctx context.Context) {
 	if err == nil {
 		for _, item := range plugins {
 			touchPaidOriginHealth(ctx, store, sourceKindPlugin, item.ID, item.PriceCents, item.OriginURL, item.DownloadURL, item.OriginHealth)
+			touchGitHubPaidHealth(ctx, store, sourceKindPlugin, item.ID, item.Name, item.PriceCents, item.DownloadURL, item.OriginHealth)
+			touchLocalPaidHealth(ctx, store, sourceKindPlugin, item.ID, item.Name, item.PriceCents, item.DownloadURL, item.OriginHealth)
 		}
 	}
 	templates, err := store.ListTemplates("")
 	if err == nil {
 		for _, item := range templates {
 			touchPaidOriginHealth(ctx, store, sourceKindTemplate, item.ID, item.PriceCents, item.OriginURL, item.TemplateURL, item.OriginHealth)
+			touchGitHubPaidHealth(ctx, store, sourceKindTemplate, item.ID, item.Name, item.PriceCents, item.TemplateURL, item.OriginHealth)
+			touchLocalPaidHealth(ctx, store, sourceKindTemplate, item.ID, item.Name, item.PriceCents, item.TemplateURL, item.OriginHealth)
 		}
 	}
 }
@@ -536,6 +712,40 @@ func touchPaidOriginHealth(ctx context.Context, store sourceStationStore, kind, 
 		return
 	}
 	_ = store.SetPaidOriginHealth(kind, id, health)
+}
+
+func touchLocalPaidHealth(ctx context.Context, store sourceStationStore, kind, id, name string, price int64, location, current string) {
+	if price <= 0 {
+		return
+	}
+	driverName, objectKey := classifyPackageRef(location)
+	if driverName != packageStorageLocal {
+		return
+	}
+	driver, ok := packageStorageByName(packageStorageLocal)
+	if !ok {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	exists, err := driver.Exists(ctx, objectKey)
+	health := paidOriginHealthOK
+	if err != nil || !exists {
+		health = paidOriginHealthUnavailable
+	}
+	if health == current {
+		return
+	}
+	if setErr := store.SetPaidOriginHealth(kind, id, health); setErr != nil || health != paidOriginHealthUnavailable {
+		return
+	}
+	body := strings.TrimSpace(name)
+	if body == "" {
+		body = id
+	}
+	body += "：本站暂存的安装包找不到了。条目仍在目录中，不会自动下架。"
+	notifyAllAdmins(notificationTabNotice, "收费安装包暂时无法访问", body, "/source-station/catalog", "local_paid_unavailable", kind, id)
 }
 
 func StartPaidOriginHealthCheck() {
@@ -599,7 +809,11 @@ func pullPaidCatalogItem(c *gin.Context, kind string, asAdmin bool) {
 			writeSourceDeveloperStoreError(c, err)
 			return
 		}
-		c.JSON(200, gin.H{"code": 200, "msg": "已重新拉取并更新托管包", "data": sourceTemplateView(item)})
+		view := sourceTemplateView(item)
+		if !asAdmin {
+			concealDeveloperPaidStorage(view)
+		}
+		c.JSON(200, gin.H{"code": 200, "msg": "已重新拉取并更新托管包", "data": view})
 		return
 	}
 	item, err := currentSourceStationStore().GetPlugin(id)
@@ -607,7 +821,11 @@ func pullPaidCatalogItem(c *gin.Context, kind string, asAdmin bool) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(200, gin.H{"code": 200, "msg": "已重新拉取并更新托管包", "data": sourcePluginView(item)})
+	view := sourcePluginView(item)
+	if !asAdmin {
+		concealDeveloperPaidStorage(view)
+	}
+	c.JSON(200, gin.H{"code": 200, "msg": "已重新拉取并更新托管包", "data": view})
 }
 
 func SourceDeveloperPullPlugin(c *gin.Context) {

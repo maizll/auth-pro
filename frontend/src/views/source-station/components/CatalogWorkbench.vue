@@ -1,5 +1,13 @@
 <template>
   <div class="source-station-page">
+    <el-alert
+      v-if="paidRepoReminder"
+      class="mb-4"
+      type="warning"
+      :closable="false"
+      show-icon
+      :title="paidRepoReminder"
+    />
     <el-card shadow="never" class="art-card mb-4 filter-panel">
       <el-form :model="searchForm" inline>
         <el-form-item label="应用">
@@ -15,6 +23,7 @@
               :label="appLabel(app)"
               :value="app.id"
             />
+            <el-option label="未归属（应用已删除）" :value="-1" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
@@ -56,17 +65,28 @@
             </p>
           </div>
           <div class="table-actions">
-            <el-button :disabled="!searchForm.appId" @click="openRegister">登记外部地址</el-button>
-            <el-button type="primary" :disabled="!searchForm.appId" @click="openUpload"
+            <el-button :disabled="!selectedRows.length" @click="openRebind(selectedRows)"
+              >切换绑定应用</el-button
+            >
+            <el-button :disabled="Boolean(registerBlockReason)" @click="openRegister"
+              >登记外部地址</el-button
+            >
+            <el-button type="primary" :disabled="Boolean(registerBlockReason)" @click="openUpload"
               >上传压缩包</el-button
             >
           </div>
         </div>
       </template>
 
-      <el-table :data="tableData" stripe v-loading="loading">
+      <el-table :data="tableData" stripe v-loading="loading" @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="42" />
         <el-table-column prop="id" label="标识" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="name" label="名称" min-width="180">
+          <template #default="{ row }">
+            <div>{{ row.name }}</div>
+            <p v-if="row.fulfillmentHint" class="card-hint">{{ row.fulfillmentHint }}</p>
+          </template>
+        </el-table-column>
         <el-table-column label="分类" width="120">
           <template #default="{ row }">
             {{ row.categoryLabel || categoryLabel(row.category) }}
@@ -100,8 +120,11 @@
         </el-table-column>
         <el-table-column prop="sha256" label="校验码" min-width="160" show-overflow-tooltip />
         <el-table-column prop="updatedAt" label="更新时间" width="170" />
-        <el-table-column label="操作" width="420" fixed="right">
+        <el-table-column label="操作" width="480" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="openRebind([row])"
+              >切换应用</el-button
+            >
             <el-button
               v-if="canEditItem(row.status)"
               link
@@ -159,6 +182,14 @@
               @click="runStatus(row, 'deprecate')"
               >弃用</el-button
             >
+            <el-button
+              v-if="canAction(row.status, 'restore')"
+              link
+              type="primary"
+              size="small"
+              @click="runStatus(row, 'restore')"
+              >恢复为草稿</el-button
+            >
             <el-button link type="primary" size="small" @click="openVersions(row)">版本</el-button>
           </template>
         </el-table-column>
@@ -173,18 +204,27 @@
         title="校验不通过就会拒绝：压缩包里要有合法的插件或模板清单，不能包含越界路径。失败不会保存，也不会推送到发布页。"
         class="mb-3"
       />
+      <p class="card-hint mb-3">
+        来源二选一。免费用公开地址，本站不存包。收费可以上传压缩包，或填写公开地址让本站拉一次。配置收费仓库后，安装包会放进站长的私有仓库，买家付款后拿到临时下载地址。
+      </p>
       <el-form label-width="120px">
+        <el-form-item label="来源">
+          <el-radio-group v-model="uploadForm.source">
+            <el-radio value="upload">上传压缩包</el-radio>
+            <el-radio value="public">公开地址</el-radio>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="应用" required>
           <el-select v-model="uploadForm.appId" placeholder="请选择应用" style="width: 100%">
             <el-option
-              v-for="app in apps"
+              v-for="app in liveApps"
               :key="app.id"
               :label="appLabel(app)"
               :value="app.id"
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="压缩包" required>
+        <el-form-item v-if="uploadForm.source === 'upload'" label="压缩包">
           <el-upload
             drag
             :auto-upload="false"
@@ -194,6 +234,11 @@
           >
             <div>{{ uploadFile ? uploadFile.name : '点击或拖拽压缩包（不超过 20 MB）' }}</div>
           </el-upload>
+          <p class="card-hint">
+            售价大于 0
+            时，配置了收费仓库就上传到该仓库并删除临时文件；未配置则暂存在本站。免费请改用公开地址，或勾选推送
+            Release。
+          </p>
         </el-form-item>
         <el-form-item label="分类">
           <el-select
@@ -227,29 +272,46 @@
         <el-form-item label="更新说明">
           <el-input v-model="uploadForm.changelog" type="textarea" :rows="2" placeholder="可选" />
         </el-form-item>
-        <el-form-item label="选项">
+        <el-form-item label="售价（元）">
+          <el-input v-model="uploadForm.priceYuan" placeholder="0" />
+          <p class="card-hint">填 0 表示免费。大于 0 为买断，上传压缩包或填写公开地址即可。</p>
+        </el-form-item>
+        <el-form-item v-if="uploadForm.source === 'upload'" label="选项">
           <el-checkbox v-model="uploadForm.push">推送 GitHub/Gitee Release</el-checkbox>
         </el-form-item>
-        <el-form-item v-if="!uploadForm.push" label="外部地址" required>
+        <el-form-item v-if="uploadForm.source === 'public'" label="公开地址">
           <el-input
             v-model="uploadForm.location"
-            placeholder="https://... 下载地址（不推 Release 时必填）"
+            placeholder="https://..."
+            @input="parsedManifest = null"
           />
+          <p class="card-hint">
+            免费条目保存这条地址，本站不存包。收费条目会拉取一次：已配置收费仓库则上传后删除临时文件，未配置则暂存在本站。
+          </p>
         </el-form-item>
       </el-form>
+      <p v-if="uploadBlockReason" class="card-hint">{{ uploadBlockReason }}</p>
       <template #footer>
         <el-button @click="uploadVisible = false">取消</el-button>
-        <el-button :disabled="!uploadFile" :loading="parsing" @click="handleParse"
-          >仅校验解析</el-button
-        >
-        <el-button
-          type="primary"
-          :disabled="!uploadFile"
-          :loading="publishing"
-          @click="handlePublish"
-        >
-          校验并保存元数据
-        </el-button>
+        <el-tooltip :disabled="!uploadBlockReason" :content="uploadBlockReason" placement="top">
+          <span>
+            <el-button :disabled="!!uploadBlockReason" :loading="parsing" @click="handleParse"
+              >仅校验解析</el-button
+            >
+          </span>
+        </el-tooltip>
+        <el-tooltip :disabled="!uploadBlockReason" :content="uploadBlockReason" placement="top">
+          <span>
+            <el-button
+              type="primary"
+              :disabled="!!uploadBlockReason"
+              :loading="publishing"
+              @click="handlePublish"
+            >
+              校验并保存元数据
+            </el-button>
+          </span>
+        </el-tooltip>
       </template>
     </el-dialog>
 
@@ -259,7 +321,7 @@
         :closable="false"
         show-icon
         class="mb-3"
-        title="已上架条目可直接改名称、地址、校验码等元数据，不会自动退回待审核。标识与所属应用创建后不可改。"
+        title="已上架条目可直接改名称、地址、校验码等元数据，不会自动退回待审核。标识创建后不可改。更换所属应用请用「切换应用」，版本、价格和安装包会一起过去。"
       />
       <el-form ref="editRef" :model="editForm" :rules="editRules" label-width="110px">
         <el-form-item label="应用">
@@ -286,7 +348,9 @@
         </el-form-item>
         <el-form-item label="售价（元）">
           <el-input v-model="editForm.priceYuan" placeholder="0" />
-          <p class="card-hint">填 0 表示免费。大于 0 为买断：可上传本站托管的压缩包，或填写 https 网址由本站立即拉取并私有托管。付费上架尚未开放。</p>
+          <p class="card-hint">
+            填 0 表示免费。大于 0 请到「上传安装包」上传压缩包或填写公开地址。
+          </p>
         </el-form-item>
         <el-form-item label="下载地址" prop="location">
           <el-input v-model="editForm.location" placeholder="https://..." />
@@ -324,7 +388,7 @@
         <el-form-item label="应用" prop="appId">
           <el-select v-model="registerForm.appId" placeholder="请选择应用" style="width: 100%">
             <el-option
-              v-for="app in apps"
+              v-for="app in liveApps"
               :key="app.id"
               :label="appLabel(app)"
               :value="app.id"
@@ -355,7 +419,9 @@
         </el-form-item>
         <el-form-item label="售价（元）">
           <el-input v-model="registerForm.priceYuan" placeholder="0" />
-          <p class="card-hint">填 0 表示免费。大于 0 可上传本站托管的压缩包，或填写 https 网址由本站立即拉取并私有托管。付费上架尚未开放。</p>
+          <p class="card-hint">
+            填 0 表示免费。大于 0 请到「上传安装包」上传压缩包或填写公开地址。
+          </p>
         </el-form-item>
         <el-form-item label="下载地址" prop="location">
           <el-input v-model="registerForm.location" placeholder="https://..." />
@@ -511,7 +577,9 @@
           </el-form-item>
           <el-form-item label="校验码">
             <el-input v-model="versionForm.sha256" placeholder="付费外链可留空，由本站拉取后计算" />
-            <p class="card-hint">免费外链仍须填写 64 位校验码。付费条目填写 https 网址时，保存时本站拉取并自动计算。</p>
+            <p class="card-hint">
+              免费外链仍须填写 64 位校验码。收费条目请上传压缩包，或填写公开地址让本站拉取。
+            </p>
           </el-form-item>
           <el-form-item label="更新说明">
             <el-input v-model="versionForm.changelog" type="textarea" :rows="2" />
@@ -525,6 +593,21 @@
         </template>
       </el-dialog>
     </el-drawer>
+
+    <el-dialog v-model="rebindVisible" title="切换绑定应用" width="480px" destroy-on-close>
+      <p class="card-hint mb-3">
+        将把选中的
+        {{ rebindItems.length }}
+        条改到目标应用。版本、价格和安装包跟着走，标识不变。目标应用里已有相同标识时会拒绝。
+      </p>
+      <el-select v-model="rebindAppId" placeholder="请选择目标应用" style="width: 100%">
+        <el-option v-for="app in liveApps" :key="app.id" :label="appLabel(app)" :value="app.id" />
+      </el-select>
+      <template #footer>
+        <el-button @click="rebindVisible = false">取消</el-button>
+        <el-button type="primary" :loading="rebindSaving" @click="handleRebind">确定切换</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -537,8 +620,10 @@
     SOURCE_ITEM_STATUS,
     SOURCE_VERSION_STATUS,
     fetchSourceCatalogCategories,
+    fetchGitHubPaidToken,
     fetchSourceCatalogItems,
     fetchSourceCatalogApps,
+    rebindSourceCatalogItems,
     parseSourcePackage,
     publishSourcePackage,
     registerSourcePlugin,
@@ -568,6 +653,7 @@
     deleteCatalogCategoryConfirmMessage,
     extrasAfterDeletingCategory
   } from '@/utils/form/catalog-category'
+  import { catalogUploadBlockReason } from '@/utils/form/catalog-package-source'
   import {
     formatCatalogPriceLabel,
     formatCatalogPriceYuan,
@@ -593,12 +679,25 @@
   const loading = ref(false)
   const pullingId = ref('')
   const tableData = ref<SourceCatalogItem[]>([])
+  const selectedRows = ref<SourceCatalogItem[]>([])
+  const rebindVisible = ref(false)
+  const rebindSaving = ref(false)
+  const rebindAppId = ref<number>()
+  const rebindItems = ref<SourceCatalogItem[]>([])
   const searchForm = reactive({
     appId: 0,
     status: '',
     category: String(route.query.category || props.initialCategory || '')
   })
+  const liveApps = computed(() => apps.value.filter((app) => !app.archived))
+  const registerBlockReason = computed(() => {
+    if (searchForm.appId <= 0) return '请先选择应用'
+    const current = apps.value.find((item) => item.id === searchForm.appId)
+    if (current?.archived) return '已归档的应用不能再登记新条目'
+    return ''
+  })
 
+  const paidRepoReminder = ref('')
   const uploadVisible = ref(false)
   const parsing = ref(false)
   const publishing = ref(false)
@@ -609,8 +708,20 @@
     category: '',
     changelog: '',
     location: '',
-    push: true
+    priceYuan: '0',
+    push: false,
+    source: 'public' as 'upload' | 'public'
   })
+  const uploadBlockReason = computed(() =>
+    catalogUploadBlockReason({
+      appId: uploadForm.appId,
+      source: uploadForm.source,
+      push: uploadForm.push,
+      hasFile: !!uploadFile.value,
+      location: uploadForm.location,
+      priceYuan: uploadForm.priceYuan
+    })
+  )
 
   const registerVisible = ref(false)
   const registering = ref(false)
@@ -714,7 +825,9 @@
     return categories.value.filter((item) => item.kind === kind)
   })
   function appLabel(app: SourceCatalogApp) {
-    return app.enabled ? `${app.name}（${app.appKey}）` : `${app.name}（${app.appKey}）· 已停用`
+    const base = `${app.name}（${app.appKey}）`
+    if (app.archived) return `${base}· 已归档`
+    return app.enabled ? base : `${base}· 已停用`
   }
 
   function categoryKind(key: string): 'plugin' | 'template' {
@@ -727,6 +840,9 @@
   }
 
   function itemLocation(row: SourceCatalogItem) {
+    if (row.packageSource === 'github' && row.githubOwner && row.githubRepo) {
+      return `私有仓库 ${row.githubOwner}/${row.githubRepo} @ ${row.githubTag || '-'} / ${row.githubAsset || '-'}`
+    }
     return row.location || row.downloadUrl || row.templateUrl || ''
   }
 
@@ -758,8 +874,9 @@
 
   function canAction(
     status: string,
-    action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate'
+    action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate' | 'restore'
   ): boolean {
+    if (action === 'restore') return status === 'deprecated'
     const target = {
       approve: 'approved',
       reject: 'rejected',
@@ -801,6 +918,10 @@
     const data = await fetchSourceCatalogApps()
     apps.value = data.list || []
     const stored = Number(localStorage.getItem(CATEGORY_APP_STORAGE_KEY) || 0)
+    if (stored === -1) {
+      searchForm.appId = -1
+      return
+    }
     const exists = apps.value.some((item) => item.id === stored)
     if (exists) {
       searchForm.appId = stored
@@ -832,8 +953,42 @@
     }
   }
 
+  function onSelectionChange(rows: SourceCatalogItem[]) {
+    selectedRows.value = rows
+  }
+
+  function openRebind(rows: SourceCatalogItem[]) {
+    if (!rows.length) {
+      ElMessage.warning('请选择要切换的条目')
+      return
+    }
+    rebindItems.value = rows
+    rebindAppId.value =
+      liveApps.value.find((app) => app.id !== rows[0]?.appId)?.id || liveApps.value[0]?.id
+    rebindVisible.value = true
+  }
+
+  async function handleRebind() {
+    if (!rebindAppId.value) {
+      ElMessage.warning('请选择目标应用')
+      return
+    }
+    rebindSaving.value = true
+    try {
+      await rebindSourceCatalogItems(
+        rebindAppId.value,
+        rebindItems.value.map((row) => ({ kind: row.kind, id: row.id }))
+      )
+      ElMessage.success('已切换绑定应用')
+      rebindVisible.value = false
+      await loadItems()
+    } finally {
+      rebindSaving.value = false
+    }
+  }
+
   async function loadItems() {
-    if (!searchForm.appId) {
+    if (searchForm.appId === 0) {
       tableData.value = []
       return
     }
@@ -842,7 +997,8 @@
       const data = await fetchSourceCatalogItems(
         searchForm.status,
         searchForm.category,
-        searchForm.appId
+        searchForm.appId,
+        searchForm.appId === -1
       )
       tableData.value = data.list || []
     } finally {
@@ -857,8 +1013,8 @@
   }
 
   function openUpload() {
-    if (!searchForm.appId) {
-      ElMessage.warning('请先选择应用')
+    if (registerBlockReason.value) {
+      ElMessage.warning(registerBlockReason.value)
       return
     }
     uploadFile.value = null
@@ -867,7 +1023,9 @@
     uploadForm.category = searchForm.category
     uploadForm.changelog = ''
     uploadForm.location = ''
-    uploadForm.push = true
+    uploadForm.priceYuan = '0'
+    uploadForm.push = false
+    uploadForm.source = 'public'
     uploadVisible.value = true
   }
 
@@ -878,24 +1036,40 @@
 
   function buildPackageForm() {
     const form = new FormData()
-    if (uploadFile.value) form.append('file', uploadFile.value)
+    form.append('packageSource', uploadForm.source)
+    if (uploadForm.source === 'upload' && uploadFile.value) form.append('file', uploadFile.value)
     if (uploadForm.category) form.append('category', uploadForm.category)
     if (uploadForm.changelog) form.append('changelog', uploadForm.changelog)
-    if (!uploadForm.push && uploadForm.location) {
+    if (uploadForm.source !== 'upload' && uploadForm.location.trim()) {
       const kind = parsedManifest.value?.kind || categoryKind(uploadForm.category)
-      form.append(kind === 'template' ? 'templateUrl' : 'downloadUrl', uploadForm.location)
+      form.append(kind === 'template' ? 'templateUrl' : 'downloadUrl', uploadForm.location.trim())
     }
-    if (uploadForm.push) form.append('push', 'true')
+    const priced = resolveCatalogPriceCents(
+      uploadForm.priceYuan,
+      uploadForm.source === 'upload' ? '' : uploadForm.location
+    )
+    if (!priced.error && priced.cents > 0) form.append('priceCents', String(priced.cents))
+    if (uploadForm.source === 'upload' && uploadForm.push) form.append('push', 'true')
     if (uploadForm.appId) form.append('appId', String(uploadForm.appId))
     return form
   }
 
   async function handleParse() {
-    if (!uploadFile.value) return
+    if (uploadBlockReason.value) {
+      ElMessage.warning(uploadBlockReason.value)
+      return
+    }
     parsing.value = true
     try {
       const form = new FormData()
-      form.append('file', uploadFile.value)
+      form.append('packageSource', uploadForm.source)
+      if (uploadForm.source === 'upload' && uploadFile.value) form.append('file', uploadFile.value)
+      else if (uploadForm.location.trim()) {
+        const kind = categoryKind(uploadForm.category)
+        form.append(kind === 'template' ? 'templateUrl' : 'downloadUrl', uploadForm.location.trim())
+      }
+      const priced = resolveCatalogPriceCents(uploadForm.priceYuan, uploadForm.location)
+      if (!priced.error && priced.cents > 0) form.append('priceCents', String(priced.cents))
       if (uploadForm.category) form.append('category', uploadForm.category)
       parsedManifest.value = await parseSourcePackage(form)
       if (parsedManifest.value.category) {
@@ -908,22 +1082,30 @@
   }
 
   async function handlePublish() {
-    if (!uploadFile.value) return
-    if (!uploadForm.appId) {
-      ElMessage.warning('请选择应用')
+    if (uploadBlockReason.value) {
+      ElMessage.warning(uploadBlockReason.value)
       return
     }
-    if (!uploadForm.push && !String(uploadForm.location || '').trim()) {
-      ElMessage.warning('未推送 Release 时请填写外部地址')
+    const priced = resolveCatalogPriceCents(
+      uploadForm.priceYuan,
+      uploadForm.source === 'upload' ? '' : uploadForm.location
+    )
+    if (priced.error) {
+      ElMessage.warning(priced.error)
       return
     }
     publishing.value = true
     try {
       const result = await publishSourcePackage(buildPackageForm())
+      const origin = (result.item as { originUrl?: string } | undefined)?.originUrl
       ElMessage.success(
         result.pushed
           ? '校验通过，已推送 Release 并保存元数据'
-          : '校验通过，已保存元数据（包已丢弃）'
+          : origin
+            ? '校验通过，已拉取安装包并保存，校验码已自动填写'
+            : uploadForm.source === 'upload'
+              ? '校验通过，已保存元数据'
+              : '校验通过，已保存元数据并自动填写校验码'
       )
       uploadVisible.value = false
       await loadItems()
@@ -1002,8 +1184,8 @@
   }
 
   function openRegister() {
-    if (!searchForm.appId) {
-      ElMessage.warning('请先选择应用')
+    if (registerBlockReason.value) {
+      ElMessage.warning(registerBlockReason.value)
       return
     }
     registerForm.appId = searchForm.appId
@@ -1102,8 +1284,13 @@
   async function handleDeleteCategory(row: SourceCatalogCategory) {
     if (!canDeleteCatalogCategory(row)) return
     let usedCount = catalogCategoryUsageCount(tableData.value, row.key)
-    if (usedCount === 0 && searchForm.appId) {
-      const data = await fetchSourceCatalogItems('', '', searchForm.appId)
+    if (usedCount === 0 && searchForm.appId !== 0) {
+      const data = await fetchSourceCatalogItems(
+        '',
+        '',
+        searchForm.appId > 0 ? searchForm.appId : undefined,
+        searchForm.appId === -1
+      )
       usedCount = catalogCategoryUsageCount(data.list || [], row.key)
     }
     try {
@@ -1132,12 +1319,19 @@
 
   async function runStatus(
     row: SourceCatalogItem,
-    action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate'
+    action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate' | 'restore'
   ) {
     if (action === 'unshelf') {
       await ElMessageBox.confirm(
         '下架后，该应用的公开软件源里不再显示这一条，已经安装的不会被远程卸掉。确认继续？',
         '下架确认',
+        { type: 'warning' }
+      )
+    }
+    if (action === 'restore') {
+      await ElMessageBox.confirm(
+        '恢复后回到草稿，不会自动上架。需要再审核通过才能出现在公开软件源里。确认继续？',
+        '恢复为草稿',
         { type: 'warning' }
       )
     }
@@ -1246,9 +1440,19 @@
     await loadItems()
   }
 
+  async function loadPaidRepoReminder() {
+    try {
+      const data = await fetchGitHubPaidToken()
+      paidRepoReminder.value = data.configured ? '' : data.reminder || ''
+    } catch {
+      paidRepoReminder.value = ''
+    }
+  }
+
   onMounted(async () => {
     await loadCategories()
     await loadApps()
+    await loadPaidRepoReminder()
     await loadItems()
   })
 </script>
