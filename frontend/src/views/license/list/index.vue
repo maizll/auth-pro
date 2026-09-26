@@ -33,6 +33,7 @@
               {{ row.ownerType === 'agent' ? '代理' : '用户' }} ·
               {{ row.ownerName || `ID ${row.ownerId}` }}
             </span>
+            <span v-if="narrow && row.sourceLabel" class="domain-cell__owner">{{ row.sourceLabel }}</span>
           </div>
         </template>
 

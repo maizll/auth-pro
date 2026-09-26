@@ -20,6 +20,24 @@
 
       <!-- 表格 -->
       <ArtTable :loading="loading" :data="data" :columns="columns">
+        <template #name="{ row }">
+          <div class="app-name-cell">
+            <span class="app-name-cell__title">{{ row.name }}</span>
+            <div v-if="narrow && row.commercialProduct" class="sale-status">
+              <ElTag type="warning" size="small">商业版产品</ElTag>
+              <ElTag v-if="!row.saleGaps?.length" type="success" size="small">可售</ElTag>
+              <ElButton
+                v-for="gap in row.saleGaps || []"
+                :key="gap.code"
+                link
+                type="danger"
+                @click="handleSaleGap(row, gap)"
+              >
+                {{ gap.label }}
+              </ElButton>
+            </div>
+          </div>
+        </template>
         <!-- 授权方式 -->
         <template #purchaseLicenseTypes="{ row }">
           <div v-if="row.purchaseLicenseTypes?.length" class="license-type-tags">
@@ -290,7 +308,7 @@
       apiParams: {},
       columnsFactory: () => [
         { type: 'index', width: 60, label: '序号' }, // 序号
-        { prop: 'name', label: '应用名称', minWidth: 150, showOverflowTooltip: true },
+        { prop: 'name', label: '应用名称', minWidth: 150, useSlot: true },
         { prop: 'sale', label: '商业版', minWidth: 220, useSlot: true },
         { prop: 'appKey', label: 'AppKey', minWidth: 220, showOverflowTooltip: true },
         {
@@ -721,6 +739,13 @@
 
     .license-type-options :deep(.el-checkbox) {
       margin-right: 12px;
+    }
+
+    .app-name-cell__title {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .sale-status {
