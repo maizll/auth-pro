@@ -672,6 +672,9 @@ CREATE TABLE `plugin_sources` (
   UNIQUE KEY `uk_url` (`url`(191))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权系统插件软件源';
 
+INSERT INTO `plugin_sources` (`name`, `url`, `source_type`, `created_at`) VALUES
+('官方软件源', 'https://auth.maizll.com/software-source/app_f93896d80066_5811/index.json', 'json', NOW());
+
 DROP TABLE IF EXISTS `plugins`;
 CREATE TABLE `plugins` (
   `id` VARCHAR(60) NOT NULL COMMENT '插件标识',

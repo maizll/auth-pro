@@ -34,7 +34,7 @@ func TestJSONCatalogURLIsNeverCloned(t *testing.T) {
 		http.Error(response, "upstream down", http.StatusBadGateway)
 	}))
 	defer server.Close()
-	rawURL := server.URL + "/software-source/app_4e85b4724223_2603/index.json"
+	rawURL := server.URL + "/software-source/app_f93896d80066_5811/index.json"
 	_, _, _, err := fetchPluginSourceManifest(context.Background(), rawURL)
 	if err == nil {
 		t.Fatal("expected json fetch error")
@@ -118,7 +118,7 @@ func TestPlainURLGitCloneFailureIsChinese(t *testing.T) {
 }
 
 func TestExplainGitCloneFailureHidesRawOutput(t *testing.T) {
-	raw := "Cloning into '/tmp/auth-pro-plugin-source-abc/repository'...\nfatal: https://auth.maizll.com/software-source/app_4e85b4724223_2603/index.json/info/refs not valid: is this a git repository?\n"
+	raw := "Cloning into '/tmp/auth-pro-plugin-source-abc/repository'...\nfatal: https://auth.maizll.com/software-source/app_f93896d80066_5811/index.json/info/refs not valid: is this a git repository?\n"
 	err := explainGitCloneFailure(raw)
 	if err.Error() != errPluginSourceNotGitRepo {
 		t.Fatalf("error=%q", err.Error())
@@ -140,10 +140,10 @@ func TestGoneSoftwareSourceRefreshIsChinese(t *testing.T) {
 		}
 		response.Header().Set("Content-Type", "application/json")
 		response.WriteHeader(http.StatusGone)
-		_, _ = io.WriteString(response, `{"error":"app_gone","message":"该软件源对应的应用已删除或归档","appKey":"app_4e85b4724223_2603"}`)
+		_, _ = io.WriteString(response, `{"error":"app_gone","message":"该软件源对应的应用已删除或归档","appKey":"app_f93896d80066_5811"}`)
 	}))
 	defer server.Close()
-	rawURL := server.URL + "/software-source/app_4e85b4724223_2603/index.json"
+	rawURL := server.URL + "/software-source/app_f93896d80066_5811/index.json"
 	_, _, _, err := fetchPluginSourceManifest(context.Background(), rawURL)
 	if err == nil || err.Error() != softwareSourceAppGoneMessage {
 		t.Fatalf("error=%v", err)
@@ -168,7 +168,7 @@ func TestRewriteSoftwareSourceURLKeepsHost(t *testing.T) {
 }
 
 func TestPluginSourceURLClassification(t *testing.T) {
-	if !pluginSourceURLLooksLikeJSON("https://auth.maizll.com/software-source/app_4e85b4724223_2603/index.json") {
+	if !pluginSourceURLLooksLikeJSON("https://auth.maizll.com/software-source/app_f93896d80066_5811/index.json") {
 		t.Fatal("site index must be json")
 	}
 	if !pluginSourceURLLooksLikeJSON("https://auth.example.com/software-source/index.json?app_key=demo") {

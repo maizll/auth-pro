@@ -126,7 +126,7 @@
       </template>
       <el-form label-width="140px" class="settings-form">
         <el-form-item label="旧应用标识">
-          <el-input v-model.trim="aliasForm.oldAppKey" placeholder="例如 app_4e85b4724223_2603" />
+          <el-input v-model.trim="aliasForm.oldAppKey" placeholder="例如 app_f93896d80066_5811" />
         </el-form-item>
         <el-form-item label="转到应用">
           <el-select v-model="aliasForm.targetAppId" placeholder="选择还在使用的应用" class="product-app-select">

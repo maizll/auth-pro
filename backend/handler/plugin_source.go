@@ -92,7 +92,102 @@ func ensurePluginSourceStorage(db *sql.DB) error {
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权系统插件清单缓存'`); err != nil {
 		return err
 	}
-	return migrateMisclassifiedJSONPluginSources(db)
+	if err := migrateMisclassifiedJSONPluginSources(db); err != nil {
+		return err
+	}
+	return migrateRetiredDefaultPluginSource(db)
+}
+
+const (
+	retiredDefaultPluginSourceURL = "https://auth.maizll.com/software-source/app_4e85b4724223_2603/index.json"
+	defaultPluginSourceURL        = "https://auth.maizll.com/software-source/app_f93896d80066_5811/index.json"
+	defaultPluginSourceName       = "官方软件源"
+)
+
+func canonicalPluginSourceURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return strings.TrimSuffix(raw, "/")
+	}
+	parsed.Path = strings.TrimSuffix(parsed.Path, "/")
+	parsed.RawPath = ""
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+func migrateRetiredDefaultPluginSource(db *sql.DB) error {
+	rows, err := db.Query("SELECT id, url, source_type FROM plugin_sources ORDER BY id ASC")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type sourceRow struct {
+		id         int64
+		url        string
+		sourceType string
+	}
+	var listed []sourceRow
+	var current sourceRow
+	var retired []sourceRow
+	for rows.Next() {
+		var item sourceRow
+		if err := rows.Scan(&item.id, &item.url, &item.sourceType); err != nil {
+			return err
+		}
+		listed = append(listed, item)
+		switch canonicalPluginSourceURL(item.url) {
+		case canonicalPluginSourceURL(defaultPluginSourceURL):
+			current = item
+		case canonicalPluginSourceURL(retiredDefaultPluginSourceURL):
+			retired = append(retired, item)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if current.id != 0 {
+		if current.url != defaultPluginSourceURL || current.sourceType != pluginSourceTypeJSON {
+			if _, err := db.Exec("UPDATE plugin_sources SET url=?, source_type=? WHERE id=?", defaultPluginSourceURL, pluginSourceTypeJSON, current.id); err != nil {
+				return err
+			}
+			if _, err := db.Exec("DELETE FROM plugin_source_cache WHERE source_id=?", current.id); err != nil {
+				return err
+			}
+		}
+		for _, item := range retired {
+			if _, err := db.Exec("DELETE FROM plugin_source_cache WHERE source_id=?", item.id); err != nil {
+				return err
+			}
+			if _, err := db.Exec("DELETE FROM plugin_sources WHERE id=?", item.id); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if len(retired) > 0 {
+		keep := retired[0]
+		if _, err := db.Exec("UPDATE plugin_sources SET url=?, source_type=? WHERE id=?", defaultPluginSourceURL, pluginSourceTypeJSON, keep.id); err != nil {
+			return err
+		}
+		if _, err := db.Exec("DELETE FROM plugin_source_cache WHERE source_id=?", keep.id); err != nil {
+			return err
+		}
+		for _, item := range retired[1:] {
+			if _, err := db.Exec("DELETE FROM plugin_source_cache WHERE source_id=?", item.id); err != nil {
+				return err
+			}
+			if _, err := db.Exec("DELETE FROM plugin_sources WHERE id=?", item.id); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if len(listed) > 0 {
+		return nil
+	}
+	_, err = db.Exec("INSERT INTO plugin_sources (name, url, source_type, created_at) VALUES (?, ?, ?, NOW())", defaultPluginSourceName, defaultPluginSourceURL, pluginSourceTypeJSON)
+	return err
 }
 
 const (

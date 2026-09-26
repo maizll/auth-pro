@@ -29,12 +29,12 @@ func TestArchivedAppIndexReturnsJSONAndAliasServesTarget(t *testing.T) {
 	}
 
 	saved := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/settings/source-aliases", admin,
-		`{"oldAppKey":"app_4e85b4724223_2603","targetAppId":2}`)
+		`{"oldAppKey":"app_f93896d80066_5811","targetAppId":2}`)
 	if sourceBodyCode(t, saved) != 200 {
 		t.Fatalf("save missing key=%s", saved.Body.String())
 	}
 	again := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/settings/source-aliases", admin,
-		`{"oldAppKey":"app_4e85b4724223_2603","targetAppId":2}`)
+		`{"oldAppKey":"app_f93896d80066_5811","targetAppId":2}`)
 	if sourceBodyCode(t, again) != 200 {
 		t.Fatalf("idempotent save=%s", again.Body.String())
 	}
@@ -52,7 +52,7 @@ func TestArchivedAppIndexReturnsJSONAndAliasServesTarget(t *testing.T) {
 	if alias.Code != http.StatusOK || !strings.Contains(alias.Body.String(), "kept-plugin") {
 		t.Fatalf("alias body=%s", alias.Body.String())
 	}
-	legacy := sourceJSON(t, router, http.MethodGet, "/software-source/app_4e85b4724223_2603/index.json", "", "")
+	legacy := sourceJSON(t, router, http.MethodGet, "/software-source/app_f93896d80066_5811/index.json", "", "")
 	if legacy.Code != http.StatusOK || !strings.Contains(legacy.Body.String(), "kept-plugin") {
 		t.Fatalf("legacy key body=%s", legacy.Body.String())
 	}
