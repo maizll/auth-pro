@@ -274,7 +274,7 @@ export const staticRoutes: AppRouteRecordRaw[] = [
         path: '/outside/iframe/:path',
         name: 'Iframe',
         component: () => import('@/views/outside/Iframe.vue'),
-        meta: { title: 'iframe' }
+        meta: { title: '内嵌页面' }
       }
     ]
   }

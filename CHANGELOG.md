@@ -1,5 +1,13 @@
 # 更新日志
 
+## [v1.5.9] 2026-09-26 — 管理后台菜单显示中文
+
+- 管理后台「源站运营」下的商业版设置、商店订单、主授权与权益、商业版收入不再显示成 edition、storeOrders、storeLicenses、storeRevenue。
+- 菜单中文与 `locales/langs/zh.json` 共用一份来源。映射表里没有的 `menus.*` 标题回退为「未命名菜单」，不再显示英文 key 片段。
+- 前端单测和 `go test` 会检查前端路由、`menu_spec.go`、`menu_seed.sql` 里的 `menus.*` 标题是否都有中文。缺中文时构建和测试失败。
+- 内嵌页的页签标题由 iframe 改为「内嵌页面」。用户面板、代理面板、开发者面板的菜单和面包屑本来就是中文。
+- 根目录 `VERSION` / `AppVersion` / `VITE_VERSION` 默认 `1.5.9`。发布说明见 `docs/release-notes-1.5.9.txt`。
+
 ## [v1.5.8] 2026-09-26 — 付费条目可填 HTTPS 外链并由本站拉取托管
 
 - 付费插件和模板登记、编辑时，可以上传 ZIP，也可以填写 HTTPS 外链。外链会立即下载，走和上传 ZIP 相同的校验，通过后写入付费私有目录并自动计算 sha256。失败给出中文原因，不落库。
