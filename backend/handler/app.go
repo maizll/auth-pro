@@ -283,10 +283,23 @@ func AppUpdate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更新失败"})
 		return
 	}
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected != 1 {
-		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "应用不存在"})
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更新失败"})
 		return
+	}
+	// MariaDB/MySQL 在赋值和原值相同时 RowsAffected 为 0，updated_at 也不会动。
+	// 不能据此报「应用不存在」。商业版开关不在这条 UPDATE 里，确认行还在之后还要继续写。
+	if rowsAffected == 0 {
+		var exists int
+		if err := db.QueryRow("SELECT COUNT(*) FROM apps WHERE id = ?", id).Scan(&exists); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "检查应用状态失败"})
+			return
+		}
+		if exists == 0 {
+			c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "应用不存在"})
+			return
+		}
 	}
 	appID, err := positiveInt64(id)
 	if err != nil {
