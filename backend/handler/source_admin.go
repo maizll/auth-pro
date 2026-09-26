@@ -164,6 +164,10 @@ func AdminSourcePluginDeprecate(c *gin.Context) {
 	adminSetPluginStatus(c, sourceItemDeprecated, "已弃用：已从公开软件源目录清除，不再展示")
 }
 
+func AdminSourcePluginRestore(c *gin.Context) {
+	adminSetPluginStatus(c, sourceItemDraft, "已恢复为草稿，需要重新审核后再上架")
+}
+
 func AdminSourceTemplates(c *gin.Context) {
 	appID, err := requestSourceCatalogAppID(c)
 	if err != nil {
@@ -283,6 +287,10 @@ func AdminSourceTemplateUnshelf(c *gin.Context) {
 
 func AdminSourceTemplateDeprecate(c *gin.Context) {
 	adminSetTemplateStatus(c, sourceItemDeprecated, "已弃用：已从公开软件源目录清除，不再展示")
+}
+
+func AdminSourceTemplateRestore(c *gin.Context) {
+	adminSetTemplateStatus(c, sourceItemDraft, "已恢复为草稿，需要重新审核后再上架")
 }
 
 func AdminSourceIndexSnapshot(c *gin.Context) {

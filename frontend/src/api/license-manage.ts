@@ -314,6 +314,11 @@ export function fetchRevokeCommercialEdition(id: number, reason: string) {
   })
 }
 
+/** 恢复已归档的应用 */
+export function fetchRestoreLicenseApp(id: number) {
+  return request.post({ url: `/api/app/${id}/restore` })
+}
+
 /** 归档应用。有目录条目时要带上迁移目标，或 archive 表示原地归档。 */
 export function fetchDeleteLicenseApp(
   id: number,

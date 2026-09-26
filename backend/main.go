@@ -320,6 +320,7 @@ func main() {
 			licenseApps.PUT("/app/:id/license-required", handler.AppLicenseRequiredUpdate)
 			licenseApps.PUT("/app/:id/reset-secret", handler.AppResetSecret)
 			licenseApps.DELETE("/app/:id", handler.AppDelete)
+			licenseApps.POST("/app/:id/restore", handler.AppRestore)
 			secured.GET("/app/:id/versions", handler.AppVersionList)
 			licenseVersions.POST("/app/:id/versions", handler.AppVersionCreate)
 			licenseVersions.PUT("/app/:id/versions/:versionId", handler.AppVersionUpdate)

@@ -446,9 +446,18 @@ func sourceTransitionAllowed(from, to string) bool {
 		return from == sourceItemPublished
 	case sourceItemDeprecated:
 		return from == sourceItemPublished || from == sourceItemHidden || from == sourceItemApproved
+	case sourceItemDraft:
+		return from == sourceItemDeprecated
 	default:
 		return false
 	}
+}
+
+func catalogStatusAuditAction(from, to string) string {
+	if from == sourceItemDeprecated && to == sourceItemDraft {
+		return "restore"
+	}
+	return sourceCatalogAuditAction(to)
 }
 
 type memorySourceStore struct {
@@ -747,7 +756,8 @@ func (store *memorySourceStore) SetPluginStatus(id, status, actor, note string) 
 	if !ok {
 		return sourcePlugin{}, errSourceNotFound
 	}
-	if !sourceTransitionAllowed(item.Status, status) {
+	fromStatus := item.Status
+	if !sourceTransitionAllowed(fromStatus, status) {
 		return sourcePlugin{}, errSourceInvalidStatus
 	}
 	if status == sourceItemPublished {
@@ -767,7 +777,7 @@ func (store *memorySourceStore) SetPluginStatus(id, status, actor, note string) 
 	item.ReviewedBy = actor
 	item.UpdatedAt = time.Now().UTC()
 	store.plugins[id] = item
-	store.auditLocked(sourceCatalogAuditAction(status), "plugin", id, actor, note)
+	store.auditLocked(catalogStatusAuditAction(fromStatus, status), "plugin", id, actor, note)
 	return item, nil
 }
 
@@ -922,7 +932,8 @@ func (store *memorySourceStore) SetTemplateStatus(id, status, actor, note string
 	if !ok {
 		return sourceTemplate{}, errSourceNotFound
 	}
-	if !sourceTransitionAllowed(item.Status, status) {
+	fromStatus := item.Status
+	if !sourceTransitionAllowed(fromStatus, status) {
 		return sourceTemplate{}, errSourceInvalidStatus
 	}
 	if status == sourceItemPublished {
@@ -942,7 +953,7 @@ func (store *memorySourceStore) SetTemplateStatus(id, status, actor, note string
 	item.ReviewedBy = actor
 	item.UpdatedAt = time.Now().UTC()
 	store.templates[id] = item
-	store.auditLocked(sourceCatalogAuditAction(status), "template", id, actor, note)
+	store.auditLocked(catalogStatusAuditAction(fromStatus, status), "template", id, actor, note)
 	return item, nil
 }
 
@@ -1925,7 +1936,7 @@ func (mysqlSourceStore) SetPluginStatus(id, status, actor, note string) (sourceP
 		status, truncateText(note, 500), actor, id); err != nil {
 		return sourcePlugin{}, err
 	}
-	mysqlAppendAudit(db, sourceCatalogAuditAction(status), "plugin", id, actor, note)
+	mysqlAppendAudit(db, catalogStatusAuditAction(item.Status, status), "plugin", id, actor, note)
 	return (mysqlSourceStore{}).GetPlugin(id)
 }
 
@@ -2183,7 +2194,7 @@ func (mysqlSourceStore) SetTemplateStatus(id, status, actor, note string) (sourc
 		status, truncateText(note, 500), actor, id); err != nil {
 		return sourceTemplate{}, err
 	}
-	mysqlAppendAudit(db, sourceCatalogAuditAction(status), "template", id, actor, note)
+	mysqlAppendAudit(db, catalogStatusAuditAction(item.Status, status), "template", id, actor, note)
 	return (mysqlSourceStore{}).GetTemplate(id)
 }
 

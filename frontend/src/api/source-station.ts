@@ -482,7 +482,7 @@ export function pullSourcePlugin(id: string) {
 
 export function setSourcePluginStatus(
   id: string,
-  action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate',
+  action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate' | 'restore',
   note?: string
 ) {
   return request.post<SourcePlugin>({
@@ -545,7 +545,7 @@ export function pullSourceTemplate(id: string) {
 
 export function setSourceTemplateStatus(
   id: string,
-  action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate',
+  action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate' | 'restore',
   note?: string
 ) {
   return request.post<SourceTemplate>({

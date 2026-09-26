@@ -630,7 +630,7 @@ func (mysqlSourceStore) SetPaidOriginHealth(kind, id, health string) error {
 	if kind == sourceKindTemplate {
 		locationColumn = "template_url"
 	}
-	_, err = db.Exec(`UPDATE `+table+` SET origin_health=? WHERE id=? AND (origin_url<>'' OR `+locationColumn+` LIKE 'github:%')`, health, id)
+	_, err = db.Exec(`UPDATE `+table+` SET origin_health=? WHERE id=? AND (origin_url<>'' OR `+locationColumn+` LIKE 'github:%' OR `+locationColumn+` LIKE 'paid:%')`, health, id)
 	return err
 }
 
@@ -642,7 +642,7 @@ func (store *memorySourceStore) SetPaidOriginHealth(kind, id, health string) err
 		if !ok {
 			return errSourceNotFound
 		}
-		if strings.TrimSpace(item.OriginURL) == "" && !isGitHubPackageRef(item.TemplateURL) {
+		if strings.TrimSpace(item.OriginURL) == "" && !isGitHubPackageRef(item.TemplateURL) && !isPrivatePackageRef(item.TemplateURL) {
 			return nil
 		}
 		item.OriginHealth = health
@@ -653,7 +653,7 @@ func (store *memorySourceStore) SetPaidOriginHealth(kind, id, health string) err
 	if !ok {
 		return errSourceNotFound
 	}
-	if strings.TrimSpace(item.OriginURL) == "" && !isGitHubPackageRef(item.DownloadURL) {
+	if strings.TrimSpace(item.OriginURL) == "" && !isGitHubPackageRef(item.DownloadURL) && !isPrivatePackageRef(item.DownloadURL) {
 		return nil
 	}
 	item.OriginHealth = health
@@ -687,6 +687,7 @@ func checkPaidOriginHealth(ctx context.Context) {
 		for _, item := range plugins {
 			touchPaidOriginHealth(ctx, store, sourceKindPlugin, item.ID, item.PriceCents, item.OriginURL, item.DownloadURL, item.OriginHealth)
 			touchGitHubPaidHealth(ctx, store, sourceKindPlugin, item.ID, item.Name, item.PriceCents, item.DownloadURL, item.OriginHealth)
+			touchLocalPaidHealth(ctx, store, sourceKindPlugin, item.ID, item.Name, item.PriceCents, item.DownloadURL, item.OriginHealth)
 		}
 	}
 	templates, err := store.ListTemplates("")
@@ -694,6 +695,7 @@ func checkPaidOriginHealth(ctx context.Context) {
 		for _, item := range templates {
 			touchPaidOriginHealth(ctx, store, sourceKindTemplate, item.ID, item.PriceCents, item.OriginURL, item.TemplateURL, item.OriginHealth)
 			touchGitHubPaidHealth(ctx, store, sourceKindTemplate, item.ID, item.Name, item.PriceCents, item.TemplateURL, item.OriginHealth)
+			touchLocalPaidHealth(ctx, store, sourceKindTemplate, item.ID, item.Name, item.PriceCents, item.TemplateURL, item.OriginHealth)
 		}
 	}
 }
@@ -710,6 +712,40 @@ func touchPaidOriginHealth(ctx context.Context, store sourceStationStore, kind, 
 		return
 	}
 	_ = store.SetPaidOriginHealth(kind, id, health)
+}
+
+func touchLocalPaidHealth(ctx context.Context, store sourceStationStore, kind, id, name string, price int64, location, current string) {
+	if price <= 0 {
+		return
+	}
+	driverName, objectKey := classifyPackageRef(location)
+	if driverName != packageStorageLocal {
+		return
+	}
+	driver, ok := packageStorageByName(packageStorageLocal)
+	if !ok {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	exists, err := driver.Exists(ctx, objectKey)
+	health := paidOriginHealthOK
+	if err != nil || !exists {
+		health = paidOriginHealthUnavailable
+	}
+	if health == current {
+		return
+	}
+	if setErr := store.SetPaidOriginHealth(kind, id, health); setErr != nil || health != paidOriginHealthUnavailable {
+		return
+	}
+	body := strings.TrimSpace(name)
+	if body == "" {
+		body = id
+	}
+	body += "：本站暂存的安装包找不到了。条目仍在目录中，不会自动下架。"
+	notifyAllAdmins(notificationTabNotice, "收费安装包暂时无法访问", body, "/source-station/catalog", "local_paid_unavailable", kind, id)
 }
 
 func StartPaidOriginHealthCheck() {

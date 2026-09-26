@@ -116,7 +116,21 @@ func StorePackageDownload(c *gin.Context) {
 	c.Data(http.StatusOK, "application/zip", payload)
 }
 
+func licenseDownloadAllowed(licenseStatus string, commercialActive bool, developerID int64, entitlementActive bool) bool {
+	if licenseStatus != "active" {
+		return false
+	}
+	if commercialActive && developerID == 0 {
+		return true
+	}
+	return entitlementActive
+}
+
 func licenseCanDownloadPaid(db *sql.DB, licenseID int64, kind, itemID string) bool {
+	var licenseStatus string
+	if err := db.QueryRow(`SELECT status FROM licenses WHERE id = ?`, licenseID).Scan(&licenseStatus); err != nil {
+		return false
+	}
 	var developerID int64
 	switch kind {
 	case "plugin":
@@ -127,14 +141,11 @@ func licenseCanDownloadPaid(db *sql.DB, licenseID int64, kind, itemID string) bo
 		return false
 	}
 	_, _, _, active := loadCommercialEdition(db, licenseID)
-	if active && developerID == 0 {
-		return true
-	}
 	var count int
 	err := db.QueryRow(`SELECT COUNT(*) FROM plugin_entitlements
 		WHERE license_id = ? AND item_kind = ? AND item_id = ? AND status = 'active'
 		AND (expires_at IS NULL OR expires_at > NOW())`, licenseID, kind, itemID).Scan(&count)
-	return err == nil && count > 0
+	return licenseDownloadAllowed(licenseStatus, active, developerID, err == nil && count > 0)
 }
 
 func lookupPaidPackageLocation(db *sql.DB, kind, itemID string) (location, version, sha string, developerID int64) {

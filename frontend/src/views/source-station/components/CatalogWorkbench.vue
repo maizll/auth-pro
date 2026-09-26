@@ -182,6 +182,14 @@
               @click="runStatus(row, 'deprecate')"
               >弃用</el-button
             >
+            <el-button
+              v-if="canAction(row.status, 'restore')"
+              link
+              type="primary"
+              size="small"
+              @click="runStatus(row, 'restore')"
+              >恢复为草稿</el-button
+            >
             <el-button link type="primary" size="small" @click="openVersions(row)">版本</el-button>
           </template>
         </el-table-column>
@@ -866,8 +874,9 @@
 
   function canAction(
     status: string,
-    action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate'
+    action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate' | 'restore'
   ): boolean {
+    if (action === 'restore') return status === 'deprecated'
     const target = {
       approve: 'approved',
       reject: 'rejected',
@@ -1310,12 +1319,19 @@
 
   async function runStatus(
     row: SourceCatalogItem,
-    action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate'
+    action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate' | 'restore'
   ) {
     if (action === 'unshelf') {
       await ElMessageBox.confirm(
         '下架后，该应用的公开软件源里不再显示这一条，已经安装的不会被远程卸掉。确认继续？',
         '下架确认',
+        { type: 'warning' }
+      )
+    }
+    if (action === 'restore') {
+      await ElMessageBox.confirm(
+        '恢复后回到草稿，不会自动上架。需要再审核通过才能出现在公开软件源里。确认继续？',
+        '恢复为草稿',
         { type: 'warning' }
       )
     }

@@ -317,16 +317,21 @@ func (store *memorySourceStore) applyItemStatusToVersionsLocked(kind, itemID, st
 			rel, ok = store.pickVersionLocked(kind, itemID, preferred, sourceVersionDraft)
 		}
 		if !ok {
+			rel, ok = store.pickVersionLocked(kind, itemID, preferred, sourceVersionPublished)
+		}
+		if !ok {
 			return errSourceNotFound
 		}
-		if !sourceItemReady(rel.SHA256, rel.Location) {
-			return errSourcePublishIncomplete
+		if rel.Status != sourceVersionPublished {
+			if !sourceItemReady(rel.SHA256, rel.Location) {
+				return errSourcePublishIncomplete
+			}
+			rel.Status = sourceVersionPublished
+			rel.ReviewNote = truncateText(note, 500)
+			rel.ReviewedBy = actor
+			rel.UpdatedAt = time.Now().UTC()
+			store.versionMap(kind)[itemID][rel.Version] = rel
 		}
-		rel.Status = sourceVersionPublished
-		rel.ReviewNote = truncateText(note, 500)
-		rel.ReviewedBy = actor
-		rel.UpdatedAt = time.Now().UTC()
-		store.versionMap(kind)[itemID][rel.Version] = rel
 		if err := store.setLatestLocked(kind, itemID, rel.Version, actor, note); err != nil {
 			return err
 		}
@@ -740,9 +745,16 @@ func (mysqlSourceStore) applyItemStatusToVersions(kind, itemID, status, actor, n
 			rel, ok = pick(sourceVersionDraft)
 		}
 		if !ok {
+			rel, ok = pick(sourceVersionPublished)
+		}
+		if !ok {
 			return errSourceNotFound
 		}
-		if _, err := (mysqlSourceStore{}).SetVersionStatus(kind, itemID, rel.Version, sourceVersionPublished, actor, note); err != nil {
+		if rel.Status != sourceVersionPublished {
+			if _, err := (mysqlSourceStore{}).SetVersionStatus(kind, itemID, rel.Version, sourceVersionPublished, actor, note); err != nil {
+				return err
+			}
+		} else if err := (mysqlSourceStore{}).pointLatest(kind, itemID, rel.Version); err != nil {
 			return err
 		}
 	case sourceItemRejected:

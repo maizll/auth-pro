@@ -97,7 +97,7 @@
           <ElButton v-if="!row.archived" link type="danger" @click="handleDelete(row)"
             >归档</ElButton
           >
-          <span v-else class="text-secondary">已归档</span>
+          <ElButton v-else link type="primary" @click="handleRestore(row)">恢复</ElButton>
         </template>
       </ArtTable>
     </ElCard>
@@ -208,6 +208,7 @@
     fetchCreateLicenseApp,
     fetchUpdateLicenseApp,
     fetchDeleteLicenseApp,
+    fetchRestoreLicenseApp,
     fetchResetAppSecret,
     fetchUpdateAppLicenseRequired,
     fetchEnsureStoreSnapshotKey,
@@ -515,6 +516,21 @@
       refreshRemove()
     } finally {
       archiveSaving.value = false
+    }
+  }
+
+  const handleRestore = async (row: AppRow) => {
+    try {
+      await ElMessageBox.confirm(
+        `恢复应用「${row.name}」后，可以继续往上面登记目录条目。原有授权和版本都还在。`,
+        '恢复应用',
+        { type: 'warning' }
+      )
+      await fetchRestoreLicenseApp(row.id)
+      ElMessage.success('应用已恢复')
+      refreshData()
+    } catch {
+      // 用户取消时保留当前数据。
     }
   }
 

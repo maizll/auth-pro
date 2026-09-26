@@ -501,6 +501,50 @@ func AppDelete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "应用已归档"})
 }
 
+// AppRestore 把已归档的应用恢复为可继续登记的状态。授权、版本和目录绑定保持不变。
+func AppRestore(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	appID, convErr := strconv.ParseInt(id, 10, 64)
+	if convErr != nil || appID <= 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用不存在"})
+		return
+	}
+	db, err := config.DB()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
+		return
+	}
+	if err := ensureAppDeletedAt(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化应用归档字段失败"})
+		return
+	}
+	result, err := db.Exec(`UPDATE apps SET deleted_at = NULL, enabled = 1 WHERE id = ? AND deleted_at IS NOT NULL`, id)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "恢复应用失败"})
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected != 1 {
+		var exists int
+		scanErr := db.QueryRow(`SELECT COUNT(*) FROM apps WHERE id = ?`, id).Scan(&exists)
+		if scanErr != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "恢复应用失败"})
+			return
+		}
+		if exists == 0 {
+			c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "应用不存在"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "该应用未归档"})
+		return
+	}
+	_ = currentSourceStationStore().AppendAudit(sourceAuditEntry{
+		ActorType: "admin", ActorName: c.GetString("username"), Action: "restore_app",
+		TargetType: "app", TargetID: id, Detail: "恢复已归档的应用，授权、版本和目录绑定保持不变",
+	})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "应用已恢复"})
+}
+
 func randomHex(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)
