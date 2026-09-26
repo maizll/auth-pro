@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -233,18 +232,19 @@ func TestSourcePackageGitHubReleaseExternalURL(t *testing.T) {
 		"category":      "payment",
 		"appId":         "1",
 		"priceCents":    "1990",
-		"packageSource": "github",
+		"packageSource": "public",
 		"push":          "0",
 	})
-	if sourceBodyCode(t, paid) == 200 || !strings.Contains(paid.Body.String(), "GitHub 只读令牌") {
-		t.Fatalf("paid github without token: %s", paid.Body.String())
+	if sourceBodyCode(t, paid) != 200 || !strings.Contains(paid.Body.String(), "暂存") {
+		t.Fatalf("paid github without repo: %s", paid.Body.String())
 	}
-	if _, err := paidStore.GetPlugin("alipay-f2f"); !errors.Is(err, errSourceNotFound) {
-		t.Fatalf("paid github was stored without a token: %v", err)
+	paidPlugin, err := paidStore.GetPlugin("alipay-f2f")
+	if err != nil || !strings.HasPrefix(paidPlugin.DownloadURL, "paid:") || paidPlugin.SHA256 != freeSHA || paidPlugin.PriceCents != 1990 {
+		t.Fatalf("paid fallback item=%#v err=%v", paidPlugin, err)
 	}
 	matches, globErr := filepath.Glob(filepath.Join(stationPaidPackageDirPath(), "*.zip"))
-	if globErr != nil || len(matches) != 0 {
-		t.Fatalf("paid github left files: %v %v", matches, globErr)
+	if globErr != nil || len(matches) == 0 {
+		t.Fatalf("paid fallback should keep a local zip: %v %v", matches, globErr)
 	}
 }
 

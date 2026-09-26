@@ -19,53 +19,22 @@ import (
 )
 
 const (
-	githubPackagePrefix                 = "github:"
-	githubPaidTokenSettingKey           = "github_paid_token"
-	paidLegacyFulfillmentNote           = "需要改成私有仓库来源或上传 zip 才能继续收费出售"
-	githubPaidTokenMissingText          = "请先在软件源设置里配置 GitHub 只读令牌"
-	githubPaidDeveloperTokenMissingText = "请先在开发者面板配置 GitHub 只读令牌"
-	githubPaidTokenInvalidText          = "GitHub 只读令牌无效或已过期，请到软件源设置重新配置"
-	githubPaidDeveloperTokenInvalidText = "GitHub 只读令牌无效或已过期，请到开发者面板重新配置"
-	githubPaidAssetMissingText          = "私有仓库里找不到该安装包，请核对 Release 标签和文件名"
+	githubPackagePrefix        = "github:"
+	githubPaidTokenSettingKey  = "github_paid_token"
+	githubPaidOwnerSettingKey  = "github_paid_owner"
+	githubPaidRepoSettingKey   = "github_paid_repo"
+	paidLegacyFulfillmentNote  = "需要重新上传 zip 或填写公开地址，才能继续收费出售"
+	githubPaidTokenMissingText = "请先在软件源设置里配置收费仓库和 GitHub 令牌"
+	githubPaidTokenInvalidText = "GitHub 令牌无效或已过期，请到软件源设置重新配置。令牌需要 Contents 读写权限"
+	githubPaidAssetMissingText = "收费仓库里找不到该安装包，请重新上传"
+	paidLocalFallbackText      = "尚未配置收费仓库，安装包暂存在本站。请到软件源设置填写私有 GitHub 仓库和 Contents 读写令牌。"
 )
 
 var (
-	errGitHubPaidTokenMissing          = errors.New(githubPaidTokenMissingText)
-	errDeveloperGitHubPaidTokenMissing = errors.New(githubPaidDeveloperTokenMissingText)
-	errGitHubPaidTokenInvalid          = errors.New(githubPaidTokenInvalidText)
-	errDeveloperGitHubPaidTokenInvalid = errors.New(githubPaidDeveloperTokenInvalidText)
-	errGitHubPaidAssetMissing          = errors.New(githubPaidAssetMissingText)
+	errGitHubPaidTokenMissing = errors.New(githubPaidTokenMissingText)
+	errGitHubPaidTokenInvalid = errors.New(githubPaidTokenInvalidText)
+	errGitHubPaidAssetMissing = errors.New(githubPaidAssetMissingText)
 )
-
-func withDeveloperTokenError(developerID int64, err error) error {
-	if developerID <= 0 || err == nil {
-		return err
-	}
-	if errors.Is(err, errGitHubPaidTokenMissing) {
-		return errDeveloperGitHubPaidTokenMissing
-	}
-	if errors.Is(err, errGitHubPaidTokenInvalid) {
-		return errDeveloperGitHubPaidTokenInvalid
-	}
-	return err
-}
-
-func rejectCatalogPackageSource(source, location string, price int64) error {
-	switch strings.TrimSpace(source) {
-	case "public":
-		if price > 0 && !isPrivatePackageRef(location) && !isStationHostedPackageURL(location) && !isGitHubPackageRef(location) {
-			return errors.New("公开地址只能用于免费条目。收费请改用私有 GitHub 仓库，或上传压缩包由本站托管")
-		}
-	case "github":
-		if price <= 0 {
-			return errors.New("私有 GitHub 仓库只用于收费条目，请填写大于 0 的售价")
-		}
-		if !isGitHubPackageRef(location) && !looksLikeGitHubReleaseAssetURL(location) {
-			return errors.New("请粘贴 GitHub Release 资产链接，例如 https://github.com/所有者/仓库/releases/download/标签/文件名.zip")
-		}
-	}
-	return nil
-}
 
 type gitHubAssetRef struct {
 	Owner string
@@ -215,15 +184,15 @@ func parseGitHubReleaseAssetURL(raw string) (gitHubAssetRef, error) {
 func sealGitHubPaidToken(plain string) (string, error) {
 	plain = strings.TrimSpace(plain)
 	if plain == "" {
-		return "", errors.New("请填写 GitHub 只读令牌")
+		return "", errors.New("请填写 GitHub 令牌")
 	}
 	key, err := loadOrCreateStoreFileKey("github-paid.key")
 	if err != nil {
-		return "", errors.New("保存 GitHub 只读令牌失败")
+		return "", errors.New("保存 GitHub 令牌失败")
 	}
 	blob, err := sealStoreSecret(key, []byte(plain))
 	if err != nil {
-		return "", errors.New("保存 GitHub 只读令牌失败")
+		return "", errors.New("保存 GitHub 令牌失败")
 	}
 	return base64.StdEncoding.EncodeToString(blob), nil
 }
@@ -235,7 +204,7 @@ func openGitHubPaidToken(sealed string) (string, error) {
 	}
 	key, err := loadOrCreateStoreFileKey("github-paid.key")
 	if err != nil {
-		return "", errors.New("读取 GitHub 只读令牌失败")
+		return "", errors.New("读取 GitHub 令牌失败")
 	}
 	plain, err := openStoreSecret(key, raw)
 	if err != nil {
@@ -269,7 +238,7 @@ func readGitHubPaidTokenSealed() (string, error) {
 		}
 		return raw, err
 	default:
-		return "", errors.New("读取 GitHub 只读令牌失败")
+		return "", errors.New("读取 GitHub 令牌失败")
 	}
 }
 
@@ -292,77 +261,63 @@ func writeGitHubPaidTokenSealed(sealed string) error {
 			ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)`, githubPaidTokenSettingKey, sealed)
 		return err
 	default:
-		return errors.New("保存 GitHub 只读令牌失败")
+		return errors.New("保存 GitHub 令牌失败")
 	}
 }
 
 func loadGitHubPaidToken() (string, error) {
-	return loadGitHubPaidTokenFor(0)
-}
-
-func loadGitHubPaidTokenFor(developerID int64) (string, error) {
-	var sealed string
-	var err error
-	if developerID > 0 {
-		sealed, err = readDeveloperGitHubPaidTokenSealed(developerID)
-	} else {
-		sealed, err = readGitHubPaidTokenSealed()
-	}
+	sealed, err := readGitHubPaidTokenSealed()
 	if err != nil {
 		return "", err
 	}
 	if strings.TrimSpace(sealed) == "" {
-		if developerID > 0 {
-			return "", errDeveloperGitHubPaidTokenMissing
-		}
 		return "", errGitHubPaidTokenMissing
 	}
-	token, err := openGitHubPaidToken(sealed)
-	if err != nil {
-		return "", withDeveloperTokenError(developerID, err)
-	}
-	return token, nil
+	return openGitHubPaidToken(sealed)
 }
 
-func readDeveloperGitHubPaidTokenSealed(developerID int64) (string, error) {
-	if developerID <= 0 {
-		return "", errDeveloperGitHubPaidTokenMissing
-	}
+func readGitHubPaidSetting(key string) (string, error) {
 	switch store := currentSourceStationStore().(type) {
 	case *memorySourceStore:
 		store.mu.Lock()
 		defer store.mu.Unlock()
-		if store.developerGitHubTokens == nil {
+		switch key {
+		case githubPaidOwnerSettingKey:
+			return store.githubPaidOwner, nil
+		case githubPaidRepoSettingKey:
+			return store.githubPaidRepo, nil
+		default:
 			return "", nil
 		}
-		return store.developerGitHubTokens[developerID], nil
 	case mysqlSourceStore:
 		db, err := config.DB()
 		if err != nil {
 			return "", err
 		}
-		var sealed string
-		err = db.QueryRow(`SELECT COALESCE(github_paid_token, '') FROM source_developers WHERE id=?`, developerID).Scan(&sealed)
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", errSourceNotFound
+		if err := ensureSourceStationStorage(db); err != nil {
+			return "", err
 		}
-		return sealed, err
+		var raw string
+		err = db.QueryRow(`SELECT setting_value FROM source_station_settings WHERE setting_key=?`, key).Scan(&raw)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return raw, err
 	default:
-		return "", errors.New("读取 GitHub 只读令牌失败")
+		return "", errors.New("读取收费仓库设置失败")
 	}
 }
 
-func writeDeveloperGitHubPaidTokenSealed(developerID int64, sealed string) error {
-	if developerID <= 0 {
-		return errors.New("保存 GitHub 只读令牌失败")
-	}
+func writeGitHubPaidSetting(key, value string) error {
 	switch store := currentSourceStationStore().(type) {
 	case *memorySourceStore:
 		store.mu.Lock()
-		if store.developerGitHubTokens == nil {
-			store.developerGitHubTokens = map[int64]string{}
+		switch key {
+		case githubPaidOwnerSettingKey:
+			store.githubPaidOwner = value
+		case githubPaidRepoSettingKey:
+			store.githubPaidRepo = value
 		}
-		store.developerGitHubTokens[developerID] = sealed
 		store.mu.Unlock()
 		return nil
 	case mysqlSourceStore:
@@ -373,70 +328,105 @@ func writeDeveloperGitHubPaidTokenSealed(developerID int64, sealed string) error
 		if err := ensureSourceStationStorage(db); err != nil {
 			return err
 		}
-		result, err := db.Exec(`UPDATE source_developers SET github_paid_token=? WHERE id=?`, sealed, developerID)
-		if err != nil {
-			return err
-		}
-		affected, _ := result.RowsAffected()
-		if affected == 0 {
-			return errSourceNotFound
-		}
-		return nil
+		_, err = db.Exec(`INSERT INTO source_station_settings (setting_key, setting_value) VALUES (?, ?)
+			ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)`, key, value)
+		return err
 	default:
-		return errors.New("保存 GitHub 只读令牌失败")
+		return errors.New("保存收费仓库设置失败")
 	}
 }
 
-func developerGitHubPaidTokenConfigured(developerID int64) bool {
-	token, err := loadGitHubPaidTokenFor(developerID)
-	return err == nil && token != ""
+func githubPaidRepoConfigured() bool {
+	owner, repo, token, err := loadGitHubPaidRepo()
+	return err == nil && owner != "" && repo != "" && token != ""
 }
 
-func githubPaidTokenConfigured() bool {
-	token, err := loadGitHubPaidToken()
-	return err == nil && token != ""
+func loadGitHubPaidRepo() (owner, repo, token string, err error) {
+	owner, err = readGitHubPaidSetting(githubPaidOwnerSettingKey)
+	if err != nil {
+		return "", "", "", err
+	}
+	repo, err = readGitHubPaidSetting(githubPaidRepoSettingKey)
+	if err != nil {
+		return "", "", "", err
+	}
+	token, err = loadGitHubPaidToken()
+	if err != nil && !errors.Is(err, errGitHubPaidTokenMissing) {
+		return owner, repo, "", err
+	}
+	if errors.Is(err, errGitHubPaidTokenMissing) {
+		err = nil
+	}
+	return strings.TrimSpace(owner), strings.TrimSpace(repo), token, nil
+}
+
+func githubPaidSettingsView() gin.H {
+	owner, repo, _, _ := loadGitHubPaidRepo()
+	configured := githubPaidRepoConfigured()
+	reminder := ""
+	if !configured {
+		reminder = paidLocalFallbackText
+	}
+	return gin.H{"configured": configured, "owner": owner, "repo": repo, "reminder": reminder}
 }
 
 func AdminGitHubPaidToken(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"configured": githubPaidTokenConfigured()}})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": githubPaidSettingsView()})
 }
 
 func AdminGitHubPaidTokenSave(c *gin.Context) {
 	var body struct {
 		Token string `json:"token"`
+		Owner string `json:"owner"`
+		Repo  string `json:"repo"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
 		return
 	}
+	owner := strings.TrimSpace(body.Owner)
+	repo := strings.TrimSpace(body.Repo)
+	if owner == "" || repo == "" || !sourceReleaseRepoPattern.MatchString(owner) || !sourceReleaseRepoPattern.MatchString(repo) {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请填写私有仓库的所有者和仓库名"})
+		return
+	}
 	token := strings.TrimSpace(body.Token)
 	if token == "" || isMaskedSourceToken(token) {
-		if githubPaidTokenConfigured() {
-			c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已保留现有 GitHub 只读令牌", "data": gin.H{"configured": true}})
+		if _, err := loadGitHubPaidToken(); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请填写 GitHub 令牌，需要 Contents 读写权限"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请填写 GitHub 只读令牌"})
+	} else {
+		sealed, err := sealGitHubPaidToken(token)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": err.Error()})
+			return
+		}
+		if err := writeGitHubPaidTokenSealed(sealed); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存 GitHub 令牌失败"})
+			return
+		}
+	}
+	if err := writeGitHubPaidSetting(githubPaidOwnerSettingKey, owner); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存收费仓库失败"})
 		return
 	}
-	sealed, err := sealGitHubPaidToken(token)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": err.Error()})
-		return
-	}
-	if err := writeGitHubPaidTokenSealed(sealed); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存 GitHub 只读令牌失败"})
+	if err := writeGitHubPaidSetting(githubPaidRepoSettingKey, repo); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存收费仓库失败"})
 		return
 	}
 	_ = currentSourceStationStore().AppendAudit(sourceAuditEntry{
 		ActorType: "admin", ActorName: c.GetString("username"), Action: "settings",
-		TargetType: "github_paid", TargetID: "token", Detail: "已更新 GitHub 只读令牌",
+		TargetType: "github_paid", TargetID: owner + "/" + repo, Detail: "已更新收费仓库",
 	})
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已保存 GitHub 只读令牌（页面不回显明文）", "data": gin.H{"configured": true}})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已保存收费仓库（页面不回显令牌明文）", "data": githubPaidSettingsView()})
 }
 
 func AdminGitHubPaidTokenTest(c *gin.Context) {
 	var body struct {
 		Token string `json:"token"`
+		Owner string `json:"owner"`
+		Repo  string `json:"repo"`
 	}
 	_ = c.ShouldBindJSON(&body)
 	token := strings.TrimSpace(body.Token)
@@ -448,11 +438,38 @@ func AdminGitHubPaidTokenTest(c *gin.Context) {
 			return
 		}
 	}
-	if err := probeGitHubPaidToken(c.Request.Context(), token); err != nil {
+	owner := strings.TrimSpace(body.Owner)
+	repo := strings.TrimSpace(body.Repo)
+	if owner == "" || repo == "" {
+		savedOwner, savedRepo, _, _ := loadGitHubPaidRepo()
+		owner, repo = savedOwner, savedRepo
+	}
+	if err := probeGitHubPaidRepo(c.Request.Context(), token, owner, repo); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "令牌可用", "data": gin.H{"configured": true}})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "令牌可用", "data": githubPaidSettingsView()})
+}
+
+func probeGitHubPaidRepo(ctx context.Context, token, owner, repo string) error {
+	if strings.TrimSpace(owner) == "" || strings.TrimSpace(repo) == "" {
+		return errors.New("请填写私有仓库的所有者和仓库名")
+	}
+	rawURL := strings.TrimRight(sourceGitHubAPIBase, "/") + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo)
+	status, _, err := githubPaidJSON(ctx, http.MethodGet, rawURL, token, nil)
+	if err != nil {
+		return errors.New("无法连接 GitHub，请稍后再试")
+	}
+	if status == http.StatusUnauthorized {
+		return errGitHubPaidTokenInvalid
+	}
+	if status == http.StatusNotFound || status == http.StatusForbidden {
+		return errors.New("找不到该私有仓库，或令牌没有访问权限")
+	}
+	if status < 200 || status >= 300 {
+		return errors.New("GitHub 令牌无法使用，请确认 Contents 为读写")
+	}
+	return nil
 }
 
 func probeGitHubPaidToken(ctx context.Context, token string) error {
@@ -464,7 +481,7 @@ func probeGitHubPaidToken(ctx context.Context, token string) error {
 		return errGitHubPaidTokenInvalid
 	}
 	if status < 200 || status >= 300 {
-		return errors.New("GitHub 只读令牌无法使用")
+		return errors.New("GitHub 令牌无法使用，请确认 Contents 为读写")
 	}
 	return nil
 }
@@ -588,152 +605,91 @@ func validateGitHubBuyerRedirect(raw string, strictPort bool) error {
 	return nil
 }
 
-func downloadGitHubPaidZip(ctx context.Context, token string, ref gitHubAssetRef) ([]byte, error) {
-	release, err := githubReleaseByTag(ctx, token, ref)
-	if err != nil {
-		return nil, err
-	}
-	asset, err := githubAssetByName(release, ref.Asset)
-	if err != nil {
-		return nil, err
-	}
-	tempURL, err := githubAssetTemporaryURL(ctx, token, ref, asset.ID, false)
-	if err != nil {
-		return nil, err
-	}
-	payload, err := safeHTTPGet(ctx, tempURL, safeFetchOptions{
-		AllowPrivate: false,
-		RequireHTTPS: true,
-		MaxBytes:     pluginPackageMaxSize,
-		Timeout:      paidOriginFetchTimeout,
-		MaxRedirects: defaultSafeRedirects,
-		UserAgent:    "auth-pro-paid-import",
-		Accept:       "application/zip,*/*",
-		BaseClient:   externalPackageClient,
-	})
-	if err != nil {
-		return nil, paidOriginFetchError(err)
-	}
-	if !isZipPayload(payload) {
-		return nil, errors.New("私有仓库里的文件不是 ZIP")
-	}
-	return payload, nil
-}
-
-func importGitHubPaidMetadata(ctx context.Context, developerID int64, kind, category, rawURL string) (paidImportResult, error) {
-	ref, err := parseGitHubReleaseAssetURL(rawURL)
-	if err != nil {
-		return paidImportResult{}, err
-	}
-	token, err := loadGitHubPaidTokenFor(developerID)
-	if err != nil {
-		return paidImportResult{}, err
-	}
-	payload, err := downloadGitHubPaidZip(ctx, token, ref)
-	if err != nil {
-		return paidImportResult{}, withDeveloperTokenError(developerID, err)
-	}
-	manifest, err := parseSourcePackageBytes(ref.Asset, payload, kind, category)
-	payload = nil
-	if err != nil {
-		return paidImportResult{}, err
-	}
-	return paidImportResult{
-		Ref: formatGitHubPackageRef(ref), SHA256: manifest.SHA256, Version: manifest.Version, Health: paidOriginHealthOK,
-	}, nil
-}
-
-func readGitHubPaidSource(c *gin.Context, location string) (string, []byte, string, error) {
-	cents, err := parseCatalogPriceCents(c.PostForm("priceCents"))
-	if err != nil {
-		return "", nil, "", rejectSourcePackage("priceCents", "invalid", err.Error())
-	}
-	if cents <= 0 {
-		return "", nil, "", rejectSourcePackage("priceCents", "github_paid", "私有 GitHub 仓库只用于收费条目，请填写大于 0 的售价")
-	}
-	ref, err := parseGitHubReleaseAssetURL(location)
-	if err != nil {
-		return "", nil, "", rejectSourcePackage("downloadUrl", "github_url", err.Error())
-	}
-	token, err := loadGitHubPaidToken()
-	if err != nil {
-		return "", nil, "", rejectSourcePackage("token", "github_token", err.Error())
-	}
-	payload, err := downloadGitHubPaidZip(c.Request.Context(), token, ref)
-	if err != nil {
-		return "", nil, "", rejectSourcePackage("downloadUrl", "github_fetch", err.Error())
-	}
-	return ref.Asset, payload, formatGitHubPackageRef(ref), nil
-}
-
-func shouldReadGitHubPaid(c *gin.Context, location string) bool {
-	if c.PostForm("packageSource") == "public" {
-		return false
-	}
-	if c.PostForm("packageSource") == "github" {
-		return true
-	}
-	cents, err := parseCatalogPriceCents(c.PostForm("priceCents"))
-	if err != nil || cents <= 0 {
-		return false
-	}
-	return looksLikeGitHubReleaseAssetURL(location)
-}
-
-func authorizeGitHubBuyerURL(ctx context.Context, allowed bool, location string, developerID int64) (string, error) {
+func authorizeGitHubBuyerURL(ctx context.Context, allowed bool, location string) (string, error) {
 	if !allowed {
 		return "", errStoreDownloadDenied
 	}
-	return githubBuyerTemporaryURL(ctx, location, developerID)
+	return githubBuyerTemporaryURL(ctx, location)
 }
 
-func githubBuyerTemporaryURL(ctx context.Context, location string, developerID int64) (string, error) {
+func githubBuyerTemporaryURL(ctx context.Context, location string) (string, error) {
 	ref, ok := parseGitHubPackageRef(location)
 	if !ok {
 		return "", errors.New("付费包不存在")
 	}
-	token, err := loadGitHubPaidTokenFor(developerID)
+	token, err := loadGitHubPaidToken()
 	if err != nil {
 		return "", err
 	}
 	release, err := githubReleaseByTag(ctx, token, ref)
 	if err != nil {
-		return "", withDeveloperTokenError(developerID, err)
+		return "", err
 	}
 	asset, err := githubAssetByName(release, ref.Asset)
 	if err != nil {
 		return "", err
 	}
-	tempURL, err := githubAssetTemporaryURL(ctx, token, ref, asset.ID, true)
-	if err != nil {
-		return "", withDeveloperTokenError(developerID, err)
-	}
-	return tempURL, nil
+	return githubAssetTemporaryURL(ctx, token, ref, asset.ID, true)
 }
 
-func probeGitHubPaidAsset(ctx context.Context, location string, developerID int64) error {
+func probeGitHubPaidAsset(ctx context.Context, location string) error {
 	ref, ok := parseGitHubPackageRef(location)
 	if !ok {
 		return nil
 	}
-	token, err := loadGitHubPaidTokenFor(developerID)
+	token, err := loadGitHubPaidToken()
 	if err != nil {
 		return err
 	}
 	release, err := githubReleaseByTag(ctx, token, ref)
 	if err != nil {
-		return withDeveloperTokenError(developerID, err)
+		return err
 	}
 	_, err = githubAssetByName(release, ref.Asset)
 	return err
 }
 
-func touchGitHubPaidHealth(ctx context.Context, store sourceStationStore, kind, id, name string, price int64, location, current string, developerID int64) {
+func uploadPaidZipToStationRepo(ctx context.Context, kind, id, version string, payload []byte) (string, error) {
+	owner, repo, token, err := loadGitHubPaidRepo()
+	if err != nil {
+		return "", err
+	}
+	if owner == "" || repo == "" || token == "" {
+		return "", errGitHubPaidTokenMissing
+	}
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		kind = sourceKindPlugin
+	}
+	manifest := sourcePackageManifest{
+		ID: id, Version: version, Kind: kind, Name: id, Description: id + " " + version, Filename: id + "-" + version + ".zip",
+	}
+	settings := sourceReleaseSettings{
+		Provider: "github", Owner: owner, Repo: repo, Token: token, TagStrategy: "paid-{kind}-{id}-{version}",
+	}
+	if _, err := pushGitHubRelease(ctx, settings, manifest, payload); err != nil {
+		if strings.Contains(err.Error(), "401") {
+			return "", errGitHubPaidTokenInvalid
+		}
+		return "", errors.New("上传到收费仓库失败，请检查令牌是否具备 Contents 读写权限")
+	}
+	ref := gitHubAssetRef{
+		Owner: owner, Repo: repo,
+		Tag:   renderSourceReleaseTag(settings.TagStrategy, id, version, kind),
+		Asset: sourceReleaseAssetName(manifest),
+	}
+	if !validGitHubAssetRef(ref) {
+		return "", errors.New("收费仓库里的标签或文件名不合法")
+	}
+	return formatGitHubPackageRef(ref), nil
+}
+
+func touchGitHubPaidHealth(ctx context.Context, store sourceStationStore, kind, id, name string, price int64, location, current string) {
 	if price <= 0 || !isGitHubPackageRef(location) {
 		return
 	}
 	health := paidOriginHealthOK
-	probeErr := probeGitHubPaidAsset(ctx, location, developerID)
+	probeErr := probeGitHubPaidAsset(ctx, location)
 	if probeErr != nil {
 		health = paidOriginHealthUnavailable
 	}
@@ -764,7 +720,7 @@ func attachGitHubPaidView(view gin.H, price int64, location, health string) {
 		view["githubAsset"] = ref.Asset
 		if health == paidOriginHealthUnavailable {
 			view["originHealth"] = health
-			view["originHint"] = "私有仓库安装包暂时无法访问，请检查只读令牌或 Release 文件。条目仍在目录中，不会自动下架。"
+			view["originHint"] = "收费仓库里的安装包暂时无法访问，请检查令牌或重新上传。条目仍在目录中，不会自动下架。"
 		}
 	}
 	if hint := paidLegacyFulfillmentHint(price, location); hint != "" {
@@ -772,74 +728,17 @@ func attachGitHubPaidView(view gin.H, price int64, location, health string) {
 	}
 }
 
-func DeveloperGitHubPaidToken(c *gin.Context) {
-	developer, err := currentSourceDeveloper(c)
-	if err != nil {
-		writeCurrentSourceDeveloperError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"configured": developerGitHubPaidTokenConfigured(developer.ID)}})
-}
-
-func DeveloperGitHubPaidTokenSave(c *gin.Context) {
-	developer, err := currentSourceDeveloper(c)
-	if err != nil {
-		writeCurrentSourceDeveloperError(c, err)
-		return
-	}
-	var body struct {
-		Token string `json:"token"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
-		return
-	}
-	token := strings.TrimSpace(body.Token)
-	if token == "" || isMaskedSourceToken(token) {
-		if developerGitHubPaidTokenConfigured(developer.ID) {
-			c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已保留现有 GitHub 只读令牌", "data": gin.H{"configured": true}})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请填写 GitHub 只读令牌"})
-		return
-	}
-	sealed, err := sealGitHubPaidToken(token)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": err.Error()})
-		return
-	}
-	if err := writeDeveloperGitHubPaidTokenSealed(developer.ID, sealed); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存 GitHub 只读令牌失败"})
-		return
-	}
-	_ = currentSourceStationStore().AppendAudit(sourceAuditEntry{
-		ActorType: "developer", ActorName: developer.Username, Action: "settings",
-		TargetType: "github_paid", TargetID: fmt.Sprintf("%d", developer.ID), Detail: "已更新开发者 GitHub 只读令牌",
-	})
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已保存 GitHub 只读令牌（页面不回显明文）", "data": gin.H{"configured": true}})
-}
-
-func DeveloperGitHubPaidTokenTest(c *gin.Context) {
-	developer, err := currentSourceDeveloper(c)
-	if err != nil {
-		writeCurrentSourceDeveloperError(c, err)
-		return
-	}
-	var body struct {
-		Token string `json:"token"`
-	}
-	_ = c.ShouldBindJSON(&body)
-	token := strings.TrimSpace(body.Token)
-	if token == "" || isMaskedSourceToken(token) {
-		token, err = loadGitHubPaidTokenFor(developer.ID)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
-			return
+func concealDeveloperPaidStorage(view gin.H) {
+	delete(view, "githubOwner")
+	delete(view, "githubRepo")
+	delete(view, "githubTag")
+	delete(view, "githubAsset")
+	for _, key := range []string{"downloadUrl", "templateUrl"} {
+		raw, _ := view[key].(string)
+		if isGitHubPackageRef(raw) || isPrivatePackageRef(raw) {
+			view[key] = ""
+			view["storedBySite"] = true
+			view["packageSource"] = "upload"
 		}
 	}
-	if err := probeGitHubPaidToken(c.Request.Context(), token); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": withDeveloperTokenError(developer.ID, err).Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "令牌可用", "data": gin.H{"configured": true}})
 }

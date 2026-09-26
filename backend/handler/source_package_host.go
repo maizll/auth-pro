@@ -149,26 +149,51 @@ func SourceDeveloperPackageUpload(c *gin.Context) {
 		writeSourcePackageReject(c, err)
 		return
 	}
-	publicURL, fileSHA, err := storeStationPackage(payload)
-	payload = nil
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": err.Error()})
+	priceCents, priceErr := parseCatalogPriceCents(c.PostForm("priceCents"))
+	if priceErr != nil {
+		payload = nil
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": priceErr.Error()})
 		return
 	}
+	storedURL := ""
+	fileSHA := ""
+	msg := "ZIP 已保存到本站，地址和校验码已生成"
+	if priceCents > 0 {
+		ref, settledSHA, _, settleErr := settlePaidZipBytes(c.Request.Context(), manifest.Kind, manifest.ID, manifest.Version, payload)
+		payload = nil
+		if settleErr != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": settleErr.Error()})
+			return
+		}
+		storedURL, fileSHA = ref, settledSHA
+		msg = "校验通过，安装包已保存"
+	} else {
+		publicURL, storedSHA, storeErr := storeStationPackage(payload)
+		payload = nil
+		if storeErr != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": storeErr.Error()})
+			return
+		}
+		storedURL, fileSHA = publicURL, storedSHA
+	}
 	if !strings.EqualFold(manifest.SHA256, fileSHA) {
+		removePaidPackageFile(storedURL)
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存后的校验码与清单不一致"})
 		return
 	}
 	data := manifest.view()
 	data["stored"] = true
-	data["url"] = publicURL
+	data["url"] = storedURL
 	data["sha256"] = fileSHA
-	if manifest.Kind == sourceKindTemplate {
-		data["templateUrl"] = publicURL
-	} else {
-		data["downloadUrl"] = publicURL
+	if isGitHubPackageRef(storedURL) || isPrivatePackageRef(storedURL) {
+		data["storedBySite"] = true
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ZIP 已保存到本站，地址和校验码已生成", "data": data})
+	if manifest.Kind == sourceKindTemplate {
+		data["templateUrl"] = storedURL
+	} else {
+		data["downloadUrl"] = storedURL
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": data})
 }
 
 func PublicSourcePackageFile(c *gin.Context) {

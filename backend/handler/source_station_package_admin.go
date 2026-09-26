@@ -141,15 +141,17 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		provider = settings.Provider
 	}
 	priceCentsEarly, priceEarlyErr := parseCatalogPriceCents(c.PostForm("priceCents"))
-	if priceEarlyErr == nil && c.PostForm("packageSource") == "upload" && priceCentsEarly > 0 && len(payload) > 0 && strings.TrimSpace(location) == "" && !pushRequested {
-		publicURL, fileSHA, storeErr := storeStationPackage(payload)
-		if storeErr != nil {
-			payload = nil
-			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": storeErr.Error()})
+	paidLocalFallback := false
+	if priceEarlyErr == nil && priceCentsEarly > 0 && len(payload) > 0 && !pushRequested {
+		ref, fileSHA, local, settleErr := settlePaidZipBytes(c.Request.Context(), manifest.Kind, manifest.ID, manifest.Version, payload)
+		payload = nil
+		if settleErr != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": settleErr.Error()})
 			return
 		}
-		location = publicURL
+		location = ref
 		manifest.SHA256 = fileSHA
+		paidLocalFallback = local
 	}
 	payload = nil
 	if location == "" {
@@ -198,6 +200,12 @@ func AdminSourcePackagePublish(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": convErr.Error()})
 			return
 		}
+		if priceCents > 0 && remoteURL != "" && strings.TrimSpace(item.OriginURL) == "" {
+			item.OriginURL = remoteURL
+			if item.OriginHealth == "" {
+				item.OriginHealth = paidOriginHealthOK
+			}
+		}
 		item, convErr = guardAndFinalizeTemplate(item)
 		if convErr != nil {
 			writeCatalogPriceError(c, convErr)
@@ -240,6 +248,12 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		if convErr != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": convErr.Error()})
 			return
+		}
+		if priceCents > 0 && remoteURL != "" && strings.TrimSpace(item.OriginURL) == "" {
+			item.OriginURL = remoteURL
+			if item.OriginHealth == "" {
+				item.OriginHealth = paidOriginHealthOK
+			}
 		}
 		item, convErr = guardAndFinalizePlugin(item)
 		if convErr != nil {
@@ -298,7 +312,9 @@ func AdminSourcePackagePublish(c *gin.Context) {
 	}
 	msg := "校验通过，已保存为草稿（包已丢弃，源站不保存源码）。请走审核/上架"
 	if githubPaid {
-		msg = "校验通过，已核对私有仓库安装包并保存元数据，校验码已自动填写（压缩包未在本站保存）"
+		msg = "校验通过，已存入收费仓库并删除本站临时文件，校验码已自动填写"
+	} else if paidLocalFallback {
+		msg = "校验通过，安装包已暂存在本站，校验码已自动填写。" + paidLocalFallbackText
 	} else if remoteURL != "" && hosted {
 		msg = "校验通过，已拉取外链并私有托管，校验码已自动填写"
 	} else if remoteURL != "" {
@@ -308,7 +324,9 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		msg = "校验通过，已推送到 " + provider + " Release 并保存为草稿（包已丢弃）"
 	}
 	if shelf && githubPaid {
-		msg = "校验通过，已核对私有仓库安装包并上架，校验码已自动填写（压缩包未在本站保存）"
+		msg = "校验通过，已存入收费仓库并删除本站临时文件后上架，校验码已自动填写"
+	} else if shelf && paidLocalFallback {
+		msg = "校验通过，安装包已暂存在本站并上架，校验码已自动填写。" + paidLocalFallbackText
 	} else if shelf && remoteURL != "" && hosted {
 		msg = "校验通过，已拉取外链并私有托管后上架，校验码已自动填写"
 	} else if shelf && remoteURL != "" && !hosted {

@@ -1,5 +1,13 @@
 <template>
   <div class="source-station-page">
+    <el-alert
+      v-if="paidRepoReminder"
+      class="mb-4"
+      type="warning"
+      :closable="false"
+      show-icon
+      :title="paidRepoReminder"
+    />
     <el-card shadow="never" class="art-card mb-4 filter-panel">
       <el-form :model="searchForm" inline>
         <el-form-item label="应用">
@@ -179,16 +187,13 @@
         class="mb-3"
       />
       <p class="card-hint mb-3">
-        来源三选一，都不必填。免费用公开地址，本站不存包。收费推荐粘贴私有仓库的 Release
-        资产链接：本站只核对一次并记下校验码，买家付款后直接从 GitHub
-        下载。上传压缩包仍可由本站托管。
+        来源二选一。免费用公开地址，本站不存包。收费可以上传压缩包，或填写公开地址让本站拉一次。配置收费仓库后，安装包会放进站长的私有仓库，买家付款后拿到临时下载地址。
       </p>
       <el-form label-width="120px">
         <el-form-item label="来源">
           <el-radio-group v-model="uploadForm.source">
             <el-radio value="upload">上传压缩包</el-radio>
-            <el-radio value="public">公开地址（仅免费）</el-radio>
-            <el-radio value="github">私有 GitHub 仓库（收费推荐）</el-radio>
+            <el-radio value="public">公开地址</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="应用" required>
@@ -211,7 +216,11 @@
           >
             <div>{{ uploadFile ? uploadFile.name : '点击或拖拽压缩包（不超过 20 MB）' }}</div>
           </el-upload>
-          <p class="card-hint">售价大于 0 时由本站托管。免费请改用公开地址，或勾选推送 Release。</p>
+          <p class="card-hint">
+            售价大于 0
+            时，配置了收费仓库就上传到该仓库并删除临时文件；未配置则暂存在本站。免费请改用公开地址，或勾选推送
+            Release。
+          </p>
         </el-form-item>
         <el-form-item label="分类">
           <el-select
@@ -247,7 +256,7 @@
         </el-form-item>
         <el-form-item label="售价（元）">
           <el-input v-model="uploadForm.priceYuan" placeholder="0" />
-          <p class="card-hint">填 0 表示免费。大于 0 为买断，请用私有 GitHub 仓库或上传压缩包。</p>
+          <p class="card-hint">填 0 表示免费。大于 0 为买断，上传压缩包或填写公开地址即可。</p>
         </el-form-item>
         <el-form-item v-if="uploadForm.source === 'upload'" label="选项">
           <el-checkbox v-model="uploadForm.push">推送 GitHub/Gitee Release</el-checkbox>
@@ -258,17 +267,8 @@
             placeholder="https://..."
             @input="parsedManifest = null"
           />
-          <p class="card-hint">只用于免费条目。本站下载校验后不保存压缩包，目录里仍是这条地址。</p>
-        </el-form-item>
-        <el-form-item v-if="uploadForm.source === 'github'" label="Release 链接">
-          <el-input
-            v-model="uploadForm.location"
-            placeholder="https://github.com/所有者/仓库/releases/download/标签/文件名.zip"
-            @input="parsedManifest = null"
-          />
           <p class="card-hint">
-            粘贴私有仓库的 Release
-            资产链接即可。请先在软件源设置里保存只读令牌。买家看不到仓库地址和令牌。
+            免费条目保存这条地址，本站不存包。收费条目会拉取一次：已配置收费仓库则上传后删除临时文件，未配置则暂存在本站。
           </p>
         </el-form-item>
       </el-form>
@@ -331,7 +331,7 @@
         <el-form-item label="售价（元）">
           <el-input v-model="editForm.priceYuan" placeholder="0" />
           <p class="card-hint">
-            填 0 表示免费。大于 0 请到「上传安装包」改用私有 GitHub 仓库，或上传压缩包由本站托管。
+            填 0 表示免费。大于 0 请到「上传安装包」上传压缩包或填写公开地址。
           </p>
         </el-form-item>
         <el-form-item label="下载地址" prop="location">
@@ -402,7 +402,7 @@
         <el-form-item label="售价（元）">
           <el-input v-model="registerForm.priceYuan" placeholder="0" />
           <p class="card-hint">
-            填 0 表示免费。大于 0 请到「上传安装包」改用私有 GitHub 仓库，或上传压缩包由本站托管。
+            填 0 表示免费。大于 0 请到「上传安装包」上传压缩包或填写公开地址。
           </p>
         </el-form-item>
         <el-form-item label="下载地址" prop="location">
@@ -560,7 +560,7 @@
           <el-form-item label="校验码">
             <el-input v-model="versionForm.sha256" placeholder="付费外链可留空，由本站拉取后计算" />
             <p class="card-hint">
-              免费外链仍须填写 64 位校验码。收费条目请改用私有 GitHub 仓库，或上传压缩包由本站托管。
+              免费外链仍须填写 64 位校验码。收费条目请上传压缩包，或填写公开地址让本站拉取。
             </p>
           </el-form-item>
           <el-form-item label="更新说明">
@@ -587,6 +587,7 @@
     SOURCE_ITEM_STATUS,
     SOURCE_VERSION_STATUS,
     fetchSourceCatalogCategories,
+    fetchGitHubPaidToken,
     fetchSourceCatalogItems,
     fetchSourceCatalogApps,
     parseSourcePackage,
@@ -650,6 +651,7 @@
     category: String(route.query.category || props.initialCategory || '')
   })
 
+  const paidRepoReminder = ref('')
   const uploadVisible = ref(false)
   const parsing = ref(false)
   const publishing = ref(false)
@@ -662,7 +664,7 @@
     location: '',
     priceYuan: '0',
     push: false,
-    source: 'public' as 'upload' | 'public' | 'github'
+    source: 'public' as 'upload' | 'public'
   })
   const uploadBlockReason = computed(() =>
     catalogUploadBlockReason({
@@ -1009,15 +1011,13 @@
       const result = await publishSourcePackage(buildPackageForm())
       const origin = (result.item as { originUrl?: string } | undefined)?.originUrl
       ElMessage.success(
-        uploadForm.source === 'github'
-          ? '校验通过，已核对私有仓库安装包并保存元数据，校验码已自动填写'
-          : result.pushed
-            ? '校验通过，已推送 Release 并保存元数据'
-            : origin
-              ? '校验通过，已拉取外链并私有托管，校验码已自动填写'
-              : uploadForm.source === 'upload'
-                ? '校验通过，已保存元数据'
-                : '校验通过，已保存元数据并自动填写校验码'
+        result.pushed
+          ? '校验通过，已推送 Release 并保存元数据'
+          : origin
+            ? '校验通过，已拉取安装包并保存，校验码已自动填写'
+            : uploadForm.source === 'upload'
+              ? '校验通过，已保存元数据'
+              : '校验通过，已保存元数据并自动填写校验码'
       )
       uploadVisible.value = false
       await loadItems()
@@ -1340,9 +1340,19 @@
     await loadItems()
   }
 
+  async function loadPaidRepoReminder() {
+    try {
+      const data = await fetchGitHubPaidToken()
+      paidRepoReminder.value = data.configured ? '' : data.reminder || ''
+    } catch {
+      paidRepoReminder.value = ''
+    }
+  }
+
   onMounted(async () => {
     await loadCategories()
     await loadApps()
+    await loadPaidRepoReminder()
     await loadItems()
   })
 </script>

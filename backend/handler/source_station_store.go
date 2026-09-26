@@ -448,41 +448,41 @@ func sourceTransitionAllowed(from, to string) bool {
 }
 
 type memorySourceStore struct {
-	mu                    sync.Mutex
-	revision              atomic.Int64
-	plugins               map[string]sourcePlugin
-	templates             map[string]sourceTemplate
-	pluginVersions        map[string]map[string]sourceRelease
-	templateVersions      map[string]map[string]sourceRelease
-	applications          map[int64]sourceApplication
-	developers            map[int64]sourceDeveloper
-	ads                   map[string]advertisementRecord
-	adApplications        map[int64]sourceAdApplication
-	adPlaceholder         advertisementPlaceholder
-	audits                []sourceAuditEntry
-	snapshot              sourceIndexSnapshot
-	releaseSettings       sourceReleaseSettings
-	githubPaidToken       string
-	developerGitHubTokens map[int64]string
-	categoryExtras        []sourceCatalogCategory
-	catalogApps           map[int64]sourceCatalogApp
-	nextAppID             int64
-	nextDevID             int64
-	nextAdAppID           int64
-	nextAuditID           int64
+	mu               sync.Mutex
+	revision         atomic.Int64
+	plugins          map[string]sourcePlugin
+	templates        map[string]sourceTemplate
+	pluginVersions   map[string]map[string]sourceRelease
+	templateVersions map[string]map[string]sourceRelease
+	applications     map[int64]sourceApplication
+	developers       map[int64]sourceDeveloper
+	ads              map[string]advertisementRecord
+	adApplications   map[int64]sourceAdApplication
+	adPlaceholder    advertisementPlaceholder
+	audits           []sourceAuditEntry
+	snapshot         sourceIndexSnapshot
+	releaseSettings  sourceReleaseSettings
+	githubPaidToken  string
+	githubPaidOwner  string
+	githubPaidRepo   string
+	categoryExtras   []sourceCatalogCategory
+	catalogApps      map[int64]sourceCatalogApp
+	nextAppID        int64
+	nextDevID        int64
+	nextAdAppID      int64
+	nextAuditID      int64
 }
 
 func newMemorySourceStore() *memorySourceStore {
 	store := &memorySourceStore{
-		plugins:               map[string]sourcePlugin{},
-		templates:             map[string]sourceTemplate{},
-		pluginVersions:        map[string]map[string]sourceRelease{},
-		templateVersions:      map[string]map[string]sourceRelease{},
-		applications:          map[int64]sourceApplication{},
-		developers:            map[int64]sourceDeveloper{},
-		developerGitHubTokens: map[int64]string{},
-		ads:                   map[string]advertisementRecord{},
-		adApplications:        map[int64]sourceAdApplication{},
+		plugins:          map[string]sourcePlugin{},
+		templates:        map[string]sourceTemplate{},
+		pluginVersions:   map[string]map[string]sourceRelease{},
+		templateVersions: map[string]map[string]sourceRelease{},
+		applications:     map[int64]sourceApplication{},
+		developers:       map[int64]sourceDeveloper{},
+		ads:              map[string]advertisementRecord{},
+		adApplications:   map[int64]sourceAdApplication{},
 		catalogApps: map[int64]sourceCatalogApp{
 			1: {ID: 1, AppKey: "app-a", Name: "应用A", Enabled: true},
 			2: {ID: 2, AppKey: "app-b", Name: "应用B", Enabled: true},
@@ -1459,7 +1459,6 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			email VARCHAR(100) NOT NULL DEFAULT '',
 			display_name VARCHAR(80) NOT NULL DEFAULT '',
 			enabled TINYINT(1) NOT NULL DEFAULT 1,
-			github_paid_token VARCHAR(2000) NOT NULL DEFAULT '',
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE KEY uk_source_developer_username (username),
 			UNIQUE KEY uk_source_developer_agent (agent_id)

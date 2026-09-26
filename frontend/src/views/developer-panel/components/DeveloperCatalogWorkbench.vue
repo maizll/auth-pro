@@ -1,54 +1,13 @@
 <template>
   <div v-loading="loading" class="developer-catalog">
-    <el-card v-loading="githubLoading" shadow="never" class="token-card">
-      <template #header>
-        <div class="table-header">
-          <div>
-            <span class="card-title">收费安装包只读令牌</span>
-            <p class="card-hint">
-              收费插件和模板放在你自己的私有 GitHub
-              仓库时，只用这一枚只读令牌。令牌按你的开发者账号加密保存，只用于你登记的条目，页面不回显明文。
-            </p>
-          </div>
-          <div class="table-actions">
-            <el-button :loading="githubTesting" @click="handleGitHubTest">测试令牌</el-button>
-            <el-button type="primary" :loading="githubSaving" @click="handleGitHubSave">
-              保存令牌
-            </el-button>
-          </div>
-        </div>
-      </template>
-      <el-alert
-        :title="githubConfigured ? '已配置只读令牌' : '尚未配置只读令牌'"
-        :type="githubConfigured ? 'success' : 'warning'"
-        :closable="false"
-        show-icon
-      />
-      <el-form label-width="118px" class="token-form">
-        <el-form-item label="只读令牌">
-          <el-input
-            v-model="githubToken"
-            type="password"
-            show-password
-            :placeholder="githubConfigured ? '已配置，留空不修改' : '粘贴只读令牌'"
-          />
-          <p class="field-help">
-            在 GitHub 创建 fine-grained personal access token，只授权你的私有仓库，Contents 选
-            Read-only。不要用可推送的令牌。
-          </p>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
     <el-card shadow="never">
       <template #header>
         <div class="table-header">
           <div>
             <span class="card-title">{{ title }}（共 {{ items.length }} 条）</span>
             <p class="card-hint">
-              来源三选一：上传压缩包（收费时由本站托管）、公开地址（仅免费）、私有 GitHub
-              仓库（收费推荐）。公开地址不能用来收费。旧的收费公开地址会标注「需要改成私有仓库来源或上传
-              zip 才能继续收费出售」。
+              免费用公开地址。收费时上传压缩包，或填写公开地址让本站拉一次。安装包由本站保管，不用自己准备仓库。旧的收费公开地址会标注「需要重新上传
+              zip 或填写公开地址，才能继续收费出售」。
             </p>
           </div>
           <el-button type="primary" @click="openEdit()">{{ createLabel }}</el-button>
@@ -193,8 +152,8 @@
         <el-form-item label="售价（元）">
           <el-input v-model="form.priceYuan" :disabled="!canEditMeta" placeholder="0" />
           <p class="field-help">
-            填 0 表示免费，请使用公开地址。大于 0 为买断：推荐私有 GitHub
-            仓库，也可以上传压缩包由本站托管。付费上架尚未开放。
+            填 0 表示免费，请使用公开地址。大于 0
+            为买断：上传压缩包或填写公开地址，安装包由本站保管。付费上架尚未开放。
           </p>
         </el-form-item>
         <el-form-item label="包来源">
@@ -204,8 +163,7 @@
             @change="onPackageSourceChange('form')"
           >
             <el-radio value="upload">上传压缩包</el-radio>
-            <el-radio value="public">公开地址（仅免费）</el-radio>
-            <el-radio value="github">私有 GitHub 仓库（收费推荐）</el-radio>
+            <el-radio value="public">公开地址</el-radio>
           </el-radio-group>
           <p class="field-help">{{ packageSourceHelp }}</p>
           <p v-if="draftBlockReason" class="field-help">{{ draftBlockReason }}</p>
@@ -221,13 +179,14 @@
           >
             <el-button :loading="uploading" :disabled="!canEditPackage">选择压缩包</el-button>
           </el-upload>
-          <p class="field-help">上传后自动填写地址和校验码。不合规的包不会保存。</p>
+          <p class="field-help">上传后自动填写校验码。收费包由本站保管，这里不显示仓库地址。</p>
         </el-form-item>
         <el-form-item :label="locationLabel" prop="location">
           <el-input
-            v-model="form.location"
+            :model-value="shownLocation(form)"
             :disabled="!canEditPackage || form.packageSource === 'upload'"
             :placeholder="locationPlaceholderFor(form.packageSource)"
+            @update:model-value="onLocationInput('form', $event)"
           />
           <p class="field-help">{{ locationHelp }}</p>
         </el-form-item>
@@ -255,11 +214,9 @@
           </div>
           <p class="field-help">
             {{
-              form.packageSource === 'upload'
+              form.packageSource === 'upload' || formPriceCents > 0
                 ? '由本站按压缩包内容计算，不能手改。'
-                : form.packageSource === 'github'
-                  ? '私有仓库由本站核对后自动计算，不用手填。临时文件不会留下。'
-                  : '64 位。粘贴下载地址后也可以稍后补上'
+                : '64 位。粘贴下载地址后也可以稍后补上'
             }}
           </p>
         </el-form-item>
@@ -401,8 +358,7 @@
               @change="onPackageSourceChange('version')"
             >
               <el-radio value="upload">上传压缩包</el-radio>
-              <el-radio value="public">公开地址（仅免费）</el-radio>
-              <el-radio value="github">私有 GitHub 仓库（收费推荐）</el-radio>
+              <el-radio value="public">公开地址</el-radio>
             </el-radio-group>
             <p v-if="versionBlockReason" class="field-help">{{ versionBlockReason }}</p>
           </el-form-item>
@@ -419,9 +375,10 @@
           </el-form-item>
           <el-form-item :label="locationLabel" required>
             <el-input
-              v-model="versionForm.location"
+              :model-value="shownLocation(versionForm)"
               :disabled="versionForm.packageSource === 'upload'"
               :placeholder="locationPlaceholderFor(versionForm.packageSource)"
+              @update:model-value="onLocationInput('version', $event)"
             />
             <p class="field-help">{{ versionLocationHelp }}</p>
           </el-form-item>
@@ -443,11 +400,9 @@
             </div>
             <p class="field-help">
               {{
-                versionForm.packageSource === 'upload'
+                versionForm.packageSource === 'upload' || (currentItem?.priceCents || 0) > 0
                   ? '由本站按压缩包内容计算。'
-                  : versionForm.packageSource === 'github'
-                    ? '私有仓库由本站核对后自动计算，不用手填。'
-                    : '64 位。提交审核时会核对文件。'
+                  : '64 位。提交审核时会核对文件。'
               }}
             </p>
           </el-form-item>
@@ -487,7 +442,6 @@
     DEVELOPER_TOKEN_KEY,
     fetchSourceDeveloperCatalogApps,
     fetchSourceDeveloperCategories,
-    fetchSourceDeveloperGitHubPaidToken,
     fetchSourceDeveloperItems,
     fetchSourceDeveloperMe,
     fetchSourceDeveloperPluginVersions,
@@ -498,8 +452,6 @@
     submitSourceDeveloperPluginVersion,
     submitSourceDeveloperTemplate,
     submitSourceDeveloperTemplateVersion,
-    saveSourceDeveloperGitHubPaidToken,
-    testSourceDeveloperGitHubPaidToken,
     upsertSourceDeveloperPlugin,
     upsertSourceDeveloperPluginVersion,
     upsertSourceDeveloperTemplate,
@@ -525,7 +477,6 @@
   } from '@/utils/form/catalog-slug'
   import {
     developerCatalogBlockReason,
-    isGitHubReleaseAssetURL,
     type CatalogPackageSource
   } from '@/utils/form/catalog-package-source'
 
@@ -552,11 +503,6 @@
   const pullingId = ref('')
   const hashing = ref<'form' | 'version' | ''>('')
   const uploading = ref(false)
-  const githubLoading = ref(false)
-  const githubSaving = ref(false)
-  const githubTesting = ref(false)
-  const githubConfigured = ref(false)
-  const githubToken = ref('')
   const items = ref<SourceDeveloperCatalogItem[]>([])
   const apps = ref<SourceDeveloperCatalogApp[]>([])
   const categories = ref<SourceDeveloperCategory[]>([])
@@ -584,8 +530,7 @@
     sha256: '',
     priceYuan: '0',
     packageSource: 'public' as CatalogPackageSource,
-    savedGitHubRef: '',
-    savedGitHubURL: '',
+    storedBySite: false,
     authorName: '',
     changelog: ''
   })
@@ -595,8 +540,7 @@
     sha256: '',
     changelog: '',
     packageSource: 'public' as CatalogPackageSource,
-    savedGitHubRef: '',
-    savedGitHubURL: ''
+    storedBySite: false
   })
 
   const title = computed(() => (props.kind === 'template' ? '我的模板' : '我的插件'))
@@ -609,31 +553,23 @@
   const locationLabel = computed(() => (props.kind === 'template' ? '模板地址' : '下载地址'))
   const formPriceCents = computed(() => parseCatalogPriceYuan(form.priceYuan) || 0)
   const packageSourceHelp = computed(() => {
-    if (form.packageSource === 'github') {
-      return '粘贴私有仓库的 Release 资产链接。本站用你自己的只读令牌核对一次并记下校验码，不保存压缩包。买家付款后拿到几分钟有效的临时地址。'
-    }
     if (form.packageSource === 'upload') {
-      return '收费条目可以上传压缩包，由本站托管。免费条目请改用公开地址。'
+      return '上传压缩包即可。收费包由本站保管，不用填写仓库或令牌。'
+    }
+    if (formPriceCents.value > 0) {
+      return '填写公开 https 地址。本站拉取校验后保管安装包，不用自己准备仓库。'
     }
     return props.kind === 'template'
-      ? '只用于免费。可以是 https 网址，或本站上已有文件的相对路径。'
-      : '只用于免费。必须是 https 网址。提交审核时会下载并核对压缩包与校验码。'
+      ? '免费条目直接使用这条地址。可以是 https 网址，或本站上已有文件的相对路径。'
+      : '免费条目直接使用这条 https 地址。提交审核时会下载并核对压缩包与校验码。'
   })
   function locationPlaceholderFor(source: CatalogPackageSource) {
-    if (source === 'upload') return '上传压缩包后自动填写'
-    if (source === 'github') {
-      return 'https://github.com/所有者/仓库/releases/download/标签/文件名.zip'
-    }
-    return props.kind === 'template' ? 'https://你的文件地址.zip' : 'https://你的文件地址.zip'
+    if (source === 'upload') return '上传压缩包后显示为本站保管'
+    return 'https://你的文件地址.zip'
   }
   function locationHelpFor(source: CatalogPackageSource, cents: number) {
-    if (source === 'upload') return '本站地址由上传结果填入，提交时只核对本地文件。'
-    if (source === 'github') {
-      return '保存时本站用你的只读令牌下载核对，自动填写校验码，然后删除临时文件。失败不会保存。'
-    }
-    if (cents > 0) {
-      return '公开地址只能用于免费条目。收费请改用私有 GitHub 仓库，或上传压缩包。'
-    }
+    if (source === 'upload') return '收费包保存后这里显示「本站保管」，不显示仓库地址。'
+    if (cents > 0) return '本站会拉取一次并保管安装包，校验码自动填写。'
     return props.kind === 'template'
       ? '填写 https 网址，或本站上已有文件的相对路径。提交审核时会下载并核对压缩包与校验码。'
       : '填写 https 网址。提交审核时会下载并核对是不是压缩包、校验码是否一致。'
@@ -649,6 +585,7 @@
       location: form.location,
       sha256: form.sha256,
       priceYuan: form.priceYuan,
+      hasStoredPackage: form.storedBySite,
       requirePackage: false
     })
   )
@@ -659,6 +596,7 @@
       location: form.location,
       sha256: form.sha256,
       priceYuan: form.priceYuan,
+      hasStoredPackage: form.storedBySite,
       requirePackage: true
     })
   )
@@ -669,6 +607,7 @@
       location: versionForm.location,
       sha256: versionForm.sha256,
       priceYuan: ((currentItem.value?.priceCents || 0) / 100).toFixed(2),
+      hasStoredPackage: versionForm.storedBySite,
       requirePackage: true
     })
   )
@@ -713,6 +652,10 @@
         validator: (_: unknown, value: string, callback: (error?: Error) => void) => {
           const raw = String(value || '').trim()
           if (!raw) {
+            if (form.storedBySite || form.packageSource === 'upload') {
+              callback()
+              return
+            }
             if (requirePackageFields.value) {
               callback(new Error(`提交审核前请填写${locationLabel.value}`))
               return
@@ -720,22 +663,12 @@
             callback()
             return
           }
-          if (isStationPackageLocation(raw) || isPrivatePackageLocation(raw)) {
+          if (
+            isStationPackageLocation(raw) ||
+            isPrivatePackageLocation(raw) ||
+            raw.startsWith('github:')
+          ) {
             callback()
-            return
-          }
-          if (form.packageSource === 'github') {
-            if (!isGitHubReleaseAssetURL(raw)) {
-              callback(new Error('请粘贴 GitHub Release 资产链接'))
-              return
-            }
-            callback()
-            return
-          }
-          if (form.packageSource === 'public' && formPriceCents.value > 0) {
-            callback(
-              new Error('公开地址只能用于免费条目。收费请改用私有 GitHub 仓库，或上传压缩包')
-            )
             return
           }
           if (form.packageSource === 'upload') {
@@ -763,7 +696,7 @@
         validator: (_: unknown, value: string, callback: (error?: Error) => void) => {
           const raw = String(value || '').trim()
           if (!raw) {
-            if (form.packageSource === 'github' || form.packageSource === 'upload') {
+            if (form.packageSource === 'upload' || formPriceCents.value > 0) {
               callback()
               return
             }
@@ -942,8 +875,7 @@
     form.sha256 = ''
     form.priceYuan = '0'
     form.packageSource = 'public'
-    form.savedGitHubRef = ''
-    form.savedGitHubURL = ''
+    form.storedBySite = false
     form.authorName = currentDeveloperName()
     form.changelog = ''
   }
@@ -983,102 +915,86 @@
     versionForm.location = ''
     versionForm.sha256 = ''
     versionForm.changelog = ''
-    versionForm.packageSource = (currentItem.value?.priceCents || 0) > 0 ? 'github' : 'public'
-    versionForm.savedGitHubRef = ''
-    versionForm.savedGitHubURL = ''
+    versionForm.packageSource = 'public'
+    versionForm.storedBySite = false
     versionFormVisible.value = true
   }
 
-  function githubReleaseURL(row: {
-    githubOwner?: string
-    githubRepo?: string
-    githubTag?: string
-    githubAsset?: string
+  function siteKeptLocation(raw: string) {
+    return raw.startsWith('github:') || raw.startsWith('paid:') || isPrivatePackageLocation(raw)
+  }
+
+  function shownLocation(bucket: {
+    location: string
+    storedBySite: boolean
+    packageSource: CatalogPackageSource
   }) {
-    if (!row.githubOwner || !row.githubRepo || !row.githubTag || !row.githubAsset) return ''
-    const tag = encodeURIComponent(row.githubTag)
-    const asset = encodeURIComponent(row.githubAsset)
-    return `https://github.com/${row.githubOwner}/${row.githubRepo}/releases/download/${tag}/${asset}`
+    if (
+      bucket.storedBySite ||
+      (bucket.packageSource === 'upload' && siteKeptLocation(bucket.location))
+    ) {
+      return '本站保管'
+    }
+    return bucket.location
+  }
+
+  function onLocationInput(target: 'form' | 'version', value: string) {
+    const bucket = target === 'form' ? form : versionForm
+    if (bucket.packageSource !== 'public') return
+    bucket.location = value
+    bucket.storedBySite = false
   }
 
   function sourceLabel(row: {
-    packageSource?: string
-    githubOwner?: string
-    githubRepo?: string
-    githubTag?: string
-    githubAsset?: string
+    storedBySite?: boolean
     originUrl?: string
+    downloadUrl?: string
+    templateUrl?: string
   }) {
-    if (row.packageSource === 'github' && row.githubOwner && row.githubRepo) {
-      return `私有仓库 ${row.githubOwner}/${row.githubRepo} @ ${row.githubTag} / ${row.githubAsset}`
-    }
-    return row.originUrl || '-'
+    if (row.storedBySite) return '本站保管'
+    return row.originUrl || (props.kind === 'template' ? row.templateUrl : row.downloadUrl) || '-'
   }
 
   function versionLocationLabel(row: SourceDeveloperVersion) {
-    const labeled = sourceLabel(row)
-    if (labeled !== '-') return labeled
-    return (props.kind === 'template' ? row.templateUrl : row.downloadUrl) || '-'
+    if (row.storedBySite) return '本站保管'
+    const raw = (props.kind === 'template' ? row.templateUrl : row.downloadUrl) || ''
+    if (siteKeptLocation(raw)) return '本站保管'
+    return raw || row.originUrl || '-'
   }
 
   function applyStoredPackageSource(
     bucket: {
       location: string
       packageSource: CatalogPackageSource
-      savedGitHubRef: string
-      savedGitHubURL: string
+      storedBySite: boolean
     },
     row: SourceDeveloperCatalogItem
   ) {
     const raw = bucket.location
-    if (row.packageSource === 'github' || raw.startsWith('github:')) {
-      bucket.packageSource = 'github'
-      bucket.savedGitHubRef = raw.startsWith('github:') ? raw : ''
-      const restored = githubReleaseURL(row)
-      bucket.savedGitHubURL = restored
-      bucket.location = restored || (isGitHubReleaseAssetURL(raw) ? raw : '')
+    bucket.storedBySite = Boolean(row.storedBySite) || siteKeptLocation(raw)
+    if (bucket.storedBySite) {
+      bucket.packageSource = 'upload'
+      if (siteKeptLocation(raw)) bucket.location = raw
       return
     }
-    bucket.savedGitHubRef = ''
-    bucket.savedGitHubURL = ''
-    bucket.packageSource =
-      isStationPackageLocation(raw) || isPrivatePackageLocation(raw) ? 'upload' : 'public'
+    bucket.packageSource = isStationPackageLocation(raw) ? 'upload' : 'public'
   }
 
-  function packageLocationToSave(bucket: {
-    packageSource: CatalogPackageSource
-    location: string
-    savedGitHubRef: string
-    savedGitHubURL: string
-  }) {
-    const location = bucket.location.trim()
-    if (
-      bucket.packageSource === 'github' &&
-      bucket.savedGitHubRef &&
-      location === bucket.savedGitHubURL
-    ) {
-      return bucket.savedGitHubRef
-    }
-    return location
+  function packageLocationToSave(bucket: { location: string }) {
+    return bucket.location.trim()
   }
 
   function onPackageSourceChange(target: 'form' | 'version') {
     const bucket = target === 'form' ? form : versionForm
-    const hosted =
-      isStationPackageLocation(bucket.location) || isPrivatePackageLocation(bucket.location)
-    const githubish =
-      bucket.location.startsWith('github:') || isGitHubReleaseAssetURL(bucket.location)
-    if (bucket.packageSource === 'upload' && !hosted) {
+    const hosted = isStationPackageLocation(bucket.location) || siteKeptLocation(bucket.location)
+    if (bucket.packageSource === 'upload' && !hosted && !bucket.storedBySite) {
       bucket.location = ''
       bucket.sha256 = ''
     }
-    if (bucket.packageSource === 'public' && (hosted || bucket.location.startsWith('github:'))) {
+    if (bucket.packageSource === 'public' && (hosted || bucket.storedBySite)) {
       bucket.location = ''
       bucket.sha256 = ''
-    }
-    if (bucket.packageSource === 'github' && hosted && !githubish) {
-      bucket.location = ''
-      bucket.sha256 = ''
+      bucket.storedBySite = false
     }
   }
 
@@ -1090,6 +1006,11 @@
       const data = new FormData()
       data.append('file', selected)
       data.append('kind', props.kind)
+      const cents =
+        target === 'form'
+          ? parseCatalogPriceYuan(form.priceYuan) || 0
+          : currentItem.value?.priceCents || 0
+      if (cents > 0) data.append('priceCents', String(cents))
       const res = await uploadSourceDeveloperPackage(data)
       const body = unwrapCode(res)
       if (!body) return
@@ -1101,6 +1022,7 @@
       if (target === 'form') {
         form.packageSource = 'upload'
         form.location = manifest.url
+        form.storedBySite = Boolean(manifest.storedBySite) || siteKeptLocation(manifest.url)
         form.sha256 = manifest.sha256
         if (!isEdit.value) {
           if (!form.name.trim() && manifest.name) form.name = manifest.name
@@ -1118,6 +1040,7 @@
       } else {
         versionForm.packageSource = 'upload'
         versionForm.location = manifest.url
+        versionForm.storedBySite = Boolean(manifest.storedBySite) || siteKeptLocation(manifest.url)
         versionForm.sha256 = manifest.sha256
         if (!versionForm.version.trim() && manifest.version) versionForm.version = manifest.version
       }
@@ -1253,7 +1176,7 @@
 
   async function handleSubmit(row: SourceDeveloperCatalogItem) {
     const location = props.kind === 'template' ? row.templateUrl : row.downloadUrl
-    if (!row.sha256 || !location) {
+    if (!row.sha256 || (!location && !row.storedBySite)) {
       ElMessage.warning(`提交审核前请先填写${locationLabel.value}和校验码`)
       openEdit(row)
       return
@@ -1357,8 +1280,7 @@
       versionForm.sha256 = ''
       versionForm.changelog = ''
       versionForm.packageSource = 'public'
-      versionForm.savedGitHubRef = ''
-      versionForm.savedGitHubURL = ''
+      versionForm.storedBySite = false
       await openVersions(currentItem.value)
     } finally {
       versionSaving.value = false
@@ -1381,63 +1303,11 @@
     await openVersions(currentItem.value)
   }
 
-  async function loadGitHubToken() {
-    githubLoading.value = true
-    try {
-      const res = await fetchSourceDeveloperGitHubPaidToken()
-      const body = unwrapCode(res)
-      const data = body?.data as { configured?: boolean } | undefined
-      if (body?.code === 200) githubConfigured.value = Boolean(data?.configured)
-    } catch {
-      githubConfigured.value = false
-    } finally {
-      githubLoading.value = false
-    }
-  }
-
-  async function handleGitHubSave() {
-    githubSaving.value = true
-    try {
-      const res = await saveSourceDeveloperGitHubPaidToken(githubToken.value.trim())
-      const body = unwrapCode(res)
-      if (!body) return
-      if (body.code !== 200) {
-        ElMessage.error(body.msg || '保存令牌失败')
-        return
-      }
-      githubConfigured.value = true
-      githubToken.value = ''
-      ElMessage.success(body.msg || '已保存只读令牌')
-    } catch {
-      ElMessage.error('保存令牌失败')
-    } finally {
-      githubSaving.value = false
-    }
-  }
-
-  async function handleGitHubTest() {
-    githubTesting.value = true
-    try {
-      const res = await testSourceDeveloperGitHubPaidToken(githubToken.value.trim())
-      const body = unwrapCode(res)
-      if (!body) return
-      if (body.code !== 200) {
-        ElMessage.error(body.msg || '令牌不可用')
-        return
-      }
-      ElMessage.success(body.msg || '令牌可用')
-    } catch {
-      ElMessage.error('令牌不可用')
-    } finally {
-      githubTesting.value = false
-    }
-  }
-
   onMounted(async () => {
     narrowMedia = window.matchMedia(NARROW_QUERY)
     syncNarrow()
     narrowMedia.addEventListener('change', syncNarrow)
-    await Promise.all([loadAll(), loadGitHubToken()])
+    await loadAll()
     if (route.query.create === '1') {
       openEdit()
     }

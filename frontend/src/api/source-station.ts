@@ -594,21 +594,28 @@ export function saveSourceStoreSettings(payload: SourceStoreSettings) {
   return request.put<SourceStoreSettings>({ url: `${BASE}/settings/store`, data: payload })
 }
 
-export function fetchGitHubPaidToken() {
-  return request.get<{ configured: boolean }>({ url: `${BASE}/settings/github-paid` })
+export interface GitHubPaidSettings {
+  configured: boolean
+  owner?: string
+  repo?: string
+  reminder?: string
 }
 
-export function saveGitHubPaidToken(token: string) {
-  return request.put<{ configured: boolean }>({
+export function fetchGitHubPaidToken() {
+  return request.get<GitHubPaidSettings>({ url: `${BASE}/settings/github-paid` })
+}
+
+export function saveGitHubPaidToken(payload: { token?: string; owner: string; repo: string }) {
+  return request.put<GitHubPaidSettings>({
     url: `${BASE}/settings/github-paid`,
-    data: { token }
+    data: payload
   })
 }
 
-export function testGitHubPaidToken(token?: string) {
-  return request.post<{ configured: boolean }>({
+export function testGitHubPaidToken(payload: { token?: string; owner?: string; repo?: string }) {
+  return request.post<GitHubPaidSettings>({
     url: `${BASE}/settings/github-paid/test`,
-    data: { token: token || '' }
+    data: payload
   })
 }
 

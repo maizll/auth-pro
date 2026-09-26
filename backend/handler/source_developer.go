@@ -269,13 +269,13 @@ func SourceDeveloperItems(c *gin.Context) {
 	ownedPlugins := make([]gin.H, 0)
 	for _, plugin := range plugins {
 		if plugin.DeveloperID == developer.ID && includeSourceCatalogItem(plugin.Status, status) {
-			ownedPlugins = append(ownedPlugins, sourcePluginView(plugin))
+			ownedPlugins = append(ownedPlugins, developerPluginView(plugin))
 		}
 	}
 	ownedTemplates := make([]gin.H, 0)
 	for _, template := range templates {
 		if template.DeveloperID == developer.ID && includeSourceCatalogItem(template.Status, status) {
-			ownedTemplates = append(ownedTemplates, sourceTemplateView(template))
+			ownedTemplates = append(ownedTemplates, developerTemplateView(template))
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"plugins": ownedPlugins, "homeTemplates": ownedTemplates}})
@@ -302,7 +302,7 @@ func SourceDeveloperUpsertPlugin(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "插件草稿已保存", "data": sourcePluginView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "插件草稿已保存", "data": developerPluginView(saved)})
 }
 
 func SourceDeveloperSubmitPlugin(c *gin.Context) {
@@ -330,7 +330,7 @@ func SourceDeveloperSubmitPlugin(c *gin.Context) {
 		return
 	}
 	notifyCatalogSubmitted(sourceKindPlugin, saved.ID, saved.Name)
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已提交审核", "data": sourcePluginView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已提交审核", "data": developerPluginView(saved)})
 }
 
 func SourceDeveloperPluginVersions(c *gin.Context) {
@@ -380,7 +380,7 @@ func SourceDeveloperUpsertTemplate(c *gin.Context) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "模板草稿已保存", "data": sourceTemplateView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "模板草稿已保存", "data": developerTemplateView(saved)})
 }
 
 func SourceDeveloperSubmitTemplate(c *gin.Context) {
@@ -408,7 +408,7 @@ func SourceDeveloperSubmitTemplate(c *gin.Context) {
 		return
 	}
 	notifyCatalogSubmitted(sourceKindTemplate, saved.ID, saved.Name)
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已提交审核", "data": sourceTemplateView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已提交审核", "data": developerTemplateView(saved)})
 }
 
 func SourceDeveloperTemplateVersions(c *gin.Context) {
@@ -576,6 +576,24 @@ func sourceApplicationView(item sourceApplication) gin.H {
 	}
 }
 
+func developerPluginView(item sourcePlugin) gin.H {
+	view := sourcePluginView(item)
+	concealDeveloperPaidStorage(view)
+	return view
+}
+
+func developerTemplateView(item sourceTemplate) gin.H {
+	view := sourceTemplateView(item)
+	concealDeveloperPaidStorage(view)
+	return view
+}
+
+func developerReleaseView(item sourceRelease) gin.H {
+	view := sourceReleaseView(item)
+	concealDeveloperPaidStorage(view)
+	return view
+}
+
 func sourcePluginView(item sourcePlugin) gin.H {
 	view := gin.H{
 		"id": item.ID, "developerId": item.DeveloperID, "appId": item.AppID, "category": item.Category, "name": item.Name,
@@ -666,9 +684,6 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 			return sourcePlugin{}, err
 		}
 	}
-	if err := rejectCatalogPackageSource(req.PackageSource, downloadURL, priceCents); err != nil {
-		return sourcePlugin{}, err
-	}
 	name := truncateText(req.Name, 100)
 	if name == "" {
 		name = pluginID
@@ -687,7 +702,7 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 		return sourcePlugin{}, err
 	}
 	var originURL, originHealth string
-	downloadURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindPlugin, category, pluginID, downloadURL, sha256Value, version, priceCents, developer.ID)
+	downloadURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindPlugin, category, pluginID, downloadURL, sha256Value, version, priceCents)
 	if err != nil {
 		return sourcePlugin{}, err
 	}
@@ -761,9 +776,6 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 			return sourceTemplate{}, err
 		}
 	}
-	if err := rejectCatalogPackageSource(req.PackageSource, templateURL, priceCents); err != nil {
-		return sourceTemplate{}, err
-	}
 	name := truncateText(req.Name, 100)
 	if name == "" {
 		name = templateKey
@@ -784,7 +796,7 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 		return sourceTemplate{}, err
 	}
 	var originURL, originHealth string
-	templateURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindTemplate, category, templateKey, templateURL, sha256Value, version, priceCents, developer.ID)
+	templateURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindTemplate, category, templateKey, templateURL, sha256Value, version, priceCents)
 	if err != nil {
 		return sourceTemplate{}, err
 	}
@@ -867,7 +879,7 @@ func writeSourceVersionList(c *gin.Context, kind, itemID string) {
 	}
 	list := make([]gin.H, 0, len(items))
 	for _, item := range items {
-		list = append(list, sourceReleaseView(item))
+		list = append(list, developerReleaseView(item))
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": list, "total": len(list)}})
 }
@@ -894,7 +906,7 @@ func sourceDeveloperWriteVersion(c *gin.Context, kind string) {
 		writeSourceDeveloperStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本草稿已保存", "data": sourceReleaseView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本草稿已保存", "data": developerReleaseView(saved)})
 }
 
 func sourceDeveloperSubmitVersion(c *gin.Context, kind string) {
@@ -946,7 +958,7 @@ func sourceDeveloperSubmitVersion(c *gin.Context, kind string) {
 		return
 	}
 	notifyCatalogVersionSubmitted(kind, itemID, saved.Version)
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本已提交审核", "data": sourceReleaseView(saved)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本已提交审核", "data": developerReleaseView(saved)})
 }
 
 func bindSourceReleaseDraft(c *gin.Context, kind string) (sourceRelease, error) {
@@ -967,12 +979,8 @@ func bindSourceReleaseDraft(c *gin.Context, kind string) (sourceRelease, error) 
 		return sourceRelease{}, err
 	}
 	itemID := strings.TrimSpace(c.Param("id"))
-	price, priceErr := catalogItemPrice(kind, itemID)
-	if priceErr != nil && !errors.Is(priceErr, errSourceNotFound) {
+	if _, priceErr := catalogItemPrice(kind, itemID); priceErr != nil && !errors.Is(priceErr, errSourceNotFound) {
 		return sourceRelease{}, priceErr
-	}
-	if err := rejectCatalogPackageSource(req.PackageSource, location, price); err != nil {
-		return sourceRelease{}, err
 	}
 	var originURL string
 	location, sha256Value, originURL, err = adoptPaidVersionLocation(kind, itemID, version, location, sha256Value)

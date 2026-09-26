@@ -56,10 +56,7 @@ export interface SourceDeveloperCatalogItem {
   originHint?: string
   fulfillmentHint?: string
   packageSource?: string
-  githubOwner?: string
-  githubRepo?: string
-  githubTag?: string
-  githubAsset?: string
+  storedBySite?: boolean
   templateKey?: string
   changelog?: string
   latestVersion?: string
@@ -164,29 +161,6 @@ export function fetchSourceDeveloperApplyStatus() {
   )
 }
 
-export function fetchSourceDeveloperGitHubPaidToken() {
-  return axios.get<{ code: number; msg: string; data: { configured: boolean } }>(
-    `${BASE}/github-paid`,
-    developerConfig()
-  )
-}
-
-export function saveSourceDeveloperGitHubPaidToken(token: string) {
-  return axios.put<{ code: number; msg: string; data: { configured: boolean } }>(
-    `${BASE}/github-paid`,
-    { token },
-    developerConfig()
-  )
-}
-
-export function testSourceDeveloperGitHubPaidToken(token?: string) {
-  return axios.post<{ code: number; msg: string; data: { configured: boolean } }>(
-    `${BASE}/github-paid/test`,
-    { token: token || '' },
-    developerConfig()
-  )
-}
-
 export function fetchSourceDeveloperMe() {
   return axios.get<{ code: number; msg: string; data: SourceDeveloperProfile }>(`${BASE}/me`, {
     headers: developerAuthHeaders()
@@ -228,10 +202,7 @@ export interface SourceDeveloperVersion {
   templateUrl?: string
   originUrl?: string
   packageSource?: string
-  githubOwner?: string
-  githubRepo?: string
-  githubTag?: string
-  githubAsset?: string
+  storedBySite?: boolean
   reviewNote?: string
   reviewedBy?: string
   createdAt?: string
@@ -248,7 +219,8 @@ export interface SourceDeveloperPluginDraft {
   version: string
   sha256?: string
   downloadUrl?: string
-  packageSource?: 'upload' | 'public' | 'github'
+  packageSource?: 'upload' | 'public'
+  storedBySite?: boolean
   priceCents?: number
   billing?: string
   changelog?: string
@@ -268,7 +240,8 @@ export interface SourceDeveloperTemplateDraft {
   schemaVersion?: number
   sha256?: string
   templateUrl?: string
-  packageSource?: 'upload' | 'public' | 'github'
+  packageSource?: 'upload' | 'public'
+  storedBySite?: boolean
   priceCents?: number
   billing?: string
   changelog?: string
@@ -283,7 +256,8 @@ export interface SourceDeveloperVersionDraft {
   sha256?: string
   downloadUrl?: string
   templateUrl?: string
-  packageSource?: 'upload' | 'public' | 'github'
+  packageSource?: 'upload' | 'public'
+  storedBySite?: boolean
 }
 
 export interface SourceDeveloperAdApplication {
@@ -456,6 +430,7 @@ export interface SourceDeveloperPackageUpload {
   icon?: string
   schemaVersion?: number
   stored: boolean
+  storedBySite?: boolean
 }
 
 export function uploadSourceDeveloperPackage(data: FormData) {

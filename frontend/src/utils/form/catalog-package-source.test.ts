@@ -46,29 +46,18 @@ assert.equal(
     location: github,
     priceYuan: '19.9'
   }),
-  '公开地址只能用于免费条目。收费请改用私有 GitHub 仓库，或上传压缩包'
-)
-assert.equal(
-  catalogUploadBlockReason({
-    appId: 1,
-    source: 'github',
-    push: false,
-    hasFile: false,
-    location: github,
-    priceYuan: '19.9'
-  }),
   ''
 )
 assert.equal(
   catalogUploadBlockReason({
     appId: 1,
-    source: 'github',
+    source: 'public',
     push: false,
     hasFile: false,
-    location: github,
-    priceYuan: '0'
+    location: '',
+    priceYuan: '19.9'
   }),
-  '私有 GitHub 仓库用于收费条目，请填写大于 0 的售价'
+  '请填写 https 公开地址'
 )
 assert.equal(
   catalogUploadBlockReason({
@@ -80,6 +69,17 @@ assert.equal(
     priceYuan: '10'
   }),
   ''
+)
+assert.equal(
+  catalogUploadBlockReason({
+    appId: 1,
+    source: 'upload',
+    push: false,
+    hasFile: true,
+    location: '',
+    priceYuan: '0'
+  }),
+  '免费条目请改用公开地址。上传压缩包用于收费条目，或勾选推送 Release'
 )
 assert.equal(
   catalogUploadBlockReason({
@@ -124,29 +124,18 @@ assert.equal(
     priceYuan: '19.9',
     requirePackage: false
   }),
-  '公开地址只能用于免费条目。收费请改用私有 GitHub 仓库，或上传压缩包'
+  ''
 )
 assert.equal(
   developerCatalogBlockReason({
     kind: 'plugin',
-    source: 'github',
+    source: 'public',
     location: github,
     sha256: '',
     priceYuan: '19.9',
     requirePackage: true
   }),
   ''
-)
-assert.equal(
-  developerCatalogBlockReason({
-    kind: 'template',
-    source: 'github',
-    location: '',
-    sha256: '',
-    priceYuan: '0',
-    requirePackage: false
-  }),
-  '私有 GitHub 仓库用于收费条目，请填写大于 0 的售价'
 )
 assert.equal(
   developerCatalogBlockReason({
@@ -157,7 +146,19 @@ assert.equal(
     priceYuan: '0',
     requirePackage: false
   }),
-  '免费条目请改用公开地址。上传压缩包用于本站托管的收费条目'
+  '请先上传压缩包'
+)
+assert.equal(
+  developerCatalogBlockReason({
+    kind: 'plugin',
+    source: 'upload',
+    location: '',
+    sha256: 'ab'.repeat(32),
+    priceYuan: '10',
+    hasStoredPackage: true,
+    requirePackage: true
+  }),
+  ''
 )
 assert.equal(
   developerCatalogBlockReason({

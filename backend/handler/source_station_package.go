@@ -203,20 +203,8 @@ func readSourcePackageSource(c *gin.Context) (name string, payload []byte, remot
 	if location == "" {
 		return "", nil, "", rejectSourcePackage("file", "required", "请上传压缩包，或填写 https 外部地址（二选一）")
 	}
-	if c.PostForm("packageSource") == "public" {
-		cents, priceErr := parseCatalogPriceCents(c.PostForm("priceCents"))
-		if priceErr != nil {
-			return "", nil, "", rejectSourcePackage("priceCents", "invalid", priceErr.Error())
-		}
-		if cents > 0 {
-			return "", nil, "", rejectSourcePackage("downloadUrl", "public_paid", "公开地址只能用于免费条目。收费请改用私有 GitHub 仓库，或上传压缩包由本站托管")
-		}
-	}
 	if !isHTTPSLocation(location) {
 		return "", nil, "", rejectSourcePackage("downloadUrl", "https", "外部地址须以 https:// 开头")
-	}
-	if shouldReadGitHubPaid(c, location) {
-		return readGitHubPaidSource(c, location)
 	}
 	payload, err = fetchPaidOriginZIP(c.Request.Context(), location)
 	if err != nil {
