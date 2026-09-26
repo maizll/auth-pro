@@ -1,6 +1,6 @@
 # 部署手册
 
-当前版本 **1.5.4**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
+当前版本 **1.5.5**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
 
 运行数据目录与进程的工作目录一致。宝塔脚本默认把它放在网站根下的 `backend/`。后端解析数据目录的顺序是：环境变量 `AUTO_PRO_DATA_DIR`，否则在当前工作目录或其子目录 `backend/` 中寻找 `install.lock`、`db.json` 或 `go.mod`，再否则用可执行文件所在目录。
 
@@ -33,7 +33,7 @@ go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出
 
 ```bash
 cd /www/wwwroot/example.com
-tar -xzf auth_pro-full-v1.5.4.tar.gz
+tar -xzf auth_pro-full-v1.5.5.tar.gz
 bash baota-install.sh
 ```
 
@@ -43,7 +43,7 @@ bash baota-install.sh
 AUTH_PRO_YES=1 AUTH_PRO_START=0 \
 bash baota-install.sh \
   --site-root /www/wwwroot/example.com \
-  --package /tmp/auth_pro-full-v1.5.4.tar.gz
+  --package /tmp/auth_pro-full-v1.5.5.tar.gz
 ```
 
 ### 安装脚本会做的事
@@ -80,7 +80,7 @@ bash baota-install.sh \
 ```bash
 bash baota-upgrade.sh \
   --site-root /www/wwwroot/example.com \
-  --package /tmp/auth_pro-full-v1.5.4.tar.gz \
+  --package /tmp/auth_pro-full-v1.5.5.tar.gz \
   --no-start
 ```
 
@@ -196,9 +196,9 @@ Release 附件里要有 `latest.json`。清单里的 `package.signature` 必须�
 
 健康检查地址是 `http://127.0.0.1:19127/api/install/status`。已安装时应表示系统已安装，且安装写接口返回 403。
 
-## 从 1.5.3 在线更新卡住时的恢复
+## 从 1.5.3 或 1.5.4 在线更新到 1.5.5 卡住时的恢复
 
-1.5.3 及更早的在线更新会自己 `nohup` 拉起进程，并在替换二进制之前结束旧进程。这次更新如果停在「服务正在切换并重启」、19127 仍是旧进程，执行更新的是服务器上的旧程序，本仓库里的新逻辑要等这次恢复之后的下一次更新才会生效。下面的命令按生产站默认路径写，站点根或端口不同时只改前两行。先在宝塔「进程守护」里停止本站点，再在 SSH 里执行：
+1.5.4 及更早的在线更新会自己 `nohup` 拉起进程，并在替换二进制之前结束旧进程。从 1.5.3 或 1.5.4 在线更新到 1.5.5 这一次，执行更新的仍是服务器上的旧程序。这次更新如果停在「服务正在切换并重启」、19127 仍是旧进程，本仓库里的新逻辑要等这次恢复之后的下一次更新才会生效。下面的命令按生产站默认路径写，站点根或端口不同时只改前两行。先在宝塔「进程守护」里停止本站点，再在 SSH 里执行：
 
 ```bash
 SITE=/www/wwwroot/auth.maizll.com
