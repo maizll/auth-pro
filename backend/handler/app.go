@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"auto_pro/config"
@@ -71,9 +72,19 @@ func AppManageList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化版本数据失败"})
 		return
 	}
+	if err := prepareCommercialProduct(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化商业版产品失败"})
+		return
+	}
+	storeSettings, settingsErr := loadSourceStoreSettings(db)
+	if settingsErr == nil {
+		if normalized, err := normalizeStoreSettings(storeSettings); err == nil {
+			storeSettings = normalized
+		}
+	}
 
 	rows, err := db.Query(`
-		SELECT a.id, a.app_name, a.app_key, a.app_secret, a.description, a.enabled,
+		SELECT a.id, a.app_name, a.app_key, a.app_secret, a.description, a.enabled, a.commercial_product,
 		       a.license_required, a.purchase_license_type_mask, a.created_at,
 		       (SELECT COUNT(*) FROM licenses l WHERE l.app_id = a.id) AS license_count,
 		       (SELECT COUNT(*) FROM app_versions v WHERE v.app_id = a.id) AS version_count,
@@ -90,18 +101,23 @@ func AppManageList(c *gin.Context) {
 	defer rows.Close()
 
 	type appManageItem struct {
-		ID                   int64    `json:"id"`
-		Name                 string   `json:"name"`
-		AppKey               string   `json:"appKey"`
-		AppSecret            string   `json:"appSecret"`
-		Remark               string   `json:"remark"`
-		Enabled              bool     `json:"enabled"`
-		LicenseRequired      bool     `json:"licenseRequired"`
-		PurchaseLicenseTypes []string `json:"purchaseLicenseTypes"`
-		CreatedAt            string   `json:"createdAt"`
-		LicenseCount         int64    `json:"licenseCount"`
-		VersionCount         int64    `json:"versionCount"`
-		RecentVersion        string   `json:"recentVersion"`
+		ID                     int64               `json:"id"`
+		Name                   string              `json:"name"`
+		AppKey                 string              `json:"appKey"`
+		AppSecret              string              `json:"appSecret"`
+		Remark                 string              `json:"remark"`
+		Enabled                bool                `json:"enabled"`
+		LicenseRequired        bool                `json:"licenseRequired"`
+		PurchaseLicenseTypes   []string            `json:"purchaseLicenseTypes"`
+		CommercialProduct      bool                `json:"commercialProduct"`
+		SaleGaps               []commercialSaleGap `json:"saleGaps,omitempty"`
+		GraceDays              int                 `json:"graceDays,omitempty"`
+		RevokeOnPasswordChange *bool               `json:"revokeOnPasswordChange,omitempty"`
+		CommercialFeatures     []string            `json:"commercialFeatures,omitempty"`
+		CreatedAt              string              `json:"createdAt"`
+		LicenseCount           int64               `json:"licenseCount"`
+		VersionCount           int64               `json:"versionCount"`
+		RecentVersion          string              `json:"recentVersion"`
 	}
 
 	var list []appManageItem
@@ -110,12 +126,20 @@ func AppManageList(c *gin.Context) {
 		var createdAt time.Time
 		var desc string
 		var purchaseLicenseTypeMask uint8
+		var commercial int
 		if err := rows.Scan(&item.ID, &item.Name, &item.AppKey, &item.AppSecret,
-			&desc, &item.Enabled, &item.LicenseRequired, &purchaseLicenseTypeMask, &createdAt, &item.LicenseCount, &item.VersionCount,
+			&desc, &item.Enabled, &commercial, &item.LicenseRequired, &purchaseLicenseTypeMask, &createdAt, &item.LicenseCount, &item.VersionCount,
 			&item.RecentVersion); err == nil {
 			item.Remark = desc
+			item.CommercialProduct = commercial == 1
 			item.PurchaseLicenseTypes = purchaseLicenseTypesFromMask(purchaseLicenseTypeMask)
 			item.CreatedAt = createdAt.Format("2006-01-02 15:04")
+			if item.CommercialProduct {
+				item.SaleGaps = commercialSaleGaps(db, item.ID, item.Enabled)
+				item.GraceDays = storeSettings.GraceDays
+				item.RevokeOnPasswordChange = storeSettings.RevokeOnPasswordChange
+				item.CommercialFeatures = storeSettings.CommercialFeatures
+			}
 			list = append(list, item)
 		}
 	}
@@ -129,14 +153,24 @@ func AppManageList(c *gin.Context) {
 // AppCreate 新增应用
 func AppCreate(c *gin.Context) {
 	var req struct {
-		Name                 string   `json:"name" binding:"required"`
-		Enabled              bool     `json:"enabled"`
-		Remark               string   `json:"remark"`
-		PurchaseLicenseTypes []string `json:"purchaseLicenseTypes"`
+		Name                   string    `json:"name" binding:"required"`
+		Enabled                bool      `json:"enabled"`
+		Remark                 string    `json:"remark"`
+		PurchaseLicenseTypes   []string  `json:"purchaseLicenseTypes"`
+		CommercialProduct      *bool     `json:"commercialProduct"`
+		GraceDays              *int      `json:"graceDays"`
+		RevokeOnPasswordChange *bool     `json:"revokeOnPasswordChange"`
+		CommercialFeatures     *[]string `json:"commercialFeatures"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用名称不能为空"})
 		return
+	}
+	if req.CommercialProduct != nil && *req.CommercialProduct {
+		if err := validateCommercialAppSettings(req.GraceDays, req.CommercialFeatures); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+			return
+		}
 	}
 	purchaseLicenseTypeMask, err := purchaseLicenseTypeMaskForCreate(req.PurchaseLicenseTypes)
 	if err != nil {
@@ -180,21 +214,39 @@ func AppCreate(c *gin.Context) {
 	}
 
 	id, _ := result.LastInsertId()
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "创建成功", "data": gin.H{"id": id}})
+	switched, msg, err := applyCommercialProductChoice(db, id, req.CommercialProduct, req.GraceDays, req.RevokeOnPasswordChange, req.CommercialFeatures)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": err.Error()})
+		return
+	}
+	if msg == "" {
+		msg = "创建成功"
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": gin.H{"id": id, "switched": switched}})
 }
 
 // AppUpdate 编辑应用
 func AppUpdate(c *gin.Context) {
 	id := c.Param("id")
 	var req struct {
-		Name                 string   `json:"name" binding:"required"`
-		Enabled              bool     `json:"enabled"`
-		Remark               string   `json:"remark"`
-		PurchaseLicenseTypes []string `json:"purchaseLicenseTypes"`
+		Name                   string    `json:"name" binding:"required"`
+		Enabled                bool      `json:"enabled"`
+		Remark                 string    `json:"remark"`
+		PurchaseLicenseTypes   []string  `json:"purchaseLicenseTypes"`
+		CommercialProduct      *bool     `json:"commercialProduct"`
+		GraceDays              *int      `json:"graceDays"`
+		RevokeOnPasswordChange *bool     `json:"revokeOnPasswordChange"`
+		CommercialFeatures     *[]string `json:"commercialFeatures"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
 		return
+	}
+	if req.CommercialProduct != nil && *req.CommercialProduct {
+		if err := validateCommercialAppSettings(req.GraceDays, req.CommercialFeatures); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+			return
+		}
 	}
 	var purchaseLicenseTypeMask uint8
 	if req.PurchaseLicenseTypes != nil {
@@ -236,8 +288,37 @@ func AppUpdate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "应用不存在"})
 		return
 	}
+	appID, err := positiveInt64(id)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用ID不正确"})
+		return
+	}
+	switched, msg, err := applyCommercialProductChoice(db, appID, req.CommercialProduct, req.GraceDays, req.RevokeOnPasswordChange, req.CommercialFeatures)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": err.Error()})
+		return
+	}
+	if msg == "" {
+		msg = "更新成功"
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": gin.H{"switched": switched}})
+}
 
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "更新成功"})
+// AppEnsureStoreSnapshotKey 在应用列表里补生成商店签名私钥，不另开页面。
+func AppEnsureStoreSnapshotKey(c *gin.Context) {
+	if _, err := loadStoreSnapshotPrivateKey(); err == nil {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "签名密钥已存在"})
+		return
+	}
+	if _, err := os.Stat(storeSnapshotPrivateKeyPath()); err == nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "签名密钥不可用，请检查本机私钥是否与发行包公钥一致"})
+		return
+	}
+	if _, err := generateStoreSnapshotKey(false); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "生成签名密钥失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已生成签名密钥"})
 }
 
 // AppLicenseRequiredUpdate 更新应用是否要求许可证校验。

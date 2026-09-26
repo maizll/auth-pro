@@ -59,91 +59,15 @@
         </el-form-item>
       </el-form>
     </el-card>
-
-    <el-card v-loading="storeLoading" shadow="never" class="art-card store-card">
-      <template #header>
-        <div class="table-header">
-          <div>
-            <span class="card-title">商店预留</span>
-            <p class="card-hint">
-              买家绑定源站账号时，用这里的产品应用建立主授权。免费套餐、离线宽限、改密是否撤销绑定，以及商业版开放哪些能力，也在点保存时写入。产品应用和免费套餐都会当场核对。
-            </p>
-          </div>
-          <div class="table-actions">
-            <el-button type="primary" :loading="storeSaving" @click="handleStoreSave">保存</el-button>
-          </div>
-        </div>
-      </template>
-      <el-form :model="storeForm" label-width="140px" class="settings-form">
-        <el-form-item label="产品应用标识">
-          <el-select
-            :model-value="storeForm.productAppKey || undefined"
-            filterable
-            clearable
-            placeholder="可留空，未设置"
-            class="product-app-select"
-            :loading="productAppsLoading"
-            @update:model-value="onProductAppChange"
-          >
-            <el-option
-              v-for="app in productAppOptions"
-              :key="app.appKey"
-              :label="app.label"
-              :value="app.appKey"
-            />
-          </el-select>
-          <p class="field-hint">到「应用授权 → 应用管理」选择已启用的应用。留空表示还没指定。</p>
-        </el-form-item>
-        <el-form-item label="免费套餐">
-          <el-select
-            :model-value="storeForm.freePlanId || undefined"
-            filterable
-            clearable
-            :disabled="!storeForm.productAppKey"
-            :placeholder="storeForm.productAppKey ? '可留空，不指定套餐' : '请先选择产品应用'"
-            class="free-plan-select"
-            :loading="productPlansLoading"
-            @update:model-value="onFreePlanChange"
-          >
-            <el-option
-              v-for="plan in freePlanOptions"
-              :key="plan.id"
-              :label="plan.label"
-              :value="plan.id"
-            />
-          </el-select>
-          <p class="field-hint">
-            只列出上面这个应用在「应用授权 → 套餐管理」里的套餐。买家还没有主授权时，按这个套餐自动建一条域名授权。留空表示不指定套餐。
-          </p>
-        </el-form-item>
-        <el-form-item label="离线宽限天数">
-          <el-input-number v-model="storeForm.graceDays" :min="1" :max="30" />
-          <p class="field-hint">源站暂时连不上时，买方商业版还可以继续使用的天数，范围 1 到 30。</p>
-        </el-form-item>
-        <el-form-item label="改密撤销绑定">
-          <el-switch v-model="storeForm.revokeOnPasswordChange" />
-          <p class="field-hint">打开后，买家在源站修改密码，会撤销已经绑定的站点。</p>
-        </el-form-item>
-        <el-form-item label="商业版功能键">
-          <el-input v-model.trim="storeForm.commercialFeatures" placeholder="multi_app" />
-          <p class="field-hint">
-            商业版快照里开放的能力，多个用英文逗号分隔。multi_app 表示允许使用多个应用。请保持默认，不要改成别的词。
-          </p>
-        </el-form-item>
-      </el-form>
-    </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, reactive, ref, watch } from 'vue'
+  import { computed, onMounted, reactive, ref } from 'vue'
   import { ElMessage } from 'element-plus'
-  import { fetchLicenseAppList, fetchPlanList, type PlanItem } from '@/api/license-manage'
   import {
     fetchSourceReleaseSettings,
-    fetchSourceStoreSettings,
     saveSourceReleaseSettings,
-    saveSourceStoreSettings,
     testSourceReleaseSettings,
     type SourceReleaseSettings
   } from '@/api/source-station'
@@ -161,19 +85,6 @@
     tokenMasked: '',
     configured: false
   })
-  const storeLoading = ref(false)
-  const storeSaving = ref(false)
-  const productAppsLoading = ref(false)
-  const productPlansLoading = ref(false)
-  const productApps = ref<Array<{ id: number; appKey: string; name: string }>>([])
-  const productPlans = ref<PlanItem[]>([])
-  const storeForm = reactive({
-    productAppKey: '',
-    freePlanId: '',
-    graceDays: 7,
-    revokeOnPasswordChange: true,
-    commercialFeatures: 'multi_app'
-  })
   const form = reactive({
     provider: 'github',
     owner: '',
@@ -182,50 +93,6 @@
     tagStrategy: '{id}-{version}',
     branch: 'master'
   })
-
-  const productAppOptions = computed(() => {
-    const enabled = productApps.value.map((app) => ({
-      appKey: app.appKey,
-      label: `${app.name}（${app.appKey}）`
-    }))
-    const current = String(storeForm.productAppKey || '').trim()
-    if (current && !enabled.some((app) => app.appKey === current)) {
-      return [{ appKey: current, label: `${current}（未启用或不存在）` }, ...enabled]
-    }
-    return enabled
-  })
-
-  const selectedProductAppId = computed(() => {
-    const key = String(storeForm.productAppKey || '').trim()
-    if (!key) return 0
-    return productApps.value.find((app) => app.appKey === key)?.id || 0
-  })
-
-  const freePlanOptions = computed(() => {
-    const options = productPlans.value.map((plan) => ({
-      id: String(plan.id),
-      label: plan.enabled
-        ? `${plan.name}（ID ${plan.id}，${plan.durationText || '未设置时长'}）`
-        : `${plan.name}（ID ${plan.id}，已停用）`
-    }))
-    const current = String(storeForm.freePlanId || '').trim()
-    if (current && !options.some((plan) => plan.id === current)) {
-      return [{ id: current, label: `${current}（不在该应用的套餐中）` }, ...options]
-    }
-    return options
-  })
-
-  function onProductAppChange(value: string | null | undefined) {
-    const next = String(value || '')
-    if (next !== storeForm.productAppKey) {
-      storeForm.freePlanId = ''
-    }
-    storeForm.productAppKey = next
-  }
-
-  function onFreePlanChange(value: string | number | null | undefined) {
-    storeForm.freePlanId = value == null || value === '' ? '' : String(value)
-  }
 
   const formHasToken = computed(() => Boolean(form.token.trim()) || settings.value.hasToken)
 
@@ -257,80 +124,6 @@
     }
     return '尚未配置完整，上传时需粘贴外部 https 地址。'
   })
-
-  async function loadProductApps() {
-    productAppsLoading.value = true
-    try {
-      const list = await fetchLicenseAppList()
-      productApps.value = (list || [])
-        .filter((app) => app.enabled && app.appKey)
-        .map((app) => ({ id: app.id, appKey: app.appKey, name: app.name || app.appKey }))
-    } catch {
-      productApps.value = []
-    } finally {
-      productAppsLoading.value = false
-    }
-  }
-
-  async function loadProductPlans(appId: number) {
-    if (!appId) {
-      productPlans.value = []
-      return
-    }
-    productPlansLoading.value = true
-    try {
-      productPlans.value = (await fetchPlanList({ appId })) || []
-    } catch {
-      productPlans.value = []
-    } finally {
-      productPlansLoading.value = false
-    }
-  }
-
-  watch(selectedProductAppId, (appId) => {
-    void loadProductPlans(appId)
-  })
-
-  async function loadStoreSettings() {
-    storeLoading.value = true
-    try {
-      const data = await fetchSourceStoreSettings()
-      storeForm.productAppKey = data.productAppKey || ''
-      storeForm.freePlanId = data.freePlanId || ''
-      storeForm.graceDays = data.graceDays || 7
-      storeForm.revokeOnPasswordChange = data.revokeOnPasswordChange !== false
-      storeForm.commercialFeatures = (data.commercialFeatures || ['multi_app']).join(',')
-    } finally {
-      storeLoading.value = false
-    }
-  }
-
-  async function handleStoreSave() {
-    const appKey = String(storeForm.productAppKey || '').trim()
-    const plan = String(storeForm.freePlanId || '').trim()
-    if (appKey && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(appKey)) {
-      ElMessage.warning('产品应用标识不合法')
-      return
-    }
-    storeSaving.value = true
-    try {
-      const data = await saveSourceStoreSettings({
-        productAppKey: appKey,
-        freePlanId: plan,
-        graceDays: storeForm.graceDays,
-        revokeOnPasswordChange: storeForm.revokeOnPasswordChange,
-        commercialFeatures: storeForm.commercialFeatures.split(',').map((item) => item.trim()).filter(Boolean)
-      })
-      storeForm.productAppKey = data.productAppKey || ''
-      storeForm.freePlanId = data.freePlanId || ''
-      storeForm.graceDays = data.graceDays || 7
-      storeForm.revokeOnPasswordChange = data.revokeOnPasswordChange !== false
-      storeForm.commercialFeatures = (data.commercialFeatures || ['multi_app']).join(',')
-      ElMessage.success('已保存商店设置')
-    } finally {
-      storeSaving.value = false
-    }
-  }
 
   async function loadSettings() {
     loading.value = true
@@ -387,8 +180,6 @@
 
   onMounted(() => {
     void loadSettings()
-    void loadStoreSettings()
-    void loadProductApps()
   })
 </script>
 
@@ -402,10 +193,6 @@
       background: var(--default-box-color);
       box-shadow: none;
     }
-  }
-
-  .store-card {
-    margin-top: 16px;
   }
 
   .table-header {

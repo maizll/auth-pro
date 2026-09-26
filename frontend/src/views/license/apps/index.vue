@@ -53,6 +53,23 @@
           <span v-if="row.versionCount" class="version-count">{{ row.versionCount }}</span>
         </template>
 
+        <template #sale="{ row }">
+          <div v-if="row.commercialProduct" class="sale-status">
+            <ElTag type="warning" size="small">商业版产品</ElTag>
+            <ElTag v-if="!row.saleGaps?.length" type="success" size="small">可售</ElTag>
+            <ElButton
+              v-for="gap in row.saleGaps || []"
+              :key="gap.code"
+              link
+              type="danger"
+              @click="handleSaleGap(row, gap)"
+            >
+              {{ gap.label }}
+            </ElButton>
+          </div>
+          <span v-else class="text-secondary">--</span>
+        </template>
+
         <!-- 状态 -->
         <template #enabled="{ row }">
           <ElTag :type="row.enabled ? 'success' : 'info'" size="small">
@@ -81,8 +98,8 @@
     </ElCard>
 
     <!-- 新增/编辑弹窗 -->
-    <ElDialog v-model="dialogVisible" :title="dialogTitle" width="560px" destroy-on-close>
-      <ElForm :model="formData" :rules="formRules" ref="formRef" label-width="100px">
+    <ElDialog v-model="dialogVisible" :title="dialogTitle" width="640px" destroy-on-close>
+      <ElForm :model="formData" :rules="formRules" ref="formRef" label-width="150px">
         <ElFormItem label="应用名称" prop="name">
           <ElInput v-model="formData.name" placeholder="请输入应用名称" />
         </ElFormItem>
@@ -104,6 +121,28 @@
         <ElFormItem label="状态">
           <ElSwitch v-model="formData.enabled" active-text="启用" inactive-text="禁用" />
         </ElFormItem>
+        <ElFormItem label="作为本站商业版出售">
+          <ElSwitch v-model="formData.commercialProduct" />
+          <div class="form-tip">全站只能有一个应用打开。买家绑定和扫码购买都用这个应用。</div>
+        </ElFormItem>
+        <ElCollapse v-if="formData.commercialProduct" class="commercial-advanced">
+          <ElCollapseItem title="高级设置" name="advanced">
+            <ElFormItem label="离线宽限天数">
+              <ElInputNumber v-model="formData.graceDays" :min="1" :max="30" />
+              <div class="form-tip">源站暂时连不上时，买方商业版还可以继续使用的天数，默认 7 天。</div>
+            </ElFormItem>
+            <ElFormItem label="改密撤销绑定">
+              <ElSwitch v-model="formData.revokeOnPasswordChange" />
+              <div class="form-tip">打开后，买家在源站修改密码，会撤销已经绑定的站点。</div>
+            </ElFormItem>
+            <ElFormItem label="商业版功能键">
+              <ElInput v-model.trim="formData.commercialFeatures" placeholder="multi_app" />
+              <div class="form-tip">
+                商业版开放的能力，默认 multi_app，表示允许多个应用。一般不用改。
+              </div>
+            </ElFormItem>
+          </ElCollapseItem>
+        </ElCollapse>
         <ElFormItem label="备注">
           <ElInput v-model="formData.remark" type="textarea" :rows="2" placeholder="可选" />
         </ElFormItem>
@@ -130,6 +169,8 @@
     fetchDeleteLicenseApp,
     fetchResetAppSecret,
     fetchUpdateAppLicenseRequired,
+    fetchEnsureStoreSnapshotKey,
+    type AppSaleGap,
     type LicenseAppItem
   } from '@/api/license-manage'
 
@@ -165,7 +206,11 @@
     callbackUrl: '',
     enabled: true,
     remark: '',
-    purchaseLicenseTypes: [...purchaseLicenseTypeOrder] as string[]
+    purchaseLicenseTypes: [...purchaseLicenseTypeOrder] as string[],
+    commercialProduct: false,
+    graceDays: 7,
+    revokeOnPasswordChange: true,
+    commercialFeatures: 'multi_app'
   })
 
   const formRules = {
@@ -180,6 +225,7 @@
       columnsFactory: () => [
         { type: 'index', width: 60, label: '序号' }, // 序号
         { prop: 'name', label: '应用名称', minWidth: 150, showOverflowTooltip: true },
+        { prop: 'sale', label: '商业版', minWidth: 220, useSlot: true },
         { prop: 'appKey', label: 'AppKey', minWidth: 220, showOverflowTooltip: true },
         {
           prop: 'purchaseLicenseTypes',
@@ -258,7 +304,18 @@
     formData.enabled = true
     formData.remark = ''
     formData.purchaseLicenseTypes = [...purchaseLicenseTypeOrder]
+    formData.commercialProduct = false
+    formData.graceDays = 7
+    formData.revokeOnPasswordChange = true
+    formData.commercialFeatures = 'multi_app'
     dialogVisible.value = true
+  }
+
+  const fillCommercialForm = (row?: AppRow) => {
+    formData.commercialProduct = !!row?.commercialProduct
+    formData.graceDays = row?.graceDays || 7
+    formData.revokeOnPasswordChange = row?.revokeOnPasswordChange !== false
+    formData.commercialFeatures = (row?.commercialFeatures || ['multi_app']).join(',')
   }
 
   const handleEdit = (row: AppRow) => {
@@ -267,11 +324,57 @@
     formData.name = row.name
     formData.callbackUrl = ''
     formData.enabled = row.enabled
-    formData.remark = (row as LicenseAppItem & { remark?: string }).remark || ''
+    formData.remark = row.remark || ''
     formData.purchaseLicenseTypes = Array.isArray(row.purchaseLicenseTypes)
       ? [...row.purchaseLicenseTypes]
       : [...purchaseLicenseTypeOrder]
+    fillCommercialForm(row)
     dialogVisible.value = true
+  }
+
+  const confirmCommercialSwitch = async () => {
+    if (!formData.commercialProduct) return true
+    const other = ((data.value || []) as AppRow[]).find(
+      (row) => row.commercialProduct && row.id !== formData.id
+    )
+    if (!other) return true
+    try {
+      await ElMessageBox.confirm(
+        `应用「${other.name}」正在作为本站商业版出售。开启后会改到当前应用，原应用不再出售。`,
+        '切换商业版产品',
+        { type: 'warning', confirmButtonText: '切换', cancelButtonText: '取消' }
+      )
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const commercialPayload = () => ({
+    commercialProduct: formData.commercialProduct,
+    graceDays: formData.graceDays,
+    revokeOnPasswordChange: formData.revokeOnPasswordChange,
+    commercialFeatures: formData.commercialFeatures
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+  })
+
+  const handleSaleGap = async (row: AppRow, gap: AppSaleGap) => {
+    if (gap.path) {
+      router.push(gap.path)
+      return
+    }
+    if (gap.code !== 'signing_key' || gap.label !== '签名密钥未生成') return
+    try {
+      await ElMessageBox.confirm('尚未生成商店签名密钥。现在在本机生成？', '签名密钥', {
+        type: 'warning'
+      })
+      await fetchEnsureStoreSnapshotKey()
+      refreshData()
+    } catch {
+      // 用户取消时保留当前状态。
+    }
   }
 
   const handleLicenseRequiredChange = async (row: AppRow) => {
@@ -348,22 +451,20 @@
     if (!valid) return
 
     try {
+      if (!(await confirmCommercialSwitch())) return
+      const payload = {
+        name: formData.name,
+        enabled: formData.enabled,
+        remark: formData.remark,
+        purchaseLicenseTypes: formData.purchaseLicenseTypes,
+        ...commercialPayload()
+      }
       if (isEdit.value) {
-        await fetchUpdateLicenseApp(formData.id, {
-          name: formData.name,
-          enabled: formData.enabled,
-          remark: formData.remark,
-          purchaseLicenseTypes: formData.purchaseLicenseTypes
-        })
-        ElMessage.success('编辑成功')
+        const saved = await fetchUpdateLicenseApp(formData.id, payload)
+        ElMessage.success(saved?.switched ? '已切换为本站商业版产品，原应用已关闭出售' : '编辑成功')
       } else {
-        await fetchCreateLicenseApp({
-          name: formData.name,
-          enabled: formData.enabled,
-          remark: formData.remark,
-          purchaseLicenseTypes: formData.purchaseLicenseTypes
-        })
-        ElMessage.success('新增成功')
+        const saved = await fetchCreateLicenseApp(payload)
+        ElMessage.success(saved?.switched ? '已切换为本站商业版产品，原应用已关闭出售' : '新增成功')
       }
       dialogVisible.value = false
       refreshData()
@@ -415,6 +516,17 @@
 
     .license-type-options :deep(.el-checkbox) {
       margin-right: 12px;
+    }
+
+    .sale-status {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .commercial-advanced {
+      margin-bottom: 12px;
     }
 
     .form-tip {

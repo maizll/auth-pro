@@ -40,6 +40,10 @@ func LicenseList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
+	if err := ensurePaidStoreSchema(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化授权来源失败"})
+		return
+	}
 
 	keyword := c.Query("keyword")
 	lType := c.Query("type")
@@ -77,6 +81,23 @@ func LicenseList(c *gin.Context) {
 		where = append(where, "l.app_id = ?")
 		args = append(args, appId)
 	}
+	sourceFilter := strings.TrimSpace(c.Query("source"))
+	sourceLabels := map[string]string{
+		"admin":          "管理员",
+		"agent":          "代理商",
+		"user_purchase":  "用户购买",
+		"card":           "卡密",
+		"store_bind":     "商店绑定",
+		"store_purchase": "商店购买",
+	}
+	if sourceFilter != "" {
+		if _, ok := sourceLabels[sourceFilter]; !ok {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "来源不正确"})
+			return
+		}
+		where = append(where, "l.source = ?")
+		args = append(args, sourceFilter)
+	}
 
 	whereSQL := strings.Join(where, " AND ")
 
@@ -101,6 +122,10 @@ func LicenseList(c *gin.Context) {
 		         WHEN l.owner_type = 'agent' THEN COALESCE(NULLIF(ag.name, ''), ag.email, '')
 		         ELSE ''
 		       END as owner_name,
+		       l.source,
+		       COALESCE((SELECT e.status FROM main_license_editions e
+		         WHERE e.license_id = l.id AND e.edition = 'commercial' AND e.status = 'active'
+		         ORDER BY e.id DESC LIMIT 1), '') AS commercial_status,
 		       l.expired_at, l.remark, l.created_at,
 		       (SELECT COUNT(*) FROM verify_logs v WHERE v.license_id = l.id) as verify_count,
 		       COUNT(DISTINCT ld.id) AS bound_sites, COALESCE(l.max_domains, 0) AS max_sites
@@ -127,23 +152,26 @@ func LicenseList(c *gin.Context) {
 	statusLabels := map[string]string{"active": "正常", "expired": "已过期", "revoked": "已禁用"}
 
 	type listItem struct {
-		ID          int64  `json:"id"`
-		Domain      string `json:"domain"`
-		AppName     string `json:"appName"`
-		AppID       int64  `json:"appId"`
-		Type        string `json:"type"`
-		TypeLabel   string `json:"typeLabel"`
-		Status      string `json:"status"`
-		StatusLabel string `json:"statusLabel"`
-		OwnerType   string `json:"ownerType"`
-		OwnerID     int64  `json:"ownerId"`
-		OwnerName   string `json:"ownerName"`
-		ExpireAt    string `json:"expireAt"`
-		VerifyCount int64  `json:"verifyCount"`
-		BoundSites  int64  `json:"boundSites"`
-		MaxSites    int    `json:"maxSites"`
-		CreatedAt   string `json:"createdAt"`
-		Remark      string `json:"remark"`
+		ID               int64  `json:"id"`
+		Domain           string `json:"domain"`
+		AppName          string `json:"appName"`
+		AppID            int64  `json:"appId"`
+		Type             string `json:"type"`
+		TypeLabel        string `json:"typeLabel"`
+		Status           string `json:"status"`
+		StatusLabel      string `json:"statusLabel"`
+		OwnerType        string `json:"ownerType"`
+		OwnerID          int64  `json:"ownerId"`
+		OwnerName        string `json:"ownerName"`
+		Source           string `json:"source"`
+		SourceLabel      string `json:"sourceLabel"`
+		CommercialActive bool   `json:"commercialActive"`
+		ExpireAt         string `json:"expireAt"`
+		VerifyCount      int64  `json:"verifyCount"`
+		BoundSites       int64  `json:"boundSites"`
+		MaxSites         int    `json:"maxSites"`
+		CreatedAt        string `json:"createdAt"`
+		Remark           string `json:"remark"`
 	}
 
 	var list []listItem
@@ -152,13 +180,20 @@ func LicenseList(c *gin.Context) {
 		var expiredAt sql.NullTime
 		var createdAt time.Time
 		var remark sql.NullString
+		var commercialStatus string
 		err := rows.Scan(&item.ID, &item.Domain, &item.AppName, &item.AppID,
 			&item.Type, &item.Status, &item.OwnerType, &item.OwnerID, &item.OwnerName,
+			&item.Source, &commercialStatus,
 			&expiredAt, &remark, &createdAt, &item.VerifyCount, &item.BoundSites, &item.MaxSites)
 		if err != nil {
 			continue
 		}
 		item.TypeLabel = typeLabels[item.Type]
+		item.SourceLabel = sourceLabels[item.Source]
+		if item.SourceLabel == "" {
+			item.SourceLabel = item.Source
+		}
+		item.CommercialActive = commercialStatus == "active"
 		if item.Status == "revoked" {
 			item.Status = "disabled"
 		}

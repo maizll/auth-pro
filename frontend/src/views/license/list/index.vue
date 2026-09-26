@@ -59,9 +59,20 @@
         </template>
 
         <!-- 操作 -->
+        <template #source="{ row }">
+          <ElTag v-if="row.sourceLabel" size="small" effect="plain">{{ row.sourceLabel }}</ElTag>
+          <span v-else class="text-secondary">--</span>
+        </template>
+
         <template #operation="{ row }">
           <ElButton v-if="row.type === 'key'" link type="primary" @click="openSiteDialog(row)">
             站点
+          </ElButton>
+          <ElButton v-if="!row.commercialActive" link type="primary" @click="handleGrantCommercial(row)">
+            授予商业版
+          </ElButton>
+          <ElButton v-else link type="warning" @click="handleRevokeCommercial(row)">
+            吊销商业版
           </ElButton>
           <ElButton link type="primary" @click="handleEdit(row)">编辑</ElButton>
           <ElButton link type="primary" @click="handleToggle(row)">
@@ -228,6 +239,8 @@
     fetchUpdateLicense,
     fetchToggleLicense,
     fetchDeleteLicense,
+    fetchGrantCommercialEdition,
+    fetchRevokeCommercialEdition,
     fetchLicenseSites,
     fetchUnbindLicenseSite,
     fetchPlanList,
@@ -248,6 +261,7 @@
     keyword?: string
     type?: string
     status?: string
+    source?: string
     appId?: number | string
   }
 
@@ -264,6 +278,7 @@
     keyword: undefined,
     type: undefined,
     status: undefined,
+    source: undefined,
     appId: undefined
   })
 
@@ -347,6 +362,7 @@
           useSlot: true
         },
         { prop: 'appName', label: '应用', width: 120 },
+        { prop: 'source', label: '来源', width: 110, align: 'center', useSlot: true },
         { prop: 'typeLabel', label: '类型', width: 90, align: 'center', useSlot: true },
         { prop: 'statusLabel', label: '状态', width: 90, align: 'center', useSlot: true },
         { prop: 'expireAt', label: '到期时间', width: 160 },
@@ -356,7 +372,7 @@
         {
           prop: 'operation',
           label: '操作',
-          width: 210,
+          width: 320,
           fixed: 'right',
           useSlot: true
         }
@@ -587,6 +603,34 @@
     planList.value = []
     planLoading.value = false
     dialogVisible.value = true
+  }
+
+  const handleGrantCommercial = async (row: LicenseItem) => {
+    try {
+      await ElMessageBox.confirm(`确定为「${row.domain || row.id}」授予永久商业版？`, '授予商业版', {
+        type: 'warning'
+      })
+      await fetchGrantCommercialEdition(row.id)
+      ElMessage.success('已授予商业版')
+      refreshData()
+    } catch (error) {
+      if (error !== 'cancel' && error !== 'close') showCaughtError(error, '授予失败')
+    }
+  }
+
+  const handleRevokeCommercial = async (row: LicenseItem) => {
+    try {
+      const { value } = await ElMessageBox.prompt('请填写吊销原因', '吊销商业版', {
+        inputPlaceholder: '例如：退款',
+        confirmButtonText: '吊销',
+        cancelButtonText: '取消'
+      })
+      await fetchRevokeCommercialEdition(row.id, value || '')
+      ElMessage.success('已吊销商业版')
+      refreshData()
+    } catch (error) {
+      if (error !== 'cancel' && error !== 'close') showCaughtError(error, '吊销失败')
+    }
   }
 
   const handleToggle = async (row: LicenseItem) => {

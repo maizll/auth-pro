@@ -349,7 +349,7 @@ func StoreAuthConfirm(c *gin.Context) {
 	}
 	var licenseNo string
 	if action == "create" {
-		licenseNo, licenseID, err = insertFreeMainLicense(tx, appID, settings.FreePlanID, ownerType, ownerID, domain)
+		licenseNo, licenseID, err = insertFreeMainLicense(tx, appID, "", ownerType, ownerID, domain)
 		if err != nil {
 			storeFail(c, 500, "创建主授权失败")
 			return
@@ -509,7 +509,20 @@ func loadEffectiveStoreSettings(db *sql.DB) (sourceStoreSettings, error) {
 	if err != nil {
 		return sourceStoreSettings{}, err
 	}
-	return normalizeStoreSettings(settings)
+	settings, err = normalizeStoreSettings(settings)
+	if err != nil {
+		return sourceStoreSettings{}, err
+	}
+	if err := prepareCommercialProduct(db); err != nil {
+		return sourceStoreSettings{}, err
+	}
+	_, appKey, _, err := lookupCommercialProduct(db)
+	if err != nil {
+		return sourceStoreSettings{}, err
+	}
+	settings.ProductAppKey = strings.TrimSpace(appKey)
+	settings.FreePlanID = ""
+	return settings, nil
 }
 
 func storeAccountLabel(db *sql.DB, ownerType string, ownerID int64) string {

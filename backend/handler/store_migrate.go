@@ -6,13 +6,14 @@ import (
 )
 
 const (
-	storeMigrationBindings      = "store_bindings_v1"
-	storeMigrationEditions      = "store_editions_v1"
-	storeMigrationOrders        = "store_purchase_orders_v1"
-	storeMigrationEntitlements  = "plugin_entitlements_v1"
-	storeMigrationRevenue       = "store_revenue_ledger_v1"
-	storeMigrationLicenseSource = "licenses_source_store_bind_v1"
-	storeMigrationDomainChanges = "license_domain_changes_v1"
+	storeMigrationBindings              = "store_bindings_v1"
+	storeMigrationEditions              = "store_editions_v1"
+	storeMigrationOrders                = "store_purchase_orders_v1"
+	storeMigrationEntitlements          = "plugin_entitlements_v1"
+	storeMigrationRevenue               = "store_revenue_ledger_v1"
+	storeMigrationLicenseSource         = "licenses_source_store_bind_v1"
+	storeMigrationLicenseSourcePurchase = "licenses_source_store_purchase_v1"
+	storeMigrationDomainChanges         = "license_domain_changes_v1"
 )
 
 func migrateStoreBindings(db *sql.DB) error {
@@ -193,6 +194,14 @@ func migrateLicenseSourceStoreBind(db *sql.DB) error {
 	_, err := db.Exec(`ALTER TABLE licenses MODIFY source ENUM('admin','agent','user_purchase','card','store_bind') NOT NULL`)
 	if err != nil {
 		return fmt.Errorf("licenses.source store_bind: %w", err)
+	}
+	return nil
+}
+
+func migrateLicenseSourceStorePurchase(db *sql.DB) error {
+	_, err := db.Exec(`ALTER TABLE licenses MODIFY source ENUM('admin','agent','user_purchase','card','store_bind','store_purchase') NOT NULL`)
+	if err != nil {
+		return fmt.Errorf("licenses.source store_purchase: %w", err)
 	}
 	return nil
 }

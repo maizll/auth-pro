@@ -48,30 +48,6 @@ const sourceStationMenu = {
       path: 'settings',
       component: '/source-station/settings',
       meta: { title: 'menus.sourceStation.settings', icon: 'ri:settings-3-line', keepAlive: true }
-    },
-    {
-      name: 'SourceStationEdition',
-      path: 'edition',
-      component: '/source-station/edition',
-      meta: { title: 'menus.sourceStation.edition', icon: 'ri:vip-crown-line', keepAlive: true }
-    },
-    {
-      name: 'SourceStationStoreOrders',
-      path: 'store-orders',
-      component: '/source-station/store-orders',
-      meta: { title: 'menus.sourceStation.storeOrders', icon: 'ri:bill-line', keepAlive: true }
-    },
-    {
-      name: 'SourceStationStoreLicenses',
-      path: 'store-licenses',
-      component: '/source-station/store-licenses',
-      meta: { title: 'menus.sourceStation.storeLicenses', icon: 'ri:key-2-line', keepAlive: true }
-    },
-    {
-      name: 'SourceStationStoreRevenue',
-      path: 'store-revenue',
-      component: '/source-station/store-revenue',
-      meta: { title: 'menus.sourceStation.storeRevenue', icon: 'ri:money-cny-circle-line', keepAlive: true }
     }
   ]
 }
@@ -155,15 +131,17 @@ test('源站运营侧栏展开后显示中文', async ({ page }, testInfo) => {
     )
   }, productVersion)
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto('/source-station/edition')
+  await page.goto('/source-station/settings')
 
   const sidebar = page.locator('.layout-sidebar')
   await expect(sidebar.getByText('源站运营', { exact: true })).toBeVisible()
-  for (const label of ['商业版设置', '商店订单', '主授权与权益', '商业版收入']) {
+  for (const label of ['软件目录', '入驻审核', '公开目录', '广告投放', '源站设置']) {
     await expect(sidebar.getByText(label, { exact: true })).toBeVisible()
   }
-  await expect(sidebar.getByText('edition', { exact: true })).toHaveCount(0)
-  await expect(sidebar.getByText('storeOrders', { exact: true })).toHaveCount(0)
+  for (const label of ['商业版设置', '商店订单', '主授权与权益', '商业版收入']) {
+    await expect(sidebar.getByText(label, { exact: true })).toHaveCount(0)
+  }
+  await expect(page.getByText('商店预留')).toHaveCount(0)
 
   await sidebar.screenshot({ path: testInfo.outputPath('source-station-menu-zh.png') })
 })

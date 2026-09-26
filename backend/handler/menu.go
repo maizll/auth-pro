@@ -417,6 +417,31 @@ func cleanupPurchaseLimitCampaignMenu(db *sql.DB) {
 	_, _ = db.Exec("DELETE FROM menus WHERE id = 213 OR name = 'PurchaseLimitCampaigns'")
 }
 
+// removeRetiredStoreMenus 删掉已并入应用、套餐、授权和订单的商业版页面。
+func removeRetiredStoreMenus(db *sql.DB) {
+	_, _ = db.Exec(`
+		DELETE rm FROM role_menus rm
+		INNER JOIN menus m ON m.id = rm.menu_id
+		WHERE m.name IN (
+			'SourceStationEdition', 'SourceStationStoreOrders',
+			'SourceStationStoreLicenses', 'SourceStationStoreRevenue'
+		) OR m.component IN (
+			'/source-station/edition', '/source-station/store-orders',
+			'/source-station/store-licenses', '/source-station/store-revenue'
+		)
+	`)
+	_, _ = db.Exec(`
+		DELETE FROM menus
+		WHERE name IN (
+			'SourceStationEdition', 'SourceStationStoreOrders',
+			'SourceStationStoreLicenses', 'SourceStationStoreRevenue'
+		) OR component IN (
+			'/source-station/edition', '/source-station/store-orders',
+			'/source-station/store-licenses', '/source-station/store-revenue'
+		)
+	`)
+}
+
 // removeAlipayF2FConfigMenu 删除「支付宝当面付」独立侧栏。
 // 配置已并入 EpayConfig；id 213 也曾被该菜单占用，名称/路径/组件一并清掉，避免老库仍显示。
 func removeAlipayF2FConfigMenu(db *sql.DB) {

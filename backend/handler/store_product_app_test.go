@@ -21,7 +21,6 @@ import (
 )
 
 const storeProductAppMissingMsg = "找不到该应用标识，请从 应用管理 复制 app_key"
-const storeFreePlanMismatchMsg = "该套餐不属于所选产品应用，请到 套餐管理 选择"
 
 type storeProductAppState struct {
 	mu           sync.Mutex
@@ -229,54 +228,3 @@ func TestLookupEnabledStoreProductAppIDTrimsKey(t *testing.T) {
 	}
 }
 
-func TestAdminSourceStoreSettingsSaveChecksFreePlan(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	previousReady := systemConfigStorageReady
-	systemConfigStorageReady = true
-	t.Cleanup(func() { systemConfigStorageReady = previousReady })
-
-	t.Run("plan of another app", func(t *testing.T) {
-		state := &storeProductAppState{enabled: map[string]int64{"good-app": 1}, plans: map[string]int64{"99": 8}}
-		openStoreProductAppDB(t, state)
-		code, msg := postStoreSettings(t, `{"productAppKey":"good-app","freePlanId":"99","graceDays":7}`)
-		if code == 200 || msg != storeFreePlanMismatchMsg || state.saved {
-			t.Fatalf("code=%d msg=%q saved=%v", code, msg, state.saved)
-		}
-	})
-
-	t.Run("missing plan", func(t *testing.T) {
-		state := &storeProductAppState{enabled: map[string]int64{"good-app": 1}, plans: map[string]int64{}}
-		openStoreProductAppDB(t, state)
-		code, msg := postStoreSettings(t, `{"productAppKey":"good-app","freePlanId":"1","graceDays":7}`)
-		if code == 200 || msg != storeFreePlanMismatchMsg || state.saved {
-			t.Fatalf("code=%d msg=%q saved=%v", code, msg, state.saved)
-		}
-	})
-
-	t.Run("plan without product app", func(t *testing.T) {
-		state := &storeProductAppState{enabled: map[string]int64{}, plans: map[string]int64{"12": 1}}
-		openStoreProductAppDB(t, state)
-		code, msg := postStoreSettings(t, `{"productAppKey":"","freePlanId":"12","graceDays":7}`)
-		if code == 200 || msg != "请先选择产品应用，再选择免费套餐" || state.saved {
-			t.Fatalf("code=%d msg=%q saved=%v", code, msg, state.saved)
-		}
-	})
-
-	t.Run("trimmed plan of this app", func(t *testing.T) {
-		state := &storeProductAppState{enabled: map[string]int64{"good-app": 1}, plans: map[string]int64{"12": 1}}
-		openStoreProductAppDB(t, state)
-		code, msg := postStoreSettings(t, `{"productAppKey":"good-app","freePlanId":" 12 ","graceDays":7}`)
-		if code != 200 || !state.saved || state.savedKey != "good-app" || state.savedPlan != "12" {
-			t.Fatalf("code=%d msg=%q saved=%v key=%q plan=%q", code, msg, state.saved, state.savedKey, state.savedPlan)
-		}
-	})
-
-	t.Run("empty plan", func(t *testing.T) {
-		state := &storeProductAppState{enabled: map[string]int64{"good-app": 1}, plans: map[string]int64{"12": 1}}
-		openStoreProductAppDB(t, state)
-		code, msg := postStoreSettings(t, `{"productAppKey":"good-app","freePlanId":"  ","graceDays":7}`)
-		if code != 200 || !state.saved || state.savedPlan != "" || len(state.queriedPlans) != 0 {
-			t.Fatalf("code=%d msg=%q saved=%v plan=%q queried=%v", code, msg, state.saved, state.savedPlan, state.queriedPlans)
-		}
-	})
-}

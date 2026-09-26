@@ -47,7 +47,10 @@
   const subjectTypeOptions = ref([
     { label: '用户充值', value: 'user' },
     { label: '代理充值', value: 'agent' },
-    { label: '支付测试', value: 'test' }
+    { label: '支付测试', value: 'test' },
+    { label: '商业版', value: 'store_edition' },
+    { label: '付费插件', value: 'store_plugin' },
+    { label: '付费模板', value: 'store_template' }
   ])
 
   /**
