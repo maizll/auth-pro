@@ -132,6 +132,12 @@ export interface SourceCatalogItem {
   originUrl?: string
   originHealth?: string
   originHint?: string
+  fulfillmentHint?: string
+  packageSource?: string
+  githubOwner?: string
+  githubRepo?: string
+  githubTag?: string
+  githubAsset?: string
   location?: string
   schemaVersion?: number
   templateKey?: string
@@ -394,7 +400,6 @@ export function cancelSourceDeveloper(id: number, note?: string) {
   return freezeSourceDeveloper(id, note)
 }
 
-
 export function fetchSourceCatalogApps() {
   return request.get<SourceListResponse<SourceCatalogApp>>({ url: `${BASE}/apps` })
 }
@@ -405,7 +410,9 @@ export function fetchSourceCatalogCategories() {
   })
 }
 
-export function saveSourceCatalogCategories(extras: Array<Pick<SourceCatalogCategory, 'key' | 'label' | 'kind'>>) {
+export function saveSourceCatalogCategories(
+  extras: Array<Pick<SourceCatalogCategory, 'key' | 'label' | 'kind'>>
+) {
   return request.put<{ list: SourceCatalogCategory[]; extras: SourceCatalogCategory[] }>({
     url: `${BASE}/categories`,
     data: { extras }
@@ -585,6 +592,24 @@ export function fetchSourceStoreSettings() {
 
 export function saveSourceStoreSettings(payload: SourceStoreSettings) {
   return request.put<SourceStoreSettings>({ url: `${BASE}/settings/store`, data: payload })
+}
+
+export function fetchGitHubPaidToken() {
+  return request.get<{ configured: boolean }>({ url: `${BASE}/settings/github-paid` })
+}
+
+export function saveGitHubPaidToken(token: string) {
+  return request.put<{ configured: boolean }>({
+    url: `${BASE}/settings/github-paid`,
+    data: { token }
+  })
+}
+
+export function testGitHubPaidToken(token?: string) {
+  return request.post<{ configured: boolean }>({
+    url: `${BASE}/settings/github-paid/test`,
+    data: { token: token || '' }
+  })
 }
 
 export function fetchSourceReleaseSettings() {

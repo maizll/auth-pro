@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -227,27 +229,22 @@ func TestSourcePackageGitHubReleaseExternalURL(t *testing.T) {
 		t.Fatalf("github paid parse: %s", paidParsed.Body.String())
 	}
 	paid := sourceMultipart(t, paidRouter, "/api/v1/source/admin/packages/publish", admin, "", nil, map[string]string{
-		"downloadUrl": githubAlipayReleaseURL,
-		"category":    "payment",
-		"appId":       "1",
-		"priceCents":  "1990",
-		"push":        "0",
-		"shelf":       "1",
+		"downloadUrl":   githubAlipayReleaseURL,
+		"category":      "payment",
+		"appId":         "1",
+		"priceCents":    "1990",
+		"packageSource": "github",
+		"push":          "0",
 	})
-	if sourceBodyCode(t, paid) != 200 || !strings.Contains(paid.Body.String(), freeSHA) || !strings.Contains(paid.Body.String(), `"storedPackage":true`) {
-		t.Fatalf("github paid publish: %s", paid.Body.String())
+	if sourceBodyCode(t, paid) == 200 || !strings.Contains(paid.Body.String(), "GitHub 只读令牌") {
+		t.Fatalf("paid github without token: %s", paid.Body.String())
 	}
-	item, err := paidStore.GetPlugin("alipay-f2f")
-	if err != nil {
-		t.Fatal(err)
+	if _, err := paidStore.GetPlugin("alipay-f2f"); !errors.Is(err, errSourceNotFound) {
+		t.Fatalf("paid github was stored without a token: %v", err)
 	}
-	if item.SHA256 != freeSHA || item.OriginURL != githubAlipayReleaseURL || !isPrivatePackageRef(item.DownloadURL) || item.PriceCents != 1990 {
-		t.Fatalf("paid github item=%#v", item)
-	}
-	buyer := sourceJSON(t, paidRouter, http.MethodGet, "/software-source/app-a/index.json", "", "")
-	buyerBody := buyer.Body.String()
-	if strings.Contains(buyerBody, githubAlipayReleaseURL) || strings.Contains(buyerBody, "originUrl") || strings.Contains(buyerBody, "release-assets.githubusercontent.com") || strings.Contains(buyerBody, "objects.githubusercontent.com") || strings.Contains(buyerBody, freeSHA) || !strings.Contains(buyerBody, "支付宝当面付") {
-		t.Fatalf("paid buyer index: %s", buyerBody)
+	matches, globErr := filepath.Glob(filepath.Join(stationPaidPackageDirPath(), "*.zip"))
+	if globErr != nil || len(matches) != 0 {
+		t.Fatalf("paid github left files: %v %v", matches, globErr)
 	}
 }
 

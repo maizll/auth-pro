@@ -140,6 +140,17 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		pushed = true
 		provider = settings.Provider
 	}
+	priceCentsEarly, priceEarlyErr := parseCatalogPriceCents(c.PostForm("priceCents"))
+	if priceEarlyErr == nil && c.PostForm("packageSource") == "upload" && priceCentsEarly > 0 && len(payload) > 0 && strings.TrimSpace(location) == "" && !pushRequested {
+		publicURL, fileSHA, storeErr := storeStationPackage(payload)
+		if storeErr != nil {
+			payload = nil
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": storeErr.Error()})
+			return
+		}
+		location = publicURL
+		manifest.SHA256 = fileSHA
+	}
 	payload = nil
 	if location == "" {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "未勾选推送 Release 时，请填写外部 https 下载地址"})
@@ -273,6 +284,7 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		TargetType: kind, TargetID: itemID + "@" + manifest.Version, Detail: truncateText(detail, 500),
 	})
 	hosted := isPrivatePackageRef(savedLocation)
+	githubPaid := isGitHubPackageRef(savedLocation)
 	data := gin.H{
 		"kind": kind, "id": itemID, "version": manifest.Version, "sha256": savedSHA,
 		"downloadUrl": savedLocation, "pushed": pushed, "storedPackage": hosted, "manifest": manifest.view(),
@@ -285,7 +297,9 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		data["item"] = pluginView
 	}
 	msg := "校验通过，已保存为草稿（包已丢弃，源站不保存源码）。请走审核/上架"
-	if remoteURL != "" && hosted {
+	if githubPaid {
+		msg = "校验通过，已核对私有仓库安装包并保存元数据，校验码已自动填写（压缩包未在本站保存）"
+	} else if remoteURL != "" && hosted {
 		msg = "校验通过，已拉取外链并私有托管，校验码已自动填写"
 	} else if remoteURL != "" {
 		msg = "校验通过，已保存元数据并自动填写校验码（安装包仍由外部地址提供）"
@@ -293,14 +307,14 @@ func AdminSourcePackagePublish(c *gin.Context) {
 	if pushed {
 		msg = "校验通过，已推送到 " + provider + " Release 并保存为草稿（包已丢弃）"
 	}
-	if shelf && !(remoteURL != "" && hosted) {
-		msg = "校验通过，已保存并上架（包已丢弃）"
-	}
-	if shelf && remoteURL != "" && hosted {
+	if shelf && githubPaid {
+		msg = "校验通过，已核对私有仓库安装包并上架，校验码已自动填写（压缩包未在本站保存）"
+	} else if shelf && remoteURL != "" && hosted {
 		msg = "校验通过，已拉取外链并私有托管后上架，校验码已自动填写"
-	}
-	if shelf && remoteURL != "" && !hosted {
+	} else if shelf && remoteURL != "" && !hosted {
 		msg = "校验通过，已保存并上架，校验码已按外部地址自动填写"
+	} else if shelf {
+		msg = "校验通过，已保存并上架（包已丢弃）"
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": data})
 }

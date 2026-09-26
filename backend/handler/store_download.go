@@ -35,7 +35,20 @@ func StoreDownloadTicket(c *gin.Context) {
 		storeFail(c, 403, "当前授权不能下载该付费包")
 		return
 	}
-	location, version := lookupPaidPackageLocation(db, req.Kind, req.ID)
+	location, version, sha := lookupPaidPackageLocation(db, req.Kind, req.ID)
+	if isGitHubPackageRef(location) {
+		tempURL, urlErr := authorizeGitHubBuyerURL(c.Request.Context(), true, location)
+		if urlErr != nil {
+			storeFail(c, 400, urlErr.Error())
+			return
+		}
+		storeData(c, gin.H{
+			"url":       tempURL,
+			"sha256":    sha,
+			"expiresIn": 300,
+		})
+		return
+	}
 	name, ok := privatePackageName(location)
 	if !ok {
 		storeFail(c, 404, "付费包不存在")
@@ -112,12 +125,12 @@ func licenseCanDownloadPaid(db *sql.DB, licenseID int64, kind, itemID string) bo
 	return err == nil && count > 0
 }
 
-func lookupPaidPackageLocation(db *sql.DB, kind, itemID string) (location, version string) {
+func lookupPaidPackageLocation(db *sql.DB, kind, itemID string) (location, version, sha string) {
 	switch kind {
 	case "plugin":
-		_ = db.QueryRow(`SELECT download_url, version FROM source_catalog_plugins WHERE id = ?`, itemID).Scan(&location, &version)
+		_ = db.QueryRow(`SELECT download_url, version, sha256 FROM source_catalog_plugins WHERE id = ?`, itemID).Scan(&location, &version, &sha)
 	case "template":
-		_ = db.QueryRow(`SELECT template_url, version FROM source_catalog_templates WHERE id = ? OR template_key = ?`, itemID, itemID).Scan(&location, &version)
+		_ = db.QueryRow(`SELECT template_url, version, sha256 FROM source_catalog_templates WHERE id = ? OR template_key = ?`, itemID, itemID).Scan(&location, &version, &sha)
 	}
-	return location, version
+	return location, version, sha
 }

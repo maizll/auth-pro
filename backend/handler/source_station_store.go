@@ -462,6 +462,7 @@ type memorySourceStore struct {
 	audits           []sourceAuditEntry
 	snapshot         sourceIndexSnapshot
 	releaseSettings  sourceReleaseSettings
+	githubPaidToken  string
 	categoryExtras   []sourceCatalogCategory
 	catalogApps      map[int64]sourceCatalogApp
 	nextAppID        int64

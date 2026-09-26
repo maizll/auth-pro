@@ -66,7 +66,12 @@
 
       <el-table :data="tableData" stripe v-loading="loading">
         <el-table-column prop="id" label="标识" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="name" label="名称" min-width="180">
+          <template #default="{ row }">
+            <div>{{ row.name }}</div>
+            <p v-if="row.fulfillmentHint" class="card-hint">{{ row.fulfillmentHint }}</p>
+          </template>
+        </el-table-column>
         <el-table-column label="分类" width="120">
           <template #default="{ row }">
             {{ row.categoryLabel || categoryLabel(row.category) }}
@@ -174,9 +179,18 @@
         class="mb-3"
       />
       <p class="card-hint mb-3">
-        压缩包和外部地址二选一。只填 https 时，本站下载并校验，自动填写校验码。付费条目私有托管，买家看不到外链。
+        来源三选一，都不必填。免费用公开地址，本站不存包。收费推荐粘贴私有仓库的 Release
+        资产链接：本站只核对一次并记下校验码，买家付款后直接从 GitHub
+        下载。上传压缩包仍可由本站托管。
       </p>
       <el-form label-width="120px">
+        <el-form-item label="来源">
+          <el-radio-group v-model="uploadForm.source">
+            <el-radio value="upload">上传压缩包</el-radio>
+            <el-radio value="public">公开地址（仅免费）</el-radio>
+            <el-radio value="github">私有 GitHub 仓库（收费推荐）</el-radio>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="应用" required>
           <el-select v-model="uploadForm.appId" placeholder="请选择应用" style="width: 100%">
             <el-option
@@ -187,7 +201,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="压缩包">
+        <el-form-item v-if="uploadForm.source === 'upload'" label="压缩包">
           <el-upload
             drag
             :auto-upload="false"
@@ -197,7 +211,7 @@
           >
             <div>{{ uploadFile ? uploadFile.name : '点击或拖拽压缩包（不超过 20 MB）' }}</div>
           </el-upload>
-          <p class="card-hint">与外部地址二选一。推送 Release 时必须选择压缩包。</p>
+          <p class="card-hint">售价大于 0 时由本站托管。免费请改用公开地址，或勾选推送 Release。</p>
         </el-form-item>
         <el-form-item label="分类">
           <el-select
@@ -233,23 +247,28 @@
         </el-form-item>
         <el-form-item label="售价（元）">
           <el-input v-model="uploadForm.priceYuan" placeholder="0" />
-          <p class="card-hint">
-            填 0 表示免费，校验后仍由外部地址提供下载。大于 0
-            时本站立即拉取并私有托管，买家看不到外链。
-          </p>
+          <p class="card-hint">填 0 表示免费。大于 0 为买断，请用私有 GitHub 仓库或上传压缩包。</p>
         </el-form-item>
-        <el-form-item label="选项">
+        <el-form-item v-if="uploadForm.source === 'upload'" label="选项">
           <el-checkbox v-model="uploadForm.push">推送 GitHub/Gitee Release</el-checkbox>
         </el-form-item>
-        <el-form-item v-if="!uploadForm.push" label="外部地址">
+        <el-form-item v-if="uploadForm.source === 'public'" label="公开地址">
           <el-input
             v-model="uploadForm.location"
-            placeholder="https://... 与压缩包二选一"
+            placeholder="https://..."
+            @input="parsedManifest = null"
+          />
+          <p class="card-hint">只用于免费条目。本站下载校验后不保存压缩包，目录里仍是这条地址。</p>
+        </el-form-item>
+        <el-form-item v-if="uploadForm.source === 'github'" label="Release 链接">
+          <el-input
+            v-model="uploadForm.location"
+            placeholder="https://github.com/所有者/仓库/releases/download/标签/文件名.zip"
             @input="parsedManifest = null"
           />
           <p class="card-hint">
-            与压缩包二选一。只填 https 网址时，本站下载、校验并自动填写校验码。GitHub Release
-            的跳转也会跟着走，每一跳都拒绝内网地址。
+            粘贴私有仓库的 Release
+            资产链接即可。请先在软件源设置里保存只读令牌。买家看不到仓库地址和令牌。
           </p>
         </el-form-item>
       </el-form>
@@ -311,7 +330,9 @@
         </el-form-item>
         <el-form-item label="售价（元）">
           <el-input v-model="editForm.priceYuan" placeholder="0" />
-          <p class="card-hint">填 0 表示免费。大于 0 为买断：可上传本站托管的压缩包，或填写 https 网址由本站立即拉取并私有托管。付费上架尚未开放。</p>
+          <p class="card-hint">
+            填 0 表示免费。大于 0 请到「上传安装包」改用私有 GitHub 仓库，或上传压缩包由本站托管。
+          </p>
         </el-form-item>
         <el-form-item label="下载地址" prop="location">
           <el-input v-model="editForm.location" placeholder="https://..." />
@@ -380,7 +401,9 @@
         </el-form-item>
         <el-form-item label="售价（元）">
           <el-input v-model="registerForm.priceYuan" placeholder="0" />
-          <p class="card-hint">填 0 表示免费。大于 0 可上传本站托管的压缩包，或填写 https 网址由本站立即拉取并私有托管。付费上架尚未开放。</p>
+          <p class="card-hint">
+            填 0 表示免费。大于 0 请到「上传安装包」改用私有 GitHub 仓库，或上传压缩包由本站托管。
+          </p>
         </el-form-item>
         <el-form-item label="下载地址" prop="location">
           <el-input v-model="registerForm.location" placeholder="https://..." />
@@ -536,7 +559,9 @@
           </el-form-item>
           <el-form-item label="校验码">
             <el-input v-model="versionForm.sha256" placeholder="付费外链可留空，由本站拉取后计算" />
-            <p class="card-hint">免费外链仍须填写 64 位校验码。付费条目填写 https 网址时，保存时本站拉取并自动计算。</p>
+            <p class="card-hint">
+              免费外链仍须填写 64 位校验码。收费条目请改用私有 GitHub 仓库，或上传压缩包由本站托管。
+            </p>
           </el-form-item>
           <el-form-item label="更新说明">
             <el-input v-model="versionForm.changelog" type="textarea" :rows="2" />
@@ -636,14 +661,17 @@
     changelog: '',
     location: '',
     priceYuan: '0',
-    push: true
+    push: false,
+    source: 'public' as 'upload' | 'public' | 'github'
   })
   const uploadBlockReason = computed(() =>
     catalogUploadBlockReason({
       appId: uploadForm.appId,
+      source: uploadForm.source,
       push: uploadForm.push,
       hasFile: !!uploadFile.value,
-      location: uploadForm.location
+      location: uploadForm.location,
+      priceYuan: uploadForm.priceYuan
     })
   )
 
@@ -762,6 +790,9 @@
   }
 
   function itemLocation(row: SourceCatalogItem) {
+    if (row.packageSource === 'github' && row.githubOwner && row.githubRepo) {
+      return `私有仓库 ${row.githubOwner}/${row.githubRepo} @ ${row.githubTag || '-'} / ${row.githubAsset || '-'}`
+    }
     return row.location || row.downloadUrl || row.templateUrl || ''
   }
 
@@ -903,7 +934,8 @@
     uploadForm.changelog = ''
     uploadForm.location = ''
     uploadForm.priceYuan = '0'
-    uploadForm.push = true
+    uploadForm.push = false
+    uploadForm.source = 'public'
     uploadVisible.value = true
   }
 
@@ -914,19 +946,20 @@
 
   function buildPackageForm() {
     const form = new FormData()
-    if (uploadFile.value) form.append('file', uploadFile.value)
+    form.append('packageSource', uploadForm.source)
+    if (uploadForm.source === 'upload' && uploadFile.value) form.append('file', uploadFile.value)
     if (uploadForm.category) form.append('category', uploadForm.category)
     if (uploadForm.changelog) form.append('changelog', uploadForm.changelog)
-    if (!uploadForm.push && uploadForm.location.trim()) {
+    if (uploadForm.source !== 'upload' && uploadForm.location.trim()) {
       const kind = parsedManifest.value?.kind || categoryKind(uploadForm.category)
       form.append(kind === 'template' ? 'templateUrl' : 'downloadUrl', uploadForm.location.trim())
     }
     const priced = resolveCatalogPriceCents(
       uploadForm.priceYuan,
-      uploadForm.push ? '' : uploadForm.location
+      uploadForm.source === 'upload' ? '' : uploadForm.location
     )
     if (!priced.error && priced.cents > 0) form.append('priceCents', String(priced.cents))
-    if (uploadForm.push) form.append('push', 'true')
+    if (uploadForm.source === 'upload' && uploadForm.push) form.append('push', 'true')
     if (uploadForm.appId) form.append('appId', String(uploadForm.appId))
     return form
   }
@@ -939,11 +972,14 @@
     parsing.value = true
     try {
       const form = new FormData()
-      if (uploadFile.value) form.append('file', uploadFile.value)
-      else {
+      form.append('packageSource', uploadForm.source)
+      if (uploadForm.source === 'upload' && uploadFile.value) form.append('file', uploadFile.value)
+      else if (uploadForm.location.trim()) {
         const kind = categoryKind(uploadForm.category)
         form.append(kind === 'template' ? 'templateUrl' : 'downloadUrl', uploadForm.location.trim())
       }
+      const priced = resolveCatalogPriceCents(uploadForm.priceYuan, uploadForm.location)
+      if (!priced.error && priced.cents > 0) form.append('priceCents', String(priced.cents))
       if (uploadForm.category) form.append('category', uploadForm.category)
       parsedManifest.value = await parseSourcePackage(form)
       if (parsedManifest.value.category) {
@@ -962,7 +998,7 @@
     }
     const priced = resolveCatalogPriceCents(
       uploadForm.priceYuan,
-      uploadForm.push ? '' : uploadForm.location
+      uploadForm.source === 'upload' ? '' : uploadForm.location
     )
     if (priced.error) {
       ElMessage.warning(priced.error)
@@ -973,13 +1009,15 @@
       const result = await publishSourcePackage(buildPackageForm())
       const origin = (result.item as { originUrl?: string } | undefined)?.originUrl
       ElMessage.success(
-        result.pushed
-          ? '校验通过，已推送 Release 并保存元数据'
-          : origin
-            ? '校验通过，已拉取外链并私有托管，校验码已自动填写'
-            : uploadFile.value
-              ? '校验通过，已保存元数据（包已丢弃）'
-              : '校验通过，已保存元数据并自动填写校验码'
+        uploadForm.source === 'github'
+          ? '校验通过，已核对私有仓库安装包并保存元数据，校验码已自动填写'
+          : result.pushed
+            ? '校验通过，已推送 Release 并保存元数据'
+            : origin
+              ? '校验通过，已拉取外链并私有托管，校验码已自动填写'
+              : uploadForm.source === 'upload'
+                ? '校验通过，已保存元数据'
+                : '校验通过，已保存元数据并自动填写校验码'
       )
       uploadVisible.value = false
       await loadItems()

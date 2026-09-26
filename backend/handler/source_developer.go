@@ -584,6 +584,7 @@ func sourcePluginView(item sourcePlugin) gin.H {
 		"updatedAt": item.UpdatedAt.Format(time.RFC3339), "createdAt": item.CreatedAt.Format(time.RFC3339),
 	}
 	attachPaidOriginView(view, item.OriginURL, item.OriginHealth)
+	attachGitHubPaidView(view, item.PriceCents, item.DownloadURL, item.OriginHealth)
 	return view
 }
 
@@ -602,6 +603,7 @@ func sourceTemplateView(item sourceTemplate) gin.H {
 		"updatedAt": item.UpdatedAt.Format(time.RFC3339), "createdAt": item.CreatedAt.Format(time.RFC3339),
 	}
 	attachPaidOriginView(view, item.OriginURL, item.OriginHealth)
+	attachGitHubPaidView(view, item.PriceCents, item.TemplateURL, item.OriginHealth)
 	return view
 }
 

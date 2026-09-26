@@ -15,6 +15,7 @@ const (
 	sourceMigrationDeveloperAgent  = "source_developer_agent_backfill_v1"
 	sourceMigrationCatalogPrice    = "source_catalog_price_v1"
 	sourceMigrationCatalogOrigin   = "source_catalog_origin_v1"
+	sourceMigrationPaidExternal    = "source_catalog_paid_external_visible_v1"
 )
 
 // ensureSourceStationMigrations 把源站的一次性 ALTER / 回填记入 schema_migrations。
@@ -40,6 +41,7 @@ func ensureSourceStationMigrations(db *sql.DB) error {
 		{sourceMigrationDeveloperAgent, migrateSourceDeveloperAgentBackfill},
 		{sourceMigrationCatalogPrice, migrateSourceCatalogPrice},
 		{sourceMigrationCatalogOrigin, migrateSourceCatalogOrigin},
+		{sourceMigrationPaidExternal, migratePaidExternalVisible},
 		{storeMigrationBindings, migrateStoreBindings},
 		{storeMigrationEditions, migrateStoreEditions},
 		{storeMigrationOrders, migrateStorePurchaseOrders},

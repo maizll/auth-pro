@@ -159,6 +159,20 @@ func adoptPaidItemLocation(kind, category, itemID, location, sha, version string
 		origin, health := matchingPaidItemOrigin(kind, itemID, location)
 		return location, sha, version, origin, health, nil
 	}
+	if isGitHubPackageRef(location) {
+		return location, sha, version, "", paidOriginHealthOK, nil
+	}
+	if looksLikeGitHubReleaseAssetURL(location) {
+		imported, err := importGitHubPaidMetadata(context.Background(), kind, category, location)
+		if err != nil {
+			return "", "", "", "", "", err
+		}
+		ver := strings.TrimSpace(imported.Version)
+		if ver == "" {
+			ver = version
+		}
+		return imported.Ref, imported.SHA256, ver, "", imported.Health, nil
+	}
 	if !isHTTPSLocation(location) {
 		if hasURLScheme(location) {
 			return "", "", "", "", "", errors.New("来源外链必须是 https:// 地址")
@@ -205,6 +219,16 @@ func adoptPaidVersionLocation(kind, itemID, version, location, sha string) (stri
 	if isPrivatePackageRef(location) {
 		origin := matchingPaidVersionOrigin(kind, itemID, version, location)
 		return location, sha, origin, nil
+	}
+	if isGitHubPackageRef(location) {
+		return location, sha, "", nil
+	}
+	if looksLikeGitHubReleaseAssetURL(location) {
+		imported, err := importGitHubPaidMetadata(context.Background(), kind, paidItemCategory(kind, itemID), location)
+		if err != nil {
+			return "", "", "", err
+		}
+		return imported.Ref, imported.SHA256, "", nil
 	}
 	if !isHTTPSLocation(location) {
 		if hasURLScheme(location) {
@@ -458,7 +482,11 @@ func (mysqlSourceStore) SetPaidOriginHealth(kind, id, health string) error {
 	if kind == sourceKindTemplate {
 		table = "source_catalog_templates"
 	}
-	_, err = db.Exec(`UPDATE `+table+` SET origin_health=? WHERE id=? AND origin_url<>''`, health, id)
+	locationColumn := "download_url"
+	if kind == sourceKindTemplate {
+		locationColumn = "template_url"
+	}
+	_, err = db.Exec(`UPDATE `+table+` SET origin_health=? WHERE id=? AND (origin_url<>'' OR `+locationColumn+` LIKE 'github:%')`, health, id)
 	return err
 }
 
@@ -470,7 +498,7 @@ func (store *memorySourceStore) SetPaidOriginHealth(kind, id, health string) err
 		if !ok {
 			return errSourceNotFound
 		}
-		if strings.TrimSpace(item.OriginURL) == "" {
+		if strings.TrimSpace(item.OriginURL) == "" && !isGitHubPackageRef(item.TemplateURL) {
 			return nil
 		}
 		item.OriginHealth = health
@@ -481,7 +509,7 @@ func (store *memorySourceStore) SetPaidOriginHealth(kind, id, health string) err
 	if !ok {
 		return errSourceNotFound
 	}
-	if strings.TrimSpace(item.OriginURL) == "" {
+	if strings.TrimSpace(item.OriginURL) == "" && !isGitHubPackageRef(item.DownloadURL) {
 		return nil
 	}
 	item.OriginHealth = health
@@ -514,12 +542,14 @@ func checkPaidOriginHealth(ctx context.Context) {
 	if err == nil {
 		for _, item := range plugins {
 			touchPaidOriginHealth(ctx, store, sourceKindPlugin, item.ID, item.PriceCents, item.OriginURL, item.DownloadURL, item.OriginHealth)
+			touchGitHubPaidHealth(ctx, store, sourceKindPlugin, item.ID, item.Name, item.PriceCents, item.DownloadURL, item.OriginHealth)
 		}
 	}
 	templates, err := store.ListTemplates("")
 	if err == nil {
 		for _, item := range templates {
 			touchPaidOriginHealth(ctx, store, sourceKindTemplate, item.ID, item.PriceCents, item.OriginURL, item.TemplateURL, item.OriginHealth)
+			touchGitHubPaidHealth(ctx, store, sourceKindTemplate, item.ID, item.Name, item.PriceCents, item.TemplateURL, item.OriginHealth)
 		}
 	}
 }

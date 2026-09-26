@@ -6,7 +6,9 @@
           <div>
             <span class="card-title">{{ title }}（共 {{ items.length }} 条）</span>
             <p class="card-hint">
-              可以上传压缩包，由本站保存并自动填写地址和校验码；也可以登记外部网址。免费外链在提交审核时检查能否下载、是不是压缩包、校验码是否一致。付费条目填写 https 网址时，保存时本站立即拉取并私有托管，买家看不到外链。
+              可以上传压缩包，由本站保存并自动填写地址和校验码；也可以登记公开 https
+              地址。免费外链在提交审核时检查能否下载、是不是压缩包、校验码是否一致。收费条目请到管理端「上传安装包」选择私有
+              GitHub 仓库，或上传压缩包由本站托管。公开地址不能用来收费。
             </p>
           </div>
           <el-button type="primary" @click="openEdit()">{{ createLabel }}</el-button>

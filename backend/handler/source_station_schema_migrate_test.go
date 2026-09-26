@@ -142,6 +142,7 @@ var sourceStationMigrationNames = []string{
 	"source_developer_agent_backfill_v1",
 	"source_catalog_price_v1",
 	"source_catalog_origin_v1",
+	"source_catalog_paid_external_visible_v1",
 	"store_bindings_v1",
 	"store_editions_v1",
 	"store_purchase_orders_v1",
@@ -156,6 +157,9 @@ type sourceSchemaPluginRow struct {
 	id          string
 	filePath    string
 	downloadURL string
+	status      string
+	reviewNote  string
+	priceCents  int64
 }
 
 type sourceSchemaTemplateRow struct {
@@ -163,6 +167,9 @@ type sourceSchemaTemplateRow struct {
 	filePath    string
 	templateURL string
 	previewPath string
+	status      string
+	reviewNote  string
+	priceCents  int64
 }
 
 type sourceSchemaMigrateState struct {
@@ -330,6 +337,24 @@ func (c *sourceSchemaMigrateConn) ExecContext(_ context.Context, query string, a
 			state.indexes[table] = map[string]bool{}
 		}
 		state.indexes[table][index] = true
+	case strings.Contains(query, "paid external restore") && strings.Contains(upper, "UPDATE SOURCE_CATALOG_PLUGINS"):
+		for i := range state.plugins {
+			row := &state.plugins[i]
+			if !paidExternalNeedsRestore(row.priceCents, row.status, row.downloadURL) {
+				continue
+			}
+			row.status = sourceItemDraft
+			row.reviewNote = appendPaidLegacyNote(row.reviewNote)
+		}
+	case strings.Contains(query, "paid external restore") && strings.Contains(upper, "UPDATE SOURCE_CATALOG_TEMPLATES"):
+		for i := range state.templates {
+			row := &state.templates[i]
+			if !paidExternalNeedsRestore(row.priceCents, row.status, row.templateURL) {
+				continue
+			}
+			row.status = sourceItemDraft
+			row.reviewNote = appendPaidLegacyNote(row.reviewNote)
+		}
 	case strings.Contains(upper, "UPDATE SOURCE_CATALOG_PLUGINS") && strings.Contains(query, "download_url") && strings.Contains(query, "file_path"):
 		if !state.refuseFilePathBackfill {
 			for i := range state.plugins {
