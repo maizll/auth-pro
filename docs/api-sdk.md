@@ -2,7 +2,7 @@
 
 业务系统调用本站的公开接口完成授权校验和应用版本检查。管理端「接入开发 → SDK 示例」可以按应用、按语言下载接入包，不必从本页抄签名。
 
-当前产品版本 **1.6.2**。下面的字段以 `backend/handler/license_verify.go`、`license_site.go`、`app_version.go`、`sdk_pack.go` 为准。
+当前产品版本 **1.6.3**。下面的字段以 `backend/handler/license_verify.go`、`license_site.go`、`app_version.go`、`sdk_pack.go` 为准。
 
 ## 下载接入包
 
