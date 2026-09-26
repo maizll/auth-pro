@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 在本机用 supervisord 演练在线更新：成功切换、坏包回滚、无守护自重启，以及 nginx 502 静态页。
-# 不修改仓库 VERSION，不打 tag。演练二进制只用 -ldflags 注入版本号（当前仓库 1.5.5，演练仍从 1.5.4 升到 1.5.5）。
+# 不修改仓库 VERSION，不打 tag。演练二进制只用 -ldflags 注入版本号（当前仓库 1.5.6，演练仍从 1.5.4 升到 1.5.5）。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -1,19 +1,21 @@
 # 部署手册
 
-当前版本 **1.5.5**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
+当前版本 **1.5.6**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
 
 运行数据目录与进程的工作目录一致。宝塔脚本默认把它放在网站根下的 `backend/`。后端解析数据目录的顺序是：环境变量 `AUTO_PRO_DATA_DIR`，否则在当前工作目录或其子目录 `backend/` 中寻找 `install.lock`、`db.json` 或 `go.mod`，再否则用可执行文件所在目录。
 
 这个目录里会有 `db.json`（数据库口令，权限应收成 `600`）、`install.lock`、`jwt.secret`，以及插件、模板、更新包和日志。不要把该目录暴露到公网。
 
-源站签发商业版快照前，要在这台机器上生成签名私钥，并把打印出来的公钥交给维护者打进发行包。私钥只留在本机。
+源站签发商业版快照使用数据目录里的 Ed25519 私钥。1.5.6 起发行包已内置对应公钥 `pwAizm/sOyWCu+qi8+Dl/xJr0Upuamh5u7vL3wGT14A=`。源站需要先升级到 1.5.6，并保留已有的 `store/snapshot-ed25519.key`。不要重新执行 `store-keygen`，也不要把私钥放进仓库或环境变量。私钥与内置公钥不一致时，签发会被拒绝。
+
+只有确认更换密钥时，才在源站执行：
 
 ```bash
 cd /www/wwwroot/example.com/backend
-./auth_pro store-keygen
+./auth_pro store-keygen --force
 ```
 
-命令把私钥写到数据目录 `store/snapshot-ed25519.key`（权限 `0600`）。文件已存在时会拒绝覆盖，确认更换才加 `--force`。屏幕上只有公钥的 base64 和一行中文提示，把公钥发给维护者。维护者用下面任一方式打进发行包后再发布（`<打印出的公钥>` 换成命令打印的第一行）：
+命令把新私钥写到数据目录 `store/snapshot-ed25519.key`（权限 `0600`）。未加 `--force` 且文件已存在时会拒绝覆盖。屏幕上只有公钥的 base64 和一行中文提示。把公钥交给维护者，改源码默认值，或用下面任一方式覆盖后再发布（`<打印出的公钥>` 换成命令打印的第一行）：
 
 ```bash
 AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY='<打印出的公钥>' ./scripts/build-release.sh
@@ -23,7 +25,7 @@ AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY='<打印出的公钥>' ./scripts/build-releas
 go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出的公钥>" -o auth_pro .
 ```
 
-未打入公钥的包会把所有快照视为无效：买方保持免费版，商店账号条显示警告；源站拒绝签发并返回明确错误。升级源站时保留 `store/snapshot-ed25519.key`，不要把私钥放进仓库或环境变量。完整说明见 [商业版](commercial.md) 和 [发布包目录](../PACKAGING.md)。
+构建时若把公钥覆盖成占位符，买方会保持免费版，商店账号条显示警告；源站拒绝签发并返回明确错误。完整说明见 [商业版](commercial.md) 和 [发布包目录](../PACKAGING.md)。
 
 ## 宝塔：全新安装
 
@@ -33,7 +35,7 @@ go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出
 
 ```bash
 cd /www/wwwroot/example.com
-tar -xzf auth_pro-full-v1.5.5.tar.gz
+tar -xzf auth_pro-full-v1.5.6.tar.gz
 bash baota-install.sh
 ```
 
@@ -43,7 +45,7 @@ bash baota-install.sh
 AUTH_PRO_YES=1 AUTH_PRO_START=0 \
 bash baota-install.sh \
   --site-root /www/wwwroot/example.com \
-  --package /tmp/auth_pro-full-v1.5.5.tar.gz
+  --package /tmp/auth_pro-full-v1.5.6.tar.gz
 ```
 
 ### 安装脚本会做的事
@@ -80,7 +82,7 @@ bash baota-install.sh \
 ```bash
 bash baota-upgrade.sh \
   --site-root /www/wwwroot/example.com \
-  --package /tmp/auth_pro-full-v1.5.5.tar.gz \
+  --package /tmp/auth_pro-full-v1.5.6.tar.gz \
   --no-start
 ```
 

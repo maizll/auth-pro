@@ -26,14 +26,20 @@ import (
 
 // storeSnapshotPublicKeyPlaceholder 表示发行包没有打入验签公钥。
 // 买方会把所有快照当成无效并保持免费版；源站会拒绝签发。
+// 只在构建时用 ldflags 把公钥覆盖成这个值（或空字符串）时才会走到这条路径。
 const storeSnapshotPublicKeyPlaceholder = "PLACEHOLDER_NOT_CONFIGURED"
 
-// embeddedStoreSnapshotPublicKey 可在构建时覆盖，只填源站 store-keygen 打印的公钥：
+// productionStoreSnapshotPublicKey 是源站已生成的 Ed25519 公钥（标准 base64，解码后 32 字节）。
+// 对应私钥只留在源站数据目录，不进入仓库、环境变量或发行包。
+const productionStoreSnapshotPublicKey = "pwAizm/sOyWCu+qi8+Dl/xJr0Upuamh5u7vL3wGT14A="
+
+// embeddedStoreSnapshotPublicKey 默认是源站公钥。构建时仍可覆盖，只填公钥：
 //
-//	go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出的公钥>"
+//	go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<公钥>"
 //
+// 覆盖成占位符或空字符串时，行为与未配置相同：买方保持免费版，源站拒绝签发。
 // 私钥只由源站 store-keygen 写到数据目录，不要放进 ldflags、环境变量或仓库。
-var embeddedStoreSnapshotPublicKey = storeSnapshotPublicKeyPlaceholder
+var embeddedStoreSnapshotPublicKey = productionStoreSnapshotPublicKey
 
 var (
 	storeSnapshotKeyMu   sync.RWMutex
@@ -90,7 +96,7 @@ func loadStoreSnapshotPrivateKey() (ed25519.PrivateKey, error) {
 	priv := storeSnapshotPrivate
 	storeSnapshotKeyMu.RUnlock()
 	if len(pub) != ed25519.PublicKeySize {
-		return nil, errors.New("商店签名公钥未配置，拒绝签发快照。请在源站执行 store-keygen，把打印出的公钥交给维护者，用 ldflags 打进发行包后再发布")
+		return nil, errors.New("商店签名公钥未配置，拒绝签发快照。发行包应使用内置源站公钥；若构建时被覆盖成占位符，请改回默认值或用 ldflags 打入公钥后再发布")
 	}
 	if priv != nil {
 		if !bytes.Equal(priv.Public().(ed25519.PublicKey), pub) {
@@ -166,7 +172,7 @@ func generateStoreSnapshotKey(force bool) (string, error) {
 	return base64.StdEncoding.EncodeToString(pub), nil
 }
 
-const storeKeygenHint = "请把上面这一行公钥交给维护者，用 ldflags 打进发行包。私钥已写入数据目录，不要复制或外传。"
+const storeKeygenHint = "请把上面这一行公钥交给维护者。发行包默认已内置当前源站公钥；若这一行与默认值不同，须改源码或用 ldflags 覆盖后再发布，否则私钥与公钥不一致时会拒绝签发。私钥已写入数据目录，不要复制或外传。"
 
 func wantsStoreKeygen(args []string) bool {
 	for _, arg := range args {
