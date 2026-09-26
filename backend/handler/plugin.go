@@ -378,8 +378,18 @@ func loadLocalPluginIDs() (map[string]bool, error) {
 var pluginSourceURLPattern = regexp.MustCompile(`^https?://`)
 
 func looksLikeGitRepositoryURL(rawURL string) bool {
-	value := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(rawURL)), "/")
-	return strings.HasSuffix(value, ".git") || strings.Contains(value, "github.com/") && !strings.HasSuffix(value, ".json")
+	if pluginSourceURLLooksLikeJSON(rawURL) {
+		return false
+	}
+	value := strings.ToLower(strings.TrimSpace(rawURL))
+	if i := strings.IndexAny(value, "?#"); i >= 0 {
+		value = value[:i]
+	}
+	value = strings.TrimSuffix(value, "/")
+	if strings.HasSuffix(value, ".git") || strings.HasSuffix(pluginSourceURLPath(rawURL), ".git") {
+		return true
+	}
+	return strings.Contains(value, "github.com/")
 }
 
 func validatePluginSourceURL(raw string) (string, error) {

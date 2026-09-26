@@ -285,7 +285,8 @@ func safeHTTPGet(ctx context.Context, rawURL string, opts safeFetchOptions) ([]b
 		return nil, normalizeFetchError(err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, &safeStatusError{Code: response.StatusCode}
+		snippet, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		return nil, &safeStatusError{Code: response.StatusCode, Body: string(snippet)}
 	}
 	payload, err := io.ReadAll(io.LimitReader(response.Body, opts.MaxBytes+1))
 	if err != nil {
@@ -299,9 +300,13 @@ func safeHTTPGet(ctx context.Context, rawURL string, opts safeFetchOptions) ([]b
 
 type safeStatusError struct {
 	Code int
+	Body string
 }
 
 func (e *safeStatusError) Error() string {
+	if msg := softwareSourceGoneMessage([]byte(e.Body)); msg != "" {
+		return msg
+	}
 	return fmt.Sprintf("下载地址返回状态码 %d", e.Code)
 }
 

@@ -252,7 +252,7 @@
       </div>
     </ElCard>
 
-    <ElDialog v-model="sourceDialogVisible" title="软件源管理" width="560px">
+    <ElDialog v-model="sourceDialogVisible" title="软件源管理" width="640px">
       <div class="source-add">
         <ElInput v-model="newSourceUrl" placeholder="JSON 清单或 Git 仓库地址" />
         <ElInput
@@ -260,6 +260,11 @@
           placeholder="名称（可选，留空自动获取）"
           class="source-name-input"
         />
+        <ElSelect v-model="newSourceType" class="source-type-select">
+          <ElOption label="自动识别" value="auto" />
+          <ElOption label="JSON 目录" value="json" />
+          <ElOption label="Git 仓库" value="git" />
+        </ElSelect>
         <ElButton type="primary" :loading="addingSource" @click="handleAddSource">添加</ElButton>
       </div>
       <ElTable :data="sources" size="small" class="source-table">
@@ -268,30 +273,82 @@
             <span class="source-dot" :class="`is-${row.state}`" />
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="name" label="名称" width="130" show-overflow-tooltip />
-        <ElTableColumn prop="url" label="地址" show-overflow-tooltip />
-        <ElTableColumn label="操作" width="140" align="center">
+        <ElTableColumn label="名称" width="140" show-overflow-tooltip>
           <template #default="{ row }">
-            <ElButton
-              link
-              type="primary"
-              size="small"
-              :loading="refreshingSourceId === row.id"
-              @click="handleRefreshSource(row)"
-              >刷新</ElButton
-            >
-            <ElButton link type="danger" size="small" @click="handleDeleteSource(row)"
-              >删除</ElButton
-            >
+            <div>{{ row.name }}</div>
+            <div v-if="row.lastError" class="source-error">{{ row.lastError }}</div>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="类型" width="96">
+          <template #default="{ row }">{{ sourceTypeLabel(row.sourceType) }}</template>
+        </ElTableColumn>
+        <ElTableColumn prop="url" label="地址" show-overflow-tooltip />
+        <ElTableColumn label="操作" width="220" align="center">
+          <template #default="{ row }">
+            <div class="source-actions">
+              <ElButton
+                link
+                type="primary"
+                size="small"
+                :loading="refreshingSourceId === row.id"
+                @click="handleRefreshSource(row)"
+                >刷新</ElButton
+              >
+              <ElButton link type="danger" size="small" @click="handleDeleteSource(row)"
+                >删除</ElButton
+              >
+              <template v-if="sourceAppGone(row)">
+                <ElButton
+                  v-if="row.restoreAppId"
+                  link
+                  type="primary"
+                  size="small"
+                  @click="handleRestoreSourceApp(row)"
+                  >恢复应用</ElButton
+                >
+                <ElButton link type="primary" size="small" @click="openRetarget(row)"
+                  >更换源地址</ElButton
+                >
+              </template>
+            </div>
           </template>
         </ElTableColumn>
         <template #empty>
           <ElEmpty description="暂无软件源" :image-size="60" />
         </template>
       </ElTable>
+
       <div class="source-tip">
-        可以填写软件源地址，或填写 Git 仓库地址。本站请为每个应用单独添加一条，避免不同应用的目录混在一起。Git 仓库的根目录需要有软件清单。
+        可以填写 JSON 目录，或填写 Git 仓库地址。以 .json 结尾或内容是 JSON 的地址会按 JSON 目录保存；类型选错会在添加时自动改正并提示。本站请为每个应用单独添加一条公开清单，避免不同应用的目录混在一起。Git 仓库的根目录需要有软件清单。
       </div>
+    </ElDialog>
+
+    <ElDialog v-model="retargetVisible" title="更换源地址" width="480px">
+      <p>
+        旧标识「{{ retargetSource?.goneAppKey || '未知' }}」对应的应用已经删除或归档。可以转到本站另一个应用，旧地址会继续打开目标目录；也可以直接改成新的软件源地址。
+      </p>
+      <ElSelect
+        v-model="retargetAppId"
+        placeholder="转到本站应用"
+        clearable
+        style="width: 100%; margin-top: 12px"
+      >
+        <ElOption
+          v-for="app in retargetApps"
+          :key="app.id"
+          :label="`${app.name}（${app.appKey}）`"
+          :value="app.id"
+        />
+      </ElSelect>
+      <ElInput
+        v-model="retargetUrl"
+        placeholder="或填写新的软件源地址"
+        style="margin-top: 12px"
+      />
+      <template #footer>
+        <ElButton @click="retargetVisible = false">取消</ElButton>
+        <ElButton type="primary" :loading="retargetSaving" @click="confirmRetarget">保存</ElButton>
+      </template>
     </ElDialog>
 
     <ElBacktop target="#app-main" :right="32" :bottom="32" />
@@ -302,6 +359,8 @@
   import TemplateActions from '@/views/home-template/TemplateActions.vue'
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
   import { fetchStoreAccount, fetchStoreCatalog, type StoreAccount, type StoreCatalogItem } from '@/api/store'
+  import { fetchSourceCatalogApps, type SourceCatalogApp } from '@/api/source-station'
+  import { fetchRestoreLicenseApp } from '@/api/license-manage'
   import {
     commercialText,
     openCommercialPrompt,
@@ -316,6 +375,7 @@
     fetchAddPluginSource,
     fetchDeletePluginSource,
     fetchDownloadPlugin,
+    fetchRetargetPluginSource,
     fetchHomeTemplateList,
     fetchPluginList,
     fetchRefreshPluginSource,
@@ -347,6 +407,17 @@
   const addingSource = ref(false)
   const newSourceUrl = ref('')
   const newSourceName = ref('')
+  const newSourceType = ref<'auto' | 'json' | 'git'>('auto')
+
+  const sourceTypeLabel = (sourceType?: string) => (sourceType === 'git' ? 'Git 仓库' : 'JSON 目录')
+  const sourceAppGone = (source: PluginSource) =>
+    String(source.lastError || '').includes('该软件源对应的应用已删除或归档')
+  const retargetVisible = ref(false)
+  const retargetSaving = ref(false)
+  const retargetSource = ref<PluginSource | null>(null)
+  const retargetAppId = ref<number>()
+  const retargetUrl = ref('')
+  const retargetApps = ref<SourceCatalogApp[]>([])
 
   const storeTabs = computed(() => {
     const tabs: { name: string; label: string }[] = []
@@ -474,8 +545,8 @@
   const handleRefreshSource = async (source: PluginSource) => {
     refreshingSourceId.value = source.id
     try {
-      await fetchRefreshPluginSource(source.id)
-      ElMessage.success(`「${source.name}」刷新成功`)
+      const result = await fetchRefreshPluginSource(source.id)
+      ElMessage.success(result.notice || `「${source.name}」刷新成功`)
       await loadPlugins()
     } catch (error: any) {
       showCaughtError(error, '软件源刷新失败')
@@ -616,15 +687,72 @@
     }
     addingSource.value = true
     try {
-      await fetchAddPluginSource(newSourceName.value.trim(), url)
-      ElMessage.success('软件源已添加')
+      await fetchAddPluginSource(newSourceName.value.trim(), url, newSourceType.value)
       newSourceUrl.value = ''
       newSourceName.value = ''
+      newSourceType.value = 'auto'
       await loadPlugins()
     } catch (e: any) {
       showCaughtError(e, '软件源添加失败，请检查清单地址')
     } finally {
       addingSource.value = false
+    }
+  }
+
+  const handleRestoreSourceApp = async (source: PluginSource) => {
+    if (!source.restoreAppId) return
+    try {
+      await ElMessageBox.confirm(
+        '恢复后，这条软件源地址会重新打开该应用自己的目录。',
+        '恢复应用',
+        { type: 'warning', confirmButtonText: '恢复', cancelButtonText: '取消' }
+      )
+    } catch {
+      return
+    }
+    try {
+      await fetchRestoreLicenseApp(source.restoreAppId)
+      ElMessage.success('应用已恢复')
+      await fetchRefreshPluginSource(source.id)
+      await loadPlugins()
+    } catch (error) {
+      showCaughtError(error, '恢复应用失败')
+    }
+  }
+
+  const openRetarget = async (source: PluginSource) => {
+    retargetSource.value = source
+    retargetAppId.value = undefined
+    retargetUrl.value = ''
+    retargetVisible.value = true
+    try {
+      const result = await fetchSourceCatalogApps()
+      retargetApps.value = (result.list || []).filter((app) => !app.archived)
+    } catch (error) {
+      retargetApps.value = []
+      showCaughtError(error, '读取应用列表失败')
+    }
+  }
+
+  const confirmRetarget = async () => {
+    const source = retargetSource.value
+    if (!source) return
+    if (!retargetAppId.value && !retargetUrl.value.trim()) {
+      ElMessage.warning('请选择目标应用或填写新的软件源地址')
+      return
+    }
+    retargetSaving.value = true
+    try {
+      await fetchRetargetPluginSource(source.id, {
+        targetAppId: retargetAppId.value || undefined,
+        url: retargetAppId.value ? undefined : retargetUrl.value.trim()
+      })
+      retargetVisible.value = false
+      await loadPlugins()
+    } catch (error) {
+      showCaughtError(error, '更换源地址失败')
+    } finally {
+      retargetSaving.value = false
     }
   }
 
@@ -893,13 +1021,33 @@
       margin-bottom: 16px;
 
       .source-name-input {
-        width: 180px;
+        width: 160px;
+        flex-shrink: 0;
+      }
+
+      .source-type-select {
+        width: 120px;
         flex-shrink: 0;
       }
     }
 
     .source-table {
       margin-bottom: 12px;
+    }
+
+    .source-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 8px;
+      justify-content: center;
+    }
+
+    .source-error {
+      margin-top: 2px;
+      font-size: 12px;
+      line-height: 1.4;
+      color: var(--el-color-danger);
+      white-space: normal;
     }
 
     .source-dot {
@@ -939,7 +1087,8 @@
       .source-add {
         flex-direction: column;
 
-        .source-name-input {
+        .source-name-input,
+        .source-type-select {
           width: 100%;
         }
       }

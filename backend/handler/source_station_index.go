@@ -34,12 +34,8 @@ func lookupLocalSoftwareSourceIndex(rawURL string) ([]byte, *remotePluginIndex, 
 	if appKey == "" || !isLoopbackSoftwareSourceURL(rawURL) {
 		return nil, nil, false
 	}
-	app, err := currentSourceStationStore().GetCatalogAppByKey(appKey)
-	if err != nil {
-		return nil, nil, false
-	}
-	payload, _, err := sourceCatalogJSONForApp(app)
-	if err != nil {
+	payload, ok, err := publicCatalogPayloadForKey(appKey)
+	if err != nil || !ok {
 		return nil, nil, false
 	}
 	index, err := parsePluginSourceManifest(payload)

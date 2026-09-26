@@ -321,16 +321,24 @@ func writeCatalogRebindError(c *gin.Context, err error) {
 }
 
 func parseMigrateAppID(c *gin.Context) (int64, error) {
-	raw := strings.TrimSpace(c.Query("migrateAppId"))
+	return parsePositiveAppQuery(c, "migrateAppId", "migrate_app_id", "请选择要迁移到的其他应用")
+}
+
+func parseRedirectAppID(c *gin.Context) (int64, error) {
+	return parsePositiveAppQuery(c, "redirectAppId", "redirect_app_id", "请选择要接收软件源地址的应用")
+}
+
+func parsePositiveAppQuery(c *gin.Context, primary, alias, emptyMessage string) (int64, error) {
+	raw := strings.TrimSpace(c.Query(primary))
 	if raw == "" {
-		raw = strings.TrimSpace(c.Query("migrate_app_id"))
+		raw = strings.TrimSpace(c.Query(alias))
 	}
 	if raw == "" {
 		return 0, nil
 	}
 	id, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || id <= 0 {
-		return 0, errors.New("请选择要迁移到的其他应用")
+		return 0, errors.New(emptyMessage)
 	}
 	return id, nil
 }

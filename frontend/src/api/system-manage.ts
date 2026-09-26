@@ -579,7 +579,11 @@ export interface PluginSource {
   id: number
   name: string
   url: string
+  sourceType?: 'json' | 'git' | string
   state: 'ok' | 'error' | 'unknown'
+  lastError?: string
+  goneAppKey?: string
+  restoreAppId?: number
 }
 
 export interface PluginListData {
@@ -599,10 +603,11 @@ export function fetchPluginList(params?: PluginListParams) {
   })
 }
 
-export function fetchAddPluginSource(name: string, url: string) {
-  return request.post<null>({
+export function fetchAddPluginSource(name: string, url: string, sourceType = 'auto') {
+  return request.post<{ sourceType: string; corrected: boolean }>({
     url: '/api/system/plugin-sources',
-    data: { name, url }
+    data: { name, url, sourceType },
+    showSuccessMessage: true
   })
 }
 
@@ -712,8 +717,19 @@ export function fetchSoftwareSourcePlugins() {
   })
 }
 
+export function fetchRetargetPluginSource(
+  id: number,
+  payload: { targetAppId?: number; url?: string }
+) {
+  return request.post<{ url: string; sourceType: string; plugins: number }>({
+    url: `/api/system/plugin-sources/${id}/retarget`,
+    data: payload,
+    showSuccessMessage: true
+  })
+}
+
 export function fetchRefreshPluginSource(id: number) {
-  return request.post<{ plugins: number; homeTemplates: number }>({
+  return request.post<{ plugins: number; homeTemplates: number; sourceType?: string; notice?: string }>({
     url: `/api/system/plugin-sources/${id}/refresh`
   })
 }

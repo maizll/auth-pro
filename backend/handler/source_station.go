@@ -133,6 +133,8 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 
 		admin.GET("/settings/release", AdminSourceReleaseSettings)
 		settings.PUT("/settings/release", AdminSourceReleaseSettingsSave)
+		admin.GET("/settings/source-aliases", AdminSoftwareSourceAliases)
+		settings.PUT("/settings/source-aliases", AdminSoftwareSourceAliasSave)
 		admin.GET("/settings/github-paid", AdminGitHubPaidToken)
 		settings.PUT("/settings/github-paid", AdminGitHubPaidTokenSave)
 		settings.POST("/settings/github-paid/test", AdminGitHubPaidTokenTest)

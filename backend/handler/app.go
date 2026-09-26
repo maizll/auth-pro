@@ -432,6 +432,24 @@ func AppDelete(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": migrateErr.Error()})
 		return
 	}
+	redirectAppID, redirectErr := parseRedirectAppID(c)
+	if redirectErr != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": redirectErr.Error()})
+		return
+	}
+	redirectKey := ""
+	if redirectAppID > 0 {
+		sourceApp, err := currentSourceStationStore().GetCatalogAppByID(appID)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用不存在"})
+			return
+		}
+		if err := validateSoftwareSourceRedirect(sourceApp.AppKey, redirectAppID, false); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+			return
+		}
+		redirectKey = sourceApp.AppKey
+	}
 	archiveInPlace := requestAppArchiveInPlace(c)
 	if err := relocateCatalogBeforeAppDelete(appID, migrateAppID, archiveInPlace, c.GetString("username")); err != nil {
 		var required appCatalogMigrateRequiredError
@@ -480,12 +498,22 @@ func AppDelete(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "归档应用失败"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "应用已归档"})
+		finishArchivedApp(c, id, redirectKey, redirectAppID, migrateAppID, archiveInPlace)
 		return
 	}
 	if err := tx.Commit(); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "归档应用失败"})
 		return
+	}
+	finishArchivedApp(c, id, redirectKey, redirectAppID, migrateAppID, archiveInPlace)
+}
+
+func finishArchivedApp(c *gin.Context, id, redirectKey string, redirectAppID, migrateAppID int64, archiveInPlace bool) {
+	if redirectKey != "" {
+		if err := saveSoftwareSourceAlias(redirectKey, redirectAppID, false); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "应用已归档，但软件源地址没有转走：" + err.Error()})
+			return
+		}
 	}
 	detail := "归档应用，授权、套餐和版本保留"
 	if migrateAppID > 0 {
@@ -493,12 +521,18 @@ func AppDelete(c *gin.Context) {
 	} else if archiveInPlace {
 		detail = "直接归档，目录条目仍绑定本应用"
 	}
+	if redirectKey != "" {
+		detail += fmt.Sprintf("；软件源地址 %s 转到应用 %d", redirectKey, redirectAppID)
+	}
 	_ = currentSourceStationStore().AppendAudit(sourceAuditEntry{
 		ActorType: "admin", ActorName: c.GetString("username"), Action: "archive_app",
 		TargetType: "app", TargetID: id, Detail: detail,
 	})
-
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "应用已归档"})
+	msg := "应用已归档"
+	if redirectKey != "" {
+		msg = "应用已归档，软件源地址已转到目标应用"
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg})
 }
 
 // AppRestore 把已归档的应用恢复为可继续登记的状态。授权、版本和目录绑定保持不变。
@@ -524,6 +558,11 @@ func AppRestore(c *gin.Context) {
 		return
 	}
 	affected, _ := result.RowsAffected()
+	if affected == 1 {
+		if app, err := currentSourceStationStore().GetCatalogAppByID(appID); err == nil {
+			_ = currentSourceStationStore().DeleteSoftwareSourceAlias(app.AppKey)
+		}
+	}
 	if affected != 1 {
 		var exists int
 		scanErr := db.QueryRow(`SELECT COUNT(*) FROM apps WHERE id = ?`, id).Scan(&exists)

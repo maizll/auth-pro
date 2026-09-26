@@ -16,7 +16,7 @@
 
 | 菜单 | 路径 | 作用 |
 | --- | --- | --- |
-| 应用管理 | `/license/apps` | 创建应用，获得 `appKey` / `appSecret`。公开校验用这组密钥签名。归档后应用还在，授权和版本保留，只是不能再登记新的目录条目。已归档的行可以点「恢复」 |
+| 应用管理 | `/license/apps` | 创建应用，获得 `appKey` / `appSecret`。公开校验用这组密钥签名。归档后应用还在，授权和版本保留，只是不能再登记新的目录条目。归档时可以勾选「把该应用的软件源地址转到另一个应用」，旧地址 `/software-source/<旧标识>/index.json` 继续返回目标应用的目录。已归档的行可以点「恢复」，恢复后这条地址重新返回它自己的目录 |
 | 版本管理 | `/license/versions` | 应用客户端版本、更新说明、更新包或外部下载地址 |
 | 套餐管理 | `/license/plans` | 授权套餐 |
 | 卡密管理 | `/license/cards` | 生成与管理卡密 |
@@ -46,7 +46,7 @@
 | 入驻审核 | `/source-station/applications` | 开发者入驻申请。通过后对方才能登录开发者面板 |
 | 公开目录 | `/source-station/catalog` | 预览公开 `index.json`，可从数据库重生快照，并看审计 |
 | 广告投放 | `/source-station/ads` | 广告位 `home-banner`、`sidebar`、`popup` 的审核与投放 |
-| 源站设置 | `/source-station/settings` | GitHub 或 Gitee 的 owner/repo 与令牌 |
+| 源站设置 | `/source-station/settings` | GitHub 或 Gitee 的 owner/repo 与令牌。也可以把 1.6.1 之前已经删掉的应用标识映射到现有应用，重复保存同一标识会更新目标 |
 
 商业版产品在「应用管理」里打开「作为本站商业版出售」。价格在该应用的「套餐管理」。授权在「授权列表」（来源含商店绑定、商店购买，行内可授予或吊销商业版）。订单在「订单列表」，收款在「支付配置」。旧的商业版设置、商店订单、主授权与权益、商业版收入地址会转到这些页面。
 
@@ -82,9 +82,13 @@
 
 ## 应用商店 `/plugin-store`（仅超管）
 
-从软件源安装或启用插件与首页模板。默认不连接外部官方源。要对接别的目录时，在服务器上设置 `AUTO_PRO_SOFTWARE_SOURCE_URL` 与 `AUTO_PRO_SOFTWARE_SOURCE_API_KEY`。未设置时，旧路径 `/admin/app-store` 转到本站 `/plugin-store`。
+从软件源安装或启用插件与首页模板。新安装会自带一条官方软件源，地址是 `https://auth.maizll.com/software-source/app_f93896d80066_5811/index.json`，类型是 JSON 目录。升级时如果还留着旧默认地址 `https://auth.maizll.com/software-source/app_4e85b4724223_2603/index.json`，会换成这个新地址并改成 JSON。再启动一次不会多出一条。自己添加的其它软件源不会改。要另外对接目录时，可以在服务器上设置 `AUTO_PRO_SOFTWARE_SOURCE_URL` 与 `AUTO_PRO_SOFTWARE_SOURCE_API_KEY`。未设置时，旧路径 `/admin/app-store` 转到本站 `/plugin-store`。
 
 远程 ZIP 必须带 64 位 SHA256。公网地址必须是 HTTPS。只有软件源 URL 写成字面量回环或私网 IP 时，才允许 HTTP 和私网。主机名一律按公网处理。
+
+软件源管理里可以填 JSON 目录，也可以填 Git 仓库。地址以 `.json` 结尾（查询串不算），或者打开后是 JSON，都按 JSON 目录保存。本站公开清单 `https://<本站>/software-source/<app_key>/index.json` 就是 JSON 目录，不会按 Git 仓库去克隆。添加时如果类型和地址不一致，会立刻改成正确类型并提示，不用等到刷新。已经记成 Git、地址却以 `.json` 结尾的旧记录，启动后会自动改回 JSON，重复启动不会再改。Git 克隆发现不是仓库时，提示「该地址不是 Git 仓库，可能是 JSON 目录，请修改源类型」，不再显示 git 的原始报错。
+
+对应应用已经删除或归档、又没有把地址转走时，刷新提示「该软件源对应的应用已删除或归档」。这一行会多出「恢复应用」（应用还在、只是归档）和「更换源地址」。更换时可以转到本站另一个应用，旧地址会打开目标目录；也可以直接改成新的清单地址。
 
 ## 在线更新 `/online-update`（仅超管）
 

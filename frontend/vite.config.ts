@@ -206,5 +206,5 @@ function resolveProductVersion(envVersion?: string): string {
       return fromFile
     }
   }
-  return '1.6.2'
+  return '1.6.3'
 }

@@ -260,6 +260,7 @@ func main() {
 			superSecured.POST("/system/plugin-sources", handler.AdminPluginSourceAdd)
 			superSecured.DELETE("/system/plugin-sources/:id", handler.AdminPluginSourceDelete)
 			superSecured.POST("/system/plugin-sources/:id/refresh", handler.AdminPluginSourceRefresh)
+			superSecured.POST("/system/plugin-sources/:id/retarget", handler.AdminPluginSourceRetarget)
 			superSecured.GET("/system/home-templates", handler.AdminHomeTemplateList)
 			superSecured.POST("/system/home-templates/upload", handler.AdminHomeTemplateUpload)
 			superSecured.POST("/system/home-templates/:id/enable", handler.AdminHomeTemplateEnable)

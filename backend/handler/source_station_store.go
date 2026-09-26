@@ -97,6 +97,11 @@ type sourceCatalogApp struct {
 	Archived bool   `json:"archived"`
 }
 
+type softwareSourceAlias struct {
+	OldAppKey   string `json:"oldAppKey"`
+	TargetAppID int64  `json:"targetAppId"`
+}
+
 type sourcePlugin struct {
 	ID             string       `json:"id"`
 	DeveloperID    int64        `json:"developerId"`
@@ -304,6 +309,10 @@ type sourceStationStore interface {
 	GetCatalogAppByID(id int64) (sourceCatalogApp, error)
 	GetCatalogAppByKey(appKey string) (sourceCatalogApp, error)
 	SetCatalogAppID(kind, id string, appID int64) error
+	UpsertSoftwareSourceAlias(oldAppKey string, targetAppID int64) error
+	GetSoftwareSourceAlias(oldAppKey string) (int64, bool, error)
+	ListSoftwareSourceAliases() ([]softwareSourceAlias, error)
+	DeleteSoftwareSourceAlias(oldAppKey string) error
 
 	AppendAudit(entry sourceAuditEntry) error
 	ListAudit(limit int) ([]sourceAuditEntry, error)
@@ -492,6 +501,7 @@ type memorySourceStore struct {
 	githubPaidRepo   string
 	categoryExtras   []sourceCatalogCategory
 	catalogApps      map[int64]sourceCatalogApp
+	sourceAliases    map[string]int64
 	nextAppID        int64
 	nextDevID        int64
 	nextAdAppID      int64
@@ -512,10 +522,11 @@ func newMemorySourceStore() *memorySourceStore {
 			1: {ID: 1, AppKey: "app-a", Name: "应用A", Enabled: true},
 			2: {ID: 2, AppKey: "app-b", Name: "应用B", Enabled: true},
 		},
-		nextAppID:   1,
-		nextDevID:   1,
-		nextAdAppID: 1,
-		nextAuditID: 1,
+		sourceAliases: map[string]int64{},
+		nextAppID:     1,
+		nextDevID:     1,
+		nextAdAppID:   1,
+		nextAuditID:   1,
 	}
 	store.revision.Store(1)
 	_ = store.purgeInactiveDeveloperQualifications()
@@ -584,6 +595,41 @@ func (store *memorySourceStore) GetCatalogAppByKey(appKey string) (sourceCatalog
 		}
 	}
 	return sourceCatalogApp{}, errSourceAppNotFound
+}
+
+func (store *memorySourceStore) UpsertSoftwareSourceAlias(oldAppKey string, targetAppID int64) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.sourceAliases == nil {
+		store.sourceAliases = map[string]int64{}
+	}
+	store.sourceAliases[strings.TrimSpace(oldAppKey)] = targetAppID
+	return nil
+}
+
+func (store *memorySourceStore) GetSoftwareSourceAlias(oldAppKey string) (int64, bool, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	targetID, ok := store.sourceAliases[strings.TrimSpace(oldAppKey)]
+	return targetID, ok, nil
+}
+
+func (store *memorySourceStore) ListSoftwareSourceAliases() ([]softwareSourceAlias, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	result := make([]softwareSourceAlias, 0, len(store.sourceAliases))
+	for key, targetID := range store.sourceAliases {
+		result = append(result, softwareSourceAlias{OldAppKey: key, TargetAppID: targetID})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].OldAppKey < result[j].OldAppKey })
+	return result, nil
+}
+
+func (store *memorySourceStore) DeleteSoftwareSourceAlias(oldAppKey string) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	delete(store.sourceAliases, strings.TrimSpace(oldAppKey))
+	return nil
 }
 
 func bindSourceCatalogAppID(incoming, existing int64, exists, asAdmin bool) (int64, error) {
@@ -3105,6 +3151,86 @@ func (mysqlSourceStore) GetCatalogAppByKey(appKey string) (sourceCatalogApp, err
 	item.Enabled = enabled == 1
 	item.Archived = deletedAt.Valid
 	return item, nil
+}
+
+func ensureSoftwareSourceAliasTable(db *sql.DB) error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS software_source_app_aliases (
+		old_app_key VARCHAR(64) NOT NULL,
+		target_app_id BIGINT NOT NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		PRIMARY KEY (old_app_key)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='已删除或归档应用的软件源地址映射'`)
+	return err
+}
+
+func (mysqlSourceStore) UpsertSoftwareSourceAlias(oldAppKey string, targetAppID int64) error {
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	if err := ensureSoftwareSourceAliasTable(db); err != nil {
+		return err
+	}
+	_, err = db.Exec(`INSERT INTO software_source_app_aliases (old_app_key, target_app_id, created_at, updated_at)
+		VALUES (?, ?, NOW(), NOW())
+		ON DUPLICATE KEY UPDATE target_app_id=VALUES(target_app_id), updated_at=NOW()`, strings.TrimSpace(oldAppKey), targetAppID)
+	return err
+}
+
+func (mysqlSourceStore) GetSoftwareSourceAlias(oldAppKey string) (int64, bool, error) {
+	db, err := config.DB()
+	if err != nil {
+		return 0, false, err
+	}
+	if err := ensureSoftwareSourceAliasTable(db); err != nil {
+		return 0, false, err
+	}
+	var targetID int64
+	err = db.QueryRow(`SELECT target_app_id FROM software_source_app_aliases WHERE old_app_key=?`, strings.TrimSpace(oldAppKey)).Scan(&targetID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return targetID, true, nil
+}
+
+func (mysqlSourceStore) ListSoftwareSourceAliases() ([]softwareSourceAlias, error) {
+	db, err := config.DB()
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureSoftwareSourceAliasTable(db); err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`SELECT old_app_key, target_app_id FROM software_source_app_aliases ORDER BY old_app_key ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]softwareSourceAlias, 0)
+	for rows.Next() {
+		var item softwareSourceAlias
+		if err := rows.Scan(&item.OldAppKey, &item.TargetAppID); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (mysqlSourceStore) DeleteSoftwareSourceAlias(oldAppKey string) error {
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	if err := ensureSoftwareSourceAliasTable(db); err != nil {
+		return err
+	}
+	_, err = db.Exec(`DELETE FROM software_source_app_aliases WHERE old_app_key=?`, strings.TrimSpace(oldAppKey))
+	return err
 }
 
 func (mysqlSourceStore) SetCatalogAppID(kind, id string, appID int64) error {

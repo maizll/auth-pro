@@ -107,6 +107,49 @@
         </el-form-item>
       </el-form>
     </el-card>
+
+    <el-card v-loading="aliasLoading" shadow="never" class="art-card alias-card">
+      <template #header>
+        <div class="table-header">
+          <div>
+            <span class="card-title">旧应用软件源地址</span>
+            <p class="card-hint">
+              1.6.1 之前已经删掉的应用，可以在这里把旧标识转到还在使用的应用。旧地址
+              /software-source/旧标识/index.json
+              会返回目标应用的目录，已经订阅的客户端不用改。同一个旧标识再保存一次会更新目标，不会多出一条。正在使用的应用标识不能转走，请先归档。
+            </p>
+          </div>
+          <div class="table-actions">
+            <el-button type="primary" :loading="aliasSaving" @click="handleAliasSave">保存映射</el-button>
+          </div>
+        </div>
+      </template>
+      <el-form label-width="140px" class="settings-form">
+        <el-form-item label="旧应用标识">
+          <el-input v-model.trim="aliasForm.oldAppKey" placeholder="例如 app_f93896d80066_5811" />
+        </el-form-item>
+        <el-form-item label="转到应用">
+          <el-select v-model="aliasForm.targetAppId" placeholder="选择还在使用的应用" class="product-app-select">
+            <el-option
+              v-for="app in liveAliasApps"
+              :key="app.id"
+              :label="`${app.name}（${app.appKey}）`"
+              :value="app.id"
+            />
+          </el-select>
+          <p v-if="!liveAliasApps.length" class="field-hint">还没有可接收地址的应用。</p>
+        </el-form-item>
+      </el-form>
+      <el-table :data="aliases" size="small" empty-text="还没有旧地址映射" @row-click="fillAlias">
+        <el-table-column prop="oldAppKey" label="旧标识" min-width="180" show-overflow-tooltip />
+        <el-table-column label="目标应用" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.targetName || '应用' }}（{{ row.targetAppKey || row.targetAppId }}）
+          </template>
+        </el-table-column>
+        <el-table-column prop="indexUrl" label="仍可用的地址" min-width="220" show-overflow-tooltip />
+      </el-table>
+    </el-card>
   </div>
 </template>
 
@@ -115,11 +158,16 @@
   import { ElMessage } from 'element-plus'
   import {
     fetchGitHubPaidToken,
+    fetchSoftwareSourceAliases,
+    fetchSourceCatalogApps,
     fetchSourceReleaseSettings,
     saveGitHubPaidToken,
+    saveSoftwareSourceAlias,
     saveSourceReleaseSettings,
     testGitHubPaidToken,
     testSourceReleaseSettings,
+    type SoftwareSourceAlias,
+    type SourceCatalogApp,
     type SourceReleaseSettings
   } from '@/api/source-station'
 
@@ -152,6 +200,15 @@
     tagStrategy: '{id}-{version}',
     branch: 'master'
   })
+  const aliasLoading = ref(false)
+  const aliasSaving = ref(false)
+  const aliases = ref<SoftwareSourceAlias[]>([])
+  const aliasApps = ref<SourceCatalogApp[]>([])
+  const aliasForm = reactive({
+    oldAppKey: '',
+    targetAppId: undefined as number | undefined
+  })
+  const liveAliasApps = computed(() => aliasApps.value.filter((app) => !app.archived))
 
   const formHasToken = computed(() => Boolean(form.token.trim()) || settings.value.hasToken)
 
@@ -284,9 +341,44 @@
     }
   }
 
+  function fillAlias(row: SoftwareSourceAlias) {
+    aliasForm.oldAppKey = row.oldAppKey
+    aliasForm.targetAppId = row.targetAppId
+  }
+
+  async function loadAliases() {
+    aliasLoading.value = true
+    try {
+      const [aliasData, appData] = await Promise.all([
+        fetchSoftwareSourceAliases(),
+        fetchSourceCatalogApps()
+      ])
+      aliases.value = aliasData.list || []
+      aliasApps.value = appData.list || []
+    } finally {
+      aliasLoading.value = false
+    }
+  }
+
+  async function handleAliasSave() {
+    const oldAppKey = aliasForm.oldAppKey.trim()
+    if (!oldAppKey || !aliasForm.targetAppId) {
+      ElMessage.warning('请填写旧应用标识，并选择要转到的应用')
+      return
+    }
+    aliasSaving.value = true
+    try {
+      await saveSoftwareSourceAlias({ oldAppKey, targetAppId: aliasForm.targetAppId })
+      await loadAliases()
+    } finally {
+      aliasSaving.value = false
+    }
+  }
+
   onMounted(() => {
     void loadSettings()
     void loadGitHubToken()
+    void loadAliases()
   })
 </script>
 
@@ -335,7 +427,8 @@
     margin-bottom: 16px;
   }
 
-  .github-paid-card {
+  .github-paid-card,
+  .alias-card {
     margin-top: 16px;
   }
 

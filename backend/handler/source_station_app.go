@@ -2,14 +2,20 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
+
+const softwareSourceAppGoneMessage = "该软件源对应的应用已删除或归档"
+
+var softwareSourceAppKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
 func sourceStationPublicIndexPath(appKey string) string {
 	appKey = strings.TrimSpace(appKey)
@@ -72,28 +78,143 @@ func resolvePublicCatalogApp(c *gin.Context) bool {
 	if appKey == "" {
 		return false
 	}
-	app, err := currentSourceStationStore().GetCatalogAppByKey(appKey)
-	if err != nil {
-		c.Header("Cache-Control", "no-store")
-		c.JSON(http.StatusNotFound, gin.H{
-			"name": sourceStationSourceName, "plugins": []any{}, "homeTemplates": []any{},
-			"error": "unknown app_key",
-		})
-		return true
-	}
-	payload, _, err := sourceCatalogJSONForApp(app)
-	if err != nil {
-		c.Header("Cache-Control", "no-store")
-		c.JSON(http.StatusOK, gin.H{
-			"name": sourceStationSourceName, "appKey": app.AppKey, "appId": app.ID,
-			"indexUrl": sourceStationPublicIndexPath(app.AppKey),
-			"plugins":  []any{}, "homeTemplates": []any{},
-		})
-		return true
-	}
+	payload, ok, err := publicCatalogPayloadForKey(appKey)
 	c.Header("Cache-Control", "no-store")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "index_failed", "message": "软件源目录暂时无法生成", "appKey": appKey,
+		})
+		return true
+	}
+	if !ok {
+		c.JSON(http.StatusGone, gin.H{
+			"error": "app_gone", "message": softwareSourceAppGoneMessage, "appKey": appKey,
+		})
+		return true
+	}
 	c.Data(http.StatusOK, "application/json; charset=utf-8", payload)
 	return true
+}
+
+func publicCatalogPayloadForKey(appKey string) ([]byte, bool, error) {
+	store := currentSourceStationStore()
+	app, err := store.GetCatalogAppByKey(appKey)
+	if err == nil && !app.Archived {
+		payload, _, catalogErr := sourceCatalogJSONForApp(app)
+		if catalogErr != nil {
+			return nil, false, catalogErr
+		}
+		return payload, true, nil
+	}
+	if err != nil && !errors.Is(err, errSourceAppNotFound) && !errors.Is(err, errSourceAppRequired) {
+		return nil, false, err
+	}
+	targetID, found, aliasErr := store.GetSoftwareSourceAlias(appKey)
+	if aliasErr != nil {
+		return nil, false, aliasErr
+	}
+	if found {
+		target, targetErr := store.GetCatalogAppByID(targetID)
+		if targetErr == nil && !target.Archived {
+			payload, _, catalogErr := sourceCatalogJSONForApp(target)
+			if catalogErr != nil {
+				return nil, false, catalogErr
+			}
+			return payload, true, nil
+		}
+		if targetErr != nil && !errors.Is(targetErr, errSourceAppNotFound) {
+			return nil, false, targetErr
+		}
+	}
+	return nil, false, nil
+}
+
+func validateSoftwareSourceRedirect(oldAppKey string, targetAppID int64, rejectIfLive bool) error {
+	oldAppKey = strings.TrimSpace(oldAppKey)
+	if !softwareSourceAppKeyPattern.MatchString(oldAppKey) {
+		return errors.New("应用标识不正确")
+	}
+	store := currentSourceStationStore()
+	target, err := store.GetCatalogAppByID(targetAppID)
+	if err != nil {
+		if errors.Is(err, errSourceAppNotFound) {
+			return errors.New("目标应用不存在")
+		}
+		return err
+	}
+	if target.Archived {
+		return errors.New("不能转到已归档的应用")
+	}
+	if target.AppKey == oldAppKey || target.ID == 0 {
+		return errors.New("不能转到同一个应用")
+	}
+	if rejectIfLive {
+		current, currentErr := store.GetCatalogAppByKey(oldAppKey)
+		if currentErr == nil && !current.Archived {
+			return errors.New("该应用还在使用，请先归档再转走软件源地址")
+		}
+		if currentErr != nil && !errors.Is(currentErr, errSourceAppNotFound) && !errors.Is(currentErr, errSourceAppRequired) {
+			return currentErr
+		}
+	}
+	return nil
+}
+
+func saveSoftwareSourceAlias(oldAppKey string, targetAppID int64, rejectIfLive bool) error {
+	if err := validateSoftwareSourceRedirect(oldAppKey, targetAppID, rejectIfLive); err != nil {
+		return err
+	}
+	target, err := currentSourceStationStore().GetCatalogAppByID(targetAppID)
+	if err != nil {
+		return err
+	}
+	return currentSourceStationStore().UpsertSoftwareSourceAlias(strings.TrimSpace(oldAppKey), target.ID)
+}
+
+func rewriteSoftwareSourceURL(rawURL, newAppKey string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Host == "" {
+		return "", errors.New("软件源地址不正确")
+	}
+	path := strings.TrimSuffix(parsed.Path, "/")
+	lowerPath := strings.ToLower(path)
+	switch lowerPath {
+	case "/software-source/index.json", "/auth-pro/index.json":
+		query := parsed.Query()
+		if strings.TrimSpace(query.Get("appKey")) != "" {
+			query.Set("appKey", newAppKey)
+		} else {
+			query.Set("app_key", newAppKey)
+		}
+		parsed.RawQuery = query.Encode()
+	default:
+		prefix := ""
+		switch {
+		case strings.HasPrefix(lowerPath, "/software-source/") && strings.HasSuffix(lowerPath, "/index.json"):
+			prefix = "/software-source/"
+		case strings.HasPrefix(lowerPath, "/auth-pro/") && strings.HasSuffix(lowerPath, "/index.json"):
+			prefix = "/auth-pro/"
+		default:
+			return "", errors.New("这条软件源地址里没有应用标识")
+		}
+		parsed.Path = prefix + url.PathEscape(newAppKey) + "/index.json"
+		parsed.RawPath = ""
+	}
+	return parsed.String(), nil
+}
+
+func softwareSourceGoneMessage(payload []byte) string {
+	var body struct {
+		Error   string `json:"error"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return ""
+	}
+	if body.Error == "app_gone" || body.Message == softwareSourceAppGoneMessage {
+		return softwareSourceAppGoneMessage
+	}
+	return ""
 }
 
 func writeUnscopedSourceIndex(c *gin.Context) {
@@ -220,4 +341,46 @@ func SourceDeveloperCatalogApps(c *gin.Context) {
 
 func matchSourceCatalogAppID(itemAppID, filterAppID int64) bool {
 	return filterAppID <= 0 || itemAppID == filterAppID
+}
+
+func softwareSourceAliasView(item softwareSourceAlias) gin.H {
+	view := gin.H{"oldAppKey": item.OldAppKey, "targetAppId": item.TargetAppID}
+	target, err := currentSourceStationStore().GetCatalogAppByID(item.TargetAppID)
+	if err == nil {
+		view["targetAppKey"] = target.AppKey
+		view["targetName"] = target.Name
+		view["indexUrl"] = sourceStationPublicIndexPath(item.OldAppKey)
+	}
+	return view
+}
+
+func AdminSoftwareSourceAliases(c *gin.Context) {
+	items, err := currentSourceStationStore().ListSoftwareSourceAliases()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取软件源地址映射失败"})
+		return
+	}
+	list := make([]gin.H, 0, len(items))
+	for _, item := range items {
+		list = append(list, softwareSourceAliasView(item))
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": list}})
+}
+
+func AdminSoftwareSourceAliasSave(c *gin.Context) {
+	var request struct {
+		OldAppKey   string `json:"oldAppKey"`
+		TargetAppID int64  `json:"targetAppId"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+	if err := saveSoftwareSourceAlias(request.OldAppKey, request.TargetAppID, true); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已保存软件源地址映射", "data": softwareSourceAliasView(softwareSourceAlias{
+		OldAppKey: strings.TrimSpace(request.OldAppKey), TargetAppID: request.TargetAppID,
+	})})
 }

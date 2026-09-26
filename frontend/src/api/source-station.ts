@@ -644,6 +644,26 @@ export function testGitHubPaidToken(payload: { token?: string; owner?: string; r
   })
 }
 
+export interface SoftwareSourceAlias {
+  oldAppKey: string
+  targetAppId: number
+  targetAppKey?: string
+  targetName?: string
+  indexUrl?: string
+}
+
+export function fetchSoftwareSourceAliases() {
+  return request.get<{ list: SoftwareSourceAlias[] }>({ url: `${BASE}/settings/source-aliases` })
+}
+
+export function saveSoftwareSourceAlias(payload: { oldAppKey: string; targetAppId: number }) {
+  return request.put<SoftwareSourceAlias>({
+    url: `${BASE}/settings/source-aliases`,
+    data: payload,
+    showSuccessMessage: true
+  })
+}
+
 export function fetchSourceReleaseSettings() {
   return request.get<SourceReleaseSettings>({ url: `${BASE}/settings/release` })
 }

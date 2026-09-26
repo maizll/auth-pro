@@ -652,15 +652,28 @@ CREATE TABLE `plugin_source_cache` (
   PRIMARY KEY (`source_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权系统插件清单缓存';
 
+DROP TABLE IF EXISTS `software_source_app_aliases`;
+CREATE TABLE `software_source_app_aliases` (
+  `old_app_key` VARCHAR(64) NOT NULL COMMENT '已删除或归档应用的 app_key',
+  `target_app_id` BIGINT NOT NULL COMMENT '旧软件源地址转到的应用',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`old_app_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='已删除或归档应用的软件源地址映射';
+
 DROP TABLE IF EXISTS `plugin_sources`;
 CREATE TABLE `plugin_sources` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(60) NOT NULL DEFAULT '',
   `url` VARCHAR(500) NOT NULL,
+  `source_type` VARCHAR(20) NOT NULL DEFAULT 'json' COMMENT 'json 目录或 git 仓库',
   `created_at` DATETIME DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_url` (`url`(191))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权系统插件软件源';
+
+INSERT INTO `plugin_sources` (`name`, `url`, `source_type`, `created_at`) VALUES
+('官方软件源', 'https://auth.maizll.com/software-source/app_f93896d80066_5811/index.json', 'json', NOW());
 
 DROP TABLE IF EXISTS `plugins`;
 CREATE TABLE `plugins` (

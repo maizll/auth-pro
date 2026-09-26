@@ -32,8 +32,14 @@ func TestSourceStationIndexRequiresAppScope(t *testing.T) {
 	}
 
 	unknown := sourceJSON(t, router, http.MethodGet, "/software-source/missing-app/index.json", "", "")
-	if unknown.Code != http.StatusNotFound {
+	if unknown.Code != http.StatusGone {
 		t.Fatalf("unknown app_key status=%d body=%s", unknown.Code, unknown.Body.String())
+	}
+	if !strings.Contains(unknown.Header().Get("Content-Type"), "json") || strings.Contains(strings.ToLower(unknown.Body.String()), "<html") {
+		t.Fatalf("unknown app_key must be json, not html: type=%s body=%s", unknown.Header().Get("Content-Type"), unknown.Body.String())
+	}
+	if !strings.Contains(unknown.Body.String(), softwareSourceAppGoneMessage) || strings.Contains(unknown.Body.String(), `"plugins"`) {
+		t.Fatalf("unknown app_key body=%s", unknown.Body.String())
 	}
 	if strings.Contains(unknown.Body.String(), "alpha-pay") {
 		t.Fatalf("unknown app_key must not leak: %s", unknown.Body.String())
