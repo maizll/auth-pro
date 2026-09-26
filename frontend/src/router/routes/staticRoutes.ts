@@ -157,9 +157,7 @@ export const staticRoutes: AppRouteRecordRaw[] = [
       },
       {
         path: 'store',
-        name: 'AgentPanelStore',
-        component: () => import('@views/user-panel/store/index.vue'),
-        meta: { title: '已绑定站点' }
+        redirect: (to) => ({ path: '/agent-panel/licenses', query: to.query })
       },
       {
         path: 'become-developer',
@@ -254,9 +252,7 @@ export const staticRoutes: AppRouteRecordRaw[] = [
       },
       {
         path: 'store',
-        name: 'UserPanelStore',
-        component: () => import('@views/user-panel/store/index.vue'),
-        meta: { title: '已绑定站点' }
+        redirect: (to) => ({ path: '/user/licenses', query: to.query })
       },
       {
         path: 'tickets',

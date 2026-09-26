@@ -50,9 +50,23 @@
         <strong>¥{{ Number(purchaseResult?.cost || 0).toFixed(2) }}</strong>
       </div>
 
+      <el-alert
+        class="bind-guide"
+        type="warning"
+        show-icon
+        :closable="false"
+        :title="
+          purchaseResult?.type === 'key'
+            ? '密钥授权会在软件首次校验时绑定站点。达到上限会提示「授权已达到最大站点数」，可在「我的授权」里解绑。'
+            : '请确认绑定域名。之后可在「我的授权」里更换或解绑。更换本站商业版域名后，30 天内不能再次更换。'
+        "
+      />
+
       <div class="success-actions">
-        <el-button size="large" @click="goToLicenses">查看授权</el-button>
-        <el-button type="primary" size="large" @click="resetFlow">继续购买</el-button>
+        <el-button type="primary" size="large" @click="goBindDomain">
+          {{ purchaseResult?.type === 'key' ? '查看授权' : '绑定域名' }}
+        </el-button>
+        <el-button size="large" @click="resetFlow">继续购买</el-button>
       </div>
     </el-card>
 
@@ -854,8 +868,12 @@
     return `${owner} · ${stock}`
   }
 
-  function goToLicenses() {
-    router.push('/user/licenses')
+  function goBindDomain() {
+    const licenseId = purchaseResult.value?.licenseId
+    router.push({
+      path: '/user/licenses',
+      query: licenseId ? { bind: String(licenseId) } : {}
+    })
   }
 
   function resetFlow() {
@@ -1092,7 +1110,9 @@
               appName: result.appName,
               planName: result.planName,
               durationDays: result.durationDays,
-              cost: Number(result.cost || 0)
+              cost: Number(result.cost || 0),
+              type: formData.type,
+              domain: formData.domain
             }
             userBalance.value = Number(result.newBalance || userBalance.value)
             sessionStorage.removeItem(purchaseOrderStorageKey)
@@ -1109,7 +1129,7 @@
           window.location.href = data.data.payUrl
           return
         }
-        purchaseResult.value = data.data
+        purchaseResult.value = { ...data.data, type: formData.type, domain: formData.domain }
         userBalance.value = Number(data.data.newBalance || 0)
         notifyBalanceRefresh()
         step.value = 4
@@ -1668,8 +1688,13 @@
     }
   }
 
+  .bind-guide {
+    margin-top: 16px;
+  }
+
   .success-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
     justify-content: flex-end;
     margin-top: 16px;

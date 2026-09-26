@@ -356,7 +356,7 @@ func guardProductDomainChange(db *sql.DB, licenseID int64, newDomain string, adm
 	return nil
 }
 
-func finishProductDomainChange(db *sql.DB, licenseID int64, newDomain, actor string) {
+func finishProductDomainChange(db *sql.DB, licenseID int64, oldDomain, newDomain, actor string) {
 	if db == nil || licenseID <= 0 {
 		return
 	}
@@ -364,9 +364,8 @@ func finishProductDomainChange(db *sql.DB, licenseID int64, newDomain, actor str
 	if err != nil || settings.ProductAppKey == "" {
 		return
 	}
-	var appKey, licenseType, oldDomain string
-	err = db.QueryRow(`SELECT a.app_key, l.type, COALESCE((SELECT domain FROM license_domains WHERE license_id = l.id ORDER BY id LIMIT 1), '')
-		FROM licenses l JOIN apps a ON a.id = l.app_id WHERE l.id = ?`, licenseID).Scan(&appKey, &licenseType, &oldDomain)
+	var appKey, licenseType string
+	err = db.QueryRow(`SELECT a.app_key, l.type FROM licenses l JOIN apps a ON a.id = l.app_id WHERE l.id = ?`, licenseID).Scan(&appKey, &licenseType)
 	if err != nil || appKey != settings.ProductAppKey || licenseType != "domain" {
 		return
 	}

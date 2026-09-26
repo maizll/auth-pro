@@ -976,8 +976,10 @@ func LicenseUpdate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
+	var previousDomain string
 	if req.Type == "domain" {
 		if licenseID, convErr := strconv.ParseInt(id, 10, 64); convErr == nil {
+			_ = db.QueryRow(`SELECT COALESCE((SELECT domain FROM license_domains WHERE license_id = ? ORDER BY id LIMIT 1), '')`, licenseID).Scan(&previousDomain)
 			if err := guardProductDomainChange(db, licenseID, req.Domain, true); err != nil {
 				c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 				return
@@ -1018,7 +1020,7 @@ func LicenseUpdate(c *gin.Context) {
 	}
 	if req.Type == "domain" {
 		if licenseID, convErr := strconv.ParseInt(id, 10, 64); convErr == nil {
-			finishProductDomainChange(db, licenseID, req.Domain, "admin")
+			finishProductDomainChange(db, licenseID, previousDomain, req.Domain, "admin")
 		}
 	}
 

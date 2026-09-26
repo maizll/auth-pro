@@ -458,7 +458,8 @@ func UserLicenseUpdateTarget(c *gin.Context) {
 
 	licenseID := c.Param("id")
 	type updateReq struct {
-		Target string `json:"target" binding:"required"`
+		Target string `json:"target"`
+		Unbind bool   `json:"unbind"`
 	}
 	var req updateReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -466,7 +467,7 @@ func UserLicenseUpdateTarget(c *gin.Context) {
 		return
 	}
 	req.Target = strings.TrimSpace(req.Target)
-	if req.Target == "" {
+	if !req.Unbind && req.Target == "" {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请填写授权目标"})
 		return
 	}
@@ -478,17 +479,31 @@ func UserLicenseUpdateTarget(c *gin.Context) {
 	}
 
 	var licenseType string
+	var appID int64
+	var oldDomain string
 	err = db.QueryRow(`
-		SELECT type
-		FROM licenses
-		WHERE id = ? AND owner_type = 'user' AND owner_id = ?
-	`, licenseID, userID).Scan(&licenseType)
+		SELECT l.type, l.app_id, COALESCE((SELECT domain FROM license_domains WHERE license_id = l.id ORDER BY id LIMIT 1), '')
+		FROM licenses l
+		WHERE l.id = ? AND l.owner_type = 'user' AND l.owner_id = ?
+	`, licenseID, userID).Scan(&licenseType, &appID, &oldDomain)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "授权不存在"})
 		return
 	}
 	if licenseType != "domain" && licenseType != "wildcard" && licenseType != "ip" && licenseType != "key" {
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "该授权类型不允许用户修改"})
+		return
+	}
+	if req.Unbind {
+		if licenseType == "key" {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "密钥授权请在站点列表里解绑"})
+			return
+		}
+		if _, err = db.Exec("DELETE FROM license_domains WHERE license_id = ?", licenseID); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "解绑域名失败"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已解绑域名"})
 		return
 	}
 
@@ -498,10 +513,21 @@ func UserLicenseUpdateTarget(c *gin.Context) {
 		return
 	}
 	req.Target = validatedTarget
+	licenseNumeric, _ := strconv.ParseInt(licenseID, 10, 64)
 	if licenseType == "domain" {
-		licenseNumeric, _ := strconv.ParseInt(licenseID, 10, 64)
 		if err := guardProductDomainChange(db, licenseNumeric, req.Target, false); err != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+			return
+		}
+	}
+	if licenseType != "key" && normalizeLicenseDomain(oldDomain) != normalizeLicenseDomain(req.Target) {
+		taken, takenErr := licenseDomainTaken(db, appID, licenseNumeric, req.Target)
+		if takenErr != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "检查域名占用失败"})
+			return
+		}
+		if taken {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": licenseDomainOccupied})
 			return
 		}
 	}
@@ -535,8 +561,7 @@ func UserLicenseUpdateTarget(c *gin.Context) {
 		return
 	}
 	if licenseType == "domain" {
-		licenseNumeric, _ := strconv.ParseInt(licenseID, 10, 64)
-		finishProductDomainChange(db, licenseNumeric, req.Target, "user")
+		finishProductDomainChange(db, licenseNumeric, oldDomain, req.Target, "user")
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "更新成功"})

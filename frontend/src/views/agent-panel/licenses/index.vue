@@ -49,10 +49,13 @@
               <span class="target-icon" :class="`target-icon-${row.type}`">
                 <iconify-icon :icon="typeIconMap[row.type] || 'ri:global-line'" width="15" />
               </span>
-              <el-tag v-if="row.bindingPending" type="warning" size="small">待绑定</el-tag>
+              <el-tag v-if="row.bindingPending" type="warning" size="small">未绑定</el-tag>
               <span v-else class="target-value" :class="{ mono: row.type !== 'domain' }">{{
                 row.domain || '--'
               }}</span>
+              <span v-if="row.type === 'key'" class="bound-count">
+                已绑定 {{ row.boundSites ?? 0 }}{{ Number(row.maxSites) ? ` / ${row.maxSites}` : '' }}
+              </span>
             </div>
           </template>
         </el-table-column>
@@ -81,28 +84,43 @@
             <span class="source-text">{{ row.source }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="站点" width="110" align="center">
+        <el-table-column label="操作" min-width="220" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button
-              v-if="row.type === 'key'"
-              link
-              type="primary"
-              size="small"
-              @click="openSiteDialog(row)"
-            >
-              已绑定 {{ row.boundSites ?? 0 }}{{ Number(row.maxSites) ? ` / ${row.maxSites}` : '' }}
-            </el-button>
-            <span v-else class="text-secondary">--</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="190" fixed="right" align="center">
-          <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openEditDialog(row)">
-              {{ row.bindingPending ? '绑定目标' : row.type === 'key' ? '管理密钥' : '编辑' }}
-            </el-button>
-            <el-button link type="primary" size="small" @click="openVersionsDialog(row)">
-              版本下载
-            </el-button>
+            <div class="row-actions">
+              <template v-if="isDomainLicense(row.type)">
+                <el-button
+                  v-if="row.bindingPending"
+                  link
+                  type="primary"
+                  size="small"
+                  @click="openEditDialog(row)"
+                >
+                  绑定
+                </el-button>
+                <template v-else>
+                  <el-button link type="primary" size="small" @click="openEditDialog(row)">
+                    更换
+                  </el-button>
+                  <el-button link type="danger" size="small" @click="unbindDomain(row)">
+                    解绑
+                  </el-button>
+                </template>
+              </template>
+              <template v-else-if="row.type === 'key'">
+                <el-button link type="primary" size="small" @click="openSiteDialog(row, 'bind')">
+                  绑定
+                </el-button>
+                <el-button link type="primary" size="small" @click="openEditDialog(row)">
+                  更换
+                </el-button>
+                <el-button link type="danger" size="small" @click="openSiteDialog(row, 'unbind')">
+                  解绑
+                </el-button>
+              </template>
+              <el-button link type="primary" size="small" @click="openVersionsDialog(row)">
+                版本下载
+              </el-button>
+            </div>
           </template>
         </el-table-column>
         <template #empty>
@@ -123,8 +141,21 @@
       </div>
     </div>
 
-    <el-dialog v-model="editDialog.visible" title="编辑授权" width="460px" destroy-on-close>
-      <el-form label-width="86px">
+    <el-dialog
+      v-model="editDialog.visible"
+      :title="editDialog.type === 'key' ? '更换密钥' : editDialog.bindingPending ? '绑定域名' : '更换域名'"
+      width="min(460px, 92vw)"
+      destroy-on-close
+    >
+      <el-alert
+        v-if="editDialog.serverError"
+        :title="editDialog.serverError"
+        type="error"
+        show-icon
+        :closable="false"
+        class="bind-error"
+      />
+      <el-form label-width="86px" @submit.prevent="submitLicenseEdit">
         <el-form-item label="授权编号">
           <el-input :model-value="editDialog.licenseNo" disabled />
         </el-form-item>
@@ -134,7 +165,7 @@
         <el-form-item label="授权类型">
           <el-input :model-value="editDialog.typeLabel" disabled />
         </el-form-item>
-        <el-form-item :label="editTargetLabel">
+        <el-form-item :label="editTargetLabel" :error="editFieldError">
           <div class="target-editor">
             <el-input
               v-model="editDialog.target"
@@ -164,14 +195,15 @@
           v-if="editDialog.type !== 'key'"
           type="primary"
           :loading="editDialog.submitting"
+          :disabled="!!editFieldError"
           @click="submitLicenseEdit"
         >
-          保存
+          {{ editDialog.bindingPending ? '绑定' : '更换' }}
         </el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="siteDialog.visible" title="密钥绑定站点" width="680px" destroy-on-close>
+    <el-dialog v-model="siteDialog.visible" title="密钥绑定站点" width="min(680px, 92vw)" destroy-on-close>
       <el-alert
         v-if="siteDialog.maxSites > 0"
         :title="`当前已绑定 ${siteDialog.list.length} / ${siteDialog.maxSites} 个站点，达到上限后新站点验证会被拒绝，可解绑释放名额。`"
@@ -293,10 +325,15 @@
 
 <script setup lang="ts">
   import { ref, reactive, onMounted, computed } from 'vue'
+  import { useRoute, useRouter } from 'vue-router'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { licenseTargetError } from '@/utils/license-target'
   import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
   import LicenseVersionsDialog from '@/components/core/panels/LicenseVersionsDialog.vue'
+
+  const route = useRoute()
+  const router = useRouter()
 
   const loading = ref(false)
   const searchForm = reactive({ keyword: '', appId: '', status: '' })
@@ -307,12 +344,14 @@
     visible: false,
     submitting: false,
     refreshing: false,
+    bindingPending: false,
     id: 0,
     licenseNo: '',
     appName: '',
     type: 'domain',
     typeLabel: '',
-    target: ''
+    target: '',
+    serverError: ''
   })
 
   const siteDialog = reactive({
@@ -371,6 +410,17 @@
     }
     return placeholders[editDialog.type] || ''
   })
+  const editFieldError = computed(() => {
+    if (!editDialog.visible || editDialog.type === 'key') return ''
+    const value = editDialog.target.trim()
+    if (!value) return ''
+    return licenseTargetError(editDialog.type, value)
+  })
+  const domainLicenseTypes = new Set(['domain', 'wildcard', 'ip'])
+
+  function isDomainLicense(type: string) {
+    return domainLicenseTypes.has(type)
+  }
 
   function getToken() {
     return localStorage.getItem('agent_panel_token') || ''
@@ -433,23 +483,27 @@
     Object.assign(editDialog, {
       visible: true,
       submitting: false,
+      bindingPending: !!row.bindingPending,
       id: Number(row.id),
       licenseNo: row.licenseNo || '',
       appName: row.appName || '',
       type: row.type,
       typeLabel: row.typeLabel || '',
-      target: row.domain || ''
+      target: row.bindingPending ? '' : row.domain || '',
+      serverError: ''
     })
   }
 
   async function submitLicenseEdit() {
     const target = editDialog.target.trim()
-    if (!target) {
-      ElMessage.warning(`请输入${editTargetLabel.value}`)
+    const localError = licenseTargetError(editDialog.type, target)
+    if (editDialog.type !== 'key' && localError) {
+      editDialog.serverError = localError
       return
     }
 
     editDialog.submitting = true
+    editDialog.serverError = ''
     try {
       const { data } = await axios.put(
         `/api/agent-panel/licenses/${editDialog.id}`,
@@ -460,16 +514,41 @@
         { headers: authHeaders() }
       )
       if (data.code === 200) {
-        ElMessage.success(data.msg || '授权已更新')
+        ElMessage.success(data.msg || (editDialog.bindingPending ? '已绑定域名' : '已更换域名'))
         editDialog.visible = false
         await fetchList()
       } else {
-        ElMessage.error(data.msg || '更新失败')
+        editDialog.serverError = data.msg || '更新失败'
       }
     } catch {
-      ElMessage.error('更新失败，请稍后重试')
+      editDialog.serverError = '更新失败，请稍后重试'
     } finally {
       editDialog.submitting = false
+    }
+  }
+
+  async function unbindDomain(row: any) {
+    try {
+      await ElMessageBox.confirm(
+        `确定解绑「${row.domain}」？解绑后需要重新绑定才能使用。`,
+        '解绑域名',
+        { type: 'warning', confirmButtonText: '解绑', cancelButtonText: '取消' }
+      )
+      const { data } = await axios.put(
+        `/api/agent-panel/licenses/${row.id}`,
+        { unbind: true },
+        { headers: authHeaders() }
+      )
+      if (data.code === 200) {
+        ElMessage.success(data.msg || '已解绑域名')
+        await fetchList()
+      } else {
+        ElMessage.error(data.msg || '解绑失败')
+      }
+    } catch (error) {
+      if (error !== 'cancel' && error !== 'close') {
+        ElMessage.error('解绑失败，请稍后重试')
+      }
     }
   }
 
@@ -495,10 +574,15 @@
     }
   }
 
-  async function openSiteDialog(row: any) {
+  async function openSiteDialog(row: any, intent: 'bind' | 'unbind' = 'bind') {
+    const bound = Number(row.boundSites) || 0
+    const maxSites = Number(row.maxSites) || 0
+    if (intent === 'bind' && maxSites > 0 && bound >= maxSites) {
+      ElMessage.warning('授权已达到最大站点数')
+    }
     siteDialog.licenseId = Number(row.id)
     siteDialog.licenseNo = row.licenseNo || ''
-    siteDialog.maxSites = Number(row.maxSites) || 0
+    siteDialog.maxSites = maxSites
     siteDialog.visible = true
     await fetchLicenseSites()
   }
@@ -589,9 +673,15 @@
     redeemResult.visible = false
   }
 
-  onMounted(() => {
+  onMounted(async () => {
     fetchApps()
-    fetchList()
+    await fetchList()
+    const bind = typeof route.query.bind === 'string' ? route.query.bind : ''
+    if (!bind) return
+    const row = tableData.value.find((item) => String(item.id) === bind)
+    if (row?.type === 'key') openSiteDialog(row, 'bind')
+    else if (row && isDomainLicense(row.type)) openEditDialog(row)
+    router.replace({ path: '/agent-panel/licenses' })
   })
 </script>
 
@@ -662,6 +752,7 @@
 
   .target-cell {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     align-items: center;
     min-width: 0;
@@ -747,6 +838,23 @@
     min-width: 360px;
   }
 
+  .row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    justify-content: center;
+  }
+
+  .bound-count {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .bind-error {
+    margin-bottom: 12px;
+  }
+
   @media (width <= 768px) {
     .licenses-card {
       padding: 14px;
@@ -774,6 +882,10 @@
     .license-key-result {
       min-width: 0;
       max-width: 100%;
+    }
+
+    .row-actions {
+      justify-content: flex-start;
     }
   }
 </style>

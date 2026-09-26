@@ -64,10 +64,6 @@
             </span>
           </template>
         </el-menu-item>
-        <el-menu-item index="/agent-panel/store">
-          <el-icon><iconify-icon icon="ri:vip-crown-line" /></el-icon>
-          <template #title>已绑定站点</template>
-        </el-menu-item>
         <el-menu-item index="/agent-panel/profile">
           <el-icon><iconify-icon icon="ri:settings-3-line" /></el-icon>
           <template #title>个人设置</template>
@@ -232,7 +228,6 @@
     '/agent-panel/purchase': '开通授权',
     '/agent-panel/finance': '我的财务',
     '/agent-panel/tickets': '我的工单',
-    '/agent-panel/store': '已绑定站点',
     '/agent-panel/profile': '个人设置',
     '/agent-panel/become-developer': '开发者入驻'
   }

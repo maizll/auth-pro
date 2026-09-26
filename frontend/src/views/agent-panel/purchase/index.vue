@@ -375,10 +375,28 @@
             </div>
           </div>
 
-          <el-button type="primary" class="success-btn" @click="resetFlow">
-            <iconify-icon icon="ri:add-line" width="16" style="margin-right: 4px" />
-            继续开通
-          </el-button>
+          <el-alert
+            class="bind-guide"
+            type="warning"
+            show-icon
+            :closable="false"
+            :title="
+              formData.userId
+                ? '该授权归用户账号。请让对方在用户端「我的授权」里绑定、更换或解绑域名。'
+                : formData.type === 'key'
+                  ? '密钥授权会在软件首次校验时绑定站点。达到上限会提示「授权已达到最大站点数」。'
+                  : '请确认绑定域名。之后可在「我的授权」里更换或解绑。更换本站商业版域名后，30 天内不能再次更换。'
+            "
+          />
+          <div class="success-actions">
+            <el-button v-if="!formData.userId" type="primary" class="success-btn" @click="goBindDomain">
+              {{ formData.type === 'key' ? '查看授权' : '绑定域名' }}
+            </el-button>
+            <el-button class="success-btn" @click="resetFlow">
+              <iconify-icon icon="ri:add-line" width="16" style="margin-right: 4px" />
+              继续开通
+            </el-button>
+          </div>
         </div>
       </div>
     </transition>
@@ -606,7 +624,9 @@
             appName: data.data.appName,
             planName: data.data.planName,
             durationDays: data.data.durationDays,
-            cost: Number(data.data.cost || 0)
+            cost: Number(data.data.cost || 0),
+            type: formData.type,
+            domain: formData.domain
           }
           agentBalance.value = Number(data.data.newBalance || 0)
           step.value = 4
@@ -654,7 +674,9 @@
             appName: data.data.appName,
             planName: data.data.planName,
             durationDays: data.data.durationDays,
-            cost: Number(data.data.cost || 0)
+            cost: Number(data.data.cost || 0),
+            type: formData.type,
+            domain: formData.domain
           }
           agentBalance.value = Number(data.data.newBalance || 0)
           step.value = 4
@@ -915,6 +937,14 @@
     }
   }
 
+  function goBindDomain() {
+    const licenseId = purchaseResult.value?.licenseId
+    router.push({
+      path: '/agent-panel/licenses',
+      query: licenseId ? { bind: String(licenseId) } : {}
+    })
+  }
+
   function resetFlow() {
     purchaseResult.value = null
     step.value = 1
@@ -1000,7 +1030,7 @@
           window.location.href = data.data.payUrl
           return
         }
-        purchaseResult.value = data.data
+        purchaseResult.value = { ...data.data, type: formData.type, domain: formData.domain }
         if (data.data?.payMethod === 'quota') {
           quotaInfo.value.remain = Math.max(0, quotaInfo.value.remain - 1)
         } else {
@@ -1938,11 +1968,23 @@
       }
     }
 
+    .bind-guide {
+      margin: 16px 20px 0;
+    }
+
+    .success-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      margin: 16px 20px 28px;
+    }
+
     .success-btn {
       display: flex;
       align-items: center;
       justify-content: center;
-      margin: 24px auto 28px;
+      margin: 0;
     }
   }
 

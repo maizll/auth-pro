@@ -548,7 +548,8 @@ func AgentPanelLicenseUpdate(c *gin.Context) {
 
 	var req struct {
 		Type   string `json:"type"`
-		Target string `json:"target" binding:"required"`
+		Target string `json:"target"`
+		Unbind bool   `json:"unbind"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请填写授权目标"})
@@ -556,7 +557,7 @@ func AgentPanelLicenseUpdate(c *gin.Context) {
 	}
 	req.Type = strings.TrimSpace(req.Type)
 	req.Target = strings.TrimSpace(req.Target)
-	if req.Target == "" {
+	if !req.Unbind && req.Target == "" {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "授权目标不能为空"})
 		return
 	}
@@ -579,11 +580,14 @@ func AgentPanelLicenseUpdate(c *gin.Context) {
 
 	var existingID uint64
 	var licenseType string
+	var appID int64
+	var oldDomain string
 	err = tx.QueryRow(`
-		SELECT id, type FROM licenses
-		WHERE id = ? AND owner_type = 'agent' AND owner_id = ?
+		SELECT l.id, l.type, l.app_id, COALESCE((SELECT domain FROM license_domains WHERE license_id = l.id ORDER BY id LIMIT 1), '')
+		FROM licenses l
+		WHERE l.id = ? AND l.owner_type = 'agent' AND l.owner_id = ?
 		FOR UPDATE
-	`, licenseID, agentID).Scan(&existingID, &licenseType)
+	`, licenseID, agentID).Scan(&existingID, &licenseType, &appID, &oldDomain)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "授权不存在或不属于当前代理商"})
 		return
@@ -598,7 +602,23 @@ func AgentPanelLicenseUpdate(c *gin.Context) {
 		return
 	}
 	if licenseType == "key" {
+		if req.Unbind {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "密钥授权请在站点列表里解绑"})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "密钥授权请使用刷新密钥功能"})
+		return
+	}
+	if req.Unbind {
+		if _, err = tx.Exec("DELETE FROM license_domains WHERE license_id = ?", licenseID); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "解绑域名失败"})
+			return
+		}
+		if err = tx.Commit(); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "解绑域名失败"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已解绑域名"})
 		return
 	}
 
@@ -610,6 +630,17 @@ func AgentPanelLicenseUpdate(c *gin.Context) {
 	if licenseType == "domain" {
 		if err := guardProductDomainChange(db, int64(licenseID), validatedTarget, false); err != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+			return
+		}
+	}
+	if normalizeLicenseDomain(oldDomain) != normalizeLicenseDomain(validatedTarget) {
+		taken, takenErr := licenseDomainTaken(db, appID, int64(licenseID), validatedTarget)
+		if takenErr != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "检查域名占用失败"})
+			return
+		}
+		if taken {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": licenseDomainOccupied})
 			return
 		}
 	}
@@ -635,7 +666,7 @@ func AgentPanelLicenseUpdate(c *gin.Context) {
 		return
 	}
 	if licenseType == "domain" {
-		finishProductDomainChange(db, int64(licenseID), validatedTarget, "agent")
+		finishProductDomainChange(db, int64(licenseID), oldDomain, validatedTarget, "agent")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
