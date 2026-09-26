@@ -11,24 +11,48 @@
     <ElDialog
       v-model="commercialUi.upgradeOpen"
       :title="dialogTitle"
-      modal-class="commercial-purchase-modal"
+      :modal-class="purchaseModalClass"
       append-to-body
       @open="loadPurchase"
       @closed="onPurchaseClosed"
     >
+      <template #header>
+        <div v-if="showBrandBanner" class="edition-banner">
+          <ArtSvgIcon icon="ri:vip-diamond-fill" class="edition-banner__icon" />
+          <div>
+            <h3>{{ action === 'renew' ? '续费商业版，继续使用全部能力' : commercialPitch.title }}</h3>
+            <p>{{ commercialPitch.subtitle }}</p>
+          </div>
+        </div>
+        <span v-else class="plain-title">{{ dialogTitle }}</span>
+      </template>
       <div v-loading="loading" class="upgrade-body">
         <ElAlert v-if="loadError" type="error" :closable="false" show-icon :title="loadError" />
         <template v-else-if="upgraded">
-          <ElAlert type="success" :closable="false" show-icon :title="successTitle">
+          <div class="celebrate" aria-hidden="true">
+            <span v-for="n in 10" :key="n" class="celebrate__spark" :style="{ '--i': n }" />
+          </div>
+          <div class="celebrate-copy">
+            <ArtSvgIcon icon="ri:vip-crown-fill" class="celebrate-copy__icon" />
+            <h3>{{ successTitle }}</h3>
             <p>授权已经生效。关闭此窗口后，顶栏和页面上的限制提示会马上更新。</p>
             <p v-if="account">到期时间：{{ commercialExpireText(account) }}</p>
-          </ElAlert>
+          </div>
         </template>
         <template v-else>
-          <CommercialMark
-            v-if="action !== 'view'"
-            text="免费版只能创建 1 个授权应用。商业版解除这个限制，可以创建多个授权应用。付款在当前窗口完成，不会跳转到商店。"
-          />
+          <section v-if="action !== 'view'" class="compare">
+            <div class="compare__head">
+              <span>能力</span>
+              <span>免费版</span>
+              <span>商业版</span>
+            </div>
+            <div v-for="row in commercialCompareRows" :key="row.label" class="compare__row">
+              <span class="compare__label">{{ row.label }}</span>
+              <span class="compare__free">{{ row.free }}</span>
+              <span class="compare__paid">{{ row.commercial }}</span>
+            </div>
+            <p class="upgrade-tip">{{ commercialCompareNote }}</p>
+          </section>
           <ElAlert
             v-if="account?.domainMismatch"
             type="warning"
@@ -37,10 +61,7 @@
             title="当前访问域名与授权域名不一致，付费能力暂按免费版处理。"
           />
           <template v-if="action === 'view'">
-            <p>当前是永久商业版，无需再次购买。</p>
-            <p v-if="account?.account">绑定账号：{{ account.account }}</p>
-            <p v-if="account?.domain">授权域名：{{ account.domain }}</p>
-            <p v-if="account?.licenseNo">授权编号：{{ account.licenseNo }}</p>
+            <CommercialLicenseCard :account="account" />
           </template>
           <template v-else-if="!account?.bound">
             <ElForm label-width="72px" class="upgrade-form">
@@ -61,20 +82,40 @@
             <p class="upgrade-tip">将使用站点域名 {{ account?.requestDomain || '（未识别）' }} 绑定，域名不可在此修改。</p>
           </template>
           <template v-else-if="!payUrl">
-            <p>{{ action === 'renew' ? '已绑定账号，请选择续费套餐。' : '已绑定账号，请选择套餐。' }}</p>
-            <ElSelect v-model="planId" placeholder="选择套餐" style="width: 100%">
-              <ElOption v-for="plan in plans" :key="plan.id" :label="commercialPlanLabel(plan)" :value="plan.id" />
-            </ElSelect>
+            <p class="section-title">{{ action === 'renew' ? '选择续费套餐' : '选择套餐' }}</p>
+            <div v-if="plans.length" class="plan-grid">
+              <button
+                v-for="(plan, index) in plans"
+                :key="plan.id"
+                type="button"
+                class="plan-card"
+                :class="{ 'is-selected': planId === plan.id, 'is-recommended': index === 0 }"
+                @click="planId = plan.id"
+              >
+                <span v-if="index === 0" class="plan-card__ribbon">推荐</span>
+                <span class="plan-card__name">{{ plan.name }}</span>
+                <span class="plan-card__price">
+                  <small>¥</small>{{ yuanWhole(plan.priceCents) }}<small>.{{ yuanFrac(plan.priceCents) }}</small>
+                </span>
+                <span class="plan-card__period">{{ commercialPeriodText(plan.period) || '按约定时长' }}</span>
+              </button>
+            </div>
             <ElButton type="primary" :loading="acting" :disabled="!planId" @click="pay">生成付款码</ElButton>
             <p v-if="!plans.length" class="upgrade-tip">源站尚未配置可购买的套餐。</p>
           </template>
           <template v-else>
-            <p>请使用支付宝或微信扫描付款。支付完成后会在此窗口确认，无需新开页面。</p>
-            <div class="upgrade-qr">
-              <QrcodeVue :value="payUrl" :size="200" />
+            <div class="pay-panel">
+              <div class="upgrade-qr">
+                <QrcodeVue :value="payUrl" :size="188" />
+              </div>
+              <div class="pay-panel__meta">
+                <p class="pay-panel__title">{{ orderTitle }}</p>
+                <p class="pay-panel__count">剩余 {{ countdownText }}</p>
+                <p v-if="payStatus" class="upgrade-status">{{ payStatus }}</p>
+                <p class="upgrade-tip">安全支付：二维码由本站生成。也可以打开付款页，本站不保存支付密码。</p>
+                <ElButton @click="openPayPage">打开付款页</ElButton>
+              </div>
             </div>
-            <p class="upgrade-tip">{{ orderTitle }}</p>
-            <p v-if="payStatus" class="upgrade-status">{{ payStatus }}</p>
             <ElAlert v-if="payFailed" type="error" :closable="false" show-icon :title="payFailed" />
             <ElButton v-if="payFailed" @click="resetPay">重新选择套餐</ElButton>
           </template>
@@ -110,17 +151,7 @@
     >
       <div v-loading="loading" class="upgrade-body">
         <ElAlert v-if="loadError" type="error" :closable="false" show-icon :title="loadError" />
-        <template v-else-if="account && isCommercialActive(account)">
-          <CommercialMark text="当前已是商业版，无需再次升级。" icon="ri:vip-crown-fill" tone="ok" />
-          <p>到期时间：{{ commercialExpireText(account) }}</p>
-          <p v-if="account.account">绑定账号：{{ account.account }}</p>
-          <p v-if="account.domain">授权域名：{{ account.domain }}</p>
-          <p v-if="account.licenseNo">授权编号：{{ account.licenseNo }}</p>
-          <p v-if="account.offlineGrace">源站暂时连不上，商业版处于离线宽限。</p>
-        </template>
-        <template v-else>
-          <p>当前还不是商业版。</p>
-        </template>
+        <CommercialLicenseCard v-else :account="account" />
       </div>
       <template #footer>
         <ElButton type="primary" @click="commercialUi.licenseOpen = false">关闭</ElButton>
@@ -135,13 +166,16 @@
   import { caughtErrorText, errorAlreadyToasted, showCaughtError } from '@/utils/http/error-toast'
   import QrcodeVue from 'qrcode.vue'
   import CommercialMark from './CommercialMark.vue'
+  import CommercialLicenseCard from './CommercialLicenseCard.vue'
   import {
+    commercialCompareNote,
+    commercialCompareRows,
     commercialCta,
     commercialCtaLabel,
     commercialExpireText,
-    commercialPlanLabel,
+    commercialPeriodText,
+    commercialPitch,
     commercialUi,
-    isCommercialActive,
     rememberCommercialAccount
   } from '@/utils/commercial'
   import {
@@ -160,6 +194,7 @@
   const loadError = ref('')
   const account = ref<StoreAccount | null>(null)
   const action = computed(() => commercialCta(account.value))
+  const upgraded = ref(false)
   const dialogTitle = computed(() => {
     if (upgraded.value) return '升级完成'
     if (action.value === 'view') return '查看授权'
@@ -167,21 +202,33 @@
     return '升级商业版'
   })
   const promptActionLabel = computed(() => commercialCtaLabel(commercialCta(commercialUi.account)))
+  const nowTick = ref(Date.now())
+  let tickTimer: ReturnType<typeof setInterval> | null = null
+  let payDeadline = 0
+  const payWindowMs = 30 * 60 * 1000
+  const countdownText = computed(() => {
+    const left = Math.max(0, payDeadline - nowTick.value)
+    const total = Math.ceil(left / 1000)
+    const minutes = Math.floor(total / 60)
+    const seconds = total % 60
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+  })
   const plans = ref<StorePlan[]>([])
   const planId = ref<number>()
   const payUrl = ref('')
   const orderTitle = ref('')
   const payStatus = ref('')
   const payFailed = ref('')
-  const upgraded = ref(false)
+  const showBrandBanner = computed(() => !upgraded.value && action.value !== 'view')
+  const purchaseModalClass = computed(() =>
+    showBrandBanner.value ? 'commercial-purchase-modal is-brand' : 'commercial-purchase-modal is-plain'
+  )
   const successTitle = ref('已升级为商业版')
   const form = reactive({ account: '', password: '', role: 'user' })
   const connection = reactive({ sourceBase: 'https://auth.maizll.com', siteUrl: '', trustProxy: false })
   let pollTimer: ReturnType<typeof setInterval> | null = null
-  let pollStarted = 0
   let pollFailures = 0
   let pendingRefresh = false
-  const pollTimeoutMs = 10 * 60 * 1000
 
   function goUpgrade() {
     commercialUi.promptOpen = false
@@ -193,12 +240,41 @@
     pollTimer = null
   }
 
+  function stopTick() {
+    if (tickTimer) clearInterval(tickTimer)
+    tickTimer = null
+  }
+
   function resetPay() {
     stopPoll()
+    stopTick()
+    payDeadline = 0
     payUrl.value = ''
     payStatus.value = ''
     payFailed.value = ''
     orderTitle.value = ''
+  }
+
+  function yuanWhole(cents: number) {
+    return Math.floor(cents / 100).toString()
+  }
+
+  function yuanFrac(cents: number) {
+    return String(cents % 100).padStart(2, '0')
+  }
+
+  function openPayPage() {
+    if (!payUrl.value) return
+    window.open(payUrl.value, '_blank', 'noopener')
+  }
+
+  function expirePayWait() {
+    stopPoll()
+    stopTick()
+    payStatus.value = ''
+    if (payFailed.value) return
+    payFailed.value = '支付等待超时。若已经付款，请关闭窗口后看顶栏是否已变为商业版；若尚未付款，请重新生成付款码。'
+    ElMessage.error(payFailed.value)
   }
 
   function applyAccount(next: StoreAccount) {
@@ -291,6 +367,13 @@
       payUrl.value = order.payUrl
       orderTitle.value = `${order.title} ${(order.amountCents / 100).toFixed(2)} 元`
       successTitle.value = buyingUpgrade ? '已升级为商业版' : '商业版已续费'
+      payDeadline = Date.now() + payWindowMs
+      nowTick.value = Date.now()
+      stopTick()
+      tickTimer = setInterval(() => {
+        nowTick.value = Date.now()
+        if (payDeadline && nowTick.value >= payDeadline) expirePayWait()
+      }, 1000)
       poll(order.orderNo)
     } catch (error: unknown) {
       showCaughtError(error, '创建订单失败')
@@ -301,15 +384,11 @@
 
   function poll(orderNo: string) {
     stopPoll()
-    pollStarted = Date.now()
     pollFailures = 0
     payStatus.value = '正在等待支付'
     pollTimer = setInterval(async () => {
-      if (Date.now() - pollStarted > pollTimeoutMs) {
-        stopPoll()
-        payStatus.value = ''
-        payFailed.value = '支付等待超时。若已经付款，请关闭窗口后看顶栏是否已变为商业版；若尚未付款，请重新生成付款码。'
-        ElMessage.error(payFailed.value)
+      if (payDeadline && Date.now() >= payDeadline) {
+        expirePayWait()
         return
       }
       try {
@@ -392,6 +471,7 @@
 
   onBeforeUnmount(() => {
     stopPoll()
+    stopTick()
   })
 </script>
 
@@ -399,47 +479,330 @@
   .upgrade-body {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
   }
 
-  .upgrade-form {
-    margin-top: 8px;
+  .edition-banner {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    margin: -16px calc(-16px - var(--el-dialog-padding-primary, 16px) - var(--el-message-close-size, 16px)) 0 -16px;
+    padding: 18px 56px 18px 18px;
+    color: #fff8e8;
+    background: linear-gradient(135deg, #3a2a12 0%, #8a6232 48%, #e8c56b 100%);
+  }
+
+  .edition-banner h3,
+  .edition-banner p,
+  .celebrate-copy h3,
+  .celebrate-copy p,
+  .section-title,
+  .upgrade-tip,
+  .upgrade-status,
+  .pay-panel__title,
+  .pay-panel__count {
+    margin: 0;
+  }
+
+  .edition-banner h3 {
+    font-size: 18px;
+    line-height: 1.35;
+  }
+
+  .edition-banner p {
+    margin-top: 4px;
+    color: rgb(255 248 232 / 88%);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .edition-banner__icon {
+    flex: none;
+    font-size: 28px;
+  }
+
+  .plain-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+  }
+
+  .compare {
+    overflow: hidden;
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 12px;
+  }
+
+  .compare__head,
+  .compare__row {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr 1.2fr;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 12px;
+  }
+
+  .compare__head {
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+    background: var(--el-fill-color-light);
+  }
+
+  .compare__row + .compare__row {
+    border-top: 1px solid var(--el-border-color-extra-light);
+  }
+
+  .compare__label {
+    color: var(--el-text-color-primary);
+    font-size: 13px;
+  }
+
+  .compare__free,
+  .compare__paid {
+    font-size: 13px;
+  }
+
+  .compare__free {
+    color: var(--el-text-color-secondary);
+  }
+
+  .compare__paid {
+    color: #8a6232;
+    font-weight: 600;
+  }
+
+  :global(html.dark) .compare__paid,
+  :global(.dark) .compare__paid,
+  :global(html.dark) .plan-card__price,
+  :global(.dark) .plan-card__price,
+  :global(html.dark) .pay-panel__count,
+  :global(.dark) .pay-panel__count,
+  :global(html.dark) .celebrate-copy__icon,
+  :global(.dark) .celebrate-copy__icon {
+    color: #f3d48a;
+  }
+
+  .section-title {
+    color: var(--el-text-color-primary);
+    font-weight: 600;
+  }
+
+  .plan-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+  }
+
+  .plan-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+    padding: 16px 14px 14px;
+    overflow: hidden;
+    text-align: left;
+    cursor: pointer;
+    background: var(--el-bg-color);
+    border: 1px solid var(--el-border-color);
+    border-radius: 12px;
+  }
+
+  .plan-card.is-recommended {
+    padding-top: 22px;
+  }
+
+  .plan-card.is-selected {
+    border-color: #c8962e;
+    box-shadow: 0 0 0 2px rgb(200 150 46 / 35%);
+  }
+
+  .plan-card__ribbon {
+    position: absolute;
+    top: 8px;
+    right: -28px;
+    padding: 2px 32px;
+    color: #6b4a12;
+    font-size: 12px;
+    background: linear-gradient(180deg, #fff3cc, #f3d48a);
+    transform: rotate(35deg);
+  }
+
+  .plan-card__name {
+    color: var(--el-text-color-primary);
+    font-size: 14px;
+  }
+
+  .plan-card__price {
+    color: #8a6232;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .plan-card__price small {
+    font-size: 14px;
+  }
+
+  .plan-card__period {
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+  }
+
+  .pay-panel {
+    display: grid;
+    grid-template-columns: 188px 1fr;
+    gap: 16px;
+    align-items: center;
+  }
+
+  .upgrade-qr {
+    display: flex;
+    justify-content: center;
+    padding: 8px;
+    background: #fff;
+    border-radius: 12px;
+  }
+
+  .pay-panel__title {
+    color: var(--el-text-color-primary);
+    font-weight: 600;
+  }
+
+  .pay-panel__count {
+    margin-top: 6px;
+    color: #8a6232;
+    font-size: 20px;
+    font-variant-numeric: tabular-nums;
   }
 
   .upgrade-tip,
   .upgrade-status {
-    margin: 0;
     color: var(--el-text-color-secondary);
     font-size: 12px;
+    line-height: 1.5;
   }
 
   .upgrade-status {
     color: var(--el-color-primary);
   }
 
-  .upgrade-qr {
-    display: flex;
-    justify-content: center;
+  .celebrate {
+    position: relative;
+    height: 72px;
   }
 
-  .upgrade-body p {
-    margin: 0;
+  .celebrate__spark {
+    position: absolute;
+    top: 36px;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    background: #e8c56b;
+    border-radius: 50%;
+    animation: spark-out 900ms ease-out both;
+    animation-delay: calc(var(--i) * 40ms);
+    transform: rotate(calc(var(--i) * 36deg)) translateY(-8px);
+  }
+
+  .celebrate-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+    text-align: center;
+  }
+
+  .celebrate-copy__icon {
+    font-size: 36px;
+    color: #c8962e;
+    animation: crown-pop 500ms ease-out both;
+  }
+
+  .celebrate-copy h3 {
+    color: var(--el-text-color-primary);
+    font-size: 22px;
+  }
+
+  .celebrate-copy p {
+    color: var(--el-text-color-regular);
+    font-size: 13px;
+  }
+
+  @keyframes spark-out {
+    from {
+      opacity: 1;
+      transform: rotate(calc(var(--i) * 36deg)) translateY(0);
+    }
+
+    to {
+      opacity: 0;
+      transform: rotate(calc(var(--i) * 36deg)) translateY(-46px);
+    }
+  }
+
+  @keyframes crown-pop {
+    from {
+      transform: scale(0.6);
+    }
+
+    to {
+      transform: scale(1);
+    }
+  }
+
+  @media (max-width: 640px) {
+    .edition-banner {
+      padding: 16px 48px 16px 14px;
+    }
+
+    .compare__head,
+    .compare__row {
+      grid-template-columns: 1fr;
+      gap: 2px;
+    }
+
+    .compare__head {
+      display: none;
+    }
+
+    .compare__free::before {
+      content: '免费版：';
+    }
+
+    .compare__paid::before {
+      content: '商业版：';
+    }
+
+    .plan-grid,
+    .pay-panel {
+      grid-template-columns: 1fr;
+    }
   }
 </style>
 
 <style>
   .commercial-purchase-modal .el-dialog {
-    width: min(480px, calc(100vw - 24px));
+    width: min(720px, calc(100vw - 24px));
     max-width: calc(100vw - 24px);
+    overflow: hidden;
+  }
+
+  .commercial-purchase-modal.is-brand .el-dialog__header {
+    padding-bottom: 0;
+  }
+
+  .commercial-purchase-modal.is-brand .el-dialog__headerbtn .el-dialog__close {
+    color: #fff8e8;
   }
 
   @media (max-width: 640px) {
     .commercial-purchase-modal .el-dialog {
-      margin-top: 8vh;
+      margin-top: 6vh;
     }
 
     .commercial-purchase-modal .el-dialog__body {
-      max-height: calc(100vh - 180px);
+      max-height: calc(100vh - 160px);
       overflow: auto;
     }
   }

@@ -100,13 +100,22 @@
   }
 
   .commercial-header-entry__badge {
-    color: var(--el-color-success-dark-2);
-    background: var(--el-color-success-light-9);
-    border: 1px solid var(--el-color-success-light-5);
+    color: #6b4a12;
+    background: linear-gradient(180deg, #fff8e4 0%, #f3d48a 100%);
+    border: 1px solid #e0b45a;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 70%);
   }
 
   .commercial-header-entry__badge:hover {
-    background: var(--el-color-success-light-8);
+    background: linear-gradient(180deg, #fff3cc 0%, #e8c56b 100%);
+  }
+
+  :global(html.dark) .commercial-header-entry__badge,
+  :global(.dark) .commercial-header-entry__badge {
+    color: #ffe7a8;
+    background: linear-gradient(180deg, #6a4e16 0%, #3d2c0c 100%);
+    border-color: #c9a227;
+    box-shadow: inset 0 1px 0 rgb(255 236 190 / 25%);
   }
 
   .commercial-header-entry :deep(.art-svg-icon) {

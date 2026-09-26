@@ -9,6 +9,26 @@ export const commercialCopy: Record<string, string> = {
   paid_template: '该模板需要商业版，升级后可一键安装'
 }
 
+/**
+ * 购买窗对比文案。只写代码里真实存在的差别，改这里即可：
+ * - 授权应用：第二个应用起要商业版的 multi_app（app.go / buyerFeatureEnabled）
+ * - 官方付费插件、首页模板：标价大于 0 时，免费版需单独购买；商业版有效期内视为已包含，需点一次安装，不会自动全装（store_access.go）
+ * 授权校验不看商业版，已有应用不会被删，这两项两边相同，不放进对比表。
+ */
+export const commercialPitch = {
+  title: '升级商业版，解锁全部能力',
+  subtitle: '免费版只能新建 1 个授权应用。商业版不限数量，官方付费插件和首页模板在有效期内可直接安装。'
+}
+
+export const commercialCompareRows = [
+  { label: '授权应用', free: '1 个', commercial: '不限' },
+  { label: '官方付费插件', free: '需单独购买', commercial: '已包含，可逐个安装' },
+  { label: '官方付费首页模板', free: '需单独购买', commercial: '已包含，可逐个安装' }
+] as const
+
+export const commercialCompareNote =
+  '已经存在的应用不会删除，授权校验也不看商业版。升级后不会自动安装全部插件和模板。'
+
 export const commercialUi = reactive({
   upgradeOpen: false,
   promptOpen: false,
