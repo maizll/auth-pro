@@ -531,7 +531,7 @@ func adminPluginFromRequest(req sourcePluginDraftRequest) (sourcePlugin, error) 
 		return sourcePlugin{}, err
 	}
 	var originURL, originHealth string
-	downloadURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindPlugin, category, pluginID, downloadURL, sha256Value, version, priceCents)
+	downloadURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindPlugin, category, pluginID, downloadURL, sha256Value, version, priceCents, catalogItemDeveloperID(sourceKindPlugin, pluginID))
 	if err != nil {
 		return sourcePlugin{}, err
 	}
@@ -621,7 +621,7 @@ func adminTemplateFromRequest(req sourceTemplateDraftRequest) (sourceTemplate, e
 		return sourceTemplate{}, err
 	}
 	var originURL, originHealth string
-	templateURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindTemplate, category, templateKey, templateURL, sha256Value, version, priceCents)
+	templateURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindTemplate, category, templateKey, templateURL, sha256Value, version, priceCents, catalogItemDeveloperID(sourceKindTemplate, templateKey))
 	if err != nil {
 		return sourceTemplate{}, err
 	}

@@ -34,6 +34,9 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 	developer.Use(middleware.JWTAuth(), middleware.RequireDeveloper())
 	{
 		developer.GET("/me", SourceDeveloperMe)
+		developer.GET("/github-paid", DeveloperGitHubPaidToken)
+		developer.PUT("/github-paid", DeveloperGitHubPaidTokenSave)
+		developer.POST("/github-paid/test", DeveloperGitHubPaidTokenTest)
 		developer.GET("/apps", SourceDeveloperCatalogApps)
 		developer.GET("/categories", SourceDeveloperCatalogCategories)
 		developer.GET("/items", SourceDeveloperItems)

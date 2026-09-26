@@ -16,6 +16,7 @@ const (
 	sourceMigrationCatalogPrice    = "source_catalog_price_v1"
 	sourceMigrationCatalogOrigin   = "source_catalog_origin_v1"
 	sourceMigrationPaidExternal    = "source_catalog_paid_external_visible_v1"
+	sourceMigrationDeveloperGitHub = "source_developer_github_paid_token_v1"
 )
 
 // ensureSourceStationMigrations 把源站的一次性 ALTER / 回填记入 schema_migrations。
@@ -42,6 +43,7 @@ func ensureSourceStationMigrations(db *sql.DB) error {
 		{sourceMigrationCatalogPrice, migrateSourceCatalogPrice},
 		{sourceMigrationCatalogOrigin, migrateSourceCatalogOrigin},
 		{sourceMigrationPaidExternal, migratePaidExternalVisible},
+		{sourceMigrationDeveloperGitHub, migrateDeveloperGitHubPaidToken},
 		{storeMigrationBindings, migrateStoreBindings},
 		{storeMigrationEditions, migrateStoreEditions},
 		{storeMigrationOrders, migrateStorePurchaseOrders},
@@ -427,6 +429,11 @@ func migrateSourceDeveloperAgentBackfill(db *sql.DB) error {
 		return fmt.Errorf("backfill developer application agent_id: %w", err)
 	}
 	return nil
+}
+
+func migrateDeveloperGitHubPaidToken(db *sql.DB) error {
+	return ensureSourceStationColumn(db, "source_developers", "github_paid_token",
+		"ALTER TABLE source_developers ADD COLUMN github_paid_token VARCHAR(2000) NOT NULL DEFAULT '' AFTER enabled")
 }
 
 func countSourceStationRows(db *sql.DB, query string) (int, error) {

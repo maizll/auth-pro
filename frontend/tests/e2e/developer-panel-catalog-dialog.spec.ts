@@ -253,7 +253,7 @@ test.describe('developer-panel catalog dialogs on phone', () => {
     await settleOverlay(formDrawer)
 
     await expect(formDrawer.getByRole('button', { name: '自动计算' })).toBeVisible()
-    await formDrawer.getByText('上传压缩包（本站托管）', { exact: true }).click()
+    await formDrawer.getByText('上传压缩包', { exact: true }).click()
     await expect(formDrawer.getByRole('button', { name: '选择压缩包' })).toBeVisible()
     await expect(formDrawer.getByRole('button', { name: '自动计算' })).toHaveCount(0)
 

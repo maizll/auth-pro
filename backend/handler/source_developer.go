@@ -16,24 +16,25 @@ import (
 )
 
 type sourcePluginDraftRequest struct {
-	ID          string       `json:"id"`
-	AppID       int64        `json:"appId"`
-	Category    string       `json:"category"`
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Icon        string       `json:"icon"`
-	Version     string       `json:"version"`
-	SHA256      string       `json:"sha256"`
-	DownloadURL string       `json:"downloadUrl"`
-	PriceCents  int64        `json:"priceCents"`
-	Billing     string       `json:"billing"`
-	Delivery    string       `json:"delivery"`
-	Changelog   string       `json:"changelog"`
-	MinVersion  string       `json:"minVersion"`
-	ForceUpdate bool         `json:"forceUpdate"`
-	Author      sourceAuthor `json:"author"`
-	Shelf       bool         `json:"shelf"`
-	Note        string       `json:"note"`
+	ID            string       `json:"id"`
+	AppID         int64        `json:"appId"`
+	Category      string       `json:"category"`
+	Name          string       `json:"name"`
+	Description   string       `json:"description"`
+	Icon          string       `json:"icon"`
+	Version       string       `json:"version"`
+	SHA256        string       `json:"sha256"`
+	DownloadURL   string       `json:"downloadUrl"`
+	PriceCents    int64        `json:"priceCents"`
+	Billing       string       `json:"billing"`
+	Delivery      string       `json:"delivery"`
+	Changelog     string       `json:"changelog"`
+	MinVersion    string       `json:"minVersion"`
+	ForceUpdate   bool         `json:"forceUpdate"`
+	Author        sourceAuthor `json:"author"`
+	Shelf         bool         `json:"shelf"`
+	Note          string       `json:"note"`
+	PackageSource string       `json:"packageSource"`
 }
 
 type sourceTemplateDraftRequest struct {
@@ -56,14 +57,16 @@ type sourceTemplateDraftRequest struct {
 	Author        sourceAuthor `json:"author"`
 	Shelf         bool         `json:"shelf"`
 	Note          string       `json:"note"`
+	PackageSource string       `json:"packageSource"`
 }
 
 type sourceReleaseDraftRequest struct {
-	Version     string `json:"version"`
-	Changelog   string `json:"changelog"`
-	SHA256      string `json:"sha256"`
-	DownloadURL string `json:"downloadUrl"`
-	TemplateURL string `json:"templateUrl"`
+	Version       string `json:"version"`
+	Changelog     string `json:"changelog"`
+	SHA256        string `json:"sha256"`
+	DownloadURL   string `json:"downloadUrl"`
+	TemplateURL   string `json:"templateUrl"`
+	PackageSource string `json:"packageSource"`
 }
 
 func sourceDeveloperApplyGate() gin.HandlerFunc {
@@ -621,6 +624,7 @@ func sourceReleaseView(item sourceRelease) gin.H {
 	if strings.TrimSpace(item.OriginURL) != "" {
 		view["originUrl"] = item.OriginURL
 	}
+	attachGitHubPaidView(view, 0, item.Location, "")
 	return view
 }
 
@@ -662,6 +666,9 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 			return sourcePlugin{}, err
 		}
 	}
+	if err := rejectCatalogPackageSource(req.PackageSource, downloadURL, priceCents); err != nil {
+		return sourcePlugin{}, err
+	}
 	name := truncateText(req.Name, 100)
 	if name == "" {
 		name = pluginID
@@ -680,7 +687,7 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 		return sourcePlugin{}, err
 	}
 	var originURL, originHealth string
-	downloadURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindPlugin, category, pluginID, downloadURL, sha256Value, version, priceCents)
+	downloadURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindPlugin, category, pluginID, downloadURL, sha256Value, version, priceCents, developer.ID)
 	if err != nil {
 		return sourcePlugin{}, err
 	}
@@ -754,6 +761,9 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 			return sourceTemplate{}, err
 		}
 	}
+	if err := rejectCatalogPackageSource(req.PackageSource, templateURL, priceCents); err != nil {
+		return sourceTemplate{}, err
+	}
 	name := truncateText(req.Name, 100)
 	if name == "" {
 		name = templateKey
@@ -774,7 +784,7 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 		return sourceTemplate{}, err
 	}
 	var originURL, originHealth string
-	templateURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindTemplate, category, templateKey, templateURL, sha256Value, version, priceCents)
+	templateURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindTemplate, category, templateKey, templateURL, sha256Value, version, priceCents, developer.ID)
 	if err != nil {
 		return sourceTemplate{}, err
 	}
@@ -957,6 +967,13 @@ func bindSourceReleaseDraft(c *gin.Context, kind string) (sourceRelease, error) 
 		return sourceRelease{}, err
 	}
 	itemID := strings.TrimSpace(c.Param("id"))
+	price, priceErr := catalogItemPrice(kind, itemID)
+	if priceErr != nil && !errors.Is(priceErr, errSourceNotFound) {
+		return sourceRelease{}, priceErr
+	}
+	if err := rejectCatalogPackageSource(req.PackageSource, location, price); err != nil {
+		return sourceRelease{}, err
+	}
 	var originURL string
 	location, sha256Value, originURL, err = adoptPaidVersionLocation(kind, itemID, version, location, sha256Value)
 	if err != nil {

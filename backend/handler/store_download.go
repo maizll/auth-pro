@@ -35,9 +35,9 @@ func StoreDownloadTicket(c *gin.Context) {
 		storeFail(c, 403, "当前授权不能下载该付费包")
 		return
 	}
-	location, version, sha := lookupPaidPackageLocation(db, req.Kind, req.ID)
+	location, version, sha, developerID := lookupPaidPackageLocation(db, req.Kind, req.ID)
 	if isGitHubPackageRef(location) {
-		tempURL, urlErr := authorizeGitHubBuyerURL(c.Request.Context(), true, location)
+		tempURL, urlErr := authorizeGitHubBuyerURL(c.Request.Context(), true, location, developerID)
 		if urlErr != nil {
 			storeFail(c, 400, urlErr.Error())
 			return
@@ -125,12 +125,33 @@ func licenseCanDownloadPaid(db *sql.DB, licenseID int64, kind, itemID string) bo
 	return err == nil && count > 0
 }
 
-func lookupPaidPackageLocation(db *sql.DB, kind, itemID string) (location, version, sha string) {
+func lookupPaidPackageLocation(db *sql.DB, kind, itemID string) (location, version, sha string, developerID int64) {
 	switch kind {
 	case "plugin":
-		_ = db.QueryRow(`SELECT download_url, version, sha256 FROM source_catalog_plugins WHERE id = ?`, itemID).Scan(&location, &version, &sha)
+		_ = db.QueryRow(`SELECT download_url, version, sha256, developer_id FROM source_catalog_plugins WHERE id = ?`, itemID).Scan(&location, &version, &sha, &developerID)
 	case "template":
-		_ = db.QueryRow(`SELECT template_url, version, sha256 FROM source_catalog_templates WHERE id = ? OR template_key = ?`, itemID, itemID).Scan(&location, &version, &sha)
+		_ = db.QueryRow(`SELECT template_url, version, sha256, developer_id FROM source_catalog_templates WHERE id = ? OR template_key = ?`, itemID, itemID).Scan(&location, &version, &sha, &developerID)
 	}
-	return location, version, sha
+	return location, version, sha, developerID
+}
+
+func catalogItemDeveloperID(kind, itemID string) int64 {
+	itemID = strings.TrimSpace(itemID)
+	if itemID == "" {
+		return 0
+	}
+	switch kind {
+	case sourceKindTemplate:
+		item, err := currentSourceStationStore().GetTemplate(itemID)
+		if err != nil {
+			return 0
+		}
+		return item.DeveloperID
+	default:
+		item, err := currentSourceStationStore().GetPlugin(itemID)
+		if err != nil {
+			return 0
+		}
+		return item.DeveloperID
+	}
 }

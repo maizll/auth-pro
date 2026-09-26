@@ -144,7 +144,7 @@ func removePaidPackageFile(ref string) {
 	_ = os.Remove(filepath.Join(stationPaidPackageDirPath(), name))
 }
 
-func adoptPaidItemLocation(kind, category, itemID, location, sha, version string, price int64) (string, string, string, string, string, error) {
+func adoptPaidItemLocation(kind, category, itemID, location, sha, version string, price, developerID int64) (string, string, string, string, string, error) {
 	location = strings.TrimSpace(location)
 	if price <= 0 {
 		return location, sha, version, "", "", nil
@@ -163,7 +163,7 @@ func adoptPaidItemLocation(kind, category, itemID, location, sha, version string
 		return location, sha, version, "", paidOriginHealthOK, nil
 	}
 	if looksLikeGitHubReleaseAssetURL(location) {
-		imported, err := importGitHubPaidMetadata(context.Background(), kind, category, location)
+		imported, err := importGitHubPaidMetadata(context.Background(), developerID, kind, category, location)
 		if err != nil {
 			return "", "", "", "", "", err
 		}
@@ -224,7 +224,7 @@ func adoptPaidVersionLocation(kind, itemID, version, location, sha string) (stri
 		return location, sha, "", nil
 	}
 	if looksLikeGitHubReleaseAssetURL(location) {
-		imported, err := importGitHubPaidMetadata(context.Background(), kind, paidItemCategory(kind, itemID), location)
+		imported, err := importGitHubPaidMetadata(context.Background(), catalogItemDeveloperID(kind, itemID), kind, paidItemCategory(kind, itemID), location)
 		if err != nil {
 			return "", "", "", err
 		}
@@ -542,14 +542,14 @@ func checkPaidOriginHealth(ctx context.Context) {
 	if err == nil {
 		for _, item := range plugins {
 			touchPaidOriginHealth(ctx, store, sourceKindPlugin, item.ID, item.PriceCents, item.OriginURL, item.DownloadURL, item.OriginHealth)
-			touchGitHubPaidHealth(ctx, store, sourceKindPlugin, item.ID, item.Name, item.PriceCents, item.DownloadURL, item.OriginHealth)
+			touchGitHubPaidHealth(ctx, store, sourceKindPlugin, item.ID, item.Name, item.PriceCents, item.DownloadURL, item.OriginHealth, item.DeveloperID)
 		}
 	}
 	templates, err := store.ListTemplates("")
 	if err == nil {
 		for _, item := range templates {
 			touchPaidOriginHealth(ctx, store, sourceKindTemplate, item.ID, item.PriceCents, item.OriginURL, item.TemplateURL, item.OriginHealth)
-			touchGitHubPaidHealth(ctx, store, sourceKindTemplate, item.ID, item.Name, item.PriceCents, item.TemplateURL, item.OriginHealth)
+			touchGitHubPaidHealth(ctx, store, sourceKindTemplate, item.ID, item.Name, item.PriceCents, item.TemplateURL, item.OriginHealth, item.DeveloperID)
 		}
 	}
 }

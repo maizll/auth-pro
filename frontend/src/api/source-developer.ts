@@ -54,6 +54,12 @@ export interface SourceDeveloperCatalogItem {
   originUrl?: string
   originHealth?: string
   originHint?: string
+  fulfillmentHint?: string
+  packageSource?: string
+  githubOwner?: string
+  githubRepo?: string
+  githubTag?: string
+  githubAsset?: string
   templateKey?: string
   changelog?: string
   latestVersion?: string
@@ -158,6 +164,29 @@ export function fetchSourceDeveloperApplyStatus() {
   )
 }
 
+export function fetchSourceDeveloperGitHubPaidToken() {
+  return axios.get<{ code: number; msg: string; data: { configured: boolean } }>(
+    `${BASE}/github-paid`,
+    developerConfig()
+  )
+}
+
+export function saveSourceDeveloperGitHubPaidToken(token: string) {
+  return axios.put<{ code: number; msg: string; data: { configured: boolean } }>(
+    `${BASE}/github-paid`,
+    { token },
+    developerConfig()
+  )
+}
+
+export function testSourceDeveloperGitHubPaidToken(token?: string) {
+  return axios.post<{ code: number; msg: string; data: { configured: boolean } }>(
+    `${BASE}/github-paid/test`,
+    { token: token || '' },
+    developerConfig()
+  )
+}
+
 export function fetchSourceDeveloperMe() {
   return axios.get<{ code: number; msg: string; data: SourceDeveloperProfile }>(`${BASE}/me`, {
     headers: developerAuthHeaders()
@@ -198,6 +227,11 @@ export interface SourceDeveloperVersion {
   downloadUrl?: string
   templateUrl?: string
   originUrl?: string
+  packageSource?: string
+  githubOwner?: string
+  githubRepo?: string
+  githubTag?: string
+  githubAsset?: string
   reviewNote?: string
   reviewedBy?: string
   createdAt?: string
@@ -214,6 +248,7 @@ export interface SourceDeveloperPluginDraft {
   version: string
   sha256?: string
   downloadUrl?: string
+  packageSource?: 'upload' | 'public' | 'github'
   priceCents?: number
   billing?: string
   changelog?: string
@@ -233,6 +268,7 @@ export interface SourceDeveloperTemplateDraft {
   schemaVersion?: number
   sha256?: string
   templateUrl?: string
+  packageSource?: 'upload' | 'public' | 'github'
   priceCents?: number
   billing?: string
   changelog?: string
@@ -247,6 +283,7 @@ export interface SourceDeveloperVersionDraft {
   sha256?: string
   downloadUrl?: string
   templateUrl?: string
+  packageSource?: 'upload' | 'public' | 'github'
 }
 
 export interface SourceDeveloperAdApplication {

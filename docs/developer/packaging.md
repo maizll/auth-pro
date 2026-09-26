@@ -43,7 +43,9 @@ Windows 可用资源管理器压缩该 json，再计算 SHA256。算的是 ZIP �
 2. **私有 GitHub 仓库（收费推荐）**。把 ZIP 发到私有仓库的 Release，在「上传安装包」里粘贴资产链接，例如 `https://github.com/所有者/仓库/releases/download/标签/文件名.zip`。本站用只读令牌核对一次，记下 sha256，随即丢掉临时文件。买家付款后，本站再向 GitHub 换一个几分钟过期的临时地址，由买家直接下载。买家看不到仓库地址和令牌。
 3. **上传压缩包**。收费条目可以继续由本站托管 ZIP。免费条目不要只上传文件，请改用公开地址，或勾选推送 Release。
 
-只读令牌在「软件源设置」的「收费插件只读令牌」卡片里保存，加密存放，页面不回显明文。创建方式：GitHub → Settings → Developer settings → Fine-grained personal access tokens，只授权目标私有仓库，Repository permissions 里 Contents 选 Read-only。令牌失效或 Release 文件不存在时，目录里该条会标红并通知管理员，不会自动下架。
+只读令牌有两处，都加密存放，页面只显示已配置或未配置，不回显明文。管理员在「软件源设置」的「收费插件只读令牌」里保存站点令牌，只用于管理员自己登记的条目。开发者在开发者面板登记插件或模板的页面保存自己的令牌，只用于该开发者的条目，不能拿来下载别人的安装包。创建方式：GitHub → Settings → Developer settings → Fine-grained personal access tokens，只授权目标私有仓库，Repository permissions 里 Contents 选 Read-only。令牌失效或 Release 文件不存在时，目录里该条会标红并通知管理员，不会自动下架。
+
+开发者面板的来源也是三选一，按钮不可用时会写出中文原因。以前被标成隐藏或弃用的收费公开地址，升级后回到草稿，并标注「需要改成私有仓库来源或上传 zip 才能继续收费出售」。
 
 已经用公开 https 地址登记、后来被标成隐藏或弃用的收费条目，升级后会回到草稿，并在列表里注明：需要改成私有仓库来源或上传 zip 才能继续收费出售。已上架、免费、以及已经改成私有仓库或本站托管的条目不会被改写。
 
