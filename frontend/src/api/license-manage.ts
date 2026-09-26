@@ -91,6 +91,7 @@ export interface LicenseAppItem {
   recentVersion: string
   versionCount: number
   enabled: boolean
+  archived?: boolean
   licenseRequired: boolean
   commercialProduct?: boolean
   saleGaps?: AppSaleGap[]
@@ -313,11 +314,17 @@ export function fetchRevokeCommercialEdition(id: number, reason: string) {
   })
 }
 
-/** 删除应用 */
-export function fetchDeleteLicenseApp(id: number, migrateAppId?: number) {
+/** 归档应用。有目录条目时要带上迁移目标，或 archive 表示原地归档。 */
+export function fetchDeleteLicenseApp(
+  id: number,
+  options?: { migrateAppId?: number; archive?: boolean }
+) {
+  const params: Record<string, number> = {}
+  if (options?.migrateAppId) params.migrateAppId = options.migrateAppId
+  if (options?.archive) params.archive = 1
   return request.del({
     url: `/api/app/${id}`,
-    params: migrateAppId ? { migrateAppId } : undefined
+    params: Object.keys(params).length ? params : undefined
   })
 }
 

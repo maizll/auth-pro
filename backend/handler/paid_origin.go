@@ -73,17 +73,25 @@ func settlePaidZipBytes(ctx context.Context, kind, id, version string, payload [
 		version = "1.0.0"
 	}
 	if githubPaidRepoConfigured() {
-		ref, err := uploadPaidZipToStationRepo(ctx, kind, strings.TrimSpace(id), version, payload)
+		driver, ok := packageStorageByName(packageStorageGitHub)
+		if !ok {
+			return "", "", false, errors.New("收费仓库驱动不可用")
+		}
+		storedKey, err := driver.Put(ctx, paidStoragePutKey(kind, strings.TrimSpace(id), version), payload)
 		if err != nil {
 			return "", "", false, err
 		}
-		return ref, fileSHA, false, nil
+		return githubPackagePrefix + storedKey, fileSHA, false, nil
 	}
-	ref, storedSHA, err := storePaidPackageBytes(payload)
+	driver, ok := packageStorageByName(packageStorageLocal)
+	if !ok {
+		return "", "", false, errors.New("本站存储驱动不可用")
+	}
+	storedKey, err := driver.Put(ctx, "", payload)
 	if err != nil {
 		return "", "", false, err
 	}
-	return ref, storedSHA, true, nil
+	return sourcePaidPackagePrefix + storedKey, fileSHA, true, nil
 }
 
 func readStationHostedZip(location string) ([]byte, error) {
@@ -564,6 +572,7 @@ func (store *memorySourceStore) rememberPaidVersionLocked(kind, id, version, loc
 	rel.Location = location
 	rel.SHA256 = sha
 	rel.OriginURL = origin
+	stampReleaseStorage(&rel)
 	rel.UpdatedAt = now
 	bucket[id][version] = rel
 }

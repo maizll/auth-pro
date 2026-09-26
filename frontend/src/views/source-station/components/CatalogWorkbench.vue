@@ -68,10 +68,10 @@
             <el-button :disabled="!selectedRows.length" @click="openRebind(selectedRows)"
               >切换绑定应用</el-button
             >
-            <el-button :disabled="searchForm.appId <= 0" @click="openRegister"
+            <el-button :disabled="Boolean(registerBlockReason)" @click="openRegister"
               >登记外部地址</el-button
             >
-            <el-button type="primary" :disabled="searchForm.appId <= 0" @click="openUpload"
+            <el-button type="primary" :disabled="Boolean(registerBlockReason)" @click="openUpload"
               >上传压缩包</el-button
             >
           </div>
@@ -209,7 +209,7 @@
         <el-form-item label="应用" required>
           <el-select v-model="uploadForm.appId" placeholder="请选择应用" style="width: 100%">
             <el-option
-              v-for="app in apps"
+              v-for="app in liveApps"
               :key="app.id"
               :label="appLabel(app)"
               :value="app.id"
@@ -380,7 +380,7 @@
         <el-form-item label="应用" prop="appId">
           <el-select v-model="registerForm.appId" placeholder="请选择应用" style="width: 100%">
             <el-option
-              v-for="app in apps"
+              v-for="app in liveApps"
               :key="app.id"
               :label="appLabel(app)"
               :value="app.id"
@@ -593,7 +593,7 @@
         条改到目标应用。版本、价格和安装包跟着走，标识不变。目标应用里已有相同标识时会拒绝。
       </p>
       <el-select v-model="rebindAppId" placeholder="请选择目标应用" style="width: 100%">
-        <el-option v-for="app in apps" :key="app.id" :label="appLabel(app)" :value="app.id" />
+        <el-option v-for="app in liveApps" :key="app.id" :label="appLabel(app)" :value="app.id" />
       </el-select>
       <template #footer>
         <el-button @click="rebindVisible = false">取消</el-button>
@@ -680,6 +680,13 @@
     appId: 0,
     status: '',
     category: String(route.query.category || props.initialCategory || '')
+  })
+  const liveApps = computed(() => apps.value.filter((app) => !app.archived))
+  const registerBlockReason = computed(() => {
+    if (searchForm.appId <= 0) return '请先选择应用'
+    const current = apps.value.find((item) => item.id === searchForm.appId)
+    if (current?.archived) return '已归档的应用不能再登记新条目'
+    return ''
   })
 
   const paidRepoReminder = ref('')
@@ -810,7 +817,9 @@
     return categories.value.filter((item) => item.kind === kind)
   })
   function appLabel(app: SourceCatalogApp) {
-    return app.enabled ? `${app.name}（${app.appKey}）` : `${app.name}（${app.appKey}）· 已停用`
+    const base = `${app.name}（${app.appKey}）`
+    if (app.archived) return `${base}· 已归档`
+    return app.enabled ? base : `${base}· 已停用`
   }
 
   function categoryKind(key: string): 'plugin' | 'template' {
@@ -945,7 +954,8 @@
       return
     }
     rebindItems.value = rows
-    rebindAppId.value = apps.value[0]?.id
+    rebindAppId.value =
+      liveApps.value.find((app) => app.id !== rows[0]?.appId)?.id || liveApps.value[0]?.id
     rebindVisible.value = true
   }
 
@@ -994,8 +1004,8 @@
   }
 
   function openUpload() {
-    if (searchForm.appId <= 0) {
-      ElMessage.warning('请先选择应用')
+    if (registerBlockReason.value) {
+      ElMessage.warning(registerBlockReason.value)
       return
     }
     uploadFile.value = null
@@ -1165,8 +1175,8 @@
   }
 
   function openRegister() {
-    if (searchForm.appId <= 0) {
-      ElMessage.warning('请先选择应用')
+    if (registerBlockReason.value) {
+      ElMessage.warning(registerBlockReason.value)
       return
     }
     registerForm.appId = searchForm.appId

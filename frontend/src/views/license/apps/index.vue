@@ -74,8 +74,8 @@
 
         <!-- 状态 -->
         <template #enabled="{ row }">
-          <ElTag :type="row.enabled ? 'success' : 'info'" size="small">
-            {{ row.enabled ? '启用' : '禁用' }}
+          <ElTag :type="row.archived ? 'warning' : row.enabled ? 'success' : 'info'" size="small">
+            {{ row.archived ? '已归档' : row.enabled ? '启用' : '禁用' }}
           </ElTag>
         </template>
 
@@ -94,7 +94,10 @@
           <ElButton link type="primary" @click="handleSDKPack(row)">SDK 包</ElButton>
           <ElButton link type="primary" @click="handleEdit(row)">编辑</ElButton>
           <ElButton link type="primary" @click="handleResetSecret(row)">重置密钥</ElButton>
-          <ElButton link type="danger" @click="handleDelete(row)">删除</ElButton>
+          <ElButton v-if="!row.archived" link type="danger" @click="handleDelete(row)"
+            >归档</ElButton
+          >
+          <span v-else class="text-secondary">已归档</span>
         </template>
       </ArtTable>
     </ElCard>
@@ -155,11 +158,11 @@
       </template>
     </ElDialog>
 
-    <ElDialog v-model="migrateVisible" title="删除应用前迁移软件目录" width="480px">
+    <ElDialog v-model="migrateVisible" title="归档应用" width="480px">
       <p>
         应用「{{ migrateSource?.name }}」下还有
         {{ migrateCount }}
-        条软件目录条目。删除前要把它们迁到另一个应用，版本、价格和安装包会一起过去。
+        条软件目录条目。可以迁到另一个应用再归档，也可以直接归档，条目仍挂在这个应用上。授权、套餐和版本都会保留。
       </p>
       <ElSelect
         v-if="migrateTargets.length"
@@ -172,13 +175,14 @@
       <p v-else>没有其他应用可以接收这些目录条目，请先新建应用。</p>
       <template #footer>
         <ElButton @click="migrateVisible = false">取消</ElButton>
+        <ElButton :loading="archiveSaving" @click="confirmArchiveInPlace">直接归档</ElButton>
         <ElButton
           type="danger"
           :loading="migrateSaving"
           :disabled="!migrateTargets.length"
           @click="confirmMigrateAndDelete"
         >
-          迁移并删除
+          迁移并归档
         </ElButton>
       </template>
     </ElDialog>
@@ -475,6 +479,7 @@
 
   const migrateVisible = ref(false)
   const migrateSaving = ref(false)
+  const archiveSaving = ref(false)
   const migrateCount = ref(0)
   const migrateAppId = ref<number>()
   const migrateSource = ref<AppRow | null>(null)
@@ -490,12 +495,26 @@
     }
     migrateSaving.value = true
     try {
-      await fetchDeleteLicenseApp(row.id, migrateAppId.value)
-      ElMessage.success('目录条目已迁移，应用已删除')
+      await fetchDeleteLicenseApp(row.id, { migrateAppId: migrateAppId.value })
+      ElMessage.success('目录条目已迁移，应用已归档')
       migrateVisible.value = false
       refreshRemove()
     } finally {
       migrateSaving.value = false
+    }
+  }
+
+  const confirmArchiveInPlace = async () => {
+    const row = migrateSource.value
+    if (!row) return
+    archiveSaving.value = true
+    try {
+      await fetchDeleteLicenseApp(row.id, { archive: true })
+      ElMessage.success('应用已归档，目录条目仍挂在该应用下')
+      migrateVisible.value = false
+      refreshRemove()
+    } finally {
+      archiveSaving.value = false
     }
   }
 
@@ -510,12 +529,12 @@
         return
       }
       await ElMessageBox.confirm(
-        `删除应用「${row.name}」将同时清除其所有授权记录，确定？`,
-        '危险操作',
-        { type: 'error' }
+        `归档应用「${row.name}」后，授权记录和版本都会保留，只是不能再往这个应用登记新的目录条目。确定归档？`,
+        '归档应用',
+        { type: 'warning' }
       )
       await fetchDeleteLicenseApp(row.id)
-      ElMessage.success('删除成功')
+      ElMessage.success('应用已归档')
       refreshRemove()
     } catch {
       // 用户取消操作时保留当前数据。

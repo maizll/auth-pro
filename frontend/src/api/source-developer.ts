@@ -75,6 +75,7 @@ export interface SourceDeveloperCatalogApp {
   appKey: string
   name: string
   enabled: boolean
+  archived?: boolean
   indexUrl?: string
 }
 

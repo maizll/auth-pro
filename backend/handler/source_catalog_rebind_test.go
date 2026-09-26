@@ -164,7 +164,7 @@ func TestAppDeleteRequiresCatalogMigrate(t *testing.T) {
 		t.Fatalf("plugin moved despite blocked delete: %#v err=%v", got, err)
 	}
 	same := sourceJSON(t, router, http.MethodDelete, "/api/app/1?migrateAppId=1", admin, "")
-	if sourceBodyCode(t, same) != 400 || !strings.Contains(same.Body.String(), "不能迁移到正在删除的应用") {
+	if sourceBodyCode(t, same) != 400 || !strings.Contains(same.Body.String(), "不能迁移到正在归档的应用") {
 		t.Fatalf("same app=%s", same.Body.String())
 	}
 	migrated := sourceJSON(t, router, http.MethodDelete, "/api/app/1?migrateAppId=2", admin, "")
@@ -174,5 +174,51 @@ func TestAppDeleteRequiresCatalogMigrate(t *testing.T) {
 	got, err = store.GetPlugin("stay-plugin")
 	if err != nil || got.AppID != 2 || got.DownloadURL != "https://cdn.example.com/stay.zip" {
 		t.Fatalf("plugin after migrate=%#v err=%v body=%s", got, err, migrated.Body.String())
+	}
+}
+
+func TestAppArchiveKeepsCatalogBinding(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	router.DELETE("/api/app/:id", AppDelete)
+	sha := sourceTestSHA256()
+	created := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
+		`{"appId":1,"id":"keep-plugin","name":"留在原应用","downloadUrl":"https://cdn.example.com/keep.zip","sha256":"`+sha+`"}`)
+	if sourceBodyCode(t, created) != 200 {
+		t.Fatalf("register=%s", created.Body.String())
+	}
+	archived := sourceJSON(t, router, http.MethodDelete, "/api/app/1?archive=1", admin, "")
+	if sourceBodyCode(t, archived) == 409 {
+		t.Fatalf("archive in place should pass the catalog gate: %s", archived.Body.String())
+	}
+	got, err := store.GetPlugin("keep-plugin")
+	if err != nil || got.AppID != 1 || got.DownloadURL != "https://cdn.example.com/keep.zip" {
+		t.Fatalf("plugin after archive=%#v err=%v body=%s", got, err, archived.Body.String())
+	}
+}
+
+func TestCatalogRebindRejectsArchivedApp(t *testing.T) {
+	router, store := sourceStationRouter(t)
+	admin := sourceAdminToken(t)
+	sha := sourceTestSHA256()
+	created := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin,
+		`{"appId":1,"id":"live-plugin","name":"还在","downloadUrl":"https://cdn.example.com/live.zip","sha256":"`+sha+`"}`)
+	if sourceBodyCode(t, created) != 200 {
+		t.Fatalf("register=%s", created.Body.String())
+	}
+	store.mu.Lock()
+	app := store.catalogApps[2]
+	app.Archived = true
+	store.catalogApps[2] = app
+	store.mu.Unlock()
+
+	rejected := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/catalog-items/rebind", admin,
+		`{"appId":2,"items":[{"kind":"plugin","id":"live-plugin"}]}`)
+	if sourceBodyCode(t, rejected) != 400 || !strings.Contains(rejected.Body.String(), "不能切换到已归档的应用") {
+		t.Fatalf("rejected=%s", rejected.Body.String())
+	}
+	got, err := store.GetPlugin("live-plugin")
+	if err != nil || got.AppID != 1 {
+		t.Fatalf("plugin should stay on app 1: %#v err=%v", got, err)
 	}
 }

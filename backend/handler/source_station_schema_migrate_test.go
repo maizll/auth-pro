@@ -115,6 +115,47 @@ func TestSourceCatalogPriceMigrationOnExistingDB(t *testing.T) {
 	}
 }
 
+func TestCatalogForeignKeyWaitsForOrphansThenApplies(t *testing.T) {
+	state := newLegacySourceSchemaState()
+	state.catalogOrphans = 2
+	db := openSourceSchemaMigrateDB(t, state)
+	if err := ensureSourceStationStorage(db); err != nil {
+		t.Fatalf("ensure with orphans: %v", err)
+	}
+	if !state.migrationApplied("source_catalog_version_storage_v1") {
+		t.Fatal("version storage migration was not recorded")
+	}
+	for _, query := range state.allExecs() {
+		if strings.Contains(strings.ToUpper(query), "ADD CONSTRAINT") {
+			t.Fatalf("added a foreign key while orphans remain: %s", query)
+		}
+	}
+	state.mu.Lock()
+	state.catalogOrphans = 0
+	state.mu.Unlock()
+	if err := ensureSourceStationStorage(db); err != nil {
+		t.Fatalf("ensure after orphans cleared: %v", err)
+	}
+	found := map[string]int{}
+	for _, query := range state.allExecs() {
+		if strings.Contains(strings.ToUpper(query), "ADD CONSTRAINT") {
+			found[query]++
+		}
+	}
+	if foundCount := len(found); foundCount < 2 {
+		t.Fatalf("expected catalog foreign keys, got %#v", found)
+	}
+	before := state.execCount()
+	if err := ensureSourceStationStorage(db); err != nil {
+		t.Fatalf("third ensure: %v", err)
+	}
+	for _, query := range state.execsAfter(before) {
+		if strings.Contains(strings.ToUpper(query), "ADD CONSTRAINT") {
+			t.Fatalf("foreign key added again: %s", query)
+		}
+	}
+}
+
 func TestEnsureSourceStationSchemaReturnsMigrationExecError(t *testing.T) {
 	state := newLegacySourceSchemaState()
 	state.failExecContaining = "DROP COLUMN file_path"
@@ -151,6 +192,7 @@ var sourceStationMigrationNames = []string{
 	"licenses_source_store_bind_v1",
 	"licenses_source_store_purchase_v1",
 	"license_domain_changes_v1",
+	"source_catalog_version_storage_v1",
 }
 
 type sourceSchemaPluginRow struct {
@@ -177,7 +219,9 @@ type sourceSchemaMigrateState struct {
 
 	columns                map[string]map[string]bool
 	indexes                map[string]map[string]bool
+	constraints            map[string]bool
 	migrations             map[string]bool
+	catalogOrphans         int
 	plugins                []sourceSchemaPluginRow
 	templates              []sourceSchemaTemplateRow
 	execs                  []string
@@ -198,8 +242,9 @@ func newLegacySourceSchemaState() *sourceSchemaMigrateState {
 			"source_developer_applications": {"id": true, "username": true},
 			"source_developers":             {"id": true, "username": true, "application_id": true},
 		},
-		indexes:    map[string]map[string]bool{},
-		migrations: map[string]bool{},
+		indexes:     map[string]map[string]bool{},
+		constraints: map[string]bool{},
+		migrations:  map[string]bool{},
 	}
 }
 
@@ -331,6 +376,12 @@ func (c *sourceSchemaMigrateConn) ExecContext(_ context.Context, query string, a
 		table, column := sourceSchemaAlterTarget(query, "DROP COLUMN")
 		state.ensureColumnMap(table)
 		delete(state.columns[table], column)
+	case strings.Contains(upper, "ADD CONSTRAINT"):
+		table, name := sourceSchemaConstraintTarget(query)
+		if state.constraints == nil {
+			state.constraints = map[string]bool{}
+		}
+		state.constraints[table+"."+name] = true
 	case strings.Contains(upper, "ADD UNIQUE KEY") || strings.Contains(upper, "ADD KEY"):
 		table, index := sourceSchemaAlterTarget(query, "KEY")
 		if state.indexes[table] == nil {
@@ -389,6 +440,17 @@ func (c *sourceSchemaMigrateConn) QueryContext(_ context.Context, query string, 
 		if state.migrations[sourceSchemaArgString(args, 0)] {
 			count = 1
 		}
+	case strings.Contains(query, "information_schema.TABLE_CONSTRAINTS"):
+		table := sourceSchemaArgString(args, 0)
+		name := sourceSchemaArgString(args, 1)
+		if state.constraints[table+"."+name] {
+			count = 1
+		}
+	case strings.Contains(query, "information_schema.TABLES"):
+		table := sourceSchemaArgString(args, 0)
+		if state.columns[table] != nil {
+			count = 1
+		}
 	case strings.Contains(query, "information_schema.COLUMNS"):
 		table := sourceSchemaArgString(args, 0)
 		column := sourceSchemaArgString(args, 1)
@@ -419,6 +481,8 @@ func (c *sourceSchemaMigrateConn) QueryContext(_ context.Context, query string, 
 				count++
 			}
 		}
+	case strings.Contains(query, "LEFT JOIN apps"):
+		count = int64(state.catalogOrphans)
 	default:
 		return nil, errors.New("unexpected query: " + query)
 	}
@@ -426,6 +490,15 @@ func (c *sourceSchemaMigrateConn) QueryContext(_ context.Context, query string, 
 }
 
 var sourceSchemaAlterPattern = regexp.MustCompile(`(?i)ALTER TABLE\s+(\w+)\s+(?:ADD\s+(?:UNIQUE\s+)?(?:COLUMN|KEY)|DROP\s+COLUMN)\s+(\w+)`)
+var sourceSchemaConstraintPattern = regexp.MustCompile(`(?i)ALTER TABLE\s+(\w+)\s+ADD CONSTRAINT\s+(\w+)`)
+
+func sourceSchemaConstraintTarget(query string) (string, string) {
+	match := sourceSchemaConstraintPattern.FindStringSubmatch(query)
+	if len(match) != 3 {
+		return "", ""
+	}
+	return match[1], match[2]
+}
 
 func sourceSchemaAlterTarget(query, _ string) (string, string) {
 	match := sourceSchemaAlterPattern.FindStringSubmatch(query)

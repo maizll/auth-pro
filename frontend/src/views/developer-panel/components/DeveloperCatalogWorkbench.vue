@@ -113,7 +113,7 @@
             :disabled="isEdit"
           >
             <el-option
-              v-for="app in apps"
+              v-for="app in liveApps"
               :key="app.id"
               :label="appLabel(app.id)"
               :value="app.id"
@@ -440,13 +440,13 @@
 
     <el-dialog v-model="rebindVisible" title="切换绑定应用" width="480px" destroy-on-close>
       <p class="field-help">
-        只能改到你能登记的应用。版本、价格和安装包跟着走，标识不变。目标应用里已有相同标识时会拒绝。
+        只能改到你能登记、且还没归档的应用。版本、价格和安装包跟着走，标识不变。目标应用里已有相同标识时会拒绝。
       </p>
       <el-select v-model="rebindAppId" placeholder="请选择目标应用" style="width: 100%">
         <el-option
-          v-for="app in apps"
+          v-for="app in liveApps"
           :key="app.id"
-          :label="`${app.name}（${app.appKey}）`"
+          :label="appLabel(app.id)"
           :value="app.id"
         />
       </el-select>
@@ -538,6 +538,7 @@
   const rebindAppId = ref<number>()
   const rebindItems = ref<SourceDeveloperCatalogItem[]>([])
   const apps = ref<SourceDeveloperCatalogApp[]>([])
+  const liveApps = computed(() => apps.value.filter((app) => !app.archived))
   const categories = ref<SourceDeveloperCategory[]>([])
   const formVisible = ref(false)
   const isEdit = ref(false)
@@ -807,7 +808,8 @@
     if (!appId) return '-'
     const app = apps.value.find((item) => item.id === appId)
     if (!app) return `应用 #${appId}`
-    return `${app.name}（${app.appKey}）`
+    const base = `${app.name}（${app.appKey}）`
+    return app.archived ? `${base}· 已归档` : base
   }
 
   function categoryLabel(key?: string) {
@@ -869,7 +871,8 @@
       return
     }
     rebindItems.value = rows
-    rebindAppId.value = apps.value.find((app) => app.id !== rows[0]?.appId)?.id || apps.value[0]?.id
+    rebindAppId.value =
+      liveApps.value.find((app) => app.id !== rows[0]?.appId)?.id || liveApps.value[0]?.id
     rebindVisible.value = true
   }
 
@@ -935,7 +938,7 @@
     requirePackageFields.value = false
     idManuallyEdited.value = false
     advancedOpen.value = []
-    form.appId = apps.value[0]?.id || 0
+    form.appId = liveApps.value[0]?.id || 0
     form.category =
       categoryOptions.value[0]?.key || (props.kind === 'template' ? 'home-template' : 'other')
     form.id = ''

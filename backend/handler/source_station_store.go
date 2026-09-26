@@ -90,10 +90,11 @@ type sourceAuthor struct {
 }
 
 type sourceCatalogApp struct {
-	ID      int64  `json:"id"`
-	AppKey  string `json:"appKey"`
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
+	ID       int64  `json:"id"`
+	AppKey   string `json:"appKey"`
+	Name     string `json:"name"`
+	Enabled  bool   `json:"enabled"`
+	Archived bool   `json:"archived"`
 }
 
 type sourcePlugin struct {
@@ -154,18 +155,20 @@ type sourceTemplate struct {
 }
 
 type sourceRelease struct {
-	Kind       string    `json:"kind"`
-	ItemID     string    `json:"itemId"`
-	Version    string    `json:"version"`
-	Changelog  string    `json:"changelog"`
-	Location   string    `json:"location"`
-	OriginURL  string    `json:"-"`
-	SHA256     string    `json:"sha256"`
-	Status     string    `json:"status"`
-	ReviewNote string    `json:"reviewNote"`
-	ReviewedBy string    `json:"reviewedBy"`
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	Kind          string    `json:"kind"`
+	ItemID        string    `json:"itemId"`
+	Version       string    `json:"version"`
+	Changelog     string    `json:"changelog"`
+	Location      string    `json:"location"`
+	StorageDriver string    `json:"storageDriver"`
+	ObjectKey     string    `json:"objectKey"`
+	OriginURL     string    `json:"-"`
+	SHA256        string    `json:"sha256"`
+	Status        string    `json:"status"`
+	ReviewNote    string    `json:"reviewNote"`
+	ReviewedBy    string    `json:"reviewedBy"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
 type sourceApplication struct {
@@ -1609,6 +1612,8 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			download_url VARCHAR(500) NOT NULL DEFAULT '',
 			sha256 CHAR(64) NOT NULL DEFAULT '',
 			origin_url VARCHAR(500) NOT NULL DEFAULT '',
+			storage_driver VARCHAR(20) NOT NULL DEFAULT '',
+			object_key VARCHAR(500) NOT NULL DEFAULT '',
 			status VARCHAR(20) NOT NULL DEFAULT 'draft',
 			review_note VARCHAR(500) NOT NULL DEFAULT '',
 			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
@@ -1624,6 +1629,8 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			template_url VARCHAR(500) NOT NULL DEFAULT '',
 			sha256 CHAR(64) NOT NULL DEFAULT '',
 			origin_url VARCHAR(500) NOT NULL DEFAULT '',
+			storage_driver VARCHAR(20) NOT NULL DEFAULT '',
+			object_key VARCHAR(500) NOT NULL DEFAULT '',
 			status VARCHAR(20) NOT NULL DEFAULT 'draft',
 			review_note VARCHAR(500) NOT NULL DEFAULT '',
 			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
@@ -1639,6 +1646,12 @@ func ensureSourceStationStorage(db *sql.DB) error {
 		}
 	}
 	if err := ensureSourceStationMigrations(db); err != nil {
+		return err
+	}
+	if err := ensureAppDeletedAt(db); err != nil {
+		return err
+	}
+	if err := ensureCatalogForeignKeys(db); err != nil {
 		return err
 	}
 	if _, err := db.Exec(`INSERT IGNORE INTO roles (role_name, role_code, description, discount, enabled)
@@ -2976,7 +2989,10 @@ func (mysqlSourceStore) ListCatalogApps() ([]sourceCatalogApp, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(`SELECT id, app_key, app_name, enabled FROM apps ORDER BY id ASC`)
+	if err := ensureAppDeletedAt(db); err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`SELECT id, app_key, app_name, enabled, deleted_at FROM apps ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -2985,10 +3001,12 @@ func (mysqlSourceStore) ListCatalogApps() ([]sourceCatalogApp, error) {
 	for rows.Next() {
 		var item sourceCatalogApp
 		var enabled int
-		if err := rows.Scan(&item.ID, &item.AppKey, &item.Name, &enabled); err != nil {
+		var deletedAt sql.NullTime
+		if err := rows.Scan(&item.ID, &item.AppKey, &item.Name, &enabled, &deletedAt); err != nil {
 			return nil, err
 		}
 		item.Enabled = enabled == 1
+		item.Archived = deletedAt.Valid
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -3002,9 +3020,13 @@ func (mysqlSourceStore) GetCatalogAppByID(id int64) (sourceCatalogApp, error) {
 	if err != nil {
 		return sourceCatalogApp{}, err
 	}
+	if err := ensureAppDeletedAt(db); err != nil {
+		return sourceCatalogApp{}, err
+	}
 	var item sourceCatalogApp
 	var enabled int
-	err = db.QueryRow(`SELECT id, app_key, app_name, enabled FROM apps WHERE id=?`, id).Scan(&item.ID, &item.AppKey, &item.Name, &enabled)
+	var deletedAt sql.NullTime
+	err = db.QueryRow(`SELECT id, app_key, app_name, enabled, deleted_at FROM apps WHERE id=?`, id).Scan(&item.ID, &item.AppKey, &item.Name, &enabled, &deletedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceCatalogApp{}, errSourceAppNotFound
 	}
@@ -3012,6 +3034,7 @@ func (mysqlSourceStore) GetCatalogAppByID(id int64) (sourceCatalogApp, error) {
 		return sourceCatalogApp{}, err
 	}
 	item.Enabled = enabled == 1
+	item.Archived = deletedAt.Valid
 	return item, nil
 }
 
@@ -3024,9 +3047,13 @@ func (mysqlSourceStore) GetCatalogAppByKey(appKey string) (sourceCatalogApp, err
 	if err != nil {
 		return sourceCatalogApp{}, err
 	}
+	if err := ensureAppDeletedAt(db); err != nil {
+		return sourceCatalogApp{}, err
+	}
 	var item sourceCatalogApp
 	var enabled int
-	err = db.QueryRow(`SELECT id, app_key, app_name, enabled FROM apps WHERE app_key=?`, appKey).Scan(&item.ID, &item.AppKey, &item.Name, &enabled)
+	var deletedAt sql.NullTime
+	err = db.QueryRow(`SELECT id, app_key, app_name, enabled, deleted_at FROM apps WHERE app_key=?`, appKey).Scan(&item.ID, &item.AppKey, &item.Name, &enabled, &deletedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceCatalogApp{}, errSourceAppNotFound
 	}
@@ -3034,6 +3061,7 @@ func (mysqlSourceStore) GetCatalogAppByKey(appKey string) (sourceCatalogApp, err
 		return sourceCatalogApp{}, err
 	}
 	item.Enabled = enabled == 1
+	item.Archived = deletedAt.Valid
 	return item, nil
 }
 

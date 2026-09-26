@@ -192,6 +192,7 @@ func sourcePublicTemplateEntry(template sourceTemplate) map[string]any {
 func sourceCatalogAppView(app sourceCatalogApp) gin.H {
 	return gin.H{
 		"id": app.ID, "appKey": app.AppKey, "name": app.Name, "enabled": app.Enabled,
+		"archived": app.Archived,
 		"indexUrl": sourceStationPublicIndexPath(app.AppKey),
 	}
 }

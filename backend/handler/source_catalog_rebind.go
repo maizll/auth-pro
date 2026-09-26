@@ -27,7 +27,16 @@ type appCatalogMigrateRequiredError struct {
 }
 
 func (err appCatalogMigrateRequiredError) Error() string {
-	return fmt.Sprintf("该应用下还有 %d 条软件目录条目，请选择要迁移到的其他应用后再删除", err.Count)
+	return fmt.Sprintf("该应用下还有 %d 条软件目录条目，请选择要迁移到的其他应用后再归档，或直接归档并保留绑定", err.Count)
+}
+
+func requestAppArchiveInPlace(c *gin.Context) bool {
+	switch strings.TrimSpace(c.Query("archive")) {
+	case "1", "true":
+		return true
+	default:
+		return false
+	}
 }
 
 func requestSourceCatalogUnassigned(c *gin.Context) bool {
@@ -154,7 +163,7 @@ func developerMayBindCatalogApp(appID int64) error {
 	return nil
 }
 
-func relocateCatalogBeforeAppDelete(appID, migrateAppID int64, actor string) error {
+func relocateCatalogBeforeAppDelete(appID, migrateAppID int64, archiveInPlace bool, actor string) error {
 	plugins, templates, err := catalogItemsOnApp(appID)
 	if err != nil {
 		return err
@@ -163,10 +172,13 @@ func relocateCatalogBeforeAppDelete(appID, migrateAppID int64, actor string) err
 		return nil
 	}
 	if migrateAppID <= 0 {
+		if archiveInPlace {
+			return nil
+		}
 		return appCatalogMigrateRequiredError{Count: len(plugins) + len(templates)}
 	}
 	if migrateAppID == appID {
-		return errors.New("不能迁移到正在删除的应用")
+		return errors.New("不能迁移到正在归档的应用")
 	}
 	items := make([]catalogRebindItem, 0, len(plugins)+len(templates))
 	for _, item := range plugins {
@@ -186,6 +198,9 @@ func rebindCatalogItems(req catalogRebindRequest, ownerDeveloperID int64, actorT
 	target, err := currentSourceStationStore().GetCatalogAppByID(req.AppID)
 	if err != nil {
 		return 0, err
+	}
+	if target.Archived {
+		return 0, errors.New("不能切换到已归档的应用")
 	}
 	if len(req.Items) == 0 {
 		return 0, errors.New("请选择要切换的条目")

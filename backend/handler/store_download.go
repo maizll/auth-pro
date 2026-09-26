@@ -36,8 +36,15 @@ func StoreDownloadTicket(c *gin.Context) {
 		return
 	}
 	location, version, sha, _ := lookupPaidPackageLocation(db, req.Kind, req.ID)
-	if isGitHubPackageRef(location) {
-		tempURL, urlErr := authorizeGitHubBuyerURL(c.Request.Context(), true, location)
+	driverName, objectKey := classifyPackageRef(location)
+	switch driverName {
+	case packageStorageGitHub:
+		driver, ok := packageStorageByName(packageStorageGitHub)
+		if !ok {
+			storeFail(c, 400, "付费包不存在")
+			return
+		}
+		tempURL, urlErr := driver.SignedURL(c.Request.Context(), objectKey, 5*time.Minute)
 		if urlErr != nil {
 			storeFail(c, 400, urlErr.Error())
 			return
@@ -48,27 +55,32 @@ func StoreDownloadTicket(c *gin.Context) {
 			"expiresIn": 300,
 		})
 		return
-	}
-	name, ok := privatePackageName(location)
-	if !ok {
+	case packageStorageLocal:
+		name := objectKey
+		if _, ok := privatePackageName(sourcePaidPackagePrefix + name); !ok {
+			storeFail(c, 404, "付费包不存在")
+			return
+		}
+		if req.Version == "" {
+			req.Version = version
+		}
+		token, err := createStoreDownloadToken(storeDownloadClaims{
+			LicenseID: row.LicenseID, ItemKind: req.Kind, ItemID: req.ID, Version: req.Version, StorageKey: name, Source: "commercial",
+		})
+		if err != nil {
+			storeFail(c, 500, "签发下载票失败")
+			return
+		}
+		storeData(c, gin.H{
+			"token":     token,
+			"expiresIn": int(storeDownloadTTL.Seconds()),
+			"url":       buildRequestURL(c, "/api/v1/store/packages/"+token),
+		})
+		return
+	default:
 		storeFail(c, 404, "付费包不存在")
 		return
 	}
-	if req.Version == "" {
-		req.Version = version
-	}
-	token, err := createStoreDownloadToken(storeDownloadClaims{
-		LicenseID: row.LicenseID, ItemKind: req.Kind, ItemID: req.ID, Version: req.Version, StorageKey: name, Source: "commercial",
-	})
-	if err != nil {
-		storeFail(c, 500, "签发下载票失败")
-		return
-	}
-	storeData(c, gin.H{
-		"token":     token,
-		"expiresIn": int(storeDownloadTTL.Seconds()),
-		"url":       buildRequestURL(c, "/api/v1/store/packages/"+token),
-	})
 }
 
 func StorePackageDownload(c *gin.Context) {
