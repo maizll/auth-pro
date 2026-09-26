@@ -389,19 +389,14 @@ func createStoreDownloadToken(claims storeDownloadClaims) (string, error) {
 		}
 		claims.Nonce = hex.EncodeToString(buf)
 	}
-	payload := strings.Join([]string{
-		strconv.FormatInt(claims.LicenseID, 10),
-		claims.ItemKind,
-		claims.ItemID,
-		claims.Version,
-		claims.StorageKey,
-		claims.Source,
-		strconv.FormatInt(claims.ExpiresAt, 10),
-		claims.Nonce,
-	}, ".")
+	// 版本号和文件名里都有点号，不能再用点号拼接，否则 1.0.0.zip 拆不开。
+	body, err := json.Marshal(claims)
+	if err != nil {
+		return "", err
+	}
 	mac := hmac.New(sha256.New, secret)
-	_, _ = mac.Write([]byte(payload))
-	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+	_, _ = mac.Write(body)
+	return base64.RawURLEncoding.EncodeToString(body) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
 }
 
 func parseStoreDownloadToken(token string) (storeDownloadClaims, error) {
@@ -427,17 +422,8 @@ func parseStoreDownloadToken(token string) (storeDownloadClaims, error) {
 	if !hmac.Equal(sig, mac.Sum(nil)) {
 		return claims, errors.New("下载令牌无效")
 	}
-	fields := strings.Split(string(payload), ".")
-	if len(fields) != 8 {
-		return claims, errors.New("下载令牌无效")
+	if json.Unmarshal(payload, &claims) != nil || claims.LicenseID <= 0 || claims.ItemID == "" || claims.StorageKey == "" {
+		return storeDownloadClaims{}, errors.New("下载令牌无效")
 	}
-	claims.LicenseID, _ = strconv.ParseInt(fields[0], 10, 64)
-	claims.ItemKind = fields[1]
-	claims.ItemID = fields[2]
-	claims.Version = fields[3]
-	claims.StorageKey = fields[4]
-	claims.Source = fields[5]
-	claims.ExpiresAt, _ = strconv.ParseInt(fields[6], 10, 64)
-	claims.Nonce = fields[7]
 	return claims, nil
 }

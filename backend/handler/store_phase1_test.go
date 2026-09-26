@@ -567,6 +567,25 @@ func (r phaseResult) RowsAffected() (int64, error) { return 1, nil }
 
 var phaseRegisterMu sync.Mutex
 
+func TestStoreDownloadTokenRoundTripWithDottedVersion(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	want := storeDownloadClaims{
+		LicenseID: 7, ItemKind: "plugin", ItemID: "demo-widget", Version: "1.0.0",
+		StorageKey: "21ed72ecaea013af12856ae92bebab22.zip", Source: "commercial",
+	}
+	token, err := createStoreDownloadToken(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := parseStoreDownloadToken(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LicenseID != want.LicenseID || got.ItemID != want.ItemID || got.Version != want.Version || got.StorageKey != want.StorageKey {
+		t.Fatalf("token changed claims: %+v", got)
+	}
+}
+
 func init() {
 	_ = json.Marshal
 	_ = &phaseRegisterMu

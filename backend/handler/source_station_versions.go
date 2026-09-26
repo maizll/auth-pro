@@ -550,15 +550,16 @@ func (mysqlSourceStore) UpsertVersion(rel sourceRelease, developerID int64, asAd
 	rel.Changelog = truncateText(rel.Changelog, 2000)
 	rel.Location = strings.TrimSpace(rel.Location)
 	rel.SHA256 = strings.ToLower(strings.TrimSpace(rel.SHA256))
-	existing, err := (mysqlSourceStore{}).GetVersion(rel.Kind, rel.ItemID, rel.Version)
-	if err != nil && !errors.Is(err, errSourceNotFound) {
-		return sourceRelease{}, err
+	existing, getErr := (mysqlSourceStore{}).GetVersion(rel.Kind, rel.ItemID, rel.Version)
+	if getErr != nil && !errors.Is(getErr, errSourceNotFound) {
+		return sourceRelease{}, getErr
 	}
 	db, err := config.DB()
 	if err != nil {
 		return sourceRelease{}, err
 	}
-	if err == nil {
+	// config.DB 会覆盖 err。版本不存在时不能再拿那个 err 判断，否则会把空状态写进去，上架就报「目录项不存在」。
+	if getErr == nil {
 		if existing.Status == sourceVersionPublished || existing.Status == sourceVersionDeprecated {
 			if !asAdmin && (existing.Location != rel.Location || existing.SHA256 != rel.SHA256) && (rel.Location != "" || rel.SHA256 != "") {
 				return sourceRelease{}, errSourceVersionImmutable
@@ -927,6 +928,9 @@ func scanSourceRelease(scanner interface{ Scan(dest ...any) error }, kind string
 }
 
 func mysqlWriteVersion(db *sql.DB, kind, itemID, version string, rel sourceRelease, status string) error {
+	if strings.TrimSpace(status) == "" {
+		status = sourceVersionDraft
+	}
 	stampReleaseStorage(&rel)
 	if kind == sourceKindTemplate {
 		_, err := db.Exec(`INSERT INTO source_catalog_template_versions
