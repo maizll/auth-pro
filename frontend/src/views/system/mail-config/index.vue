@@ -394,6 +394,7 @@
 
 <script setup lang="ts">
   import type { FormInstance, FormRules } from 'element-plus'
+  import { showCaughtError } from '@/utils/http/error-toast'
   import {
     fetchMailConfig,
     fetchTestMailConfig,
@@ -660,10 +661,10 @@
         content: form[fields.content]
       })
       ElMessage.success('内容类型已自动保存')
-    } catch {
+    } catch (error) {
       form[fields.contentType] = previousContentType
       form[fields.content] = previousContent
-      ElMessage.error('内容类型自动保存失败，已恢复原设置')
+      showCaughtError(error, '内容类型自动保存失败，已恢复原设置')
     } finally {
       contentTypeSaving.value = null
     }

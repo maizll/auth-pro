@@ -152,6 +152,7 @@
   import TemplateActions from './TemplateActions.vue'
   import { computed, onMounted, ref } from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { showCaughtError } from '@/utils/http/error-toast'
   import { Refresh } from '@element-plus/icons-vue'
   import {
     fetchEnableHomeTemplate,
@@ -216,7 +217,7 @@
     } catch (error: any) {
       templates.value = []
       loadError.value = error?.message || '首页模板列表加载失败，请稍后重试'
-      ElMessage.error(loadError.value)
+      showCaughtError(error, loadError.value)
     }
   }
 
@@ -237,7 +238,7 @@
       ElMessage.success(successText)
       await loadAll()
     } catch (error: any) {
-      ElMessage.error(error?.message || '操作失败，请稍后重试')
+      showCaughtError(error, '操作失败，请稍后重试')
     } finally {
       togglingId.value = ''
     }

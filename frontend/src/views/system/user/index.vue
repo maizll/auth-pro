@@ -48,6 +48,7 @@
   import UserDialog from './modules/user-dialog.vue'
   import { ElTag, ElMessage, ElMessageBox } from 'element-plus'
   import request from '@/utils/http'
+  import { showCaughtError } from '@/utils/http/error-toast'
   import { DialogType } from '@/types'
 
   defineOptions({ name: 'User' })
@@ -229,8 +230,8 @@
       }
       sessionStorage.setItem('impersonate_user_panel', JSON.stringify(info))
       window.open(`${location.origin}/user/login?impersonate=1`, '_blank')
-    } catch {
-      ElMessage.error('登录失败')
+    } catch (error) {
+      showCaughtError(error, '登录失败')
     }
   }
 

@@ -309,13 +309,13 @@ func StoreAuthConfirm(c *gin.Context) {
 		return
 	}
 	settings, err := loadEffectiveStoreSettings(db)
-	if err != nil || settings.ProductAppKey == "" {
+	if err != nil {
 		storeFail(c, 500, "源站未配置产品应用")
 		return
 	}
-	var appID int64
-	if err := db.QueryRow(`SELECT id FROM apps WHERE app_key = ? AND enabled = 1`, settings.ProductAppKey).Scan(&appID); err != nil {
-		storeFail(c, 500, "产品应用不存在或未启用")
+	appID, err := lookupEnabledStoreProductAppID(db, settings.ProductAppKey)
+	if err != nil {
+		storeFail(c, 500, err.Error())
 		return
 	}
 	matches, err := listDomainLicenseMatches(db, appID, domain)
@@ -658,7 +658,7 @@ func StoreStatus(c *gin.Context) {
 		return
 	}
 	var appID int64
-	if err := db.QueryRow(`SELECT id FROM apps WHERE app_key = ?`, settings.ProductAppKey).Scan(&appID); err != nil {
+	if err := db.QueryRow(`SELECT id FROM apps WHERE app_key = ?`, strings.TrimSpace(settings.ProductAppKey)).Scan(&appID); err != nil {
 		storeFail(c, 500, "产品应用不存在")
 		return
 	}

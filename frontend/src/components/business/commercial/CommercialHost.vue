@@ -83,6 +83,7 @@
 <script setup lang="ts">
   import { onBeforeUnmount, reactive, ref } from 'vue'
   import { ElMessage } from 'element-plus'
+  import { showCaughtError } from '@/utils/http/error-toast'
   import QrcodeVue from 'qrcode.vue'
   import CommercialMark from './CommercialMark.vue'
   import { commercialUi } from '@/utils/commercial'
@@ -126,7 +127,7 @@
         planId.value = plans.value[0]?.id
       }
     } catch (error: any) {
-      ElMessage.error(error?.message || '读取商店账号失败')
+      showCaughtError(error, '读取商店账号失败')
     } finally {
       loading.value = false
     }
@@ -142,7 +143,7 @@
       plans.value = data.list || []
       planId.value = plans.value[0]?.id
     } catch (error: any) {
-      ElMessage.error(error?.message || '绑定失败')
+      showCaughtError(error, '绑定失败')
     } finally {
       acting.value = false
     }
@@ -157,7 +158,7 @@
       orderTitle.value = `${order.title} ${(order.amountCents / 100).toFixed(2)} 元`
       poll(order.orderNo)
     } catch (error: any) {
-      ElMessage.error(error?.message || '创建订单失败')
+      showCaughtError(error, '创建订单失败')
     } finally {
       acting.value = false
     }
@@ -186,7 +187,7 @@
     try {
       await saveStoreConnection({ ...connection })
     } catch (error: any) {
-      ElMessage.error(error?.message || '保存失败')
+      showCaughtError(error, '保存失败')
     } finally {
       acting.value = false
     }

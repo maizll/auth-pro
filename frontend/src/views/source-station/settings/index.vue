@@ -66,7 +66,7 @@
           <div>
             <span class="card-title">商店预留</span>
             <p class="card-hint">
-              只保存产品应用标识和免费套餐 ID，供后续购买与交付使用。这里不校验应用或套餐是否存在，也不开放付费上架。
+              从已启用的应用里选择产品应用标识。保存时会去掉首尾空格，并确认该 app_key 存在且已启用；找不到会立刻提示，不用等到买家绑定。留空表示未设置。
             </p>
           </div>
           <div class="table-actions">
@@ -76,7 +76,22 @@
       </template>
       <el-form :model="storeForm" label-width="140px" class="settings-form">
         <el-form-item label="产品应用标识">
-          <el-input v-model.trim="storeForm.productAppKey" placeholder="可留空" />
+          <el-select
+            :model-value="storeForm.productAppKey || undefined"
+            filterable
+            clearable
+            placeholder="可留空，未设置"
+            class="product-app-select"
+            :loading="productAppsLoading"
+            @update:model-value="onProductAppChange"
+          >
+            <el-option
+              v-for="app in productAppOptions"
+              :key="app.appKey"
+              :label="app.label"
+              :value="app.appKey"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="免费套餐 ID">
           <el-input v-model.trim="storeForm.freePlanId" placeholder="可留空，正整数" />
@@ -98,6 +113,7 @@
 <script setup lang="ts">
   import { computed, onMounted, reactive, ref } from 'vue'
   import { ElMessage } from 'element-plus'
+  import { fetchLicenseAppList } from '@/api/license-manage'
   import {
     fetchSourceReleaseSettings,
     fetchSourceStoreSettings,
@@ -122,6 +138,8 @@
   })
   const storeLoading = ref(false)
   const storeSaving = ref(false)
+  const productAppsLoading = ref(false)
+  const productApps = ref<Array<{ appKey: string; name: string }>>([])
   const storeForm = reactive({
     productAppKey: '',
     freePlanId: '',
@@ -137,6 +155,22 @@
     tagStrategy: '{id}-{version}',
     branch: 'master'
   })
+
+  const productAppOptions = computed(() => {
+    const enabled = productApps.value.map((app) => ({
+      appKey: app.appKey,
+      label: `${app.name}（${app.appKey}）`
+    }))
+    const current = String(storeForm.productAppKey || '').trim()
+    if (current && !enabled.some((app) => app.appKey === current)) {
+      return [{ appKey: current, label: `${current}（未启用或不存在）` }, ...enabled]
+    }
+    return enabled
+  })
+
+  function onProductAppChange(value: string | null | undefined) {
+    storeForm.productAppKey = String(value || '')
+  }
 
   const formHasToken = computed(() => Boolean(form.token.trim()) || settings.value.hasToken)
 
@@ -169,6 +203,20 @@
     return '尚未配置完整，上传时需粘贴外部 https 地址。'
   })
 
+  async function loadProductApps() {
+    productAppsLoading.value = true
+    try {
+      const list = await fetchLicenseAppList()
+      productApps.value = (list || [])
+        .filter((app) => app.enabled && app.appKey)
+        .map((app) => ({ appKey: app.appKey, name: app.name || app.appKey }))
+    } catch {
+      productApps.value = []
+    } finally {
+      productAppsLoading.value = false
+    }
+  }
+
   async function loadStoreSettings() {
     storeLoading.value = true
     try {
@@ -184,7 +232,7 @@
   }
 
   async function handleStoreSave() {
-    const appKey = storeForm.productAppKey.trim()
+    const appKey = String(storeForm.productAppKey || '').trim()
     const plan = storeForm.freePlanId.trim()
     if (appKey && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(appKey)) {
       ElMessage.warning('产品应用标识不合法')
@@ -270,6 +318,7 @@
   onMounted(() => {
     void loadSettings()
     void loadStoreSettings()
+    void loadProductApps()
   })
 </script>
 
@@ -324,5 +373,9 @@
 
   .settings-form {
     max-width: 560px;
+  }
+
+  .product-app-select {
+    width: 100%;
   }
 </style>

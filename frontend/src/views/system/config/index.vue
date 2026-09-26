@@ -980,6 +980,7 @@
 <script setup lang="ts">
   import type { FormInstance, FormRules } from 'element-plus'
   import { ElMessage } from 'element-plus'
+  import { showCaughtError } from '@/utils/http/error-toast'
   import {
     fetchSystemConfig,
     fetchUpdateSystemConfig,
@@ -1158,8 +1159,8 @@
       })
       recordList.value = data.list || []
       recordTotal.value = data.total
-    } catch {
-      ElMessage.error('认证记录加载失败')
+    } catch (error) {
+      showCaughtError(error, '认证记录加载失败')
     } finally {
       recordLoading.value = false
     }
@@ -1222,8 +1223,8 @@
         xiaomuProductMode: data.xiaomuProductMode || 'three_element',
         requireAppIds: [...data.requireAppIds]
       })
-    } catch {
-      ElMessage.error('实名认证配置加载失败')
+    } catch (error) {
+      showCaughtError(error, '实名认证配置加载失败')
     }
   }
 

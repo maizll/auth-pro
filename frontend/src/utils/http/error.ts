@@ -24,6 +24,7 @@
 import { AxiosError } from 'axios'
 import { ApiStatus } from './status'
 import { $t } from '@/locales'
+import { claimErrorToast, errorToastText } from './error-toast'
 
 // 错误响应接口
 export interface ErrorResponse {
@@ -60,6 +61,8 @@ export class HttpError extends Error {
   public readonly timestamp: string
   public readonly url?: string
   public readonly method?: string
+  /** 拦截器已经弹出过这条错误时为 true，页面 catch 不要再弹一次。 */
+  public displayed = false
 
   constructor(
     message: string,
@@ -155,11 +158,29 @@ export function handleError(error: AxiosError<ErrorResponse>): never {
  */
 export function showError(error: HttpError, showMessage: boolean = true): void {
   if (showMessage) {
+    error.displayed = true
     ElMessage.error(error.message)
   }
   // 记录错误日志
   console.error('[HTTP Error]', error.toLogData())
 }
+
+const duplicateErrorToastLedger = new Map<string, number>()
+
+function installDuplicateErrorToastGuard(): void {
+  const current = ElMessage.error as typeof ElMessage.error & { __deduped?: boolean }
+  if (current.__deduped) return
+  const notify = current.bind(ElMessage)
+  const wrapped = ((message?: unknown, ...rest: unknown[]) => {
+    const text = errorToastText(message)
+    if (text && !claimErrorToast(text, Date.now(), duplicateErrorToastLedger)) return
+    return notify(message as string, ...(rest as []))
+  }) as typeof ElMessage.error & { __deduped?: boolean }
+  wrapped.__deduped = true
+  ElMessage.error = wrapped
+}
+
+installDuplicateErrorToastGuard()
 
 /**
  * 显示成功消息

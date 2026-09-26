@@ -309,6 +309,7 @@
   import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { showCaughtError } from '@/utils/http/error-toast'
   import { FolderAdd, Refresh, Search } from '@element-plus/icons-vue'
   import {
     fetchAddPluginSource,
@@ -438,7 +439,7 @@
         categories.value = []
         sources.value = []
         loadError.value = pluginResult.reason?.message || '插件商店加载失败，请稍后重试'
-        ElMessage.error(loadError.value)
+        showCaughtError(pluginResult.reason, loadError.value)
       }
 
       if (templateResult.status === 'fulfilled') {
@@ -462,7 +463,7 @@
       await Promise.all(sources.value.map((source) => fetchRefreshPluginSource(source.id)))
       ElMessage.success('软件源已刷新')
     } catch (error: any) {
-      ElMessage.error(error?.message || '部分软件源刷新失败')
+      showCaughtError(error, '部分软件源刷新失败')
     } finally {
       loading.value = false
       await loadPlugins(true)
@@ -476,7 +477,7 @@
       ElMessage.success(`「${source.name}」刷新成功`)
       await loadPlugins()
     } catch (error: any) {
-      ElMessage.error(error?.message || '软件源刷新失败')
+      showCaughtError(error, '软件源刷新失败')
     } finally {
       refreshingSourceId.value = null
     }
@@ -585,7 +586,7 @@
       ElMessage.success(plugin.enabled ? '插件已停用' : `已启用「${plugin.name}」`)
       await loadPlugins()
     } catch (error: any) {
-      if (error?.code !== 402) ElMessage.error(error?.message || '操作失败')
+      if (error?.code !== 402) showCaughtError(error, '操作失败')
     } finally {
       togglingId.value = ''
     }
@@ -598,7 +599,7 @@
       ElMessage.success(`「${plugin.name}」已下载、解压并安装`)
       await loadPlugins()
     } catch (error: any) {
-      ElMessage.error(error?.message || '插件下载安装失败')
+      showCaughtError(error, '插件下载安装失败')
     } finally {
       downloadingId.value = ''
     }
@@ -618,7 +619,7 @@
       newSourceName.value = ''
       await loadPlugins()
     } catch (e: any) {
-      ElMessage.error(e?.message || '软件源添加失败，请检查清单地址')
+      showCaughtError(e, '软件源添加失败，请检查清单地址')
     } finally {
       addingSource.value = false
     }
@@ -642,8 +643,8 @@
       await fetchDeletePluginSource(row.id)
       ElMessage.success('软件源已删除')
       await loadPlugins()
-    } catch {
-      ElMessage.error('删除失败')
+    } catch (error) {
+      showCaughtError(error, '删除失败')
     }
   }
 

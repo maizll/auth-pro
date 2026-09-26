@@ -182,6 +182,7 @@
 
 <script setup lang="ts">
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { showCaughtError } from '@/utils/http/error-toast'
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchAgentList,
@@ -372,8 +373,8 @@
       sessionStorage.setItem('impersonate_agent_token', data.accessToken)
       sessionStorage.setItem('impersonate_agent_info', JSON.stringify(info))
       window.open(`${location.origin}/agent-panel/login?impersonate=1`, '_blank')
-    } catch {
-      ElMessage.error('登录失败')
+    } catch (error) {
+      showCaughtError(error, '登录失败')
     }
   }
 

@@ -136,6 +136,31 @@ func splitStoreFeatures(raw string) []string {
 	return out
 }
 
+func requireEnabledStoreProductApp(db *sql.DB, productAppKey string) error {
+	key := strings.TrimSpace(productAppKey)
+	if key == "" {
+		return nil
+	}
+	var enabled int
+	err := db.QueryRow(`SELECT enabled FROM apps WHERE app_key = ?`, key).Scan(&enabled)
+	if err != nil || enabled != 1 {
+		return errors.New("找不到该应用标识，请从 应用管理 复制 app_key")
+	}
+	return nil
+}
+
+func lookupEnabledStoreProductAppID(db *sql.DB, productAppKey string) (int64, error) {
+	key := strings.TrimSpace(productAppKey)
+	if key == "" {
+		return 0, errors.New("源站未配置产品应用")
+	}
+	var appID int64
+	if err := db.QueryRow(`SELECT id FROM apps WHERE app_key = ? AND enabled = 1`, key).Scan(&appID); err != nil {
+		return 0, errors.New("产品应用不存在或未启用")
+	}
+	return appID, nil
+}
+
 func saveSourceStoreSettings(db *sql.DB, settings sourceStoreSettings) error {
 	revoke := "1"
 	if settings.RevokeOnPasswordChange != nil && !*settings.RevokeOnPasswordChange {
@@ -198,6 +223,10 @@ func AdminSourceStoreSettingsSave(c *gin.Context) {
 	}
 	if err := ensureSystemConfigStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存商店设置失败"})
+		return
+	}
+	if err := requireEnabledStoreProductApp(db, settings.ProductAppKey); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
 	if err := saveSourceStoreSettings(db, settings); err != nil {

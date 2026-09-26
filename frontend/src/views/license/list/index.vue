@@ -219,6 +219,7 @@
 
 <script setup lang="ts">
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { showCaughtError } from '@/utils/http/error-toast'
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchLicenseList,
@@ -634,7 +635,7 @@
       if (data?.maxSites !== undefined) siteDialog.maxSites = Number(data.maxSites)
     } catch (error) {
       console.error('[LicenseList] 加载绑定站点失败:', error)
-      ElMessage.error('加载绑定站点失败')
+      showCaughtError(error, '加载绑定站点失败')
     } finally {
       siteDialog.loading = false
     }
