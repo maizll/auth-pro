@@ -141,6 +141,7 @@ var sourceStationMigrationNames = []string{
 	"source_catalog_app_id_backfill_v1",
 	"source_developer_agent_backfill_v1",
 	"source_catalog_price_v1",
+	"source_catalog_origin_v1",
 	"store_bindings_v1",
 	"store_editions_v1",
 	"store_purchase_orders_v1",

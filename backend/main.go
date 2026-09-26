@@ -485,6 +485,7 @@ func main() {
 		if err := handler.EnsureSourceStationSchema(); err != nil {
 			log.Fatalf("ensure source station schema failed: %v", err)
 		}
+		handler.StartPaidOriginHealthCheck()
 		handler.EnsureNotificationSchema()
 		handler.BackfillLicensePurchaseTransactions(db)
 	}()

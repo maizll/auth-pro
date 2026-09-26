@@ -321,10 +321,23 @@ export function resolveCatalogPriceCents(
   const cents = parseCatalogPriceYuan(yuan)
   if (cents === null) return { cents: 0, error: '售价须为非负金额，最多两位小数' }
   const loc = String(location || '').trim()
-  if (cents > 0 && loc && !isStationPackageLocation(loc) && !isPrivatePackageLocation(loc)) {
-    return { cents: 0, error: '付费条目必须上传 ZIP 由本站托管，不能使用外链' }
+  if (
+    cents > 0 &&
+    loc &&
+    !isStationPackageLocation(loc) &&
+    !isPrivatePackageLocation(loc) &&
+    !isHttpsLocation(loc)
+  ) {
+    return { cents: 0, error: '付费条目请上传 ZIP，或填写 HTTPS 外链由本站拉取托管' }
   }
   return { cents, error: '' }
+}
+
+export function isPaidHttpsImportLocation(location: string, cents: number): boolean {
+  const loc = String(location || '').trim()
+  if (!(cents > 0) || !loc) return false
+  if (isStationPackageLocation(loc) || isPrivatePackageLocation(loc)) return false
+  return isHttpsLocation(loc)
 }
 
 export function isStationPackageLocation(value: string): boolean {

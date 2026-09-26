@@ -574,7 +574,7 @@ func sourceApplicationView(item sourceApplication) gin.H {
 }
 
 func sourcePluginView(item sourcePlugin) gin.H {
-	return gin.H{
+	view := gin.H{
 		"id": item.ID, "developerId": item.DeveloperID, "appId": item.AppID, "category": item.Category, "name": item.Name,
 		"description": item.Description, "icon": item.Icon, "version": item.Version, "author": item.Author,
 		"sha256": item.SHA256, "downloadUrl": item.DownloadURL, "changelog": item.Changelog,
@@ -583,6 +583,8 @@ func sourcePluginView(item sourcePlugin) gin.H {
 		"status": item.Status, "reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
 		"updatedAt": item.UpdatedAt.Format(time.RFC3339), "createdAt": item.CreatedAt.Format(time.RFC3339),
 	}
+	attachPaidOriginView(view, item.OriginURL, item.OriginHealth)
+	return view
 }
 
 func sourceTemplateView(item sourceTemplate) gin.H {
@@ -590,7 +592,7 @@ func sourceTemplateView(item sourceTemplate) gin.H {
 	if category == "" {
 		category = sourceCategoryHomeTemplate
 	}
-	return gin.H{
+	view := gin.H{
 		"id": item.ID, "developerId": item.DeveloperID, "appId": item.AppID, "category": category, "templateKey": item.TemplateKey, "name": item.Name,
 		"description": item.Description, "version": item.Version, "schemaVersion": item.SchemaVersion,
 		"sha256": item.SHA256, "templateUrl": item.TemplateURL, "changelog": item.Changelog,
@@ -599,6 +601,8 @@ func sourceTemplateView(item sourceTemplate) gin.H {
 		"status": item.Status, "author": item.Author, "reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
 		"updatedAt": item.UpdatedAt.Format(time.RFC3339), "createdAt": item.CreatedAt.Format(time.RFC3339),
 	}
+	attachPaidOriginView(view, item.OriginURL, item.OriginHealth)
+	return view
 }
 
 func sourceReleaseView(item sourceRelease) gin.H {
@@ -611,6 +615,9 @@ func sourceReleaseView(item sourceRelease) gin.H {
 		view["templateUrl"] = item.Location
 	} else {
 		view["downloadUrl"] = item.Location
+	}
+	if strings.TrimSpace(item.OriginURL) != "" {
+		view["originUrl"] = item.OriginURL
 	}
 	return view
 }
@@ -638,15 +645,12 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 	if err != nil {
 		return sourcePlugin{}, err
 	}
-	if err := rejectPaidExternalLocation(priceCents, downloadURL); err != nil {
-		return sourcePlugin{}, err
-	}
-	if downloadURL != "" && !isPrivatePackageRef(downloadURL) {
+	if priceCents <= 0 && downloadURL != "" && !isPrivatePackageRef(downloadURL) {
 		if err := validatePluginDownloadURL(downloadURL); err != nil {
 			return sourcePlugin{}, err
 		}
 	}
-	if isPrivatePackageRef(downloadURL) {
+	if priceCents <= 0 && isPrivatePackageRef(downloadURL) {
 		if _, sha256Value, err = verifyPrivatePackage(downloadURL, sha256Value); err != nil {
 			return sourcePlugin{}, err
 		}
@@ -673,23 +677,35 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 	if err != nil {
 		return sourcePlugin{}, err
 	}
+	var originURL, originHealth string
+	downloadURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindPlugin, category, pluginID, downloadURL, sha256Value, version, priceCents)
+	if err != nil {
+		return sourcePlugin{}, err
+	}
+	if priceCents > 0 && isPrivatePackageRef(downloadURL) {
+		if _, sha256Value, err = verifyPrivatePackage(downloadURL, sha256Value); err != nil {
+			return sourcePlugin{}, err
+		}
+	}
 	return sourcePlugin{
-		ID:          pluginID,
-		DeveloperID: developer.ID,
-		AppID:       req.AppID,
-		Category:    category,
-		Name:        name,
-		Description: truncateText(req.Description, 500),
-		Icon:        icon,
-		Version:     version,
-		SHA256:      sha256Value,
-		DownloadURL: downloadURL,
-		PriceCents:  priceCents,
-		Billing:     billing,
-		Delivery:    delivery,
-		Changelog:   truncateText(req.Changelog, 2000),
-		MinVersion:  truncateText(req.MinVersion, 40),
-		ForceUpdate: req.ForceUpdate,
+		ID:           pluginID,
+		DeveloperID:  developer.ID,
+		AppID:        req.AppID,
+		Category:     category,
+		Name:         name,
+		Description:  truncateText(req.Description, 500),
+		Icon:         icon,
+		Version:      version,
+		SHA256:       sha256Value,
+		DownloadURL:  downloadURL,
+		OriginURL:    originURL,
+		OriginHealth: originHealth,
+		PriceCents:   priceCents,
+		Billing:      billing,
+		Delivery:     delivery,
+		Changelog:    truncateText(req.Changelog, 2000),
+		MinVersion:   truncateText(req.MinVersion, 40),
+		ForceUpdate:  req.ForceUpdate,
 		Author: sourceAuthor{
 			Name:  authorName,
 			URL:   truncateText(req.Author.URL, 300),
@@ -721,15 +737,12 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 	if err != nil {
 		return sourceTemplate{}, err
 	}
-	if err := rejectPaidExternalLocation(priceCents, templateURL); err != nil {
-		return sourceTemplate{}, err
-	}
-	if templateURL != "" && !isPrivatePackageRef(templateURL) {
+	if priceCents <= 0 && templateURL != "" && !isPrivatePackageRef(templateURL) {
 		if err := validateTemplateLocation(templateURL); err != nil {
 			return sourceTemplate{}, err
 		}
 	}
-	if isPrivatePackageRef(templateURL) {
+	if priceCents <= 0 && isPrivatePackageRef(templateURL) {
 		if _, sha256Value, err = verifyPrivatePackage(templateURL, sha256Value); err != nil {
 			return sourceTemplate{}, err
 		}
@@ -758,6 +771,16 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 	if err != nil {
 		return sourceTemplate{}, err
 	}
+	var originURL, originHealth string
+	templateURL, sha256Value, version, originURL, originHealth, err = adoptPaidItemLocation(sourceKindTemplate, category, templateKey, templateURL, sha256Value, version, priceCents)
+	if err != nil {
+		return sourceTemplate{}, err
+	}
+	if priceCents > 0 && isPrivatePackageRef(templateURL) {
+		if _, sha256Value, err = verifyPrivatePackage(templateURL, sha256Value); err != nil {
+			return sourceTemplate{}, err
+		}
+	}
 	return sourceTemplate{
 		ID:            templateKey,
 		DeveloperID:   developer.ID,
@@ -770,6 +793,8 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 		SchemaVersion: schemaVersion,
 		SHA256:        sha256Value,
 		TemplateURL:   templateURL,
+		OriginURL:     originURL,
+		OriginHealth:  originHealth,
 		PriceCents:    priceCents,
 		Billing:       billing,
 		Delivery:      delivery,
@@ -929,6 +954,12 @@ func bindSourceReleaseDraft(c *gin.Context, kind string) (sourceRelease, error) 
 	if err != nil {
 		return sourceRelease{}, err
 	}
+	itemID := strings.TrimSpace(c.Param("id"))
+	var originURL string
+	location, sha256Value, originURL, err = adoptPaidVersionLocation(kind, itemID, version, location, sha256Value)
+	if err != nil {
+		return sourceRelease{}, err
+	}
 	if isPrivatePackageRef(location) {
 		if _, sha256Value, err = verifyPrivatePackage(location, sha256Value); err != nil {
 			return sourceRelease{}, err
@@ -954,6 +985,7 @@ func bindSourceReleaseDraft(c *gin.Context, kind string) (sourceRelease, error) 
 		Version:   version,
 		Changelog: truncateText(req.Changelog, 2000),
 		Location:  location,
+		OriginURL: originURL,
 		SHA256:    sha256Value,
 		Status:    sourceVersionDraft,
 	}, nil

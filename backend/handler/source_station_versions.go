@@ -112,6 +112,9 @@ func (store *memorySourceStore) upsertVersionLocked(rel sourceRelease, developer
 			if rel.SHA256 != "" {
 				existing.SHA256 = rel.SHA256
 			}
+			if rel.Location != "" {
+				existing.OriginURL = rel.OriginURL
+			}
 			if rel.Changelog != "" {
 				existing.Changelog = rel.Changelog
 			}
@@ -128,6 +131,7 @@ func (store *memorySourceStore) upsertVersionLocked(rel sourceRelease, developer
 		}
 		if rel.Location != "" {
 			existing.Location = rel.Location
+			existing.OriginURL = rel.OriginURL
 		}
 		if rel.SHA256 != "" {
 			existing.SHA256 = rel.SHA256
@@ -881,7 +885,7 @@ func mysqlVersionListQuery(kind, itemID string) (string, []any) {
 	if kind == sourceKindTemplate {
 		loc = "template_url"
 	}
-	return `SELECT ` + idCol + `, version, changelog, ` + loc + `, sha256, status, review_note, reviewed_by, created_at, updated_at FROM ` + table + ` WHERE ` + idCol + `=? ORDER BY created_at DESC, version DESC`, []any{itemID}
+	return `SELECT ` + idCol + `, version, changelog, ` + loc + `, sha256, origin_url, status, review_note, reviewed_by, created_at, updated_at FROM ` + table + ` WHERE ` + idCol + `=? ORDER BY created_at DESC, version DESC`, []any{itemID}
 }
 
 func mysqlVersionGetQuery(kind, itemID, version string) (string, []any) {
@@ -890,14 +894,14 @@ func mysqlVersionGetQuery(kind, itemID, version string) (string, []any) {
 	if kind == sourceKindTemplate {
 		loc = "template_url"
 	}
-	return `SELECT ` + idCol + `, version, changelog, ` + loc + `, sha256, status, review_note, reviewed_by, created_at, updated_at FROM ` + table + ` WHERE ` + idCol + `=? AND version=?`, []any{itemID, version}
+	return `SELECT ` + idCol + `, version, changelog, ` + loc + `, sha256, origin_url, status, review_note, reviewed_by, created_at, updated_at FROM ` + table + ` WHERE ` + idCol + `=? AND version=?`, []any{itemID, version}
 }
 
 func scanSourceRelease(scanner interface{ Scan(dest ...any) error }, kind string) (sourceRelease, error) {
 	var item sourceRelease
 	var createdAt, updatedAt time.Time
 	item.Kind = kind
-	if err := scanner.Scan(&item.ItemID, &item.Version, &item.Changelog, &item.Location, &item.SHA256, &item.Status, &item.ReviewNote, &item.ReviewedBy, &createdAt, &updatedAt); err != nil {
+	if err := scanner.Scan(&item.ItemID, &item.Version, &item.Changelog, &item.Location, &item.SHA256, &item.OriginURL, &item.Status, &item.ReviewNote, &item.ReviewedBy, &createdAt, &updatedAt); err != nil {
 		return sourceRelease{}, err
 	}
 	item.CreatedAt, item.UpdatedAt = createdAt.UTC(), updatedAt.UTC()
@@ -907,25 +911,28 @@ func scanSourceRelease(scanner interface{ Scan(dest ...any) error }, kind string
 func mysqlWriteVersion(db *sql.DB, kind, itemID, version string, rel sourceRelease, status string) error {
 	if kind == sourceKindTemplate {
 		_, err := db.Exec(`INSERT INTO source_catalog_template_versions
-			(template_id, version, changelog, template_url, sha256, status, review_note, reviewed_by)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			(template_id, version, changelog, template_url, sha256, origin_url, status, review_note, reviewed_by)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON DUPLICATE KEY UPDATE changelog=VALUES(changelog), template_url=VALUES(template_url), sha256=VALUES(sha256),
+				origin_url=VALUES(origin_url),
 				status=VALUES(status), review_note=VALUES(review_note), reviewed_by=VALUES(reviewed_by)`,
-			itemID, version, rel.Changelog, rel.Location, rel.SHA256, status, rel.ReviewNote, rel.ReviewedBy)
+			itemID, version, rel.Changelog, rel.Location, rel.SHA256, rel.OriginURL, status, rel.ReviewNote, rel.ReviewedBy)
 		return err
 	}
 	_, err := db.Exec(`INSERT INTO source_catalog_plugin_versions
-		(plugin_id, version, changelog, download_url, sha256, status, review_note, reviewed_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		(plugin_id, version, changelog, download_url, sha256, origin_url, status, review_note, reviewed_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE changelog=VALUES(changelog), download_url=VALUES(download_url), sha256=VALUES(sha256),
+			origin_url=VALUES(origin_url),
 			status=VALUES(status), review_note=VALUES(review_note), reviewed_by=VALUES(reviewed_by)`,
-		itemID, version, rel.Changelog, rel.Location, rel.SHA256, status, rel.ReviewNote, rel.ReviewedBy)
+		itemID, version, rel.Changelog, rel.Location, rel.SHA256, rel.OriginURL, status, rel.ReviewNote, rel.ReviewedBy)
 	return err
 }
 
 func coalesceRelease(existing, incoming sourceRelease) sourceRelease {
 	if incoming.Location != "" {
 		existing.Location = incoming.Location
+		existing.OriginURL = incoming.OriginURL
 	}
 	if incoming.SHA256 != "" {
 		existing.SHA256 = incoming.SHA256

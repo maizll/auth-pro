@@ -61,6 +61,9 @@ export interface SourcePlugin {
   priceCents?: number
   billing?: string
   delivery?: string
+  originUrl?: string
+  originHealth?: string
+  originHint?: string
   changelog: string
   latestVersion: string
   minVersion: string
@@ -94,6 +97,9 @@ export interface SourceTemplate {
   priceCents?: number
   billing?: string
   delivery?: string
+  originUrl?: string
+  originHealth?: string
+  originHint?: string
   changelog: string
   latestVersion: string
   minVersion: string
@@ -123,6 +129,9 @@ export interface SourceCatalogItem {
   priceCents?: number
   billing?: string
   delivery?: string
+  originUrl?: string
+  originHealth?: string
+  originHint?: string
   location?: string
   schemaVersion?: number
   templateKey?: string
@@ -142,6 +151,7 @@ export interface SourceVersion {
   status: string
   downloadUrl?: string
   templateUrl?: string
+  originUrl?: string
   reviewNote: string
   reviewedBy: string
   createdAt: string
@@ -434,6 +444,12 @@ export function updateSourcePlugin(id: string, payload: SourcePluginDraft & { no
   })
 }
 
+export function pullSourcePlugin(id: string) {
+  return request.post<SourcePlugin>({
+    url: `${BASE}/plugins/${encodeURIComponent(id)}/pull`
+  })
+}
+
 export function setSourcePluginStatus(
   id: string,
   action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate',
@@ -488,6 +504,12 @@ export function updateSourceTemplate(id: string, payload: SourceTemplateDraft & 
   return request.put<SourceTemplate>({
     url: `${BASE}/templates/${encodeURIComponent(id)}`,
     data: payload
+  })
+}
+
+export function pullSourceTemplate(id: string) {
+  return request.post<SourceTemplate>({
+    url: `${BASE}/templates/${encodeURIComponent(id)}/pull`
   })
 }
 

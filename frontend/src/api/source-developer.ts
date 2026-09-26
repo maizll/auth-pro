@@ -51,6 +51,9 @@ export interface SourceDeveloperCatalogItem {
   priceCents?: number
   billing?: string
   delivery?: string
+  originUrl?: string
+  originHealth?: string
+  originHint?: string
   templateKey?: string
   changelog?: string
   latestVersion?: string
@@ -194,6 +197,7 @@ export interface SourceDeveloperVersion {
   status: string
   downloadUrl?: string
   templateUrl?: string
+  originUrl?: string
   reviewNote?: string
   reviewedBy?: string
   createdAt?: string
@@ -293,6 +297,14 @@ export function upsertSourceDeveloperPlugin(payload: SourceDeveloperPluginDraft)
   )
 }
 
+export function pullSourceDeveloperPlugin(id: string) {
+  return axios.post<{ code: number; msg: string; data: SourceDeveloperCatalogItem }>(
+    `${BASE}/plugins/${encodeURIComponent(id)}/pull`,
+    {},
+    developerConfig()
+  )
+}
+
 export function submitSourceDeveloperPlugin(id: string, note?: string) {
   return axios.post<{ code: number; msg: string; data: SourceDeveloperCatalogItem }>(
     `${BASE}/plugins/${encodeURIComponent(id)}/submit`,
@@ -329,6 +341,14 @@ export function upsertSourceDeveloperTemplate(payload: SourceDeveloperTemplateDr
   return axios.post<{ code: number; msg: string; data: SourceDeveloperCatalogItem }>(
     `${BASE}/templates`,
     payload,
+    developerConfig()
+  )
+}
+
+export function pullSourceDeveloperTemplate(id: string) {
+  return axios.post<{ code: number; msg: string; data: SourceDeveloperCatalogItem }>(
+    `${BASE}/templates/${encodeURIComponent(id)}/pull`,
+    {},
     developerConfig()
   )
 }

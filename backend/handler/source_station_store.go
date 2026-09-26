@@ -108,6 +108,8 @@ type sourcePlugin struct {
 	Author        sourceAuthor `json:"author"`
 	SHA256        string       `json:"sha256"`
 	DownloadURL   string       `json:"downloadUrl"`
+	OriginURL     string       `json:"-"`
+	OriginHealth  string       `json:"-"`
 	PriceCents    int64        `json:"priceCents"`
 	Billing       string       `json:"billing"`
 	Delivery      string       `json:"delivery"`
@@ -134,6 +136,8 @@ type sourceTemplate struct {
 	SchemaVersion int          `json:"schemaVersion"`
 	SHA256        string       `json:"sha256"`
 	TemplateURL   string       `json:"templateUrl"`
+	OriginURL     string       `json:"-"`
+	OriginHealth  string       `json:"-"`
 	PriceCents    int64        `json:"priceCents"`
 	Billing       string       `json:"billing"`
 	Delivery      string       `json:"delivery"`
@@ -155,6 +159,7 @@ type sourceRelease struct {
 	Version    string    `json:"version"`
 	Changelog  string    `json:"changelog"`
 	Location   string    `json:"location"`
+	OriginURL  string    `json:"-"`
 	SHA256     string    `json:"sha256"`
 	Status     string    `json:"status"`
 	ReviewNote string    `json:"reviewNote"`
@@ -248,6 +253,8 @@ type sourceStationStore interface {
 	UpsertTemplate(item sourceTemplate, asAdmin bool) (sourceTemplate, error)
 	UpdateTemplateMetadata(id string, patch sourceTemplate, actor, note string) (sourceTemplate, error)
 	SetTemplateStatus(id, status, actor, note string) (sourceTemplate, error)
+	ReplacePaidItemPackage(kind, id, location, sha, version, origin, health string) error
+	SetPaidOriginHealth(kind, id, health string) error
 
 	ListVersions(kind, itemID string) ([]sourceRelease, error)
 	GetVersion(kind, itemID, version string) (sourceRelease, error)
@@ -643,6 +650,8 @@ func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) 
 				plugin.SHA256 = existing.SHA256
 				plugin.DownloadURL = existing.DownloadURL
 				plugin.Changelog = existing.Changelog
+				plugin.OriginURL = existing.OriginURL
+				plugin.OriginHealth = existing.OriginHealth
 			}
 		}
 		if incomingURL != "" && incomingURL != existing.DownloadURL && (asAdmin || existing.LatestVersion == "") {
@@ -663,7 +672,7 @@ func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) 
 	if incomingVersion != "" || incomingURL != "" || incomingSHA != "" {
 		rel := sourceRelease{
 			Kind: sourceKindPlugin, ItemID: plugin.ID, Version: incomingVersion,
-			Changelog: incomingLog, Location: incomingURL, SHA256: incomingSHA, Status: sourceVersionDraft,
+			Changelog: incomingLog, Location: incomingURL, OriginURL: paidOriginForLocation(plugin.OriginURL, plugin.DownloadURL, incomingURL), SHA256: incomingSHA, Status: sourceVersionDraft,
 		}
 		if _, err := store.upsertVersionLocked(rel, plugin.DeveloperID, asAdmin); err != nil {
 			return sourcePlugin{}, err
@@ -810,6 +819,8 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 				item.SHA256 = existing.SHA256
 				item.TemplateURL = existing.TemplateURL
 				item.Changelog = existing.Changelog
+				item.OriginURL = existing.OriginURL
+				item.OriginHealth = existing.OriginHealth
 			}
 		}
 		if incomingURL != "" && existing.TemplateURL != incomingURL && (asAdmin || existing.LatestVersion == "") {
@@ -836,7 +847,7 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 	if incomingVersion != "" || incomingURL != "" || incomingSHA != "" {
 		rel := sourceRelease{
 			Kind: sourceKindTemplate, ItemID: item.ID, Version: incomingVersion,
-			Changelog: incomingLog, Location: incomingURL, SHA256: incomingSHA, Status: sourceVersionDraft,
+			Changelog: incomingLog, Location: incomingURL, OriginURL: paidOriginForLocation(item.OriginURL, item.TemplateURL, incomingURL), SHA256: incomingSHA, Status: sourceVersionDraft,
 		}
 		if _, err := store.upsertVersionLocked(rel, item.DeveloperID, asAdmin); err != nil {
 			return sourceTemplate{}, err
@@ -1466,6 +1477,8 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			price_cents BIGINT NOT NULL DEFAULT 0,
 			billing VARCHAR(20) NOT NULL DEFAULT 'free',
 			delivery VARCHAR(20) NOT NULL DEFAULT 'zip',
+			origin_url VARCHAR(500) NOT NULL DEFAULT '',
+			origin_health VARCHAR(20) NOT NULL DEFAULT '',
 			status VARCHAR(20) NOT NULL DEFAULT 'draft',
 			review_note VARCHAR(500) NOT NULL DEFAULT '',
 			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
@@ -1490,6 +1503,8 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			price_cents BIGINT NOT NULL DEFAULT 0,
 			billing VARCHAR(20) NOT NULL DEFAULT 'free',
 			delivery VARCHAR(20) NOT NULL DEFAULT 'zip',
+			origin_url VARCHAR(500) NOT NULL DEFAULT '',
+			origin_health VARCHAR(20) NOT NULL DEFAULT '',
 			status VARCHAR(20) NOT NULL DEFAULT 'draft',
 			review_note VARCHAR(500) NOT NULL DEFAULT '',
 			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
@@ -1562,6 +1577,7 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			changelog VARCHAR(2000) NOT NULL DEFAULT '',
 			download_url VARCHAR(500) NOT NULL DEFAULT '',
 			sha256 CHAR(64) NOT NULL DEFAULT '',
+			origin_url VARCHAR(500) NOT NULL DEFAULT '',
 			status VARCHAR(20) NOT NULL DEFAULT 'draft',
 			review_note VARCHAR(500) NOT NULL DEFAULT '',
 			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
@@ -1576,6 +1592,7 @@ func ensureSourceStationStorage(db *sql.DB) error {
 			changelog VARCHAR(2000) NOT NULL DEFAULT '',
 			template_url VARCHAR(500) NOT NULL DEFAULT '',
 			sha256 CHAR(64) NOT NULL DEFAULT '',
+			origin_url VARCHAR(500) NOT NULL DEFAULT '',
 			status VARCHAR(20) NOT NULL DEFAULT 'draft',
 			review_note VARCHAR(500) NOT NULL DEFAULT '',
 			reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
@@ -1627,6 +1644,7 @@ func scanSourcePlugin(scanner interface{ Scan(dest ...any) error }) (sourcePlugi
 	err := scanner.Scan(&item.ID, &item.DeveloperID, &item.AppID, &item.Category, &item.Name, &item.Description, &item.Icon,
 		&item.Version, &item.LatestVersion, &item.MinVersion, &forceUpdate, &item.Author.Name, &item.Author.URL, &item.Author.Email,
 		&item.SHA256, &item.DownloadURL, &item.Changelog, &item.PriceCents, &item.Billing, &item.Delivery,
+		&item.OriginURL, &item.OriginHealth,
 		&item.Status, &item.ReviewNote, &item.ReviewedBy, &updatedAt, &createdAt)
 	if err != nil {
 		return sourcePlugin{}, err
@@ -1645,7 +1663,7 @@ func (mysqlSourceStore) ListPlugins(status string) ([]sourcePlugin, error) {
 		return nil, err
 	}
 	query := `SELECT id, developer_id, app_id, category, name, description, icon, version, latest_version, min_version, force_update, author_name, author_url, author_email,
-		sha256, download_url, changelog, price_cents, billing, delivery, status, review_note, reviewed_by, updated_at, created_at FROM source_catalog_plugins`
+		sha256, download_url, changelog, price_cents, billing, delivery, origin_url, origin_health, status, review_note, reviewed_by, updated_at, created_at FROM source_catalog_plugins`
 	args := []any{}
 	if status != "" {
 		query += ` WHERE status=?`
@@ -1677,7 +1695,7 @@ func (mysqlSourceStore) GetPlugin(id string) (sourcePlugin, error) {
 		return sourcePlugin{}, err
 	}
 	item, err := scanSourcePlugin(db.QueryRow(`SELECT id, developer_id, app_id, category, name, description, icon, version, latest_version, min_version, force_update, author_name, author_url, author_email,
-		sha256, download_url, changelog, price_cents, billing, delivery, status, review_note, reviewed_by, updated_at, created_at FROM source_catalog_plugins WHERE id=?`, id))
+		sha256, download_url, changelog, price_cents, billing, delivery, origin_url, origin_health, status, review_note, reviewed_by, updated_at, created_at FROM source_catalog_plugins WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourcePlugin{}, errSourceNotFound
 	}
@@ -1754,6 +1772,8 @@ func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourceP
 				plugin.SHA256 = existing.SHA256
 				plugin.DownloadURL = existing.DownloadURL
 				plugin.Changelog = existing.Changelog
+				plugin.OriginURL = existing.OriginURL
+				plugin.OriginHealth = existing.OriginHealth
 			}
 		}
 		if incomingURL != "" && incomingURL != existing.DownloadURL && (asAdmin || existing.LatestVersion == "") {
@@ -1767,24 +1787,25 @@ func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourceP
 		plugin.Status = sourceItemDraft
 	}
 	_, err = db.Exec(`INSERT INTO source_catalog_plugins
-		(id, developer_id, app_id, category, name, description, icon, version, latest_version, min_version, force_update, author_name, author_url, author_email, sha256, download_url, changelog, price_cents, billing, delivery, status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(id, developer_id, app_id, category, name, description, icon, version, latest_version, min_version, force_update, author_name, author_url, author_email, sha256, download_url, changelog, price_cents, billing, delivery, origin_url, origin_health, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE category=VALUES(category), name=VALUES(name), description=VALUES(description), icon=VALUES(icon),
 			version=VALUES(version), sha256=VALUES(sha256), download_url=VALUES(download_url), changelog=VALUES(changelog),
 			price_cents=VALUES(price_cents), billing=VALUES(billing), delivery=VALUES(delivery),
+			origin_url=VALUES(origin_url), origin_health=VALUES(origin_health),
 			status=VALUES(status), review_note=VALUES(review_note), reviewed_by=VALUES(reviewed_by),
 			min_version=VALUES(min_version), force_update=VALUES(force_update), author_name=VALUES(author_name), author_url=VALUES(author_url),
 			author_email=VALUES(author_email), app_id=VALUES(app_id)`,
 		plugin.ID, plugin.DeveloperID, plugin.AppID, plugin.Category, plugin.Name, plugin.Description, plugin.Icon, plugin.Version,
 		plugin.LatestVersion, plugin.MinVersion, forceUpdate, plugin.Author.Name, plugin.Author.URL, plugin.Author.Email,
-		plugin.SHA256, plugin.DownloadURL, plugin.Changelog, plugin.PriceCents, plugin.Billing, plugin.Delivery, plugin.Status)
+		plugin.SHA256, plugin.DownloadURL, plugin.Changelog, plugin.PriceCents, plugin.Billing, plugin.Delivery, plugin.OriginURL, plugin.OriginHealth, plugin.Status)
 	if err != nil {
 		return sourcePlugin{}, err
 	}
 	if incomingVersion != "" || incomingURL != "" || incomingSHA != "" {
 		if _, err := (mysqlSourceStore{}).UpsertVersion(sourceRelease{
 			Kind: sourceKindPlugin, ItemID: plugin.ID, Version: incomingVersion,
-			Changelog: incomingLog, Location: incomingURL, SHA256: incomingSHA, Status: sourceVersionDraft,
+			Changelog: incomingLog, Location: incomingURL, OriginURL: paidOriginForLocation(plugin.OriginURL, plugin.DownloadURL, incomingURL), SHA256: incomingSHA, Status: sourceVersionDraft,
 		}, plugin.DeveloperID, asAdmin); err != nil {
 			return sourcePlugin{}, err
 		}
@@ -1870,7 +1891,7 @@ func scanSourceTemplateRow(scanner interface{ Scan(dest ...any) error }) (source
 	var forceUpdate int
 	err := scanner.Scan(&item.ID, &item.DeveloperID, &item.AppID, &item.Category, &item.TemplateKey, &item.Name, &item.Description, &item.Version,
 		&item.LatestVersion, &item.MinVersion, &forceUpdate, &item.SchemaVersion, &item.SHA256, &item.TemplateURL, &item.Changelog,
-		&item.PriceCents, &item.Billing, &item.Delivery,
+		&item.PriceCents, &item.Billing, &item.Delivery, &item.OriginURL, &item.OriginHealth,
 		&item.Status, &item.ReviewNote, &item.ReviewedBy, &item.Author.Name, &item.Author.URL, &item.Author.Email, &updatedAt, &createdAt)
 	if err != nil {
 		return sourceTemplate{}, err
@@ -1892,7 +1913,7 @@ func (mysqlSourceStore) ListTemplates(status string) ([]sourceTemplate, error) {
 		return nil, err
 	}
 	query := `SELECT id, developer_id, app_id, category, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog,
-		price_cents, billing, delivery, status, review_note, reviewed_by, author_name, author_url, author_email, updated_at, created_at FROM source_catalog_templates`
+		price_cents, billing, delivery, origin_url, origin_health, status, review_note, reviewed_by, author_name, author_url, author_email, updated_at, created_at FROM source_catalog_templates`
 	args := []any{}
 	if status != "" {
 		query += ` WHERE status=?`
@@ -1924,7 +1945,7 @@ func (mysqlSourceStore) GetTemplate(id string) (sourceTemplate, error) {
 		return sourceTemplate{}, err
 	}
 	item, err := scanSourceTemplateRow(db.QueryRow(`SELECT id, developer_id, app_id, category, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog,
-		price_cents, billing, delivery, status, review_note, reviewed_by, author_name, author_url, author_email, updated_at, created_at FROM source_catalog_templates WHERE id=?`, id))
+		price_cents, billing, delivery, origin_url, origin_health, status, review_note, reviewed_by, author_name, author_url, author_email, updated_at, created_at FROM source_catalog_templates WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return sourceTemplate{}, errSourceNotFound
 	}
@@ -2007,6 +2028,8 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 				item.SHA256 = existing.SHA256
 				item.TemplateURL = existing.TemplateURL
 				item.Changelog = existing.Changelog
+				item.OriginURL = existing.OriginURL
+				item.OriginHealth = existing.OriginHealth
 			}
 		}
 		if incomingURL != "" && existing.TemplateURL != incomingURL && (asAdmin || existing.LatestVersion == "") {
@@ -2020,16 +2043,17 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 		item.Status = sourceItemDraft
 	}
 	_, err = db.Exec(`INSERT INTO source_catalog_templates
-		(id, developer_id, app_id, category, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog, price_cents, billing, delivery, status, author_name, author_url, author_email)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(id, developer_id, app_id, category, template_key, name, description, version, latest_version, min_version, force_update, schema_version, sha256, template_url, changelog, price_cents, billing, delivery, origin_url, origin_health, status, author_name, author_url, author_email)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE category=VALUES(category), name=VALUES(name), description=VALUES(description), schema_version=VALUES(schema_version),
 			version=VALUES(version), sha256=VALUES(sha256), template_url=VALUES(template_url), changelog=VALUES(changelog),
 			price_cents=VALUES(price_cents), billing=VALUES(billing), delivery=VALUES(delivery),
+			origin_url=VALUES(origin_url), origin_health=VALUES(origin_health),
 			status=VALUES(status), review_note=VALUES(review_note), reviewed_by=VALUES(reviewed_by),
 			min_version=VALUES(min_version), force_update=VALUES(force_update),
 			author_name=VALUES(author_name), author_url=VALUES(author_url), author_email=VALUES(author_email), app_id=VALUES(app_id)`,
 		item.ID, item.DeveloperID, item.AppID, item.Category, item.TemplateKey, item.Name, item.Description, item.Version, item.LatestVersion, item.MinVersion, forceUpdate,
-		item.SchemaVersion, item.SHA256, item.TemplateURL, item.Changelog, item.PriceCents, item.Billing, item.Delivery, item.Status, item.Author.Name, item.Author.URL, item.Author.Email)
+		item.SchemaVersion, item.SHA256, item.TemplateURL, item.Changelog, item.PriceCents, item.Billing, item.Delivery, item.OriginURL, item.OriginHealth, item.Status, item.Author.Name, item.Author.URL, item.Author.Email)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate") {
 			return sourceTemplate{}, errSourceConflict
@@ -2039,7 +2063,7 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 	if incomingVersion != "" || incomingURL != "" || incomingSHA != "" {
 		if _, err := (mysqlSourceStore{}).UpsertVersion(sourceRelease{
 			Kind: sourceKindTemplate, ItemID: item.ID, Version: incomingVersion,
-			Changelog: incomingLog, Location: incomingURL, SHA256: incomingSHA, Status: sourceVersionDraft,
+			Changelog: incomingLog, Location: incomingURL, OriginURL: paidOriginForLocation(item.OriginURL, item.TemplateURL, incomingURL), SHA256: incomingSHA, Status: sourceVersionDraft,
 		}, item.DeveloperID, asAdmin); err != nil {
 			return sourceTemplate{}, err
 		}

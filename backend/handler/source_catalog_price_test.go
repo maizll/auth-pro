@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -154,22 +155,30 @@ func TestPublicPackageRouteRefusesPrivatePaidFiles(t *testing.T) {
 }
 
 func TestPaidExternalURLRejected(t *testing.T) {
-	router, _ := sourceStationRouter(t)
+	router, store := sourceStationRouter(t)
 	admin, dev, _ := sourceApproveDeveloper(t, router, "paid-ext", "secret")
 	sha := sourceTestSHA256()
-	devBody := `{"appId":1,"id":"paid-ext","name":"付费外链","version":"1.0.0","description":"x","category":"other","priceCents":100,"billing":"permanent","downloadUrl":"https://cdn.example.com/paid.zip","sha256":"` + sha + `"}`
+	devBody := `{"appId":1,"id":"paid-ext","name":"付费外链","version":"1.0.0","description":"x","category":"other","priceCents":100,"billing":"permanent","downloadUrl":"https://127.0.0.1/paid.zip","sha256":"` + sha + `"}`
 	devRec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins", dev, devBody)
-	if sourceBodyCode(t, devRec) != 400 || !strings.Contains(devRec.Body.String(), "不能使用外链") {
+	if sourceBodyCode(t, devRec) != 400 || !strings.Contains(devRec.Body.String(), "拒绝访问非公网地址") {
 		t.Fatalf("developer external=%s", devRec.Body.String())
 	}
-	adminBody := `{"appId":1,"id":"paid-admin-ext","name":"管理外链","version":"1.0.0","description":"x","category":"other","priceCents":100,"downloadUrl":"https://cdn.example.com/admin.zip","sha256":"` + sha + `"}`
+	if _, err := store.GetPlugin("paid-ext"); !errors.Is(err, errSourceNotFound) {
+		t.Fatalf("rejected import was stored: %v", err)
+	}
+	httpBody := `{"appId":1,"id":"paid-http","name":"明文","version":"1.0.0","description":"x","category":"other","priceCents":100,"downloadUrl":"http://cdn.example.com/paid.zip","sha256":"` + sha + `"}`
+	httpRec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins", dev, httpBody)
+	if sourceBodyCode(t, httpRec) != 400 || !strings.Contains(httpRec.Body.String(), "来源外链必须是 https:// 地址") {
+		t.Fatalf("http external=%s", httpRec.Body.String())
+	}
+	adminBody := `{"appId":1,"id":"paid-admin-ext","name":"管理外链","version":"1.0.0","description":"x","category":"other","priceCents":100,"downloadUrl":"https://10.1.2.3/admin.zip","sha256":"` + sha + `"}`
 	adminRec := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/plugins", admin, adminBody)
-	if sourceBodyCode(t, adminRec) != 400 || !strings.Contains(adminRec.Body.String(), "不能使用外链") {
+	if sourceBodyCode(t, adminRec) != 400 || !strings.Contains(adminRec.Body.String(), "拒绝访问非公网地址") {
 		t.Fatalf("admin external=%s", adminRec.Body.String())
 	}
-	tplBody := `{"appId":1,"id":"paid-tpl","templateKey":"paid-tpl","name":"付费模板外链","version":"1.0.0","description":"x","category":"home-template","priceCents":100,"templateUrl":"https://cdn.example.com/home.zip","sha256":"` + sha + `"}`
+	tplBody := `{"appId":1,"id":"paid-tpl","templateKey":"paid-tpl","name":"付费模板外链","version":"1.0.0","description":"x","category":"home-template","priceCents":100,"templateUrl":"templates/home.json","sha256":"` + sha + `"}`
 	tplRec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/templates", dev, tplBody)
-	if sourceBodyCode(t, tplRec) != 400 || !strings.Contains(tplRec.Body.String(), "不能使用外链") {
+	if sourceBodyCode(t, tplRec) != 400 || !strings.Contains(tplRec.Body.String(), "付费条目请上传 ZIP，或填写 HTTPS 外链由本站拉取托管") {
 		t.Fatalf("template external=%s", tplRec.Body.String())
 	}
 	yearly := `{"appId":1,"id":"yearly-plugin","name":"年付","version":"1.0.0","description":"x","category":"other","priceCents":100,"billing":"yearly","downloadUrl":"","sha256":""}`
