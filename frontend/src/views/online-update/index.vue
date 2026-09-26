@@ -4,7 +4,7 @@
       <div class="update-header">
         <div>
           <h2 class="update-title">在线更新</h2>
-          <p class="update-subtitle">整包更新前端静态文件和 Go 服务</p>
+          <p class="update-subtitle">整包更新网站页面和后台服务</p>
         </div>
         <div class="update-actions">
           <ElButton

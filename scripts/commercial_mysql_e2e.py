@@ -618,10 +618,10 @@ def main() -> int:
     if not mysql_server_up():
         log("SKIP MySQL 不可用")
         return 77
-    if not os.path.isdir(FRONTEND):
-        built = run(["pnpm", "exec", "vite", "build"], cwd=os.path.join(ROOT, "frontend"), capture_output=True)
-        if built.returncode != 0:
-            raise Fail(built.stderr[-2000:] or "vite build failed")
+    log("build frontend")
+    built = run(["pnpm", "exec", "vite", "build"], cwd=os.path.join(ROOT, "frontend"), capture_output=True)
+    if built.returncode != 0:
+        raise Fail((built.stderr or built.stdout or "vite build failed")[-2000:])
     os.makedirs(RUNTIME, exist_ok=True)
     os.makedirs(ART, exist_ok=True)
     log("setup databases")

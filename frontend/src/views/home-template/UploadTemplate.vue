@@ -1,8 +1,8 @@
 <template>
-  <ElButton :disabled="uploading" @click="visible = true">上传首页模板 ZIP</ElButton>
+  <ElButton :disabled="uploading" @click="visible = true">上传首页模板</ElButton>
   <ElDialog
     v-model="visible"
-    title="上传首页模板 ZIP"
+    title="上传首页模板"
     width="min(560px, calc(100vw - 32px))"
     :show-close="!uploading"
     :close-on-click-modal="!uploading"
@@ -10,8 +10,7 @@
     @closed="resetForm"
   >
     <ElAlert type="info" :closable="false" show-icon>
-      ZIP 不超过 20 MiB，解压后不超过 100 MiB。支持 template.json 和资源文件，或已构建的 index.html
-      静态首页（包内 /assets/ 入口引用会自动适配）。上传安装后需手动启用。
+      压缩包不超过 20 MB，解压后不超过 100 MB。可以包含模板清单和资源文件，或已经构建好的静态首页。上传安装后需要手动启用。
     </ElAlert>
     <ElForm
       label-width="88px"

@@ -5,7 +5,7 @@
         <div>
           <h2 class="panel-title">首页模板管理</h2>
           <p class="panel-subtitle">
-            管理 <code>/user/login</code> 的首页展示模板，启用后访问路径保持不变
+            管理登录页展示的首页模板，启用后访问地址保持不变
           </p>
         </div>
         <div class="panel-header-actions">

@@ -4,11 +4,11 @@
       <CommercialMark :text="commercialUi.promptText" icon="ri:vip-crown-fill" />
       <template #footer>
         <ElButton @click="commercialUi.promptOpen = false">知道了</ElButton>
-        <ElButton type="primary" @click="goUpgrade">升级商业版</ElButton>
+        <ElButton type="primary" @click="goUpgrade">{{ promptActionLabel }}</ElButton>
       </template>
     </ElDialog>
 
-    <ElDialog v-model="commercialUi.upgradeOpen" title="升级商业版" width="480px" append-to-body @open="load">
+    <ElDialog v-model="commercialUi.upgradeOpen" :title="dialogTitle" width="480px" append-to-body @open="load">
       <div v-loading="loading" class="upgrade-body">
         <CommercialMark
           v-if="account && account.edition !== 'commercial'"
@@ -21,7 +21,13 @@
           show-icon
           title="当前访问域名与授权域名不一致，付费能力暂按免费版处理。"
         />
-        <template v-if="!account?.bound">
+        <template v-if="action === 'view'">
+          <p>当前是永久商业版，无需再次购买。</p>
+          <p v-if="account?.account">绑定账号：{{ account.account }}</p>
+          <p v-if="account?.domain">授权域名：{{ account.domain }}</p>
+          <p v-if="account?.licenseNo">授权编号：{{ account.licenseNo }}</p>
+        </template>
+        <template v-else-if="!account?.bound">
           <ElForm label-width="72px" class="upgrade-form">
             <ElFormItem label="身份">
               <ElRadioGroup v-model="form.role">
@@ -40,7 +46,7 @@
           <p class="upgrade-tip">将使用站点域名 {{ account?.requestDomain || '（未识别）' }} 绑定，域名不可在此修改。</p>
         </template>
         <template v-else-if="!payUrl">
-          <p>已绑定 {{ account?.account || '账号' }}，请选择永久商业版。</p>
+          <p>已绑定 {{ account?.account || '账号' }}，{{ action === 'renew' ? '请选择续费套餐。' : '请选择套餐。' }}</p>
           <ElSelect v-model="planId" placeholder="选择套餐" style="width: 100%">
             <ElOption
               v-for="plan in plans"
@@ -50,7 +56,7 @@
             />
           </ElSelect>
           <ElButton type="primary" :loading="acting" :disabled="!planId" @click="pay">生成付款码</ElButton>
-          <p v-if="!plans.length" class="upgrade-tip">源站尚未配置可购买的永久商业版。</p>
+          <p v-if="!plans.length" class="upgrade-tip">源站尚未配置可购买的套餐。</p>
         </template>
         <template v-else>
           <p>请使用支付宝或微信扫描付款。支付完成后本页会自动刷新，无需新开窗口。</p>
@@ -81,12 +87,12 @@
 </template>
 
 <script setup lang="ts">
-  import { onBeforeUnmount, reactive, ref } from 'vue'
+  import { computed, onBeforeUnmount, reactive, ref } from 'vue'
   import { ElMessage } from 'element-plus'
   import { showCaughtError } from '@/utils/http/error-toast'
   import QrcodeVue from 'qrcode.vue'
   import CommercialMark from './CommercialMark.vue'
-  import { commercialUi } from '@/utils/commercial'
+  import { commercialCta, commercialCtaLabel, commercialUi, rememberCommercialAccount } from '@/utils/commercial'
   import {
     bindStoreAccount,
     createStoreEditionOrder,
@@ -101,6 +107,13 @@
   const loading = ref(false)
   const acting = ref(false)
   const account = ref<StoreAccount | null>(null)
+  const action = computed(() => commercialCta(account.value))
+  const dialogTitle = computed(() => {
+    if (action.value === 'view') return '查看授权'
+    if (action.value === 'renew') return '续费'
+    return '升级商业版'
+  })
+  const promptActionLabel = computed(() => commercialCtaLabel(commercialCta(commercialUi.account)))
   const plans = ref<StorePlan[]>([])
   const planId = ref<number>()
   const payUrl = ref('')
@@ -118,6 +131,7 @@
     loading.value = true
     try {
       account.value = await fetchStoreAccount()
+      rememberCommercialAccount(account.value)
       connection.sourceBase = account.value.sourceBase || connection.sourceBase
       connection.siteUrl = account.value.siteUrl || ''
       connection.trustProxy = !!account.value.trustProxy
@@ -137,6 +151,7 @@
     acting.value = true
     try {
       account.value = await bindStoreAccount({ ...form })
+      rememberCommercialAccount(account.value)
       form.password = ''
       ElMessage.success('已绑定，请继续支付')
       const data = await fetchStorePlans()

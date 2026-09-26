@@ -3,13 +3,15 @@
     <ElCard shadow="never" class="art-table-card">
       <div class="store-account-bar">
         <CommercialMark :icon="accountIcon" :text="accountText" :tone="accountTone" />
-        <ElButton type="primary" @click="openCommercialUpgrade">升级商业版</ElButton>
+        <ElButton v-if="storeAccount" type="primary" @click="openCommercialUpgrade">
+          {{ commercialCtaLabel(commercialCta(storeAccount)) }}
+        </ElButton>
       </div>
       <div class="store-header">
         <div>
           <h2 class="store-title">应用商店</h2>
           <p class="store-subtitle">
-            按软件源 index.categories 筛选（含自定义分类）；首页模板单独分区
+            浏览并安装插件和首页模板
           </p>
         </div>
         <div class="store-header-actions">
@@ -291,9 +293,7 @@
         </template>
       </ElTable>
       <div class="source-tip">
-        支持 JSON 清单 URL（本站源站请用
-        <code>/software-source/{app_key}/index.json</code>，每个应用一条，避免串目录）或 HTTP(S)
-        Git 仓库地址；Git 仓库根目录需包含 index.json。
+        可以填写软件源地址，或填写 Git 仓库地址。本站请为每个应用单独添加一条，避免不同应用的目录混在一起。Git 仓库的根目录需要有软件清单。
       </div>
     </ElDialog>
 
@@ -305,7 +305,14 @@
   import TemplateActions from '@/views/home-template/TemplateActions.vue'
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
   import { fetchStoreAccount, fetchStoreCatalog, type StoreAccount, type StoreCatalogItem } from '@/api/store'
-  import { commercialText, openCommercialPrompt, openCommercialUpgrade } from '@/utils/commercial'
+  import {
+    commercialCta,
+    commercialCtaLabel,
+    commercialText,
+    openCommercialPrompt,
+    openCommercialUpgrade,
+    rememberCommercialAccount
+  } from '@/utils/commercial'
   import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { ElMessage, ElMessageBox } from 'element-plus'
@@ -538,6 +545,7 @@
       storeAccount.value = await fetchStoreAccount()
       const data = await fetchStoreCatalog()
       catalog.value = data.list || []
+      rememberCommercialAccount(storeAccount.value)
     } catch {
       storeAccount.value = {
         bound: false,
@@ -561,6 +569,7 @@
         trustProxy: false,
         installId: ''
       }
+      rememberCommercialAccount(storeAccount.value)
     }
   }
 

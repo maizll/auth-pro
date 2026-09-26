@@ -5,10 +5,7 @@
         <div>
           <h1 class="docs-title">源站开发章程</h1>
           <p class="docs-lead">
-            按章程生成可登记的插件包和整站模板。登记包根目录是
-            <code>plugin.json</code> 或 <code>template.json</code>（schemaVersion 1，kind 为
-            template）。登记时可以上传 ZIP（本站托管并填写地址与校验码），也可以填外部 HTTPS。启用模板后，宿主登录弹窗跟随
-            stylePreset，以及 theme.primaryColor、theme.backgroundColor、theme.textColor。
+            按章程准备可登记的插件包和整站模板。可以上传压缩包，由本站托管并填写地址与校验码，也可以填写外部 https 网址。启用模板后，登录页的配色和样式会跟着模板设置变化。
           </p>
         </div>
         <div class="header-actions">
@@ -25,7 +22,7 @@
         :closable="false"
         show-icon
         class="mt-4"
-        title='登记模板的 ZIP 须含 template.json：kind 为 template，schemaVersion 为数字 1，并有 hero.title，且不能写 scripts。上传后本站填写地址和 SHA256，也可以改填外部 HTTPS。宿主用 stylePreset 与 theme 画首页和登录框；hero.primaryAction.type 为 login 时，按钮打开宿主登录框。插件登记包是 plugin.json。'
+        title="登记模板的压缩包里要有模板清单：标明这是首页模板、清单版本为 1，并写上首页标题，不能包含脚本。上传后本站填写地址和校验码，也可以改成外部 https 网址。登录页会按模板的样式和主题色绘制；主按钮设为登录时，会打开本站登录框。插件登记包使用插件清单。详细字段见下方章程。"
       />
     </el-card>
 

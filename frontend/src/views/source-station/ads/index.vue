@@ -126,7 +126,7 @@
           <div>
             <span class="card-title">广告投放（共 {{ tableData.length }} 条）</span>
             <p class="card-hint"
-              >可上传本站图片或粘贴外部 https:// 地址。广告位可多选：首页横幅（home-banner）/ 侧栏（sidebar）/ 弹窗（popup）。这些广告面向客户端，不会出现在管理后台。</p
+              >可上传本站图片或粘贴外部网址。广告位可多选：首页横幅、侧栏、弹窗。这些广告面向访客页面，不会出现在管理后台。</p
             >
           </div>
           <el-button type="primary" @click="openEdit()">新增广告</el-button>

@@ -4,11 +4,9 @@
       <template #header>
         <div class="table-header">
           <div>
-            <span class="card-title">Release / 仓库 Token</span>
+            <span class="card-title">发布仓库令牌</span>
             <p class="card-hint">
-              校验通过的 ZIP 可推送到 GitHub/Gitee Release，源站只保存附件 https 地址与
-              sha256。令牌仅保存在服务端，GET 只返回掩码。「测试连接」验证仓库可达与令牌权限（不创建
-              Release）。
+              校验通过的压缩包可以推送到 GitHub 或 Gitee 的发布页。源站只保存下载地址和校验码。令牌只存在服务器上，页面只显示掩码。「测试连接」只检查仓库和令牌是否可用，不会创建发布。
             </p>
           </div>
           <div class="table-actions">
@@ -29,19 +27,19 @@
       </el-alert>
 
       <el-form :model="form" label-width="140px" class="settings-form">
-        <el-form-item label="Provider">
+        <el-form-item label="代码平台">
           <el-radio-group v-model="form.provider">
             <el-radio value="github">GitHub</el-radio>
             <el-radio value="gitee">Gitee</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="Owner">
+        <el-form-item label="所有者">
           <el-input v-model.trim="form.owner" placeholder="组织或用户名" />
         </el-form-item>
         <el-form-item label="仓库">
           <el-input v-model.trim="form.repo" placeholder="仓库名" />
         </el-form-item>
-        <el-form-item label="Token">
+        <el-form-item label="访问令牌">
           <el-input
             v-model="form.token"
             type="password"
@@ -51,8 +49,9 @@
             "
           />
         </el-form-item>
-        <el-form-item label="Tag 策略">
+        <el-form-item label="版本标签">
           <el-input v-model.trim="form.tagStrategy" placeholder="{id}-{version}" />
+          <p class="field-hint">一般保持默认即可，用来给每次发布命名。</p>
         </el-form-item>
         <el-form-item v-if="form.provider === 'gitee'" label="Gitee 分支">
           <el-input v-model.trim="form.branch" placeholder="master" />
@@ -99,10 +98,10 @@
   const missingFields = computed(() => {
     const missing: string[] = []
     const provider = form.provider.trim().toLowerCase()
-    if (provider !== 'github' && provider !== 'gitee') missing.push('Provider')
-    if (!form.owner.trim()) missing.push('Owner')
+    if (provider !== 'github' && provider !== 'gitee') missing.push('代码平台')
+    if (!form.owner.trim()) missing.push('所有者')
     if (!form.repo.trim()) missing.push('仓库')
-    if (!formHasToken.value) missing.push('Token')
+    if (!formHasToken.value) missing.push('访问令牌')
     return missing
   })
 
@@ -110,7 +109,7 @@
 
   const alertTitle = computed(() => {
     if (formReady.value) {
-      return '当前表单已齐：上传时可推送 Release（保存后生效）'
+      return '当前表单已齐：上传时可推送到发布页（保存后生效）'
     }
     return `当前表单不完整，缺少：${missingFields.value.join('、')}`
   })
@@ -120,7 +119,7 @@
       return '服务端已保存完整配置。表单改动需点击「保存设置」后才会写入服务端。'
     }
     if (formReady.value) {
-      return '服务端尚未保存完整配置，请点击「保存设置」后上传才会推送 Release。'
+      return '服务端尚未保存完整配置，请点击「保存设置」后上传才会推送到发布页。'
     }
     return '尚未配置完整，上传时需粘贴外部 https 地址。'
   })

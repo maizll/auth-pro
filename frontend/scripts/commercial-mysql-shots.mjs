@@ -59,10 +59,23 @@ try {
   await page.getByRole('dialog', { name: '升级商业版' }).waitFor({ state: 'hidden', timeout: 40000 })
   await page.goto(`${state.buyer}/plugin-store`, { waitUntil: 'domcontentloaded' })
   await page.getByText('商业版 · 永久').first().waitFor()
+  await page.getByText('浏览并安装插件和首页模板').waitFor()
+  await page.getByRole('button', { name: '查看授权' }).waitFor()
+  if (await page.getByRole('button', { name: '升级商业版' }).isVisible().catch(() => false)) {
+    throw new Error('商业版仍显示升级按钮')
+  }
+  await page.screenshot({ path: shot('phone-buyer-commercial-v2.png') })
   await page.screenshot({ path: shot('phone-buyer-commercial.png') })
   await page.goto(`${state.buyer}/license/apps`, { waitUntil: 'domcontentloaded' })
   await page.getByText('买家第二个应用').waitFor()
   await page.getByText('买家主应用').waitFor()
+  await page.getByRole('button', { name: '查看授权' }).waitFor()
+  if (await page.getByRole('button', { name: '升级商业版' }).isVisible().catch(() => false)) {
+    throw new Error('应用管理仍显示升级商业版')
+  }
+  if (await page.getByText('免费版仅支持').isVisible().catch(() => false)) {
+    throw new Error('免费版限制提示还在')
+  }
   }
 
   console.log('source shots')

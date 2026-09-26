@@ -12,6 +12,8 @@
       <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
         <template #left>
           <ElSpace wrap>
+            <ElButton v-if="commercialAction === 'renew'" type="primary" @click="openCommercialUpgrade">续费</ElButton>
+            <ElButton v-else-if="commercialAction === 'view'" @click="openCommercialUpgrade">查看授权</ElButton>
             <ElButton @click="handleAdd" v-ripple>新增应用</ElButton>
             <CommercialMark v-if="showCommercialHint" :text="multiAppText" />
           </ElSpace>
@@ -136,9 +138,9 @@
               <div class="form-tip">打开后，买家在源站修改密码，会撤销已经绑定的站点。</div>
             </ElFormItem>
             <ElFormItem label="商业版功能键">
-              <ElInput v-model.trim="formData.commercialFeatures" placeholder="multi_app" />
+              <ElInput v-model.trim="formData.commercialFeatures" placeholder="一般不用改" />
               <div class="form-tip">
-                商业版开放的能力，默认 multi_app，表示允许多个应用。一般不用改。
+                商业版开放的能力。默认已填好多应用，一般不用改。
               </div>
             </ElFormItem>
           </ElCollapseItem>
@@ -160,7 +162,14 @@
   import { ElMessage, ElMessageBox } from 'element-plus'
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
   import { fetchStoreAccount, type StoreAccount } from '@/api/store'
-  import { commercialCopy, openCommercialPrompt, openCommercialUpgrade } from '@/utils/commercial'
+  import {
+    commercialCopy,
+    commercialCta,
+    isCommercialActive,
+    openCommercialPrompt,
+    openCommercialUpgrade,
+    rememberCommercialAccount
+  } from '@/utils/commercial'
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchLicenseAppList,
@@ -277,20 +286,24 @@
 
   const storeAccount = ref<StoreAccount | null>(null)
   const multiAppText = commercialCopy.multi_app
-  const commercialReady = computed(() => {
-    const account = storeAccount.value
-    return !!account && account.edition === 'commercial' && !account.domainMismatch && (account.features || []).includes('multi_app')
-  })
-  const showCommercialHint = computed(() => !commercialReady.value)
+  const commercialAction = computed(() => commercialCta(storeAccount.value))
+  const showCommercialHint = computed(() => !isCommercialActive(storeAccount.value))
   const showAppLimitBar = computed(() => showCommercialHint.value && (data.value?.length || 0) >= 1)
 
-  onMounted(async () => {
+  async function loadCommercialAccount() {
     try {
       storeAccount.value = await fetchStoreAccount()
     } catch {
       storeAccount.value = null
     }
+    rememberCommercialAccount(storeAccount.value)
+  }
+
+  onMounted(() => {
+    loadCommercialAccount()
+    window.addEventListener('store-account-refresh', loadCommercialAccount)
   })
+  onBeforeUnmount(() => window.removeEventListener('store-account-refresh', loadCommercialAccount))
 
   const handleAdd = () => {
     if (showAppLimitBar.value) {
