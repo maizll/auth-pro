@@ -60,7 +60,9 @@
         <ArtMixedMenu v-if="isTopLeftMenu" :list="menuList" />
       </div>
 
-      <div class="flex-c gap-2.5">
+      <div class="flex-c gap-2.5 max-sm:gap-1">
+        <CommercialHeaderButton />
+
         <!-- 全屏按钮 -->
         <ArtIconButton
           v-if="shouldShowFullscreen"
@@ -147,6 +149,7 @@
   import { useHeaderBar } from '@/hooks/core/useHeaderBar'
   import ArtUserMenu from './widget/ArtUserMenu.vue'
   import ArtNotificationBell from '@/components/core/layouts/art-notification/bell.vue'
+  import CommercialHeaderButton from '@/components/business/commercial/CommercialHeaderButton.vue'
 
   defineOptions({ name: 'ArtHeaderBar' })
 

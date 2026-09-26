@@ -3,9 +3,6 @@
     <ElCard shadow="never" class="art-table-card">
       <div class="store-account-bar">
         <CommercialMark :icon="accountIcon" :text="accountText" :tone="accountTone" />
-        <ElButton v-if="storeAccount" type="primary" @click="openCommercialUpgrade">
-          {{ commercialCtaLabel(commercialCta(storeAccount)) }}
-        </ElButton>
       </div>
       <div class="store-header">
         <div>
@@ -306,11 +303,8 @@
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
   import { fetchStoreAccount, fetchStoreCatalog, type StoreAccount, type StoreCatalogItem } from '@/api/store'
   import {
-    commercialCta,
-    commercialCtaLabel,
     commercialText,
     openCommercialPrompt,
-    openCommercialUpgrade,
     rememberCommercialAccount
   } from '@/utils/commercial'
   import { computed, onBeforeUnmount, onMounted, ref } from 'vue'

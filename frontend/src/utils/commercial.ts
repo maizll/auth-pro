@@ -12,6 +12,7 @@ export const commercialCopy: Record<string, string> = {
 export const commercialUi = reactive({
   upgradeOpen: false,
   promptOpen: false,
+  licenseOpen: false,
   promptText: '',
   feature: '',
   account: null as StoreAccount | null
@@ -46,7 +47,41 @@ export function commercialText(feature?: string, fallback?: string) {
 }
 
 export function openCommercialUpgrade() {
+  commercialUi.licenseOpen = false
   commercialUi.upgradeOpen = true
+}
+
+export function openCommercialLicense() {
+  commercialUi.upgradeOpen = false
+  commercialUi.licenseOpen = true
+}
+
+/** 套餐时长只显示中文，不把接口里的英文代号露到界面上。 */
+export function commercialPeriodText(period?: string) {
+  const value = (period || '').trim().toLowerCase()
+  if (!value) return ''
+  if (value === 'permanent') return '永久'
+  if (value === 'yearly') return '一年'
+  const days = /^d(\d+)$/.exec(value)
+  if (days) return `${Number(days[1])} 天`
+  if (/^\d+$/.test(value)) return `${Number(value)} 天`
+  return ''
+}
+
+export function commercialPlanLabel(plan: { name: string; priceCents: number; period?: string }) {
+  const price = `${(plan.priceCents / 100).toFixed(2)} 元`
+  const period = commercialPeriodText(plan.period)
+  return period ? `${plan.name} · ${period} · ${price}` : `${plan.name} · ${price}`
+}
+
+export function commercialExpireText(account?: StoreAccount | null) {
+  if (!account) return '未知'
+  if (account.permanent) return '永久'
+  if (!account.editionExpireAt) return '未设置到期时间'
+  const date = new Date(account.editionExpireAt * 1000)
+  if (Number.isNaN(date.getTime())) return '未设置到期时间'
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 export function openCommercialPrompt(text: string, feature = '') {

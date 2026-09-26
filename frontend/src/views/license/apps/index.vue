@@ -12,8 +12,6 @@
       <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
         <template #left>
           <ElSpace wrap>
-            <ElButton v-if="commercialAction === 'renew'" type="primary" @click="openCommercialUpgrade">续费</ElButton>
-            <ElButton v-else-if="commercialAction === 'view'" @click="openCommercialUpgrade">查看授权</ElButton>
             <ElButton @click="handleAdd" v-ripple>新增应用</ElButton>
             <CommercialMark v-if="showCommercialHint" :text="multiAppText" />
           </ElSpace>
@@ -196,7 +194,6 @@
   import { fetchStoreAccount, type StoreAccount } from '@/api/store'
   import {
     commercialCopy,
-    commercialCta,
     isCommercialActive,
     openCommercialPrompt,
     openCommercialUpgrade,
@@ -320,7 +317,6 @@
 
   const storeAccount = ref<StoreAccount | null>(null)
   const multiAppText = commercialCopy.multi_app
-  const commercialAction = computed(() => commercialCta(storeAccount.value))
   const showCommercialHint = computed(() => !isCommercialActive(storeAccount.value))
   const showAppLimitBar = computed(() => showCommercialHint.value && (data.value?.length || 0) >= 1)
 
