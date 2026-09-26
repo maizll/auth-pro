@@ -49,6 +49,7 @@ func RegisterPaidStoreRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 	admin := api.Group("/v1/source/admin")
 	admin.Use(middleware.JWTAuth(), middleware.RequireAdmin())
 	registerStoreAdminRoutes(admin)
+	registerCommercialReissueRoutes(admin)
 }
 
 func RegisterBuyerStoreRoutes(group *gin.RouterGroup) {

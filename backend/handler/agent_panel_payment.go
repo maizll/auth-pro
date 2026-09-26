@@ -422,6 +422,9 @@ func userPurchaseOnline(c *gin.Context, appID int64, planID int64, licenseType s
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "套餐不存在、已禁用或应用已下架"})
 		return
 	}
+	if rejectCommercialOrdinaryPurchase(c, db, plan.AppID) {
+		return
+	}
 	quote, err := quoteUserPurchase(db, plan)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "计算购买价格失败"})
@@ -564,6 +567,9 @@ func agentPanelPurchaseOnline(c *gin.Context, appID int64, planID int64, userID 
 	plan, err := loadPurchasePlanPricing(db, appID, planID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "套餐不存在、已禁用或应用已下架"})
+		return
+	}
+	if rejectCommercialOrdinaryPurchase(c, db, plan.AppID) {
 		return
 	}
 
@@ -864,6 +870,20 @@ func settleLicensePurchaseOrder(db *sql.DB, orderNo string, paidCents int64, pay
 		return err
 	}
 	licenseID, _ := licenseResult.LastInsertId()
+
+	commercial, err := appIsCommercialProduct(db, appID)
+	if err != nil {
+		return err
+	}
+	if commercial {
+		if _, err := grantCommercialEditionTx(tx, commercialEditionGrant{
+			LicenseID: licenseID,
+			Period:    salePeriodFromDuration(durationDays),
+			Extend:    true,
+		}); err != nil {
+			return err
+		}
+	}
 
 	if licenseType != "key" && target != "" {
 		isWildcard := 0

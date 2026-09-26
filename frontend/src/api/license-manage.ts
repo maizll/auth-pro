@@ -298,6 +298,21 @@ export function fetchEnsureStoreSnapshotKey() {
   return request.post({ url: '/api/app/store-snapshot-key', showSuccessMessage: true })
 }
 
+export function fetchCommercialPurchaseGaps() {
+  return request.get<{ count: number; orders: { orderNo: string; licenseNo: string }[] }>({
+    url: '/api/v1/source/admin/store/commercial-gaps',
+    showErrorMessage: false
+  })
+}
+
+export function reissueCommercialPurchases() {
+  return request.post<{ granted: number; already: number; msg: string }>({
+    url: '/api/v1/source/admin/store/commercial-reissue',
+    showSuccessMessage: false,
+    showErrorMessage: true
+  })
+}
+
 export function fetchGrantCommercialEdition(id: number) {
   return request.post({
     url: `/api/v1/source/admin/store/licenses/${id}/grant`,

@@ -26,6 +26,10 @@ func PlanList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化套餐授权方式失败: " + err.Error()})
 		return
 	}
+	if err := ensureCommercialProductColumn(db); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取商业版产品失败"})
+		return
+	}
 
 	appID := c.Query("appId")
 	keyword := c.Query("keyword")
@@ -48,7 +52,7 @@ func PlanList(c *gin.Context) {
 	}
 
 	query := fmt.Sprintf(`
-		SELECT p.id, p.app_id, a.app_name, p.name, p.license_type, p.duration_days, p.price,
+		SELECT p.id, p.app_id, a.app_name, COALESCE(a.commercial_product, 0), p.name, p.license_type, p.duration_days, p.price,
 		       COALESCE(p.max_sites, 0), p.sort, p.enabled, p.remark, p.created_at
 		FROM license_plans p
 		LEFT JOIN apps a ON a.id = p.app_id
@@ -64,30 +68,32 @@ func PlanList(c *gin.Context) {
 	defer rows.Close()
 
 	type planItem struct {
-		ID           int64   `json:"id"`
-		AppID        int64   `json:"appId"`
-		AppName      string  `json:"appName"`
-		Name         string  `json:"name"`
-		LicenseType  string  `json:"licenseType"`
-		DurationDays int     `json:"durationDays"`
-		DurationText string  `json:"durationText"`
-		Price        float64 `json:"price"`
-		MaxSites     int     `json:"maxSites"`
-		Sort         int     `json:"sort"`
-		Enabled      bool    `json:"enabled"`
-		Remark       string  `json:"remark"`
-		CreatedAt    string  `json:"createdAt"`
+		ID                int64   `json:"id"`
+		AppID             int64   `json:"appId"`
+		AppName           string  `json:"appName"`
+		CommercialProduct bool    `json:"commercialProduct"`
+		Name              string  `json:"name"`
+		LicenseType       string  `json:"licenseType"`
+		DurationDays      int     `json:"durationDays"`
+		DurationText      string  `json:"durationText"`
+		Price             float64 `json:"price"`
+		MaxSites          int     `json:"maxSites"`
+		Sort              int     `json:"sort"`
+		Enabled           bool    `json:"enabled"`
+		Remark            string  `json:"remark"`
+		CreatedAt         string  `json:"createdAt"`
 	}
 
 	var list []planItem
 	for rows.Next() {
 		var item planItem
-		var enabled int
+		var enabled, commercial int
 		var remark sql.NullString
 		var createdAt time.Time
-		if err := rows.Scan(&item.ID, &item.AppID, &item.AppName, &item.Name, &item.LicenseType, &item.DurationDays,
+		if err := rows.Scan(&item.ID, &item.AppID, &item.AppName, &commercial, &item.Name, &item.LicenseType, &item.DurationDays,
 			&item.Price, &item.MaxSites, &item.Sort, &enabled, &remark, &createdAt); err == nil {
 			item.Enabled = enabled == 1
+			item.CommercialProduct = commercial == 1
 			if item.DurationDays == 0 {
 				item.DurationText = "永久"
 			} else {

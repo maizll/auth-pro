@@ -80,6 +80,7 @@ declare module 'vue' {
     CommercialHost: typeof import('./../../components/business/commercial/CommercialHost.vue')['default']
     CommercialLicenseCard: typeof import('./../../components/business/commercial/CommercialLicenseCard.vue')['default']
     CommercialMark: typeof import('./../../components/business/commercial/CommercialMark.vue')['default']
+    CommercialReissueBanner: typeof import('./../../components/business/commercial/CommercialReissueBanner.vue')['default']
     ContainerSettings: typeof import('./../../components/core/layouts/art-settings-panel/widget/ContainerSettings.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAvatar: typeof import('element-plus/es')['ElAvatar']

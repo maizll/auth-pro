@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"strconv"
 	"strings"
-	"time"
 
 	"auto_pro/middleware"
 
@@ -214,17 +213,19 @@ func AdminStoreLicenseGrant(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	expiry := nextEditionExpiry(req.Period, nil, time.Now())
-	var exp any
-	if expiry != nil {
-		exp = *expiry
-	}
-	if _, err := db.Exec(`UPDATE main_license_editions SET status = 'replaced' WHERE license_id = ? AND status = 'active'`, licenseID); err != nil {
+	tx, err := db.Begin()
+	if err != nil {
 		storeFail(c, 500, "授予失败")
 		return
 	}
-	if _, err := db.Exec(`INSERT INTO main_license_editions (license_id, edition, period, started_at, expires_at, status, granted_by)
-		VALUES (?, 'commercial', ?, NOW(), ?, 'active', ?)`, licenseID, req.Period, exp, currentAdminID(c)); err != nil {
+	defer tx.Rollback()
+	if _, err := grantCommercialEditionTx(tx, commercialEditionGrant{
+		LicenseID: licenseID, Period: req.Period, GrantedBy: currentAdminID(c), Extend: true,
+	}); err != nil {
+		storeFail(c, 500, "授予失败")
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		storeFail(c, 500, "授予失败")
 		return
 	}

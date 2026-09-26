@@ -7,6 +7,7 @@
     <LicenseSearch v-model="searchForm" @search="handleSearch" @reset="resetSearchParams" />
 
     <ElCard class="art-table-card" shadow="never">
+      <CommercialReissueBanner />
       <!-- 表格头部 -->
       <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
         <template #left>
@@ -230,6 +231,7 @@
 
 <script setup lang="ts">
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import CommercialReissueBanner from '@/components/business/commercial/CommercialReissueBanner.vue'
   import { showCaughtError } from '@/utils/http/error-toast'
   import { useTable } from '@/hooks/core/useTable'
   import {

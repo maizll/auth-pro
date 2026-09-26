@@ -18,6 +18,13 @@
 
       <!-- 表格（套餐接口不分页，展示全部结果） -->
       <ArtTable :loading="loading" :data="data" :columns="columns">
+        <template #appName="{ row }">
+          <span>{{ row.appName }}</span>
+          <ElTag v-if="row.commercialProduct" class="commercial-plan-tag" type="warning" size="small" effect="dark">
+            商业版
+          </ElTag>
+        </template>
+
         <!-- 授权方式 -->
         <template #licenseType="{ row }">
           <ElTag v-if="row.licenseType" size="small" effect="plain">
@@ -257,7 +264,7 @@
       },
       columnsFactory: () => [
         { type: 'index', width: 60, label: '序号' }, // 序号
-        { prop: 'appName', label: '应用', minWidth: 150, showOverflowTooltip: true },
+        { prop: 'appName', label: '应用', minWidth: 180, useSlot: true, showOverflowTooltip: true },
         { prop: 'name', label: '套餐名称', minWidth: 140, showOverflowTooltip: true },
         { prop: 'licenseType', label: '授权方式', width: 110, align: 'center', useSlot: true },
         { prop: 'durationText', label: '授权时长', width: 120 },
@@ -414,6 +421,10 @@
         margin-top: 4px;
         margin-left: 0;
       }
+    }
+
+    .commercial-plan-tag {
+      margin-left: 6px;
     }
 
     .text-secondary {

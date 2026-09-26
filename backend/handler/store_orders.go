@@ -65,30 +65,9 @@ func settleStorePurchaseOrder(db *sql.DB, orderNo string, paidCents int64, chann
 	}
 	switch itemKind {
 	case "edition":
-		if _, err := tx.Exec(`UPDATE main_license_editions SET status = 'replaced', updated_at = NOW()
-			WHERE license_id = ? AND status = 'active'`, licenseID); err != nil {
-			return err
-		}
-		var current sql.NullTime
-		_ = tx.QueryRow(`SELECT expires_at FROM main_license_editions
-			WHERE license_id = ? AND edition = 'commercial' AND expires_at IS NOT NULL
-			ORDER BY expires_at DESC LIMIT 1`, licenseID).Scan(&current)
-		var currentPtr *time.Time
-		if current.Valid {
-			t := current.Time
-			currentPtr = &t
-		}
-		expiry := nextEditionExpiry(period, currentPtr, time.Now())
-		var exp any
-		if expiry != nil {
-			exp = *expiry
-		}
-		if _, err := tx.Exec(`INSERT INTO main_license_editions
-			(license_id, edition, period, started_at, expires_at, status, order_id)
-			VALUES (?, 'commercial', ?, NOW(), ?, 'active', ?)`, licenseID, period, exp, id); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`UPDATE licenses SET source = 'store_purchase' WHERE id = ?`, licenseID); err != nil {
+		if _, err := grantCommercialEditionTx(tx, commercialEditionGrant{
+			LicenseID: licenseID, Period: period, OrderID: id, Extend: true, Stack: true, MarkStorePurchase: true,
+		}); err != nil {
 			return err
 		}
 	case "plugin", "template":
