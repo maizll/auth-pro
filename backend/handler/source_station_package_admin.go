@@ -78,7 +78,7 @@ func AdminSourceReleaseSettingsTest(c *gin.Context) {
 
 func AdminSourcePackageParse(c *gin.Context) {
 	defer discardSourceMultipart(c)
-	filename, payload, err := readSourcePackageUpload(c)
+	filename, payload, _, err := readSourcePackageSource(c)
 	if err != nil {
 		writeSourcePackageReject(c, err)
 		return
@@ -94,7 +94,7 @@ func AdminSourcePackageParse(c *gin.Context) {
 
 func AdminSourcePackagePublish(c *gin.Context) {
 	defer discardSourceMultipart(c)
-	filename, payload, err := readSourcePackageUpload(c)
+	filename, payload, remoteURL, err := readSourcePackageSource(c)
 	if err != nil {
 		writeSourcePackageReject(c, err)
 		return
@@ -106,6 +106,9 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		return
 	}
 	location := strings.TrimSpace(sourceFirstNonEmpty(c.PostForm("downloadUrl"), c.PostForm("templateUrl")))
+	if remoteURL != "" {
+		location = remoteURL
+	}
 	settings, err := currentSourceStationStore().GetReleaseSettings()
 	if err != nil {
 		payload = nil
@@ -113,6 +116,11 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		return
 	}
 	pushRequested := formFlag(c, "push") || formFlag(c, "pushRelease")
+	if pushRequested && remoteURL != "" {
+		payload = nil
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "推送 Release 时请上传压缩包"})
+		return
+	}
 	// Strictly honor checkbox: never auto-push when unchecked.
 	pushed := false
 	provider := ""
@@ -161,10 +169,12 @@ func AdminSourcePackagePublish(c *gin.Context) {
 	}
 
 	var (
-		pluginView   gin.H
-		templateView gin.H
-		itemID       string
-		kind         = manifest.Kind
+		pluginView    gin.H
+		templateView  gin.H
+		itemID        string
+		kind          = manifest.Kind
+		savedLocation = location
+		savedSHA      = manifest.SHA256
 	)
 	if kind == sourceKindTemplate {
 		item, convErr := adminTemplateFromRequest(sourceTemplateDraftRequest{
@@ -207,6 +217,8 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		}
 		templateView = sourceTemplateView(saved)
 		itemID = saved.ID
+		savedLocation = saved.TemplateURL
+		savedSHA = saved.SHA256
 	} else {
 		item, convErr := adminPluginFromRequest(sourcePluginDraftRequest{
 			ID: manifest.ID, AppID: appID, Category: manifest.Category, Name: manifest.Name, Description: manifest.Description,
@@ -248,33 +260,47 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		}
 		pluginView = sourcePluginView(saved)
 		itemID = saved.ID
+		savedLocation = saved.DownloadURL
+		savedSHA = saved.SHA256
 	}
 
-	detail := location
+	detail := savedLocation
 	if pushed {
-		detail = provider + " " + location
+		detail = provider + " " + savedLocation
 	}
 	_ = currentSourceStationStore().AppendAudit(sourceAuditEntry{
 		ActorType: "admin", ActorName: actor, Action: "package_publish",
 		TargetType: kind, TargetID: itemID + "@" + manifest.Version, Detail: truncateText(detail, 500),
 	})
+	hosted := isPrivatePackageRef(savedLocation)
 	data := gin.H{
-		"kind": kind, "id": itemID, "version": manifest.Version, "sha256": manifest.SHA256,
-		"downloadUrl": location, "pushed": pushed, "storedPackage": false, "manifest": manifest.view(),
+		"kind": kind, "id": itemID, "version": manifest.Version, "sha256": savedSHA,
+		"downloadUrl": savedLocation, "pushed": pushed, "storedPackage": hosted, "manifest": manifest.view(),
 	}
 	if kind == sourceKindTemplate {
-		data["templateUrl"] = location
+		data["templateUrl"] = savedLocation
 		delete(data, "downloadUrl")
 		data["item"] = templateView
 	} else {
 		data["item"] = pluginView
 	}
 	msg := "校验通过，已保存为草稿（包已丢弃，源站不保存源码）。请走审核/上架"
+	if remoteURL != "" && hosted {
+		msg = "校验通过，已拉取外链并私有托管，校验码已自动填写"
+	} else if remoteURL != "" {
+		msg = "校验通过，已保存元数据并自动填写校验码（安装包仍由外部地址提供）"
+	}
 	if pushed {
 		msg = "校验通过，已推送到 " + provider + " Release 并保存为草稿（包已丢弃）"
 	}
-	if shelf {
+	if shelf && !(remoteURL != "" && hosted) {
 		msg = "校验通过，已保存并上架（包已丢弃）"
+	}
+	if shelf && remoteURL != "" && hosted {
+		msg = "校验通过，已拉取外链并私有托管后上架，校验码已自动填写"
+	}
+	if shelf && remoteURL != "" && !hosted {
+		msg = "校验通过，已保存并上架，校验码已按外部地址自动填写"
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": data})
 }

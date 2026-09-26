@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"strings"
 	"unicode/utf8"
@@ -109,7 +110,7 @@ func sourcePackageSchemaDocument() gin.H {
 			"publish":          "POST /api/v1/source/admin/packages/publish",
 			"developerUpload":  "POST /api/v1/source/developer/packages/upload：校验通过后把 ZIP 存到本站，并返回地址与 sha256。不合规包不落盘。",
 			"schema":           "GET /api/v1/source/admin/packages/schema 与 GET /software-source/package-schema.json",
-			"file":             "multipart 字段 file，必须是 ZIP，≤ 20 MiB",
+			"file":             "multipart 字段 file 与 downloadUrl/templateUrl 二选一。file 必须是 ZIP，≤ 20 MiB。只填 https 外部地址时，本站下载该 ZIP 再按同样规则校验，并自动填写 sha256。每一跳重定向都拒绝内网、回环和云元数据地址。",
 			"kind":             "可选 plugin | template；缺省时按包内清单文件名识别。template.json 必须自带 kind=template；plugin.json 若填写 kind 必须为 plugin",
 			"category":         "可选。与清单 kind 对应：插件分类不可用于模板，模板分类不可用于插件。模板缺省自动绑定 home-template。",
 			"externalOnSubmit": "免费外链 HTTPS 在提交审核时检查可达、ZIP 魔数与 sha256。付费条目填写 HTTPS 外链时，保存时立即拉取、校验并写入私有目录，买家看不到外链。本站托管地址只核对本地文件，不发外网请求。",
@@ -169,28 +170,54 @@ func sourcePackageSchemaDocument() gin.H {
 }
 
 func readSourcePackageUpload(c *gin.Context) (string, []byte, error) {
+	name, payload, _, err := readSourcePackageSource(c)
+	return name, payload, err
+}
+
+// readSourcePackageSource 读取上传的 ZIP，或在没有文件时按 downloadUrl/templateUrl 拉取。
+// 有文件时不访问外链，返回的 remoteURL 为空。只填外链时 remoteURL 为实际拉取地址。
+func readSourcePackageSource(c *gin.Context) (name string, payload []byte, remoteURL string, err error) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, pluginPackageMaxSize+(1<<20))
-	header, err := c.FormFile("file")
-	if err != nil || header == nil || header.Size <= 0 {
-		return "", nil, rejectSourcePackage("file", "required", "请上传插件或首页模板 ZIP（multipart 字段 file）")
+	location := strings.TrimSpace(sourceFirstNonEmpty(c.PostForm("downloadUrl"), c.PostForm("templateUrl")))
+	header, fileErr := c.FormFile("file")
+	hasFile := fileErr == nil && header != nil && header.Size > 0
+	if hasFile {
+		if header.Size > pluginPackageMaxSize {
+			return "", nil, "", rejectSourcePackage("file", "max_size", "上传包不能超过 20 MiB")
+		}
+		file, openErr := header.Open()
+		if openErr != nil {
+			return "", nil, "", rejectSourcePackage("file", "read", "读取上传文件失败")
+		}
+		defer file.Close()
+		payload, err = readPluginReader(file, pluginPackageMaxSize)
+		if err != nil {
+			return "", nil, "", rejectSourcePackage("file", "read", "读取上传文件失败："+err.Error())
+		}
+		name = path.Base(strings.ReplaceAll(header.Filename, "\\", "/"))
+		if name == "." || name == "/" {
+			name = "package.zip"
+		}
+		return name, payload, "", nil
 	}
-	if header.Size > pluginPackageMaxSize {
-		return "", nil, rejectSourcePackage("file", "max_size", "上传包不能超过 20 MiB")
+	if location == "" {
+		return "", nil, "", rejectSourcePackage("file", "required", "请上传压缩包，或填写 https 外部地址（二选一）")
 	}
-	file, err := header.Open()
+	if !isHTTPSLocation(location) {
+		return "", nil, "", rejectSourcePackage("downloadUrl", "https", "外部地址须以 https:// 开头")
+	}
+	payload, err = fetchPaidOriginZIP(c.Request.Context(), location)
 	if err != nil {
-		return "", nil, rejectSourcePackage("file", "read", "读取上传文件失败")
+		return "", nil, "", rejectSourcePackage("downloadUrl", "fetch", err.Error())
 	}
-	defer file.Close()
-	payload, err := readPluginReader(file, pluginPackageMaxSize)
-	if err != nil {
-		return "", nil, rejectSourcePackage("file", "read", "读取上传文件失败："+err.Error())
+	name = "package.zip"
+	if parsed, parseErr := url.Parse(location); parseErr == nil {
+		base := path.Base(parsed.Path)
+		if base != "." && base != "/" && base != "" {
+			name = base
+		}
 	}
-	name := path.Base(strings.ReplaceAll(header.Filename, "\\", "/"))
-	if name == "." || name == "/" {
-		name = "package.zip"
-	}
-	return name, payload, nil
+	return name, payload, location, nil
 }
 
 func parseSourcePackageBytes(filename string, payload []byte, kindHint string, categoryHint string) (sourcePackageManifest, error) {

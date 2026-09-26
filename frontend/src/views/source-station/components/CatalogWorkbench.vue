@@ -173,6 +173,9 @@
         title="校验不通过就会拒绝：压缩包里要有合法的插件或模板清单，不能包含越界路径。失败不会保存，也不会推送到发布页。"
         class="mb-3"
       />
+      <p class="card-hint mb-3">
+        压缩包和外部地址二选一。只填 https 时，本站下载并校验，自动填写校验码。付费条目私有托管，买家看不到外链。
+      </p>
       <el-form label-width="120px">
         <el-form-item label="应用" required>
           <el-select v-model="uploadForm.appId" placeholder="请选择应用" style="width: 100%">
@@ -184,7 +187,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="压缩包" required>
+        <el-form-item label="压缩包">
           <el-upload
             drag
             :auto-upload="false"
@@ -194,6 +197,7 @@
           >
             <div>{{ uploadFile ? uploadFile.name : '点击或拖拽压缩包（不超过 20 MB）' }}</div>
           </el-upload>
+          <p class="card-hint">与外部地址二选一。推送 Release 时必须选择压缩包。</p>
         </el-form-item>
         <el-form-item label="分类">
           <el-select
@@ -227,29 +231,50 @@
         <el-form-item label="更新说明">
           <el-input v-model="uploadForm.changelog" type="textarea" :rows="2" placeholder="可选" />
         </el-form-item>
+        <el-form-item label="售价（元）">
+          <el-input v-model="uploadForm.priceYuan" placeholder="0" />
+          <p class="card-hint">
+            填 0 表示免费，校验后仍由外部地址提供下载。大于 0
+            时本站立即拉取并私有托管，买家看不到外链。
+          </p>
+        </el-form-item>
         <el-form-item label="选项">
           <el-checkbox v-model="uploadForm.push">推送 GitHub/Gitee Release</el-checkbox>
         </el-form-item>
-        <el-form-item v-if="!uploadForm.push" label="外部地址" required>
+        <el-form-item v-if="!uploadForm.push" label="外部地址">
           <el-input
             v-model="uploadForm.location"
-            placeholder="https://... 下载地址（不推 Release 时必填）"
+            placeholder="https://... 与压缩包二选一"
+            @input="parsedManifest = null"
           />
+          <p class="card-hint">
+            与压缩包二选一。只填 https 网址时，本站下载、校验并自动填写校验码。GitHub Release
+            的跳转也会跟着走，每一跳都拒绝内网地址。
+          </p>
         </el-form-item>
       </el-form>
+      <p v-if="uploadBlockReason" class="card-hint">{{ uploadBlockReason }}</p>
       <template #footer>
         <el-button @click="uploadVisible = false">取消</el-button>
-        <el-button :disabled="!uploadFile" :loading="parsing" @click="handleParse"
-          >仅校验解析</el-button
-        >
-        <el-button
-          type="primary"
-          :disabled="!uploadFile"
-          :loading="publishing"
-          @click="handlePublish"
-        >
-          校验并保存元数据
-        </el-button>
+        <el-tooltip :disabled="!uploadBlockReason" :content="uploadBlockReason" placement="top">
+          <span>
+            <el-button :disabled="!!uploadBlockReason" :loading="parsing" @click="handleParse"
+              >仅校验解析</el-button
+            >
+          </span>
+        </el-tooltip>
+        <el-tooltip :disabled="!uploadBlockReason" :content="uploadBlockReason" placement="top">
+          <span>
+            <el-button
+              type="primary"
+              :disabled="!!uploadBlockReason"
+              :loading="publishing"
+              @click="handlePublish"
+            >
+              校验并保存元数据
+            </el-button>
+          </span>
+        </el-tooltip>
       </template>
     </el-dialog>
 
@@ -568,6 +593,7 @@
     deleteCatalogCategoryConfirmMessage,
     extrasAfterDeletingCategory
   } from '@/utils/form/catalog-category'
+  import { catalogUploadBlockReason } from '@/utils/form/catalog-package-source'
   import {
     formatCatalogPriceLabel,
     formatCatalogPriceYuan,
@@ -609,8 +635,17 @@
     category: '',
     changelog: '',
     location: '',
+    priceYuan: '0',
     push: true
   })
+  const uploadBlockReason = computed(() =>
+    catalogUploadBlockReason({
+      appId: uploadForm.appId,
+      push: uploadForm.push,
+      hasFile: !!uploadFile.value,
+      location: uploadForm.location
+    })
+  )
 
   const registerVisible = ref(false)
   const registering = ref(false)
@@ -867,6 +902,7 @@
     uploadForm.category = searchForm.category
     uploadForm.changelog = ''
     uploadForm.location = ''
+    uploadForm.priceYuan = '0'
     uploadForm.push = true
     uploadVisible.value = true
   }
@@ -881,21 +917,33 @@
     if (uploadFile.value) form.append('file', uploadFile.value)
     if (uploadForm.category) form.append('category', uploadForm.category)
     if (uploadForm.changelog) form.append('changelog', uploadForm.changelog)
-    if (!uploadForm.push && uploadForm.location) {
+    if (!uploadForm.push && uploadForm.location.trim()) {
       const kind = parsedManifest.value?.kind || categoryKind(uploadForm.category)
-      form.append(kind === 'template' ? 'templateUrl' : 'downloadUrl', uploadForm.location)
+      form.append(kind === 'template' ? 'templateUrl' : 'downloadUrl', uploadForm.location.trim())
     }
+    const priced = resolveCatalogPriceCents(
+      uploadForm.priceYuan,
+      uploadForm.push ? '' : uploadForm.location
+    )
+    if (!priced.error && priced.cents > 0) form.append('priceCents', String(priced.cents))
     if (uploadForm.push) form.append('push', 'true')
     if (uploadForm.appId) form.append('appId', String(uploadForm.appId))
     return form
   }
 
   async function handleParse() {
-    if (!uploadFile.value) return
+    if (uploadBlockReason.value) {
+      ElMessage.warning(uploadBlockReason.value)
+      return
+    }
     parsing.value = true
     try {
       const form = new FormData()
-      form.append('file', uploadFile.value)
+      if (uploadFile.value) form.append('file', uploadFile.value)
+      else {
+        const kind = categoryKind(uploadForm.category)
+        form.append(kind === 'template' ? 'templateUrl' : 'downloadUrl', uploadForm.location.trim())
+      }
       if (uploadForm.category) form.append('category', uploadForm.category)
       parsedManifest.value = await parseSourcePackage(form)
       if (parsedManifest.value.category) {
@@ -908,22 +956,30 @@
   }
 
   async function handlePublish() {
-    if (!uploadFile.value) return
-    if (!uploadForm.appId) {
-      ElMessage.warning('请选择应用')
+    if (uploadBlockReason.value) {
+      ElMessage.warning(uploadBlockReason.value)
       return
     }
-    if (!uploadForm.push && !String(uploadForm.location || '').trim()) {
-      ElMessage.warning('未推送 Release 时请填写外部地址')
+    const priced = resolveCatalogPriceCents(
+      uploadForm.priceYuan,
+      uploadForm.push ? '' : uploadForm.location
+    )
+    if (priced.error) {
+      ElMessage.warning(priced.error)
       return
     }
     publishing.value = true
     try {
       const result = await publishSourcePackage(buildPackageForm())
+      const origin = (result.item as { originUrl?: string } | undefined)?.originUrl
       ElMessage.success(
         result.pushed
           ? '校验通过，已推送 Release 并保存元数据'
-          : '校验通过，已保存元数据（包已丢弃）'
+          : origin
+            ? '校验通过，已拉取外链并私有托管，校验码已自动填写'
+            : uploadFile.value
+              ? '校验通过，已保存元数据（包已丢弃）'
+              : '校验通过，已保存元数据并自动填写校验码'
       )
       uploadVisible.value = false
       await loadItems()
