@@ -14,6 +14,7 @@ const (
 	storeMigrationLicenseSource         = "licenses_source_store_bind_v1"
 	storeMigrationLicenseSourcePurchase = "licenses_source_store_purchase_v1"
 	storeMigrationDomainChanges         = "license_domain_changes_v1"
+	storeMigrationDropBuyerConnection   = "store_drop_buyer_connection_settings_v1"
 )
 
 func migrateStoreBindings(db *sql.DB) error {
@@ -219,6 +220,22 @@ func migrateLicenseDomainChanges(db *sql.DB) error {
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`)
 	if err != nil {
 		return fmt.Errorf("license domain changes: %w", err)
+	}
+	return nil
+}
+
+// migrateDropBuyerConnectionSettings 删掉已经不再读取的手填源站、站点和信任代理。
+func migrateDropBuyerConnectionSettings(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'system_configs'`).Scan(&count); err != nil {
+		return fmt.Errorf("buyer connection settings: %w", err)
+	}
+	if count == 0 {
+		return nil
+	}
+	_, err := db.Exec(`DELETE FROM system_configs WHERE ` + "`group`" + ` = 'store' AND ` + "`key`" + ` IN ('store_source_base', 'store_site_url', 'store_trust_proxy')`)
+	if err != nil {
+		return fmt.Errorf("buyer connection settings: %w", err)
 	}
 	return nil
 }

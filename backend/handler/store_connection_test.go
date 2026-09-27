@@ -89,43 +89,27 @@ func TestBuyerConnectionIgnoresSpoofedForwarding(t *testing.T) {
 	}
 }
 
-func TestBuyerSourceBaseOverride(t *testing.T) {
+func TestBuyerSourceBaseUsesPackageVariableOnly(t *testing.T) {
 	prev := buyerSourceBaseForTest
 	buyerSourceBaseForTest = ""
 	t.Cleanup(func() { buyerSourceBaseForTest = prev })
-	dir := t.TempDir()
-	t.Setenv("AUTO_PRO_DATA_DIR", dir)
-	t.Setenv(buyerSourceBaseEnv, "")
-
+	t.Setenv("AUTH_PRO_STORE_SOURCE_BASE", "https://env.example.test")
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	if err := os.WriteFile(filepath.Join(config.GetDataDir(), "source-base"), []byte("https://file.example.test\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	base, err := buyerSourceBase()
 	if err != nil || base != buyerSourceDefault {
-		t.Fatalf("default base=%s err=%v", base, err)
-	}
-	path := filepath.Join(dir, "store", "source-base")
-	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("https://file.example.test/store\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	base, err = buyerSourceBase()
-	if err != nil || base != "https://file.example.test/store" {
-		t.Fatalf("file base=%s err=%v", base, err)
-	}
-	t.Setenv(buyerSourceBaseEnv, "https://env.example.test")
-	base, err = buyerSourceBase()
-	if err != nil || base != "https://env.example.test" {
-		t.Fatalf("env base=%s err=%v", base, err)
+		t.Fatalf("环境变量和文件不应生效 base=%s err=%v", base, err)
 	}
 	buyerSourceBaseForTest = "https://hook.example.test"
 	base, err = buyerSourceBase()
 	if err != nil || base != "https://hook.example.test" {
 		t.Fatalf("hook base=%s err=%v", base, err)
 	}
-	buyerSourceBaseForTest = ""
-	t.Setenv(buyerSourceBaseEnv, "http://env.example.test")
+	buyerSourceBaseForTest = "http://hook.example.test"
 	if _, err := buyerSourceBase(); err == nil {
-		t.Fatal("非 https 覆盖应失败")
+		t.Fatal("非 https 测试地址应失败")
 	}
 }
 
@@ -157,7 +141,7 @@ func TestBuyerStoreSettingsIgnoresSourceBase(t *testing.T) {
 	buyerSourceBaseForTest = ""
 	t.Cleanup(func() { buyerSourceBaseForTest = prev })
 	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
-	t.Setenv(buyerSourceBaseEnv, "")
+	t.Setenv("AUTH_PRO_STORE_SOURCE_BASE", "https://evil.example")
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPut, "/api/store/settings", bytes.NewBufferString(`{"sourceBase":"https://evil.example","siteUrl":"https://shop.example.com","trustProxy":true}`))

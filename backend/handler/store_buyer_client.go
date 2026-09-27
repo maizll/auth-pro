@@ -38,26 +38,7 @@ func loadBuyerInstallID() string {
 	return id
 }
 
-// 测试把源站指到 httptest。生产环境保持空，正式源站根见 buyerSourceDefault。
-const buyerSourceBaseEnv = "AUTH_PRO_STORE_SOURCE_BASE"
-
-var (
-	buyerSourceBaseForTest  string
-	sourceHTTPClientForTest *http.Client
-)
-
-// buyerSourceBase 只认测试钩子、环境变量和数据目录文件。数据库里的 store_source_base 不再生效。
-func buyerSourceBase() (string, error) {
-	base := strings.TrimSpace(buyerSourceBaseForTest)
-	if base == "" {
-		base = strings.TrimSpace(os.Getenv(buyerSourceBaseEnv))
-	}
-	if base == "" {
-		base = readBuyerSourceFile()
-	}
-	if base == "" {
-		base = buyerSourceDefault
-	}
+func normalizeBuyerSource(base string) (string, error) {
 	parsed, err := parseHTTPSBase(base)
 	if err != nil {
 		return "", err
@@ -65,35 +46,20 @@ func buyerSourceBase() (string, error) {
 	return strings.TrimRight(parsed.String(), "/"), nil
 }
 
-func buyerSourceFilePath() string {
-	return filepath.Join(config.GetDataDir(), "store", "source-base")
+func defaultBuyerSourceBase() (string, error) {
+	return normalizeBuyerSource(buyerSourceDefault)
 }
 
-func readBuyerSourceFile() string {
-	payload, err := os.ReadFile(buyerSourceFilePath())
-	if err != nil {
-		return ""
-	}
-	line := strings.TrimSpace(string(payload))
-	if i := strings.IndexAny(line, "\r\n"); i >= 0 {
-		line = strings.TrimSpace(line[:i])
-	}
-	return line
-}
+// buyerSourceBase 在正式程序里固定为 https://auth.maizll.com。
+// 同包测试文件可以替换这个函数；发布构建不包含测试文件，也没有环境变量或配置文件入口。
+var buyerSourceBase = defaultBuyerSourceBase
 
-func newSourceHTTPClient() *http.Client {
-	if sourceHTTPClientForTest != nil {
-		client := *sourceHTTPClientForTest
-		if client.Timeout == 0 {
-			client.Timeout = 20 * time.Second
-		}
-		if client.CheckRedirect == nil {
-			client.CheckRedirect = refuseSourceRedirect
-		}
-		return &client
-	}
+func defaultSourceHTTPClient() *http.Client {
 	return &http.Client{Timeout: 20 * time.Second, CheckRedirect: refuseSourceRedirect}
 }
+
+// newSourceHTTPClient 正式程序使用默认客户端。测试文件可以换成 httptest 客户端。
+var newSourceHTTPClient = defaultSourceHTTPClient
 
 func refuseSourceRedirect(*http.Request, []*http.Request) error {
 	return errStoreNoRedirect

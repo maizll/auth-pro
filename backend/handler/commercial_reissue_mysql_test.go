@@ -238,6 +238,7 @@ func markCommercialGapMigrations(t *testing.T, db *sql.DB) {
 		storeMigrationLicenseSource,
 		storeMigrationLicenseSourcePurchase,
 		storeMigrationDomainChanges,
+		storeMigrationDropBuyerConnection,
 		storeEditionPlansMigration,
 	}
 	for _, name := range names {

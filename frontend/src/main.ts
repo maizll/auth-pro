@@ -16,14 +16,6 @@ document.addEventListener(
   { passive: false }
 )
 
-// 控制台标识。不展示外部社区或联系方式。
-const consoleTail = () => {
-  const style1 = 'background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); color: #fff; padding: 5px 10px; border-radius: 3px; font-weight: bold;'
-  console.log('%c授权管理系统', style1)
-}
-
-consoleTail()
-
 const bootstrap = async () => {
   const app = createApp(App)
   initStore(app)

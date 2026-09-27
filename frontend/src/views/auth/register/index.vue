@@ -101,10 +101,7 @@
   const USERNAME_MIN_LENGTH = 3
   const USERNAME_MAX_LENGTH = 20
   const PASSWORD_MIN_LENGTH = 6
-  const REDIRECT_DELAY = 1000
-
   const { t, locale } = useI18n()
-  const router = useRouter()
   const formRef = ref<FormInstance>()
 
   const loading = ref(false)
@@ -202,36 +199,11 @@
       await formRef.value.validate()
       loading.value = true
 
-      // TODO: 替换为真实 API 调用
-      // const params = {
-      //   username: formData.username,
-      //   password: formData.password
-      // }
-      // const res = await AuthService.register(params)
-      // if (res.code === ApiStatus.success) {
-      //   ElMessage.success('注册成功')
-      //   toLogin()
-      // }
-
-      // 模拟注册请求
-      setTimeout(() => {
-        loading.value = false
-        ElMessage.success('注册成功')
-        toLogin()
-      }, REDIRECT_DELAY)
-    } catch (error) {
-      console.error('表单验证失败:', error)
+      loading.value = false
+      ElMessage.warning('请使用站点首页的注册入口')
+    } catch {
       loading.value = false
     }
-  }
-
-  /**
-   * 跳转到登录页面
-   */
-  const toLogin = () => {
-    setTimeout(() => {
-      router.push({ name: 'Login' })
-    }, REDIRECT_DELAY)
   }
 </script>
 

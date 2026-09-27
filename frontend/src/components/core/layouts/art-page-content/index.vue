@@ -4,14 +4,6 @@
     <div id="app-content-header">
       <!-- 节日滚动 -->
       <ArtFestivalTextScroll v-if="!isFullPage" />
-
-      <!-- 路由信息调试 -->
-      <div
-        v-if="isOpenRouteInfo === 'true'"
-        class="px-2 py-1.5 mb-3 text-sm text-g-500 bg-g-200 border-full-d rounded-md"
-      >
-        router meta：{{ route.meta }}
-      </div>
     </div>
 
     <RouterView v-if="isRefresh" v-slot="{ Component, route }" :style="contentStyle">
@@ -62,7 +54,6 @@
   const { keepAliveExclude } = storeToRefs(useWorktabStore())
 
   const isRefresh = shallowRef(true)
-  const isOpenRouteInfo = import.meta.env.VITE_OPEN_ROUTE_INFO
   const showTransitionMask = ref(false)
 
   // 标记是否是首次加载（浏览器刷新）

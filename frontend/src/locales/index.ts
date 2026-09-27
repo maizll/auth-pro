@@ -87,7 +87,6 @@ const getDefaultLanguage = (): LanguageEnum => {
   }
 
   // 返回默认语言
-  console.debug('[i18n] 使用默认语言:', LanguageEnum.ZH)
   return LanguageEnum.ZH
 }
 

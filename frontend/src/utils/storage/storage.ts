@@ -161,7 +161,6 @@ class StorageCompatibilityManager {
         return true
       }
 
-      console.debug('[Storage] 发现旧版本存储数据')
       return true
     } catch (error) {
       console.error('[Storage] 存储数据验证失败:', error)

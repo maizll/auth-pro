@@ -198,7 +198,8 @@ def build_159(public_key: str = "") -> None:
     ldflags = ""
     if public_key:
         ldflags = f"-X auto_pro/handler.embeddedStoreSnapshotPublicKey={public_key}"
-    cmd = ["go", "build", "-o", BIN_159]
+    # -tags e2e 只存在于测试构建，把买家源站指到 source.auth-pro.test。发布脚本不带这个标签。
+    cmd = ["go", "build", "-tags", "e2e", "-o", BIN_159]
     if ldflags:
         cmd.extend(["-ldflags", ldflags])
     cmd.append(".")
@@ -713,9 +714,8 @@ def main() -> int:
     buyer_data = os.path.join(RUNTIME, "buyer")
     shutil.rmtree(source_data, ignore_errors=True)
     shutil.rmtree(buyer_data, ignore_errors=True)
-    buyer_env = {"AUTH_PRO_STORE_SOURCE_BASE": f"https://{SOURCE_HOST}"}
     start_server("source", BIN_159, 18081, SOURCE_DB, source_data)
-    start_server("buyer", BIN_159, 18082, BUYER_DB, buyer_data, buyer_env)
+    start_server("buyer", BIN_159, 18082, BUYER_DB, buyer_data)
     source = f"https://{SOURCE_HOST}"
     buyer = f"https://{BUYER_HOST}"
     # 确认 Go 与本脚本都能校验证书。安装走本机端口，避免安装接口的来源限制。
@@ -731,7 +731,7 @@ def main() -> int:
     stop_named()
     build_159(pub)
     start_server("source", BIN_159, 18081, SOURCE_DB, source_data)
-    start_server("buyer", BIN_159, 18082, BUYER_DB, buyer_data, buyer_env)
+    start_server("buyer", BIN_159, 18082, BUYER_DB, buyer_data)
     source_token = must_api(source, "POST", "/api/auth/login", {"userName": ADMIN_USER, "password": ADMIN_PASS}, ca=ca)["data"]["token"]
     buyer_token = must_api(buyer, "POST", "/api/auth/login", {"userName": ADMIN_USER, "password": ADMIN_PASS}, ca=ca)["data"]["token"]
     assert_sale_ready(source, source_token, ca)

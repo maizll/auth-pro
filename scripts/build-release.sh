@@ -85,6 +85,16 @@ printf '[5/5] Creating tar.gz package and latest.json...\n'
 rm -f "$PACKAGE_PATH"
 tar -czf "$PACKAGE_PATH" -C "$PACKAGE_DIR" .
 
+forbidden="$(tar -tzf "$PACKAGE_PATH" | grep -E '(^|/)([^/]*_test\.go|[^/]*\.test\.(ts|js|mjs)|[^/]*\.spec\.ts|commercial_mysql_e2e\.py|/tests/|/e2e/|__pycache__/)' || true)"
+if [[ -n "$forbidden" ]]; then
+  printf '发布包包含测试或调试文件:\n%s\n' "$forbidden" >&2
+  exit 1
+fi
+if strings "$PACKAGE_DIR/backend/auth_pro" | grep -F 'AUTH_PRO_STORE_SOURCE_BASE' >/dev/null; then
+  echo "正式二进制仍包含源站地址环境变量入口" >&2
+  exit 1
+fi
+
 if command -v shasum >/dev/null 2>&1; then
   PACKAGE_SHA256="$(shasum -a 256 "$PACKAGE_PATH" | cut -d ' ' -f 1)"
 else
