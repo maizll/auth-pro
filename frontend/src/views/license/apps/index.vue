@@ -4,11 +4,7 @@
 <template>
   <div class="license-apps-page art-full-height">
     <ElCard class="art-table-card no-search-card" shadow="never">
-      <!-- 表格头部 -->
-      <div v-if="showAppLimitBar" class="app-limit-bar">
-        <CommercialMark :text="multiAppText" />
-        <ElButton type="primary" @click="openCommercialUpgrade">升级商业版</ElButton>
-      </div>
+      <!-- 版本状态只在顶栏。这里只在「新增应用」旁留一行说明，超限再点新增才弹升级窗。 -->
       <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
         <template #left>
           <ElSpace wrap>
@@ -107,10 +103,7 @@
         <!-- 操作 -->
         <template #operation="{ row }">
           <RowActions
-            :primary="[
-              { key: 'edit', label: '编辑' },
-              { key: 'versions', label: '版本' }
-            ]"
+            :primary="appPrimaryActions"
             :more="appMoreActions(row)"
             @click="(action) => onAppAction(row, action)"
           />
@@ -240,7 +233,6 @@
     commercialCopy,
     isCommercialActive,
     openCommercialPrompt,
-    openCommercialUpgrade,
     rememberCommercialAccount
   } from '@/utils/commercial'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
@@ -303,61 +295,80 @@
     name: [{ required: true, message: '请输入应用名称', trigger: 'blur' }]
   }
 
-  const { columns, columnChecks, data, loading, refreshData, refreshRemove, toggleColumn } =
-    useTable({
-      // 核心配置
-      core: {
-        apiFn: fetchLicenseAppList,
-        apiParams: {},
-        columnsFactory: () => [
-          { type: 'index', width: 60, label: '序号' }, // 序号
-          { prop: 'name', label: '应用名称', minWidth: 150, useSlot: true },
-          { prop: 'sale', label: '商业版', minWidth: 220, useSlot: true },
-          { prop: 'appKey', label: 'AppKey', minWidth: 220, showOverflowTooltip: true },
-          {
-            prop: 'purchaseLicenseTypes',
-            label: '授权方式',
-            minWidth: 250,
-            useSlot: true
-          },
-          { prop: 'appSecret', label: 'AppSecret', minWidth: 220, useSlot: true },
-          { prop: 'licenseCount', label: '授权数', width: 90, align: 'center' },
-          { prop: 'version', label: '版本', minWidth: 120, useSlot: true },
-          { prop: 'enabled', label: '状态', width: 90, align: 'center', useSlot: true },
-          {
-            prop: 'licenseRequired',
-            label: '授权校验',
-            width: 100,
-            align: 'center',
-            useSlot: true
-          },
-          { prop: 'createdAt', label: '创建时间', width: 160 },
-          {
-            prop: 'operation',
-            label: '操作',
-            width: 168,
-            useSlot: true
-          }
-        ]
-      },
-      // 数据处理
-      transform: {
-        dataTransformer: (records) => {
-          if (!Array.isArray(records)) {
-            return []
-          }
-          // 附加行级本地状态：密钥可见性、授权校验切换中
-          const normalized = (records as unknown as LicenseAppItem[]).map((item) => ({
-            ...item,
-            licenseRequired: item.licenseRequired !== false,
-            licenseRequiredChanging: false
-          }))
-          return normalized as unknown as typeof records
+  const {
+    columns,
+    columnChecks,
+    data,
+    loading,
+    refreshData,
+    refreshRemove,
+    toggleColumn,
+    updateColumn
+  } = useTable({
+    // 核心配置
+    core: {
+      apiFn: fetchLicenseAppList,
+      apiParams: {},
+      columnsFactory: () => [
+        { type: 'index', width: 60, label: '序号' }, // 序号
+        { prop: 'name', label: '应用名称', minWidth: 150, useSlot: true },
+        { prop: 'sale', label: '商业版', minWidth: 220, useSlot: true },
+        { prop: 'appKey', label: 'AppKey', minWidth: 220, showOverflowTooltip: true },
+        {
+          prop: 'purchaseLicenseTypes',
+          label: '授权方式',
+          minWidth: 250,
+          useSlot: true
+        },
+        { prop: 'appSecret', label: 'AppSecret', minWidth: 220, useSlot: true },
+        { prop: 'licenseCount', label: '授权数', width: 90, align: 'center' },
+        { prop: 'version', label: '版本', minWidth: 120, useSlot: true },
+        { prop: 'enabled', label: '状态', width: 90, align: 'center', useSlot: true },
+        {
+          prop: 'licenseRequired',
+          label: '授权校验',
+          width: 100,
+          align: 'center',
+          useSlot: true
+        },
+        { prop: 'createdAt', label: '创建时间', width: 160 },
+        {
+          prop: 'operation',
+          label: '操作',
+          width: 168,
+          useSlot: true
         }
+      ]
+    },
+    // 数据处理
+    transform: {
+      dataTransformer: (records) => {
+        if (!Array.isArray(records)) {
+          return []
+        }
+        // 附加行级本地状态：密钥可见性、授权校验切换中
+        const normalized = (records as unknown as LicenseAppItem[]).map((item) => ({
+          ...item,
+          licenseRequired: item.licenseRequired !== false,
+          licenseRequiredChanging: false
+        }))
+        return normalized as unknown as typeof records
       }
-    })
+    }
+  })
 
   const narrow = useNarrowScreen()
+  // 手机上名称和状态让出宽度，操作列固定在右侧，避免「编辑 / 更多」被裁掉。
+  const appWideColumns = [
+    { prop: 'name', updates: { minWidth: 150, width: undefined, fixed: undefined } },
+    { prop: 'enabled', updates: { width: 90, minWidth: undefined, fixed: undefined } },
+    { prop: 'operation', updates: { width: 168, minWidth: undefined, fixed: undefined } }
+  ]
+  const appNarrowColumns = [
+    { prop: 'name', updates: { minWidth: 72, width: undefined, fixed: undefined } },
+    { prop: 'enabled', updates: { width: 64, minWidth: 64, fixed: undefined } },
+    { prop: 'operation', updates: { width: 120, minWidth: 120, fixed: 'right' as const } }
+  ]
   watch(
     narrow,
     (value) => {
@@ -375,12 +386,24 @@
         ],
         !value
       )
+      updateColumn?.(value ? appNarrowColumns : appWideColumns)
     },
     { immediate: true }
   )
 
+  // 宽屏留「编辑」「版本」两个常用按钮。窄屏只留「编辑」，「版本」收进「更多」，保证整列看得见。
+  const appPrimaryActions = computed(() =>
+    narrow.value
+      ? [{ key: 'edit', label: '编辑' }]
+      : [
+          { key: 'edit', label: '编辑' },
+          { key: 'versions', label: '版本' }
+        ]
+  )
+
   function appMoreActions(row: AppRow): RowActionItem[] {
     return [
+      ...(narrow.value ? [{ key: 'versions', label: '版本' }] : []),
       { key: 'sdk', label: 'SDK 包' },
       { key: 'secret', label: '重置密钥', danger: true },
       row.archived
@@ -713,18 +736,6 @@
 
 <style scoped lang="scss">
   .license-apps-page {
-    .app-limit-bar {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 12px;
-      padding: 10px 12px;
-      background: var(--el-color-primary-light-9);
-      border: 1px solid var(--el-color-primary-light-5);
-      border-radius: 8px;
-    }
-
     .no-search-card {
       margin-top: 0;
     }

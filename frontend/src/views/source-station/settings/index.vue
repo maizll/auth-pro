@@ -18,9 +18,21 @@
         </div>
       </template>
 
+      <p v-if="showReleaseEmptyHint" class="release-empty-hint">
+        未配置，上传时需要填 https 外链
+      </p>
       <el-alert
+        v-else-if="showReleaseMissing"
+        :title="`当前表单不完整，缺少：${missingFields.join('、')}`"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="mb-4"
+      />
+      <el-alert
+        v-else-if="formReady"
         :title="alertTitle"
-        :type="formReady ? 'success' : 'warning'"
+        type="success"
         :closable="false"
         show-icon
         class="mb-4"
@@ -232,6 +244,8 @@
   const loading = ref(false)
   const saving = ref(false)
   const testing = ref(false)
+  // 点过保存或测试后，即使三项都空也要指出缺什么；没碰过则只显示灰色说明。
+  const releaseChecked = ref(false)
   const githubLoading = ref(false)
   const githubSaving = ref(false)
   const githubTesting = ref(false)
@@ -302,22 +316,30 @@
 
   const formReady = computed(() => missingFields.value.length === 0)
 
-  const alertTitle = computed(() => {
-    if (formReady.value) {
-      return '当前表单已齐：上传时可推送到发布页（保存后生效）'
-    }
-    return `当前表单不完整，缺少：${missingFields.value.join('、')}`
-  })
+  // 只看所有者、仓库、令牌。平台和标签有默认值，不算「已经填过」。
+  const releaseTouched = computed(() =>
+    Boolean(form.owner.trim() || form.repo.trim() || formHasToken.value)
+  )
+
+  const showReleaseEmptyHint = computed(
+    () => !settings.value.configured && !releaseTouched.value && !releaseChecked.value
+  )
+
+  const showReleaseMissing = computed(() => !formReady.value && !showReleaseEmptyHint.value)
+
+  const alertTitle = computed(() => '当前表单已齐：上传时可推送到发布页（保存后生效）')
 
   const alertDescription = computed(() => {
     if (settings.value.configured) {
       return '服务端已保存完整配置。表单改动需点击「保存设置」后才会写入服务端。'
     }
-    if (formReady.value) {
-      return '服务端尚未保存完整配置，请点击「保存设置」后上传才会推送到发布页。'
-    }
-    return '尚未配置完整，上传时需粘贴外部 https 地址。'
+    return '服务端尚未保存完整配置，请点击「保存设置」后上传才会推送到发布页。'
   })
+
+  function rejectIncompleteRelease() {
+    releaseChecked.value = true
+    return !formReady.value
+  }
 
   function applyGitHubPaid(data?: GitHubPaidSettings, preferConnected?: boolean) {
     if (!data) return
@@ -427,10 +449,7 @@
   }
 
   async function handleTest() {
-    if (!form.owner || !form.repo) {
-      ElMessage.warning('请填写 Owner 与仓库')
-      return
-    }
+    if (rejectIncompleteRelease()) return
     testing.value = true
     try {
       const data = await testSourceReleaseSettings(releasePayload())
@@ -441,6 +460,7 @@
   }
 
   async function handleSave() {
+    if (rejectIncompleteRelease()) return
     saving.value = true
     try {
       const data = await saveSourceReleaseSettings(releasePayload())
@@ -557,6 +577,13 @@
     font-size: 12px;
     line-height: 1.5;
     color: var(--art-gray-600);
+  }
+
+  .release-empty-hint {
+    margin: 0 0 16px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--el-text-color-secondary);
   }
 
   .token-link {
