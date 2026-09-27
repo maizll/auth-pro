@@ -49,6 +49,17 @@ export const systemRoutes: AppRouteRecord = {
       }
     },
     {
+      path: 'site-pages',
+      name: 'SitePages',
+      component: '/system/site-pages',
+      meta: {
+        title: 'menus.system.sitePages',
+        icon: 'ri:pages-line',
+        keepAlive: true,
+        roles: ['R_SUPER']
+      }
+    },
+    {
       path: 'epay-config',
       name: 'EpayConfig',
       component: '/system/epay-config',

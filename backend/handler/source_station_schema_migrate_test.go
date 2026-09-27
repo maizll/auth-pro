@@ -185,6 +185,7 @@ var sourceStationMigrationNames = []string{
 	"source_catalog_origin_v1",
 	"source_catalog_paid_external_visible_v1",
 	"store_bindings_v1",
+	"store_login_handoff_v1",
 	"store_editions_v1",
 	"store_purchase_orders_v1",
 	"plugin_entitlements_v1",

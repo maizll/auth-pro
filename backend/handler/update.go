@@ -776,6 +776,7 @@ func fetchOnlineUpdateReleases(manifest *onlineUpdateManifest, forceRefresh bool
 		ExpiresAt: time.Now().Add(5 * time.Minute),
 	}
 	updateReleasesCache.mu.Unlock()
+	rememberSiteChangelogFromReleases(payload.Releases)
 	return payload.Releases, releasesURL, nil
 }
 

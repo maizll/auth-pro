@@ -1,5 +1,11 @@
 <template>
   <div v-if="staticEntryUrl" class="static-home">
+    <div class="static-bar">
+      <strong>{{ siteName }}</strong>
+      <PublicSiteNav :items="navItems" />
+      <RouterLink v-if="loggedIn" class="remote-route" to="/user/dashboard">个人中心</RouterLink>
+      <ElButton v-else type="primary" @click="openAuth('login')">登录</ElButton>
+    </div>
     <iframe
       ref="staticFrame"
       :src="staticEntryUrl"
@@ -8,6 +14,14 @@
       referrerpolicy="no-referrer"
     />
   </div>
+  <EnterpriseHome
+    v-else-if="stylePreset === 'enterprise'"
+    :document="document"
+    :site-name="siteName"
+    :site-subtitle="siteSubtitle"
+    :logo="resolvedLogo"
+    @login="openAuth"
+  />
   <FintechGoldHome
     v-else-if="stylePreset === 'fintech-gold'"
     :document="document"
@@ -22,7 +36,9 @@
           <img :src="resolvedLogo" alt="网站 Logo" />
           <strong>{{ siteName }}</strong>
         </div>
-        <ElButton type="primary" @click="openLogin">登录</ElButton>
+        <PublicSiteNav :items="navItems" />
+        <RouterLink v-if="loggedIn" class="remote-route" to="/user/dashboard">个人中心</RouterLink>
+        <ElButton v-else type="primary" @click="openAuth('login')">登录</ElButton>
       </div>
     </header>
 
@@ -40,8 +56,16 @@
               <ElButton type="primary" size="large" @click="openLogin">
                 {{ document.hero.primaryAction?.label || '进入用户中心' }}
               </ElButton>
-              <ElButton v-if="document.hero.secondaryAction" plain size="large" @click="openLogin">
-                {{ document.hero.secondaryAction.label || '登录' }}
+              <RouterLink v-if="secondaryPath" class="remote-route" :to="secondaryPath">
+                {{ document.hero.secondaryAction?.label || '了解详情' }}
+              </RouterLink>
+              <ElButton
+                v-else-if="document.hero.secondaryAction"
+                plain
+                size="large"
+                @click="openAuth('register')"
+              >
+                {{ document.hero.secondaryAction.label || '注册' }}
               </ElButton>
             </div>
           </div>
@@ -87,36 +111,91 @@
     <template #header>
       <div class="dialog-brand"><img :src="resolvedLogo" alt="网站 Logo" />{{ siteName }}</div>
     </template>
-    <h2>用户登录</h2>
-    <p class="dialog-subtitle">登录后查看并管理您的授权</p>
-    <ElForm ref="loginFormRef" :model="loginForm" :rules="loginRules" @submit.prevent>
-      <ElFormItem prop="username">
-        <ElInput v-model="loginForm.username" size="large" placeholder="手机号 / 邮箱 / 用户ID" />
-      </ElFormItem>
-      <ElFormItem prop="password">
-        <ElInput
-          v-model="loginForm.password"
-          size="large"
-          type="password"
-          show-password
-          placeholder="登录密码"
-          @keyup.enter="handleLogin"
-        />
-      </ElFormItem>
-      <ElButton class="login-submit" type="primary" :loading="loading" @click="handleLogin">
-        登录用户中心
-      </ElButton>
-    </ElForm>
+    <template v-if="authMode === 'login'">
+      <h2>用户登录</h2>
+      <p class="dialog-subtitle">登录后查看并管理您的授权</p>
+      <ElForm ref="loginFormRef" :model="loginForm" :rules="loginRules" @submit.prevent>
+        <ElFormItem prop="username">
+          <ElInput v-model="loginForm.username" size="large" placeholder="手机号 / 邮箱 / 用户ID" />
+        </ElFormItem>
+        <ElFormItem prop="password">
+          <ElInput
+            v-model="loginForm.password"
+            size="large"
+            type="password"
+            show-password
+            placeholder="登录密码"
+            @keyup.enter="handleLogin"
+          />
+        </ElFormItem>
+        <ElButton class="login-submit" type="primary" :loading="loading" @click="handleLogin">
+          登录用户中心
+        </ElButton>
+      </ElForm>
+      <p v-if="registrationEnabled" class="dialog-switch">
+        还没有账号？
+        <button type="button" @click="authMode = 'register'">立即注册</button>
+      </p>
+    </template>
+    <template v-else>
+      <h2>注册新用户</h2>
+      <p class="dialog-subtitle">创建账号后，可在自己的后台绑定并购买商业版</p>
+      <ElForm :model="registerForm" @submit.prevent>
+        <ElFormItem>
+          <ElInput v-model="registerForm.email" size="large" placeholder="邮箱" />
+        </ElFormItem>
+        <ElFormItem>
+          <ElInput v-model="registerForm.nickname" size="large" placeholder="用户账号" />
+        </ElFormItem>
+        <ElFormItem>
+          <ElInput
+            v-model="registerForm.password"
+            size="large"
+            type="password"
+            show-password
+            placeholder="密码"
+          />
+        </ElFormItem>
+        <ElFormItem>
+          <div class="code-row">
+            <ElInput
+              v-model="registerForm.emailCode"
+              size="large"
+              maxlength="6"
+              placeholder="邮箱验证码"
+            />
+            <ElButton :disabled="codeWait > 0" @click="sendCode">{{
+              codeWait > 0 ? `${codeWait}s` : '获取验证码'
+            }}</ElButton>
+          </div>
+        </ElFormItem>
+        <ElButton class="login-submit" type="primary" :loading="loading" @click="handleRegister">
+          注册
+        </ElButton>
+      </ElForm>
+      <p class="dialog-switch">
+        已有账号？
+        <button type="button" @click="authMode = 'login'">返回登录</button>
+      </p>
+    </template>
   </ElDialog>
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+  import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { ElMessage, type FormRules } from 'element-plus'
   import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
+  import EnterpriseHome from './enterprise/index.vue'
   import FintechGoldHome from './fintech-gold/index.vue'
+  import PublicSiteNav from '@/components/site/PublicSiteNav.vue'
+  import {
+    consumeSiteAuthQuery,
+    registerSiteAuthOpener,
+    siteUserLoggedIn,
+    usePublicNav
+  } from '@/utils/public-site'
   import { useSystemConfigStore } from '@/store/modules/system-config'
   import { useGeetestLoginCaptcha } from '@/utils/geetest'
   import {
@@ -124,7 +203,8 @@
     homeTemplateThemeStyle,
     resolveHomeTemplatePreset,
     safeTemplateIcon,
-    safeTemplateImageURL
+    safeTemplateImageURL,
+    templateRoutePath
   } from './home-template'
 
   defineOptions({ name: 'RemoteHomeTemplate' })
@@ -147,10 +227,17 @@
   const router = useRouter()
   const route = useRoute()
   const systemConfigStore = useSystemConfigStore()
-  const { siteName, siteSubtitle, resolvedLogo } = storeToRefs(systemConfigStore)
+  const { siteName, siteSubtitle, resolvedLogo, registrationEnabled } =
+    storeToRefs(systemConfigStore)
+  const { items: navItems } = usePublicNav()
+  const loggedIn = ref(false)
+  const secondaryPath = computed(() => templateRoutePath(props.document.hero.secondaryAction))
 
   const currentYear = new Date().getFullYear()
   const loginVisible = ref(false)
+  const authMode = ref<'login' | 'register'>('login')
+  const codeWait = ref(0)
+  const registerForm = reactive({ email: '', nickname: '', password: '', emailCode: '' })
 
   // 极验行为验证：启用后登录前弹出滑块验证
   const {
@@ -178,8 +265,60 @@
   )
   const visibleFeatures = computed(() => (props.document.features || []).slice(0, 12))
 
-  function openLogin() {
+  function openAuth(mode: 'login' | 'register' = 'login') {
+    if (mode === 'register' && !registrationEnabled.value) {
+      ElMessage.warning('普通用户注册已关闭，请联系管理员')
+      authMode.value = 'login'
+    } else {
+      authMode.value = mode
+    }
     loginVisible.value = true
+  }
+
+  function openLogin() {
+    openAuth('login')
+  }
+
+  async function sendCode() {
+    const email = registerForm.email.trim().toLowerCase()
+    if (!email) {
+      ElMessage.warning('请先填写邮箱')
+      return
+    }
+    const { data } = await axios.post('/api/user-panel/register/email-code', { email })
+    if (data.code !== 200) {
+      ElMessage.error(data.msg || '验证码发送失败')
+      return
+    }
+    ElMessage.success(data.msg || '验证码已发送')
+    codeWait.value = 60
+    const timer = window.setInterval(() => {
+      codeWait.value -= 1
+      if (codeWait.value <= 0) window.clearInterval(timer)
+    }, 1000)
+  }
+
+  async function handleRegister() {
+    loading.value = true
+    try {
+      const { data } = await axios.post('/api/user-panel/register', {
+        email: registerForm.email.trim().toLowerCase(),
+        nickname: registerForm.nickname.trim(),
+        password: registerForm.password,
+        emailCode: registerForm.emailCode.trim(),
+        phone: ''
+      })
+      if (data.code !== 200) {
+        ElMessage.error(data.msg || '注册失败')
+        return
+      }
+      ElMessage.success('注册成功，正在登录...')
+      await loginAccount(registerForm.email.trim().toLowerCase(), registerForm.password)
+    } catch (error) {
+      ElMessage.error(error instanceof Error ? error.message : '注册失败')
+    } finally {
+      loading.value = false
+    }
   }
 
   interface HomeLoginResponse {
@@ -252,7 +391,26 @@
     })
   }
 
+  const stopAuthOpener = registerSiteAuthOpener(openAuth)
+  onUnmounted(stopAuthOpener)
+  watch(
+    () => route.query.auth,
+    (auth) => {
+      consumeSiteAuthQuery(
+        auth,
+        () => {
+          const query = { ...route.query }
+          delete query.auth
+          void router.replace({ path: route.path, query })
+        },
+        openAuth
+      )
+    },
+    { immediate: true }
+  )
+
   onMounted(() => {
+    loggedIn.value = siteUserLoggedIn()
     if (route.query.impersonate !== '1') return
     const raw = sessionStorage.getItem('impersonate_user_panel')
     if (!raw) return
@@ -276,8 +434,26 @@
     iframe {
       display: block;
       width: 100%;
-      height: 100vh;
+      height: calc(100vh - 56px);
       border: 0;
+    }
+  }
+
+  .static-bar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    height: 56px;
+    padding: 0 12px;
+    background: #fff;
+    border-bottom: 1px solid rgb(23 32 51 / 8%);
+
+    strong {
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
     }
   }
 
@@ -504,9 +680,20 @@
 
   .header-shell {
     display: flex;
+    gap: 8px;
     align-items: center;
-    justify-content: space-between;
     min-height: 72px;
+
+    .remote-brand {
+      flex: 0 1 auto;
+      min-width: 0;
+
+      strong {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+    }
   }
 
   .remote-brand,
@@ -573,6 +760,18 @@
     display: flex;
     gap: 12px;
     margin-top: 34px;
+  }
+
+  .remote-route {
+    display: inline-flex;
+    align-items: center;
+    height: 40px;
+    padding: 0 16px;
+    color: var(--remote-primary, var(--el-color-primary));
+    white-space: nowrap;
+    text-decoration: none;
+    border: 1px solid currentcolor;
+    border-radius: 10px;
   }
 
   .hero-image-wrap,
@@ -658,6 +857,26 @@
     height: 44px;
   }
 
+  .dialog-switch {
+    margin-top: 16px;
+    font-size: 13px;
+    text-align: center;
+
+    button {
+      padding: 0;
+      color: var(--el-color-primary);
+      cursor: pointer;
+      background: none;
+      border: 0;
+    }
+  }
+
+  .code-row {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+  }
+
   @media (width <= 820px) {
     .remote-hero {
       min-height: 0;
@@ -687,6 +906,7 @@
   }
 
   .remote-auth-theme.remote-login-dialog--cartoon-blue,
+  .remote-auth-theme.remote-login-dialog--enterprise,
   .remote-auth-theme.remote-login-dialog--fintech-gold {
     --el-color-primary: var(--remote-primary);
     --el-color-primary-light-3: color-mix(in srgb, var(--remote-primary) 72%, white);
@@ -701,7 +921,8 @@
     --el-border-color: color-mix(in srgb, var(--remote-text) 16%, transparent);
   }
 
-  .remote-auth-theme.remote-login-dialog--cartoon-blue {
+  .remote-auth-theme.remote-login-dialog--cartoon-blue,
+  .remote-auth-theme.remote-login-dialog--enterprise {
     :deep(.el-dialog) {
       color: var(--remote-text);
       background:

@@ -179,8 +179,10 @@ function isPanelPath(path: string): boolean {
  */
 const PANEL_PUBLIC_PATHS: { pattern: RegExp }[] = [
   { pattern: /^\/agent-panel\/login$/ },
+  { pattern: /^\/agent-panel\/handoff$/ },
   { pattern: /^\/developer-panel\/login$/ },
   { pattern: /^\/user\/login$/ },
+  { pattern: /^\/user\/handoff$/ },
   { pattern: /^\/user\/reset-password$/ }
 ]
 

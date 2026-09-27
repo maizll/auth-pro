@@ -12,22 +12,22 @@
           </span>
         </button>
 
-        <nav class="main-nav" aria-label="首页导航">
-          <button type="button" @click="scrollToSection('home')">首页</button>
-          <button type="button" @click="scrollToSection('query-card')">快速查询</button>
-          <button type="button" @click="scrollToSection('features')">平台能力</button>
-          <button type="button" @click="scrollToSection('workflow')">使用流程</button>
-        </nav>
+        <PublicSiteNav :items="navItems" />
 
         <div class="header-actions">
-          <el-button class="header-query" plain @click="scrollToSection('query-card')">
-            <IconifyIcon icon="ri:search-eye-line" />
-            快速查询
-          </el-button>
-          <el-button class="header-login" text @click="openAuthDialog('login')">登录</el-button>
-          <el-button v-if="registrationEnabled" type="primary" @click="openAuthDialog('register')">
-            注册
-          </el-button>
+          <RouterLink v-if="loggedIn" class="header-center" to="/user/dashboard"
+            >个人中心</RouterLink
+          >
+          <template v-else>
+            <el-button class="header-login" text @click="openAuthDialog('login')">登录</el-button>
+            <el-button
+              v-if="registrationEnabled"
+              type="primary"
+              @click="openAuthDialog('register')"
+            >
+              注册
+            </el-button>
+          </template>
         </div>
       </div>
     </header>
@@ -702,6 +702,13 @@
   import axios from 'axios'
   import { useSystemConfigStore } from '@/store/modules/system-config'
   import { useGeetestLoginCaptcha } from '@/utils/geetest'
+  import PublicSiteNav from '@/components/site/PublicSiteNav.vue'
+  import {
+    consumeSiteAuthQuery,
+    registerSiteAuthOpener,
+    siteUserLoggedIn,
+    usePublicNav
+  } from '@/utils/public-site'
 
   interface PublicLicenseItem {
     appName: string
@@ -802,6 +809,8 @@
     icpNumber,
     registrationEnabled
   } = storeToRefs(systemConfigStore)
+  const { items: navItems } = usePublicNav()
+  const loggedIn = ref(false)
 
   const currentYear = computed(() => new Date().getFullYear())
   const authDialogVisible = ref(false)
@@ -851,7 +860,8 @@
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
-  function openAuthDialog(targetMode: 'login' | 'register') {
+  function openAuthDialog(targetMode: 'login' | 'register' | 'forgot') {
+    if (targetMode === 'forgot') targetMode = 'login'
     if (targetMode === 'register' && !registrationEnabled.value) {
       ElMessage.warning('普通用户注册已关闭，请联系管理员')
       targetMode = 'login'
@@ -970,7 +980,26 @@
     }
   }
 
+  const stopAuthOpener = registerSiteAuthOpener(openAuthDialog)
+  onBeforeUnmount(stopAuthOpener)
+  watch(
+    () => route.query.auth,
+    (auth) => {
+      consumeSiteAuthQuery(
+        auth,
+        () => {
+          const query = { ...route.query }
+          delete query.auth
+          void router.replace({ path: route.path, query })
+        },
+        openAuthDialog
+      )
+    },
+    { immediate: true }
+  )
+
   onMounted(() => {
+    loggedIn.value = siteUserLoggedIn()
     if (route.query.impersonate !== '1') return
     const raw = sessionStorage.getItem('impersonate_user_panel')
     if (!raw) return
@@ -1320,9 +1349,10 @@
 
   .brand-button {
     display: flex;
+    flex: 0 1 auto;
     gap: 11px;
     align-items: center;
-    min-width: 220px;
+    min-width: 0;
     padding: 0;
     color: inherit;
     cursor: pointer;
@@ -1372,33 +1402,12 @@
     }
   }
 
-  .main-nav {
-    display: flex;
-    gap: 5px;
-    align-items: center;
-
-    button {
-      padding: 9px 14px;
-      font-size: 14px;
-      color: var(--el-text-color-regular);
-      cursor: pointer;
-      background: transparent;
-      border: 0;
-      border-radius: 9px;
-      transition: 0.2s ease;
-
-      &:hover {
-        color: var(--el-color-primary);
-        background: var(--el-fill-color-light);
-      }
-    }
-  }
-
   .header-actions {
     display: flex;
+    flex: 0 0 auto;
     align-items: center;
     justify-content: flex-end;
-    min-width: 300px;
+    min-width: 0;
 
     :deep(.el-button) {
       border-radius: 10px;
@@ -1412,6 +1421,13 @@
       width: 16px;
       height: 16px;
     }
+  }
+
+  .header-center {
+    font-size: 14px;
+    color: var(--el-color-primary);
+    white-space: nowrap;
+    text-decoration: none;
   }
 
   .hero-section {
@@ -2641,9 +2657,6 @@
   }
 
   @media (max-width: 1050px) {
-    .main-nav {
-      display: none;
-    }
     .hero-grid {
       grid-template-columns: 1fr 420px;
       gap: 38px;
@@ -2664,12 +2677,6 @@
       height: 68px;
     }
     .brand-button {
-      min-width: 0;
-    }
-    .header-query {
-      display: none;
-    }
-    .header-actions {
       min-width: 0;
     }
     .hero-section {

@@ -80,6 +80,31 @@ export function bindStoreAccount(data: Record<string, unknown>) {
   return request.post<StoreAccount>({ url: '/api/store/bind', data })
 }
 
+export function fetchStoreRegisterCaptcha() {
+  return request.get<{ enabled: boolean; captchaId: string }>({
+    url: '/api/store/register/captcha',
+    showErrorMessage: false
+  })
+}
+
+export function sendStoreRegisterEmailCode(data: Record<string, unknown>) {
+  return request.post<{ expiresIn?: number }>({
+    url: '/api/store/register/email-code',
+    data,
+    showErrorMessage: false,
+    showSuccessMessage: false
+  })
+}
+
+export function registerStoreAccount(data: Record<string, unknown>) {
+  return request.post<StoreAccount>({
+    url: '/api/store/register',
+    data,
+    showErrorMessage: false,
+    showSuccessMessage: false
+  })
+}
+
 export function createStoreEditionOrder(planId: number, payMethod = '') {
   return request.post<{ orderNo: string; payUrl: string; amountCents: number; title: string }>({
     url: '/api/store/orders',
@@ -102,6 +127,14 @@ export function fetchStoreEditionOrder(orderNo: string) {
   return request.get<{ orderNo: string; status: string }>({
     url: `/api/store/orders/${orderNo}`,
     showErrorMessage: false
+  })
+}
+
+export function fetchStoreManageLink() {
+  return request.post<{ url: string }>({
+    url: '/api/store/manage-link',
+    showErrorMessage: false,
+    showSuccessMessage: false
   })
 }
 

@@ -10,7 +10,6 @@ export {
   logoutFailureIsAlreadyGone,
   purchaseNeedsRebind,
   purchaseRebindNotice,
-  shouldAnnounceBound,
   sourceConfirmedBound
 } from './commercial-bind'
 

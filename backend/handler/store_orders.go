@@ -71,9 +71,9 @@ func settleStorePurchaseOrder(db *sql.DB, orderNo string, paidCents int64, chann
 	}
 	switch itemKind {
 	case "edition":
-		if _, err := grantCommercialEditionTx(tx, commercialEditionGrant{
+		if _, err := openCommercialEdition(tx, commercialEditionGrant{
 			LicenseID: licenseID, Period: period, OrderID: id, Extend: true, Stack: true, MarkStorePurchase: true,
-		}); err != nil {
+		}, nil); err != nil {
 			return err
 		}
 	case "plugin", "template":

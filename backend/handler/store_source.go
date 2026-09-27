@@ -57,6 +57,7 @@ func (w *storeRateWindow) allow(key string, limit int, window time.Duration, now
 
 var (
 	storeLoginRate                storeRateWindow
+	storeRegisterRate             storeRateWindow
 	storeOrderRate                storeRateWindow
 	storeStatusRate               storeRateWindow
 	storeTicketRate               storeRateWindow
@@ -259,6 +260,37 @@ func StoreAuthCaptcha(c *gin.Context) {
 	}
 	cfg := loadGeetestConfig(db)
 	storeData(c, gin.H{"enabled": cfg.Enabled, "captchaId": cfg.CaptchaID})
+}
+
+const (
+	// 外部站点注册按 IP 限流。邮箱 1 分钟 1 次、验证码错 5 次作废仍在官网注册里，这里不另写一套。
+	storeRegisterCodeLimit   = 5
+	storeRegisterSubmitLimit = 8
+	storeRegisterWindow      = 10 * time.Minute
+)
+
+// 商店注册直接调用官网注册，避免把校验和写库复制一份。测试可以换成空函数。
+var (
+	invokeRegisterEmailCode = UserSendRegisterEmailCode
+	invokeRegister          = UserRegister
+)
+
+// StoreRegisterEmailCode 给买家站代发注册验证码。限流之后走官网的发信实现。
+func StoreRegisterEmailCode(c *gin.Context) {
+	if !storeRegisterRate.allow("code:"+c.ClientIP(), storeRegisterCodeLimit, storeRegisterWindow, time.Now()) {
+		storeFail(c, 429, "验证码发得太频繁，请 10 分钟后再试")
+		return
+	}
+	invokeRegisterEmailCode(c)
+}
+
+// StoreRegister 给买家站代注册。限流之后走官网的 UserRegister，字段和校验与官网相同。
+func StoreRegister(c *gin.Context) {
+	if !storeRegisterRate.allow("submit:"+c.ClientIP(), storeRegisterSubmitLimit, storeRegisterWindow, time.Now()) {
+		storeFail(c, 429, "注册太频繁，请 10 分钟后再试")
+		return
+	}
+	invokeRegister(c)
 }
 
 // StoreAuthLogin 校验账号密码和域名，成功后发一条短时挑战，还不创建绑定。
@@ -783,13 +815,19 @@ func StoreStatus(c *gin.Context) {
 		requestDomain = row.Domain
 	}
 	license, reason, passed := evaluateLicenseForTarget(db, appID, requestDomain, "", "", "")
+	// 绑定自己的授权仍覆盖这个域名时，就用它重新签发。后台后来另加的同域名授权不能把刷新打成重新绑定。
+	matchedID := license.ID
 	if !passed {
-		writeVerifyLog(db, sql.NullInt64{Int64: license.ID, Valid: license.ID > 0}, appID, requestDomain, "", c.ClientIP(), "fail", reason, "store-status")
-		storeStatusFailure(c, db, row.LicenseID, 403, "主授权已失效", reason)
-		return
+		matchedID = 0
 	}
-	if license.ID != row.LicenseID {
-		mismatch := "license_not_found"
+	_, terminal := storeStatusLicenseID(row.LicenseID, matchedID, boundLicenseCoversDomain(db, row.LicenseID, appID, requestDomain))
+	if terminal != "" {
+		if !passed {
+			writeVerifyLog(db, sql.NullInt64{Int64: license.ID, Valid: license.ID > 0}, appID, requestDomain, "", c.ClientIP(), "fail", reason, "store-status")
+			storeStatusFailure(c, db, row.LicenseID, 403, "主授权已失效", reason)
+			return
+		}
+		mismatch := terminal
 		if storeLicenseGone(db, row.LicenseID) {
 			mismatch = "license_deleted"
 		}

@@ -37,9 +37,13 @@ type storeInstallJob struct {
 func RegisterPaidStoreRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 	api.GET("/v1/public/station-verify/:nonce", BuyerStationVerify)
 	api.GET("/v1/store/captcha", StoreAuthCaptcha)
+	api.POST("/v1/store/register/email-code", StoreRegisterEmailCode)
+	api.POST("/v1/store/register", StoreRegister)
 	api.POST("/v1/store/auth/login", StoreAuthLogin)
 	api.POST("/v1/store/auth/confirm", StoreAuthConfirm)
 	api.POST("/v1/store/auth/logout", StoreAuthLogout)
+	api.POST("/v1/store/auth/handoff", StoreLoginHandoffIssue)
+	api.POST("/v1/store/auth/handoff/consume", StoreLoginHandoffConsume)
 	api.POST("/v1/store/auth/rotate", StoreAuthRotate)
 	api.GET("/v1/store/status", StoreStatus)
 	api.GET("/v1/store/binding", StoreBindingCheck)
@@ -64,6 +68,7 @@ func RegisterBuyerStoreRoutes(group *gin.RouterGroup) {
 	group.GET("/store/plans", BuyerStorePlans)
 	group.GET("/store/catalog", BuyerStoreCatalog)
 	group.POST("/store/bind", BuyerStoreBind)
+	group.GET("/store/register/captcha", BuyerStoreRegisterCaptcha)
 	group.POST("/store/register/email-code", BuyerStoreRegisterCode)
 	group.POST("/store/register", BuyerStoreRegister)
 	group.POST("/store/orders", BuyerStoreOrderCreate)
@@ -71,6 +76,7 @@ func RegisterBuyerStoreRoutes(group *gin.RouterGroup) {
 	group.POST("/store/refresh", BuyerStoreRefresh)
 	group.POST("/store/install", BuyerStoreInstall)
 	group.POST("/store/logout", BuyerStoreLogout)
+	group.POST("/store/manage-link", BuyerStoreManageLink)
 }
 
 // RegisterPanelStoreRoutes 给用户端和代理端挂上「已绑定站点」和「购买记录」。
@@ -205,34 +211,46 @@ func BuyerStoreBind(c *gin.Context) {
 		Role     string `json:"role"`
 	}
 	_ = json.Unmarshal(body, &incoming)
+	code, err := finishBuyerBind(c, incoming.Account, incoming.Password, incoming.Role)
+	incoming.Password = ""
+	if err != nil {
+		storeFail(c, code, err.Error())
+		return
+	}
+	writeFreshBuyerBind(c)
+}
+
+// finishBuyerBind 用账号密码走源站登录和确认。密码只放在这一次请求里，不写入快照，也不打日志。
+func finishBuyerBind(c *gin.Context, account, password, role string) (int, error) {
+	defer func() { password = "" }()
 	domain := buyerRequestDomain(c)
 	if err := rejectStoreDomain(c.Request.Context(), domain); err != nil {
-		storeFail(c, 400, err.Error())
-		return
+		return 400, err
 	}
-	loginBody := map[string]any{}
-	_ = json.Unmarshal(body, &loginBody)
-	loginBody["domain"] = domain
-	loginBody["installId"] = loadBuyerInstallID()
-	loginBody["appVersion"] = config.AppVersion
+	loginBody := map[string]any{
+		"account": account, "password": password, "role": role,
+		"domain": domain, "installId": loadBuyerInstallID(), "appVersion": config.AppVersion,
+	}
 	var login map[string]any
-	if err := callSourceJSON(http.MethodPost, "/api/v1/store/auth/login", loginBody, nil, &login); err != nil {
-		storeFail(c, 400, err.Error())
-		return
+	err := callSourceJSON(http.MethodPost, "/api/v1/store/auth/login", loginBody, nil, &login)
+	delete(loginBody, "password")
+	if err != nil {
+		return 400, err
 	}
-	incoming.Password = ""
 	data, _ := login["data"].(map[string]any)
 	challengeID, _ := data["challengeId"].(string)
 	var confirmed map[string]any
 	if err := callSourceJSON(http.MethodPost, "/api/v1/store/auth/confirm", map[string]any{"challengeId": challengeID}, nil, &confirmed); err != nil {
-		storeFail(c, 400, err.Error())
-		return
+		return 400, err
 	}
-	if err := persistBuyerBind(confirmed, incoming.Account, incoming.Role); err != nil {
-		storeFail(c, 500, err.Error())
-		return
+	if err := persistBuyerBind(confirmed, account, role); err != nil {
+		return 500, err
 	}
-	// 登录确认已经通过源站。随后的核对若只是网络抖动，仍视为刚刚绑定成功。
+	return 200, nil
+}
+
+// writeFreshBuyerBind 登录确认已经通过源站。随后的核对若只是网络抖动，仍视为刚刚绑定成功。
+func writeFreshBuyerBind(c *gin.Context) {
 	invalidReason, verified := reconcileBuyerBinding()
 	if invalidReason == "" {
 		verified = true
@@ -240,13 +258,159 @@ func BuyerStoreBind(c *gin.Context) {
 	writeBuyerAccountResult(c, invalidReason, verified)
 }
 
-// BuyerStoreRegisterCode 把注册验证码请求原样转到源站用户端。
-func BuyerStoreRegisterCode(c *gin.Context) {
-	proxySourcePanel(c, "/api/user-panel/register/email-code")
+// BuyerStoreRegisterCaptcha 告诉购买窗口发验证码前要不要做行为验证。
+// 老源站没有商店验证码接口时，改读官网公开配置里的同一套极验开关。
+func BuyerStoreRegisterCaptcha(c *gin.Context) {
+	envelope, err := exchangeSource(http.MethodGet, "/api/v1/store/captcha", nil)
+	if errors.Is(err, errSourcePathMissing) {
+		enabled, captchaID, ok := buyerLegacyRegisterCaptcha()
+		if !ok {
+			storeData(c, gin.H{"enabled": false, "captchaId": ""})
+			return
+		}
+		storeData(c, gin.H{"enabled": enabled, "captchaId": captchaID})
+		return
+	}
+	if err != nil {
+		storeFail(c, 400, plainRegisterMessage(err.Error(), ""))
+		return
+	}
+	c.JSON(http.StatusOK, envelope)
 }
 
-// BuyerStoreRegister 把注册请求原样转到源站用户端。
-func BuyerStoreRegister(c *gin.Context) { proxySourcePanel(c, "/api/user-panel/register") }
+func buyerLegacyRegisterCaptcha() (bool, string, bool) {
+	var payload map[string]any
+	if err := callSourceJSON(http.MethodGet, "/api/system-config/public", nil, nil, &payload); err != nil {
+		return false, "", false
+	}
+	data, _ := payload["data"].(map[string]any)
+	if data == nil {
+		return false, "", false
+	}
+	enabled, _ := data["geetestEnabled"].(bool)
+	captchaID, _ := data["geetestCaptchaId"].(string)
+	captchaID = strings.TrimSpace(captchaID)
+	return enabled && captchaID != "", captchaID, true
+}
+
+// BuyerStoreRegisterCode 把发验证码转到源站。先走商店接口，老源站没有时再走官网发信。
+func BuyerStoreRegisterCode(c *gin.Context) {
+	var req struct {
+		Email         string `json:"email"`
+		LotNumber     string `json:"lot_number"`
+		CaptchaOutput string `json:"captcha_output"`
+		PassToken     string `json:"pass_token"`
+		GenTime       string `json:"gen_time"`
+	}
+	body, _ := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
+	if json.Unmarshal(body, &req) != nil {
+		storeFail(c, 400, "请输入有效的邮箱地址")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if !registerEmailOK(email) {
+		storeFail(c, 400, "请输入有效的邮箱地址")
+		return
+	}
+	payload := map[string]any{"email": email}
+	if strings.TrimSpace(req.LotNumber) != "" {
+		payload["lot_number"] = req.LotNumber
+		payload["captcha_output"] = req.CaptchaOutput
+		payload["pass_token"] = req.PassToken
+		payload["gen_time"] = req.GenTime
+	}
+	envelope, err := forwardBuyerRegister("/api/v1/store/register/email-code", "/api/user-panel/register/email-code", payload)
+	if err != nil {
+		storeFail(c, 400, plainRegisterMessage(err.Error(), ""))
+		return
+	}
+	c.JSON(http.StatusOK, envelope)
+}
+
+// BuyerStoreRegister 在源站注册，成功后立刻用新邮箱完成绑定。
+// 密码只出现在发往源站的这一次请求里，不写入本机，也不打日志。
+func BuyerStoreRegister(c *gin.Context) {
+	var req struct {
+		Email     string `json:"email"`
+		EmailCode string `json:"emailCode"`
+		Nickname  string `json:"nickname"`
+		Password  string `json:"password"`
+		Phone     string `json:"phone"`
+	}
+	body, _ := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
+	if json.Unmarshal(body, &req) != nil {
+		storeFail(c, 400, "请检查邮箱、验证码和密码（至少 6 位）")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	emailCode := strings.TrimSpace(req.EmailCode)
+	nickname := strings.TrimSpace(req.Nickname)
+	password := strings.TrimSpace(req.Password)
+	phone := strings.TrimSpace(req.Phone)
+	defer func() { password = "" }()
+	if msg := registerInputProblem(email, emailCode, nickname, password, phone); msg != "" {
+		storeFail(c, 400, msg)
+		return
+	}
+	// 域名不合法时不要先把账号注册出来，否则用户有了号却绑不上。
+	if err := rejectStoreDomain(c.Request.Context(), buyerRequestDomain(c)); err != nil {
+		storeFail(c, 400, err.Error())
+		return
+	}
+	payload := map[string]any{
+		"email": email, "emailCode": emailCode, "nickname": nickname, "password": password,
+	}
+	if phone != "" {
+		payload["phone"] = phone
+	}
+	_, err := forwardBuyerRegister("/api/v1/store/register", "/api/user-panel/register", payload)
+	delete(payload, "password")
+	if err != nil {
+		storeFail(c, 400, plainRegisterMessage(err.Error(), password))
+		return
+	}
+	code, err := finishBuyerBind(c, email, password, "user")
+	if err != nil {
+		hint := plainRegisterMessage(err.Error(), password)
+		if code >= 500 {
+			storeFail(c, 500, "账号已经注册，但本机没有记住绑定。请用这个邮箱再登录一次。")
+			return
+		}
+		storeFail(c, 400, "账号已经注册，但绑定没有完成："+hint)
+		return
+	}
+	writeFreshBuyerBind(c)
+}
+
+func registerEmailOK(email string) bool {
+	if email == "" || strings.ContainsAny(email, " \t") || !strings.Contains(email, "@") {
+		return false
+	}
+	parts := strings.Split(email, "@")
+	return len(parts) == 2 && parts[0] != "" && strings.Contains(parts[1], ".")
+}
+
+func registerInputProblem(email, emailCode, nickname, password, phone string) string {
+	if !registerEmailOK(email) {
+		return "请输入有效的邮箱地址"
+	}
+	if len(emailCode) != 6 || strings.Trim(emailCode, "0123456789") != "" {
+		return "请填写 6 位数字验证码"
+	}
+	if nickname == "" {
+		return "请填写用户名"
+	}
+	if len([]rune(nickname)) > 50 {
+		return "用户名不能超过 50 个字"
+	}
+	if len(password) < 6 {
+		return "请设置密码，至少 6 位"
+	}
+	if phone != "" && !phoneRegexp.MatchString(phone) {
+		return "手机号格式不正确"
+	}
+	return ""
+}
 
 func buyerStoreOrderBody(planID int64, itemKind, itemID, payMethod string) (map[string]any, error) {
 	switch itemKind {
@@ -378,6 +542,43 @@ func BuyerStoreLogout(c *gin.Context) {
 	_ = signedSourceJSON(http.MethodPost, "/api/v1/store/auth/logout", map[string]any{}, nil)
 	clearBuyerLocalBinding()
 	storeData(c, gin.H{"ok": true})
+}
+
+// BuyerStoreManageLink 用已绑定的签名向源站要一条一次性登录链接。
+// 链接只在响应里交给浏览器，本函数不写日志。绑定已失效时清本地并要求重新绑定。
+func BuyerStoreManageLink(c *gin.Context) {
+	var payload map[string]any
+	err := signedSourceJSON(http.MethodPost, "/api/v1/store/auth/handoff", map[string]any{}, &payload)
+	if err != nil {
+		if storeFailSource(c, err) {
+			return
+		}
+		storeFail(c, 400, plainManageLinkError(err.Error()))
+		return
+	}
+	data, _ := payload["data"].(map[string]any)
+	raw, _ := data["url"].(string)
+	link, err := buyerManageLinkAllowed(raw)
+	if err != nil {
+		storeFail(c, 400, err.Error())
+		return
+	}
+	storeData(c, gin.H{"url": link})
+}
+
+func plainManageLinkError(msg string) string {
+	switch {
+	case strings.Contains(msg, "无法连接源站"), strings.Contains(msg, "网络"):
+		return "网络不通，请稍后再试"
+	case strings.Contains(msg, "尚未绑定"):
+		return "尚未绑定源站账号"
+	case strings.Contains(msg, "无法解析"), strings.Contains(msg, "还没有这个接口"):
+		return "源站暂时不能打开我的授权，请稍后再试"
+	case strings.TrimSpace(msg) == "":
+		return "暂时打不开我的授权，请稍后再试"
+	default:
+		return msg
+	}
 }
 
 // BuyerStoreInstall 按 kind 和 id 把已购买的插件或模板装到本机。

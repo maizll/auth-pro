@@ -99,12 +99,8 @@
               <span class="account-bar__role">{{ accountRoleLabel }}</span>
             </div>
             <div class="account-bar__links">
-              <a
-                class="account-bar__link"
-                :href="manageAuthHref"
-                target="_blank"
-                rel="noopener noreferrer"
-                >管理授权</a
+              <button type="button" class="account-bar__link" @click="openManageAuth"
+                >管理授权</button
               >
               <button type="button" class="account-bar__link" @click="switchBinding"
                 >切换绑定</button
@@ -113,13 +109,13 @@
           </div>
           <div v-else-if="needsBind" class="bind-banner">
             <span>{{ bindBannerText }}</span>
-            <a
+            <button
+              type="button"
               class="account-bar__link"
-              :href="registerHref"
-              target="_blank"
-              rel="noopener noreferrer"
-              >注册账号</a
+              @click="showRegister ? openBindForm() : openRegisterForm()"
             >
+              {{ showRegister ? '已有账号，去绑定' : '注册账号' }}
+            </button>
           </div>
           <p v-else class="upgrade-tip">尚未经源站确认绑定，确认后才显示当前账号。</p>
           <ElAlert
@@ -134,34 +130,94 @@
           </template>
           <template v-else-if="needsBind">
             <p v-if="commercialUi.offer" class="bind-hint">{{ bindPriceHint }}</p>
-            <ElForm label-width="72px" class="upgrade-form">
-              <ElFormItem label="身份">
-                <ElRadioGroup v-model="form.role">
-                  <ElRadio value="user">用户</ElRadio>
-                  <ElRadio value="agent">代理商</ElRadio>
-                </ElRadioGroup>
-              </ElFormItem>
-              <ElFormItem label="账号">
-                <ElInput
-                  ref="bindAccountInput"
-                  v-model.trim="form.account"
-                  placeholder="邮箱或账号"
-                />
-              </ElFormItem>
-              <ElFormItem label="密码">
-                <ElInput
-                  v-model="form.password"
-                  type="password"
-                  show-password
-                  placeholder="仅用于本次登录，不会保存"
-                />
-              </ElFormItem>
-            </ElForm>
-            <div class="bind-actions">
-              <ElButton type="primary" :loading="acting" :disabled="!!siteProblem" @click="bind"
-                >登录并绑定</ElButton
+            <template v-if="showRegister">
+              <ElForm label-width="72px" class="upgrade-form">
+                <ElFormItem label="邮箱">
+                  <ElInput v-model.trim="registerForm.email" placeholder="用于登录和收验证码" />
+                </ElFormItem>
+                <ElFormItem label="验证码">
+                  <div class="register-code">
+                    <ElInput
+                      v-model.trim="registerForm.emailCode"
+                      maxlength="6"
+                      placeholder="6 位数字"
+                    />
+                    <ElButton
+                      :loading="emailCodeSending"
+                      :disabled="emailCodeCountdown > 0 || !!siteProblem"
+                      @click="sendRegisterCode"
+                      >{{
+                        emailCodeCountdown > 0 ? `${emailCodeCountdown} 秒` : '获取验证码'
+                      }}</ElButton
+                    >
+                  </div>
+                </ElFormItem>
+                <ElFormItem label="用户名">
+                  <ElInput v-model.trim="registerForm.nickname" placeholder="怎么称呼你" />
+                </ElFormItem>
+                <ElFormItem label="密码">
+                  <ElInput
+                    v-model="registerForm.password"
+                    type="password"
+                    show-password
+                    placeholder="至少 6 位，不会保存"
+                  />
+                </ElFormItem>
+                <ElFormItem label="确认">
+                  <ElInput
+                    v-model="registerForm.confirmPassword"
+                    type="password"
+                    show-password
+                    placeholder="再输入一次密码"
+                  />
+                </ElFormItem>
+                <ElFormItem label="手机">
+                  <ElInput v-model.trim="registerForm.phone" placeholder="选填" />
+                </ElFormItem>
+              </ElForm>
+              <div class="bind-actions">
+                <ElButton
+                  type="primary"
+                  :loading="acting"
+                  :disabled="!!siteProblem"
+                  @click="registerAndBind"
+                  >注册并绑定</ElButton
+                >
+              </div>
+              <p v-if="registerCaptcha.enabled" class="upgrade-tip"
+                >获取验证码前会先做一次行为验证。</p
               >
-            </div>
+            </template>
+            <template v-else>
+              <ElForm label-width="72px" class="upgrade-form">
+                <ElFormItem label="身份">
+                  <ElRadioGroup v-model="form.role">
+                    <ElRadio value="user">用户</ElRadio>
+                    <ElRadio value="agent">代理商</ElRadio>
+                  </ElRadioGroup>
+                </ElFormItem>
+                <ElFormItem label="账号">
+                  <ElInput
+                    ref="bindAccountInput"
+                    v-model.trim="form.account"
+                    placeholder="邮箱或账号"
+                  />
+                </ElFormItem>
+                <ElFormItem label="密码">
+                  <ElInput
+                    v-model="form.password"
+                    type="password"
+                    show-password
+                    placeholder="仅用于本次登录，不会保存"
+                  />
+                </ElFormItem>
+              </ElForm>
+              <div class="bind-actions">
+                <ElButton type="primary" :loading="acting" :disabled="!!siteProblem" @click="bind"
+                  >登录并绑定</ElButton
+                >
+              </div>
+            </template>
             <p v-if="!siteProblem" class="upgrade-tip"
               >将使用站点域名
               {{ account?.requestDomain || '（未识别）' }} 绑定，域名不可在此修改。</p
@@ -408,11 +464,14 @@
     purchaseRebindNotice,
     rememberCommercialAccount,
     requestCatalogResume,
-    shouldAnnounceBound,
     sourceConfirmedBound
   } from '@/utils/commercial'
   import {
     bindStoreAccount,
+    fetchStoreManageLink,
+    fetchStoreRegisterCaptcha,
+    sendStoreRegisterEmailCode,
+    registerStoreAccount,
     createStoreEditionOrder,
     createStoreItemOrder,
     fetchStoreAccount,
@@ -423,10 +482,9 @@
     type StorePayOption,
     type StorePlan
   } from '@/api/store'
+  import { verifyGeetestCaptcha } from '@/utils/geetest'
 
-  // 管理授权和注册都开源站新窗口。用户和代理商的「我的授权」路径不同。
-  const sourceSite = 'https://auth.maizll.com'
-  const registerHref = `${sourceSite}/user/login`
+  // 管理授权先向本站要一次性链接，再在新标签打开。注册也在购买窗口里完成。
 
   const loading = ref(false)
   const acting = ref(false)
@@ -548,17 +606,25 @@
   )
   const successTitle = ref('已升级为商业版')
   const form = reactive({ account: '', password: '', role: 'user' })
+  const showRegister = ref(false)
+  const registerForm = reactive({
+    email: '',
+    emailCode: '',
+    nickname: '',
+    password: '',
+    confirmPassword: '',
+    phone: ''
+  })
+  const registerCaptcha = ref({ enabled: false, captchaId: '' })
+  const emailCodeSending = ref(false)
+  const emailCodeCountdown = ref(0)
+  let emailCodeTimer: ReturnType<typeof setInterval> | null = null
   const bindAccountInput = ref<{ focus?: () => void } | null>(null)
   const purchaseDialogWidth = ref('720px')
   // 账号栏的「当前账号」只认源站这次核对。本地快照仍显示已绑定、但 sourceVerified 还没回来时，不显示账号。
   const showBoundAccount = computed(() => sourceConfirmedBound(account.value) && !needsBind.value)
   const accountRoleLabel = computed(() => (account.value?.role === 'agent' ? '代理商' : '用户'))
   const maskedAccount = computed(() => maskAccount(account.value?.account || ''))
-  const manageAuthHref = computed(() =>
-    account.value?.role === 'agent'
-      ? `${sourceSite}/agent-panel/licenses`
-      : `${sourceSite}/user/licenses`
-  )
   const siteProblem = computed(
     () => account.value?.connectionIssues?.find((item) => item.field === 'site')?.message || ''
   )
@@ -638,6 +704,27 @@
     return `${yuanWhole(cents)}.${yuanFrac(cents)}`
   }
 
+  async function openManageAuth() {
+    // 先开空白标签，再填地址。带 noopener 时拿不到窗口，浏览器会把随后的打开当成弹窗拦截。
+    const popup = window.open('about:blank', '_blank')
+    if (!popup) {
+      ElMessage.error('浏览器拦截了新窗口，请允许弹出后再试')
+      return
+    }
+    try {
+      const data = await fetchStoreManageLink()
+      if (!data?.url) {
+        popup.close()
+        ElMessage.error('暂时打不开我的授权，请稍后再试')
+        return
+      }
+      popup.location.href = data.url
+    } catch (error: unknown) {
+      popup.close()
+      showCaughtError(error, '暂时打不开我的授权，请稍后再试')
+    }
+  }
+
   async function switchBinding() {
     try {
       await ElMessageBox.confirm('解除当前绑定后，需要用另一个账号重新登录才能购买。', '切换绑定', {
@@ -686,6 +773,8 @@
 
   async function loadPurchase() {
     stopPoll()
+    showRegister.value = false
+    clearRegisterSecrets()
     upgraded.value = false
     itemContinued.value = false
     choosingEdition.value = false
@@ -710,7 +799,6 @@
         if (commercialCta(next) !== 'view') {
           plans.value = data.list || []
           planId.value = plans.value[0]?.id
-          if (shouldAnnounceBound(next)) ElMessage.success('已绑定，请继续支付')
         } else {
           plans.value = []
           planId.value = undefined
@@ -744,6 +832,104 @@
     }
   }
 
+  function stopEmailCodeCountdown() {
+    if (emailCodeTimer) clearInterval(emailCodeTimer)
+    emailCodeTimer = null
+  }
+
+  function clearRegisterSecrets() {
+    registerForm.password = ''
+    registerForm.confirmPassword = ''
+    form.password = ''
+  }
+
+  async function openRegisterForm() {
+    form.password = ''
+    showRegister.value = true
+    try {
+      const captcha = await fetchStoreRegisterCaptcha()
+      registerCaptcha.value = {
+        enabled: !!captcha?.enabled && !!captcha.captchaId,
+        captchaId: (captcha?.captchaId || '').trim()
+      }
+    } catch (error: unknown) {
+      registerCaptcha.value = { enabled: false, captchaId: '' }
+      showCaughtError(error, '网络不通，请稍后再试')
+    }
+  }
+
+  function openBindForm() {
+    showRegister.value = false
+    registerForm.password = ''
+    registerForm.confirmPassword = ''
+    if (!form.account && registerForm.email.trim()) form.account = registerForm.email.trim()
+  }
+
+  function registerEmailOK(email: string) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  }
+
+  async function sendRegisterCode() {
+    if (emailCodeCountdown.value > 0 || emailCodeSending.value) return
+    const email = registerForm.email.trim().toLowerCase()
+    if (!registerEmailOK(email)) {
+      ElMessage.error('请输入有效的邮箱地址')
+      return
+    }
+    const payload: Record<string, string> = { email }
+    if (registerCaptcha.value.enabled && registerCaptcha.value.captchaId) {
+      try {
+        const captcha = await verifyGeetestCaptcha(registerCaptcha.value.captchaId)
+        if (!captcha) {
+          ElMessage.error('请先完成行为验证')
+          return
+        }
+        Object.assign(payload, captcha)
+      } catch (error: unknown) {
+        ElMessage.error(error instanceof Error ? error.message : '行为验证加载失败，请检查网络')
+        return
+      }
+    }
+    emailCodeSending.value = true
+    try {
+      await sendStoreRegisterEmailCode(payload)
+      emailCodeCountdown.value = 60
+      stopEmailCodeCountdown()
+      emailCodeTimer = setInterval(() => {
+        emailCodeCountdown.value -= 1
+        if (emailCodeCountdown.value <= 0) stopEmailCodeCountdown()
+      }, 1000)
+      ElMessage.success('验证码已发送，请查收邮件')
+    } catch (error: unknown) {
+      showCaughtError(error, '网络不通，请稍后再试')
+    } finally {
+      emailCodeSending.value = false
+    }
+  }
+
+  async function enterPurchaseAfterBind(next: StoreAccount, toast: string) {
+    applyAccount(next)
+    clearRegisterSecrets()
+    if (!sourceConfirmedBound(next)) {
+      commercialUi.rebindRequired = !next.bindingInvalid && (!!next.explicitRevoked || !next.bound)
+      return
+    }
+    commercialUi.rebindRequired = false
+    showRegister.value = false
+    ElMessage.success(toast)
+    const keptPlan = planId.value
+    const data = await fetchStorePlans()
+    applyPayOptions(data.payOptions)
+    // 单品窗口也要套餐列表，绑定成功后才能画出「商业版套餐」那张卡。
+    plans.value = data.list || []
+    if (!commercialUi.offer || choosingEdition.value) {
+      planId.value = plans.value.some((item) => item.id === keptPlan)
+        ? keptPlan
+        : plans.value[0]?.id
+      if (!plans.value.length) ElMessage.warning('源站尚未配置可购买的套餐')
+    }
+  }
+
   async function bind() {
     if (!form.account || !form.password) {
       ElMessage.error('请填写账号和密码')
@@ -751,31 +937,57 @@
     }
     acting.value = true
     try {
-      const keptPlan = planId.value
       const next = await bindStoreAccount({ ...form })
-      applyAccount(next)
-      form.password = ''
-      if (!sourceConfirmedBound(next)) {
-        commercialUi.rebindRequired =
-          !next.bindingInvalid && (!!next.explicitRevoked || !next.bound)
-        return
-      }
-      commercialUi.rebindRequired = false
-      ElMessage.success('已绑定，请继续支付')
-      const data = await fetchStorePlans()
-      applyPayOptions(data.payOptions)
-      // 单品窗口也要套餐列表，绑定成功后才能画出「商业版套餐」那张卡。
-      plans.value = data.list || []
-      if (!commercialUi.offer || choosingEdition.value) {
-        planId.value = plans.value.some((item) => item.id === keptPlan)
-          ? keptPlan
-          : plans.value[0]?.id
-        if (!plans.value.length) {
-          ElMessage.warning('源站尚未配置可购买的套餐')
-        }
-      }
+      await enterPurchaseAfterBind(next, '绑定成功')
     } catch (error: unknown) {
       showCaughtError(error, '绑定失败，请检查源站是否可访问')
+    } finally {
+      acting.value = false
+    }
+  }
+
+  async function registerAndBind() {
+    const email = registerForm.email.trim().toLowerCase()
+    const emailCode = registerForm.emailCode.trim()
+    const nickname = registerForm.nickname.trim()
+    const password = registerForm.password
+    const phone = registerForm.phone.trim()
+    if (!registerEmailOK(email)) {
+      ElMessage.error('请输入有效的邮箱地址')
+      return
+    }
+    if (!/^\d{6}$/.test(emailCode)) {
+      ElMessage.error('请填写 6 位数字验证码')
+      return
+    }
+    if (!nickname) {
+      ElMessage.error('请填写用户名')
+      return
+    }
+    if (password.length < 6) {
+      ElMessage.error('请设置密码，至少 6 位')
+      return
+    }
+    if (password !== registerForm.confirmPassword) {
+      ElMessage.error('两次密码不一致')
+      return
+    }
+    if (phone && !/^1\d{10}$/.test(phone)) {
+      ElMessage.error('手机号格式不正确')
+      return
+    }
+    acting.value = true
+    try {
+      const next = await registerStoreAccount({
+        email,
+        emailCode,
+        nickname,
+        password,
+        phone: phone || undefined
+      })
+      await enterPurchaseAfterBind(next, '注册并绑定成功')
+    } catch (error: unknown) {
+      showCaughtError(error, '网络不通，请稍后再试')
     } finally {
       acting.value = false
     }
@@ -969,6 +1181,9 @@
     itemChoice.value = 'item'
     summaryOpen.value = false
     commercialUi.offer = null
+    showRegister.value = false
+    clearRegisterSecrets()
+    stopEmailCodeCountdown()
     resetPay()
   }
 
@@ -1013,6 +1228,7 @@
   onBeforeUnmount(() => {
     stopPoll()
     stopTick()
+    stopEmailCodeCountdown()
     window.removeEventListener('resize', syncPurchaseWidth)
   })
 </script>
@@ -1284,6 +1500,22 @@
     color: var(--el-text-color-regular);
     font-size: 13px;
     line-height: 1.5;
+  }
+
+  .register-code {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .register-code :deep(.el-input) {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .register-code :deep(.el-button) {
+    flex: none;
+    margin-left: 0;
   }
 
   .bind-actions :deep(.el-button),

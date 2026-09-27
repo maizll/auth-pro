@@ -256,7 +256,8 @@ func listCommercialSalePlans(db *sql.DB) ([]map[string]any, error) {
 	if err != nil {
 		return []map[string]any{}, nil
 	}
-	rows, err := db.Query(`SELECT id, name, duration_days, CAST(price AS CHAR)
+	rows, err := db.Query(`SELECT id, name, duration_days, CAST(price AS CHAR),
+		COALESCE(free_site_changes, -1), CAST(site_change_price AS CHAR)
 		FROM license_plans
 		WHERE app_id = ? AND enabled = 1 AND price > 0
 		ORDER BY sort, id`, appID)
@@ -268,19 +269,32 @@ func listCommercialSalePlans(db *sql.DB) ([]map[string]any, error) {
 	for rows.Next() {
 		var id int64
 		var name, priceText string
-		var days int
-		if err := rows.Scan(&id, &name, &days, &priceText); err != nil {
+		var days, freeChanges int
+		var changePrice sql.NullString
+		if err := rows.Scan(&id, &name, &days, &priceText, &freeChanges, &changePrice); err != nil {
 			continue
 		}
 		cents, err := yuanTextToCents(priceText)
 		if err != nil || cents <= 0 {
 			continue
 		}
-		list = append(list, map[string]any{
-			"id": id, "name": name, "period": salePeriodFromDuration(days), "priceCents": cents,
-		})
+		list = append(list, commercialSalePlanItem(id, name, days, cents, freeChanges, changePrice))
 	}
 	return list, rows.Err()
+}
+
+// commercialSalePlanItem 组装公开套餐。free_site_changes 为 -1 表示不限；site_change_price 为空表示不能付费更换。
+func commercialSalePlanItem(id int64, name string, days int, cents int64, freeChanges int, changePrice sql.NullString) map[string]any {
+	item := map[string]any{
+		"id": id, "name": name, "period": salePeriodFromDuration(days), "priceCents": cents,
+		"free_site_changes": freeChanges, "site_change_price": nil,
+	}
+	if changePrice.Valid {
+		if price, err := strconv.ParseFloat(strings.TrimSpace(changePrice.String), 64); err == nil {
+			item["site_change_price"] = price
+		}
+	}
+	return item
 }
 
 func loadCommercialSalePlan(db *sql.DB, planID int64) (name, period string, priceCents int64, err error) {

@@ -23,7 +23,7 @@
 
 | 字段 | 作用 |
 | --- | --- |
-| `stylePreset` | `cartoon-blue` 或 `fintech-gold`。其它或省略时界面按 `standard` |
+| `stylePreset` | `enterprise`（企业蓝）、`cartoon-blue` 或 `fintech-gold`。其它或省略时界面按 `standard` |
 | `theme.primaryColor` / `backgroundColor` / `textColor` | 首页和登录框颜色 |
 | `hero.primaryAction.type` | 值为 `login` 时，按钮打开宿主登录框。不是上传拒绝条件 |
 | `hero.primaryAction.label` | 按钮文字，省略时为「进入用户中心」 |
@@ -31,6 +31,24 @@
 | `footer.text` | 页脚 |
 
 不要在模板里写登录接口、保存 Token，或再放一个 `login.html`。登录框属于宿主。
+
+## 导航入口
+
+宿主始终渲染这些入口，模板不能删掉，也不能自己写这些页面的正文：
+
+| 入口 | 地址 |
+| --- | --- |
+| 首页 | `/user/login` |
+| 授权购买 | `/buy` |
+| 系统对比 | `/compare` |
+| 系统文档 | `/docs` |
+| 更新日志 | `/changelog` |
+
+模板可以改颜色、字体和首页排版（`theme`、`hero`、`features`、`scenes`）。授权购买的价格、对比表、文档和更新日志由站点从接口读取。站点管理员可以在后台改导航名称、排序或暂时关闭某一项，这和模板包不是一回事。
+
+`hero.secondaryAction.type` 为 `route` 时，`path` 只能是上面五个地址之一。其它地址宿主会忽略。
+
+官方企业蓝示例：`docs/developer/starter/enterprise-template/template.json`。
 
 ## 最小 template.json
 

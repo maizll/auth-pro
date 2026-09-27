@@ -5,7 +5,6 @@ import {
   logoutFailureIsAlreadyGone,
   purchaseNeedsRebind,
   purchaseRebindNotice,
-  shouldAnnounceBound,
   sourceConfirmedBound,
   storePayloadRebind
 } from './commercial-bind'
@@ -21,7 +20,6 @@ const valid = {
 }
 
 assert.equal(sourceConfirmedBound(valid), true)
-assert.equal(shouldAnnounceBound(valid), true)
 assert.equal(purchaseNeedsRebind(valid, false), false)
 assert.equal(purchaseRebindNotice(valid, false), '')
 assert.equal(
@@ -44,7 +42,6 @@ const deleted = {
 }
 
 assert.equal(sourceConfirmedBound(deleted), false)
-assert.equal(shouldAnnounceBound(deleted), false)
 assert.equal(purchaseNeedsRebind(deleted, false), true)
 assert.equal(purchaseRebindNotice(deleted, false), buyerRebindMessage)
 assert.equal(
@@ -72,7 +69,6 @@ const tokenInvalid = {
   explicitRevoked: false
 }
 
-assert.equal(shouldAnnounceBound(tokenInvalid), false)
 assert.equal(purchaseNeedsRebind(tokenInvalid, false), true)
 assert.equal(purchaseRebindNotice(tokenInvalid, false), buyerTokenInvalidMessage)
 assert.equal(storePayloadRebind({ reason: 'token_invalid', revoked: true, rebind: true }), true)
@@ -90,6 +86,5 @@ assert.equal(
 
 assert.equal(purchaseNeedsRebind({ bound: false }, false), true)
 assert.equal(purchaseRebindNotice({ bound: false }, false), '')
-assert.equal(shouldAnnounceBound({ ...valid, sourceVerified: false }), false)
-assert.equal(shouldAnnounceBound({ ...valid, edition: 'commercial', permanent: true }), false)
+assert.equal(sourceConfirmedBound({ ...valid, sourceVerified: false }), false)
 assert.equal(logoutFailureIsAlreadyGone(new Error('创建订单失败')), false)
