@@ -1,0 +1,92 @@
+{
+  "kind": "template",
+  "id": "enterprise-blue",
+  "templateKey": "enterprise-blue",
+  "name": "企业蓝官网",
+  "version": "1.0.0",
+  "description": "浅色留白、蓝色主色的官网模板。首页文案写在模板里；授权购买、系统对比、系统文档和更新日志由站点渲染。",
+  "schemaVersion": 1,
+  "author": {
+    "name": "auth-pro 官方",
+    "url": "https://github.com/maizll/auth-pro"
+  },
+  "category": "home-template",
+  "stylePreset": "enterprise",
+  "theme": {
+    "primaryColor": "#2f6fed",
+    "backgroundColor": "#f4f7fd",
+    "textColor": "#1c2740"
+  },
+  "hero": {
+    "badge": "软件授权",
+    "title": "一站式软件授权系统",
+    "highlight": "开通即可使用",
+    "description": "授权开通、状态查询和在线续费放在一起。免费版可以直接下载，商业版在自己的后台绑定账号后扫码支付。",
+    "primaryAction": {
+      "label": "进入用户中心",
+      "type": "login"
+    },
+    "secondaryAction": {
+      "label": "查看授权购买",
+      "type": "route",
+      "path": "/buy"
+    }
+  },
+  "features": [
+    {
+      "icon": "ri:shield-check-line",
+      "title": "授权校验",
+      "description": "应用通过校验接口确认授权状态。免费版和商业版走同一条校验。"
+    },
+    {
+      "icon": "ri:global-line",
+      "title": "域名绑定",
+      "description": "按正式 HTTPS 域名绑定。www 和裸域分开计算，本机和内网地址不能绑定。"
+    },
+    {
+      "icon": "ri:user-3-line",
+      "title": "用户中心",
+      "description": "注册登录后查看自己的授权、有效期和站点。"
+    },
+    {
+      "icon": "ri:store-2-line",
+      "title": "应用与套餐",
+      "description": "为应用配置套餐、卡密和版本。免费版只能新建 1 个授权应用。"
+    },
+    {
+      "icon": "ri:team-line",
+      "title": "代理开码",
+      "description": "代理商按配额开码，并查看财务流水。"
+    },
+    {
+      "icon": "ri:download-cloud-2-line",
+      "title": "在线更新",
+      "description": "后台检查新版本，按发布说明升级。更新日志页同步这些说明。"
+    }
+  ],
+  "scenes": [
+    {
+      "title": "软件作者",
+      "description": "给自己的应用发放域名授权",
+      "points": ["创建应用和套餐", "查看授权状态", "发布版本供客户下载"]
+    },
+    {
+      "title": "代理商",
+      "description": "按配额为客户开通授权",
+      "points": ["开码配额", "财务流水", "客户授权查询"]
+    },
+    {
+      "title": "终端用户",
+      "description": "登录后管理自己的授权",
+      "points": ["查看有效期", "自助更换域名", "提交工单"]
+    },
+    {
+      "title": "运维安装",
+      "description": "把程序部署到自己的服务器",
+      "points": ["按文档安装", "配置 HTTPS", "使用在线更新"]
+    }
+  ],
+  "footer": {
+    "text": "授权校验、用户中心和在线更新由本站提供。"
+  }
+}

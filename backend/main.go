@@ -167,6 +167,7 @@ func main() {
 		handler.RegisterSourceStationRoutes(r, api)
 		handler.RegisterPaidStoreRoutes(r, api)
 		handler.RegisterNotificationRoutes(api)
+		handler.RegisterSitePagePublicRoutes(api)
 		handler.StartStoreSnapshotRefresher()
 
 		// 用户端（需鉴权）
@@ -242,6 +243,7 @@ func main() {
 			secured.GET("/system/menus", handler.GetMenuList)
 			superSecured.GET("/system/config", handler.AdminSystemConfig)
 			superSecured.PUT("/system/config", handler.AdminSystemConfigUpdate)
+			handler.RegisterSitePageAdminRoutes(superSecured)
 			superSecured.PUT("/system/config/switch/:key", handler.AdminSystemFeatureSwitchUpdate)
 			superSecured.GET("/system/payment-config", handler.AdminPaymentConfig)
 			superSecured.PUT("/system/payment-config", handler.AdminPaymentConfigUpdate)
@@ -495,6 +497,9 @@ func main() {
 		}
 		if err := handler.EnsureSiteChangeSchema(db); err != nil {
 			log.Printf("ensure site change schema failed: %v", err)
+		}
+		if err := handler.EnsureSitePagesSchema(db); err != nil {
+			log.Printf("ensure site pages schema failed: %v", err)
 		}
 		if err := handler.EnsureSourceStationSchema(); err != nil {
 			log.Fatalf("ensure source station schema failed: %v", err)

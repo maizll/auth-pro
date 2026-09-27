@@ -236,10 +236,13 @@ func (c *commercialFlowConn) QueryContext(_ context.Context, query string, args 
 		values := [][]driver.Value{}
 		for _, plan := range c.state.plans {
 			if plan.appID == appID && plan.enabled == 1 {
-				values = append(values, []driver.Value{plan.id, plan.name, plan.days, plan.price})
+				values = append(values, []driver.Value{plan.id, plan.name, plan.days, plan.price, int64(-1), nil})
 			}
 		}
-		return &commercialFlowRows{columns: []string{"id", "name", "duration_days", "price"}, values: values}, nil
+		return &commercialFlowRows{
+			columns: []string{"id", "name", "duration_days", "price", "free_site_changes", "site_change_price"},
+			values:  values,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unexpected query: %s", query)
 	}

@@ -268,6 +268,7 @@
       "menu": "菜单管理",
       "config": "系统配置",
       "epayConfig": "支付配置",
+      "sitePages": "官网页面",
       "paymentOrders": "订单列表",
       "mailConfig": "邮件配置",
       "mailLogs": "邮件日志"

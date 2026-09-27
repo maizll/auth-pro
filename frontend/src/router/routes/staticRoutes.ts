@@ -68,6 +68,36 @@ export const staticRoutes: AppRouteRecordRaw[] = [
     meta: { title: '授权服务首页', isHideTab: true }
   },
   {
+    path: '/buy',
+    name: 'SitePurchase',
+    component: () => import('@views/site/purchase/index.vue'),
+    meta: { title: '授权购买', isHideTab: true }
+  },
+  {
+    path: '/compare',
+    name: 'SiteCompare',
+    component: () => import('@views/site/compare/index.vue'),
+    meta: { title: '系统对比', isHideTab: true }
+  },
+  {
+    path: '/docs',
+    name: 'SiteDocs',
+    component: () => import('@views/site/docs/index.vue'),
+    meta: { title: '系统文档', isHideTab: true }
+  },
+  {
+    path: '/docs/:slug',
+    name: 'SiteDocArticle',
+    component: () => import('@views/site/docs/index.vue'),
+    meta: { title: '系统文档', isHideTab: true }
+  },
+  {
+    path: '/changelog',
+    name: 'SiteChangelog',
+    component: () => import('@views/site/changelog/index.vue'),
+    meta: { title: '更新日志', isHideTab: true }
+  },
+  {
     path: '/user/reset-password',
     name: 'UserResetPassword',
     component: () => import('@views/user-panel/reset-password/index.vue'),

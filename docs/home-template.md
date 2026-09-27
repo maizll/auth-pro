@@ -20,7 +20,7 @@
 
 | 字段 | 作用 |
 | --- | --- |
-| `stylePreset` | `cartoon-blue` 或 `fintech-gold`。其它值或省略时按 `standard` |
+| `stylePreset` | `enterprise`、`cartoon-blue` 或 `fintech-gold`。其它值或省略时按 `standard` |
 | `theme.primaryColor` / `backgroundColor` / `textColor` | 首页和登录框的颜色。非法颜色回退到该预设的默认色 |
 | `hero.primaryAction` | `type` 为 `login` 时，按钮打开宿主登录框。标签用 `label`，省略时按钮文案为「进入用户中心」 |
 | `hero.secondaryAction` | 同样只认 `type: "login"` |
@@ -28,6 +28,10 @@
 | `footer.text` | 页脚文字 |
 
 登录框是宿主的，模板里不要收集密码或保存 Token。不要写 `login.html`。
+
+`enterprise` 使用浅色留白和蓝色主色。首页仍读 `hero`、`features`、`scenes` 和 `footer`。授权购买、系统对比、系统文档、更新日志四个页面由宿主渲染，模板只提供颜色和字体，不能在包里写这四个页面的正文。导航必须保留首页、授权购买、系统对比、系统文档、更新日志；管理员可以在后台改名或关闭，模板作者不能拿掉。
+
+官方示例在 `docs/developer/starter/enterprise-template/`。
 
 可直接通过源站硬校验的示例在 `docs/developer/starter/template-example/template.json`。
 

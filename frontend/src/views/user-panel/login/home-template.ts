@@ -1,6 +1,7 @@
 export interface HomeTemplateAction {
   label?: string
-  type?: 'login'
+  type?: 'login' | 'route'
+  path?: string
 }
 
 export interface HomeTemplateFeature {
@@ -9,7 +10,13 @@ export interface HomeTemplateFeature {
   description?: string
 }
 
-export type HomeTemplateStylePreset = 'cartoon-blue' | 'fintech-gold'
+interface HomeTemplateScene {
+  title: string
+  description?: string
+  points?: string[]
+}
+
+export type HomeTemplateStylePreset = 'cartoon-blue' | 'fintech-gold' | 'enterprise'
 
 export interface HomeTemplateDocument {
   schemaVersion: 1
@@ -29,6 +36,7 @@ export interface HomeTemplateDocument {
     secondaryAction?: HomeTemplateAction
   }
   features?: HomeTemplateFeature[]
+  scenes?: HomeTemplateScene[]
   footer?: {
     text?: string
   }
@@ -60,7 +68,15 @@ export function isHomeTemplateDocument(value: unknown): value is HomeTemplateDoc
 }
 
 export function isHomeTemplateStylePreset(value: unknown): value is HomeTemplateStylePreset {
-  return value === 'cartoon-blue' || value === 'fintech-gold'
+  return value === 'cartoon-blue' || value === 'fintech-gold' || value === 'enterprise'
+}
+
+const templateRoutes = new Set(['/user/login', '/buy', '/compare', '/docs', '/changelog'])
+
+/** 模板按钮只能打开宿主登录，或跳到五个公开入口。其它地址忽略。 */
+export function templateRoutePath(action?: HomeTemplateAction): string {
+  if (!action || action.type !== 'route' || !action.path) return ''
+  return templateRoutes.has(action.path) ? action.path : ''
 }
 
 export function resolveHomeTemplatePreset(value: unknown): HomeTemplateStylePreset | 'standard' {
@@ -75,7 +91,9 @@ export function homeTemplateThemeStyle(
   const defaults =
     preset === 'fintech-gold'
       ? { primary: '#f0b90b', background: '#0b0e11', text: '#f5f5f5' }
-      : { primary: '#4d6bfe', background: '#f7f8fc', text: '#172033' }
+      : preset === 'enterprise'
+        ? { primary: '#2f6fed', background: '#f4f7fd', text: '#1c2740' }
+        : { primary: '#4d6bfe', background: '#f7f8fc', text: '#172033' }
   const primary = safeTemplateColor(document.theme?.primaryColor, defaults.primary)
   const background = safeTemplateColor(document.theme?.backgroundColor, defaults.background)
   const text = safeTemplateColor(document.theme?.textColor, defaults.text)

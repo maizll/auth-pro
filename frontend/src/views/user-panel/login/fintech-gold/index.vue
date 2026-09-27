@@ -8,12 +8,7 @@
           ></span>
           <span class="brand-name">{{ siteName }}</span>
         </a>
-        <nav class="desktop-nav" aria-label="主导航">
-          <a class="active" href="#top">首页</a>
-          <a href="#query">快速查询</a>
-          <a href="#services">平台能力</a>
-          <a href="#guide">使用链路</a>
-        </nav>
+        <PublicSiteNav :items="navItems" />
         <div class="header-actions">
           <button class="search-trigger" type="button" aria-label="搜索" @click="focusQuery">
             <AppIcon name="search" :size="16" /><span class="search-label">搜索</span>
@@ -21,29 +16,7 @@
           <button class="login-link" type="button" @click="openLogin">登录</button>
           <button class="button button-small" type="button" @click="openLogin">注册</button>
         </div>
-        <button
-          class="mobile-menu"
-          type="button"
-          :aria-label="menuOpen ? '关闭菜单' : '打开菜单'"
-          :aria-expanded="menuOpen"
-          aria-controls="mobile-nav"
-          @click="menuOpen = !menuOpen"
-        >
-          <AppIcon :name="menuOpen ? 'x' : 'menu'" :size="24" />
-        </button>
       </div>
-      <nav
-        v-show="menuOpen"
-        id="mobile-nav"
-        class="mobile-nav"
-        aria-label="移动端主导航"
-        @keydown.esc="menuOpen = false"
-      >
-        <a href="#top" @click="menuOpen = false">首页</a>
-        <a href="#query" @click="menuOpen = false">快速查询</a>
-        <a href="#services" @click="menuOpen = false">平台能力</a>
-        <a href="#guide" @click="menuOpen = false">使用链路</a>
-      </nav>
     </header>
 
     <main id="top">
@@ -302,6 +275,8 @@
   import { computed, reactive, ref } from 'vue'
   import AppIcon from './AppIcon.vue'
   import GlassCard from './GlassCard.vue'
+  import PublicSiteNav from '@/components/site/PublicSiteNav.vue'
+  import { usePublicNav } from '@/utils/public-site'
   import { homeTemplateThemeStyle, type HomeTemplateDocument } from '../home-template'
 
   defineOptions({ name: 'FintechGoldHome' })
@@ -312,7 +287,7 @@
     loginAction: (account: string, password: string) => Promise<void>
   }>()
   const template = computed(() => props.document)
-  const menuOpen = ref(false)
+  const { items: navItems } = usePublicNav()
   const queryValue = ref('')
   const queryMessage = ref('')
   const queryInput = ref<HTMLInputElement | null>(null)
@@ -539,21 +514,26 @@
   .header-inner {
     display: flex;
     align-items: center;
+    min-width: 0;
     min-height: 76px;
-    gap: 30px;
+    gap: 12px;
   }
   .brand {
     display: inline-flex;
-    flex: 0 0 auto;
+    flex: 0 1 auto;
     align-items: center;
+    min-width: 0;
     gap: 11px;
   }
   .brand-name {
+    max-width: 8em;
+    overflow: hidden;
     color: var(--gold);
     font-size: 16px;
     font-weight: 700;
     letter-spacing: 0.04em;
     white-space: nowrap;
+    text-overflow: ellipsis;
   }
   /* The existing geometric brand mark is intentionally retained. */
   .brand-mark {
@@ -587,41 +567,12 @@
     bottom: 0;
     left: 8px;
   }
-  .desktop-nav {
-    display: flex;
-    flex: 1;
-    align-self: stretch;
-    align-items: center;
-    gap: 28px;
-    margin-left: 18px;
-  }
-  .desktop-nav a {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    height: 100%;
-    color: var(--text-muted);
-    font-size: 13px;
-    white-space: nowrap;
-    transition: color var(--motion-duration) var(--motion-ease);
-  }
-  .desktop-nav a:hover,
-  .desktop-nav a.active {
-    color: var(--text);
-  }
-  .desktop-nav a.active::after {
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    height: 2px;
-    content: '';
-    background: var(--gold);
-  }
   .header-actions {
     display: flex;
+    flex: 0 0 auto;
     align-items: center;
-    gap: 20px;
+    min-width: 0;
+    gap: 12px;
   }
   .search-trigger {
     display: flex;
@@ -656,11 +607,6 @@
   .login-link:hover {
     color: var(--gold);
   }
-  .mobile-menu,
-  .mobile-nav {
-    display: none;
-  }
-
   .button {
     display: inline-flex;
     align-items: center;
@@ -1507,14 +1453,7 @@
 
   @media (max-width: 1100px) {
     .header-inner {
-      gap: 22px;
-    }
-    .desktop-nav {
-      gap: 20px;
-      margin-left: 0;
-    }
-    .header-actions {
-      gap: 16px;
+      gap: 12px;
     }
     .search-trigger {
       width: 108px;
@@ -1523,34 +1462,19 @@
 
   @media (max-width: 900px) {
     .container {
-      width: min(calc(100% - 40px), 680px);
+      width: min(calc(100% - 24px), 680px);
     }
-    .desktop-nav,
-    .header-actions {
+    .search-label {
       display: none;
     }
-    .mobile-menu {
-      display: grid;
-      place-items: center;
-      width: 44px;
-      height: 44px;
-      margin-left: auto;
+    .search-trigger {
+      width: 36px;
+      justify-content: center;
       padding: 0;
-      color: var(--text);
-      background: transparent;
-      border: 1px solid var(--line);
-      border-radius: 11px;
     }
-    .mobile-nav {
-      display: flex;
-      flex-direction: column;
-      padding: 8px 20px 15px;
-      border-top: 1px solid var(--line);
-    }
-    .mobile-nav a {
-      padding: 12px 0;
-      color: var(--text-muted);
-      font-size: 13px;
+    .login-link,
+    .button-small {
+      white-space: nowrap;
     }
     .hero-grid {
       grid-template-columns: 1fr;
