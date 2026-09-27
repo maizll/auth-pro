@@ -321,20 +321,81 @@ func buyerOwnsCatalogItem(view buyerAccessView, kind, id string) bool {
 	return false
 }
 
-func catalogPurchaseOnly(kind, id string) bool {
-	if id == "" {
+// catalogAccess 是一条目录条目的购买判断。列表、按钮和购买弹窗只读这一份。
+// party 为 official 或 third。grant 为空、commercial（商业版包含）或 purchase（单独买过）。
+type catalogAccess struct {
+	Party              string `json:"party"`
+	CommercialIncluded bool   `json:"commercialIncluded"`
+	Owned              bool   `json:"owned"`
+	Grant              string `json:"grant"`
+}
+
+// commercialExcludesItem 是「官方还是第三方、商业版包不包含」的唯一判断。
+// 内置官方插件始终包含。其余条目以目录的仅单买标记为准，再看开发者编号和访问策略。
+func commercialExcludesItem(kind, id string, priceCents, developerID int64, listedPurchaseOnly bool) bool {
+	if priceCents <= 0 || strings.TrimSpace(id) == "" {
 		return false
 	}
 	if kind == "plugin" && officialBuiltinPlugin(id) {
 		return false
 	}
-	if findPaidCatalog(kind, id).PurchaseOnly {
+	if listedPurchaseOnly || developerID > 0 {
 		return true
 	}
 	if catalogItemPurchaseOnly(kind, id) {
 		return true
 	}
 	return catalogDeveloperPaid(kind, id)
+}
+
+func catalogPurchaseOnly(kind, id string) bool {
+	if id == "" {
+		return false
+	}
+	item := findPaidCatalog(kind, id)
+	price := item.PriceCents
+	if price <= 0 {
+		price = 1
+	}
+	return commercialExcludesItem(kind, id, price, 0, item.PurchaseOnly)
+}
+
+// resolveCatalogAccess 在排除规则上补上当前买家是否已经拥有。启用和弹窗都走这里。
+func resolveCatalogAccess(view buyerAccessView, kind, id string, priceCents int64) catalogAccess {
+	if priceCents < 0 {
+		priceCents = 0
+	}
+	excluded := priceCents > 0 && catalogPurchaseOnly(kind, id)
+	party := "official"
+	if excluded {
+		party = "third"
+	}
+	included := priceCents > 0 && !excluded
+	commercial := view.Edition == storeEditionCommercial && !view.DomainMismatch && !view.ExplicitRevoked
+	purchased := priceCents > 0 && buyerOwnsCatalogItem(view, kind, id)
+	grant := ""
+	owned := priceCents <= 0
+	if included && commercial {
+		grant = "commercial"
+		owned = true
+	} else if purchased {
+		grant = "purchase"
+		owned = true
+	}
+	return catalogAccess{Party: party, CommercialIncluded: included, Owned: owned, Grant: grant}
+}
+
+func ownershipLabel(priceCents int64, access catalogAccess) string {
+	if priceCents <= 0 {
+		return "free"
+	}
+	if access.Grant == "purchase" {
+		return "purchased"
+	}
+	if access.Owned {
+		return "included"
+	}
+	return "none"
 }
 
 func catalogDeveloperPaid(kind, id string) bool {
@@ -352,11 +413,6 @@ func catalogDeveloperPaid(kind, id string) bool {
 	return queryErr == nil && developerID > 0
 }
 
-func buyerCatalogOwnership(view buyerAccessView, kind, id string, priceCents int64) string {
-	covered := view.Edition == storeEditionCommercial && !catalogPurchaseOnly(kind, id)
-	return ownershipForPrice(priceCents, covered, buyerOwnsCatalogItem(view, kind, id))
-}
-
 func paidEnableAllowed(priceCents int64, commercial, entitled bool) bool {
 	if priceCents <= 0 {
 		return true
@@ -367,12 +423,7 @@ func paidEnableAllowed(priceCents int64, commercial, entitled bool) bool {
 // buyerMayInstallPaid 判断当前买家能不能直接安装这个标价条目。
 // 商业版覆盖官方条目。开发者条目和标成仅单买的条目必须另有购买权益。
 func buyerMayInstallPaid(c *gin.Context, kind, id string, priceCents int64) bool {
-	if priceCents <= 0 {
-		return true
-	}
-	view := currentBuyerAccess(c)
-	commercial := view.Edition == storeEditionCommercial && !catalogPurchaseOnly(kind, id)
-	return paidEnableAllowed(priceCents, commercial, buyerOwnsCatalogItem(view, kind, id))
+	return resolveCatalogAccess(currentBuyerAccess(c), kind, id, priceCents).Owned
 }
 
 func findPaidCatalog(kind, id string) paidCatalogItem {
@@ -390,9 +441,7 @@ func rejectPaidPluginEnable(c *gin.Context, id string) bool {
 	}
 	item := findPaidCatalog("plugin", id)
 	view := currentBuyerAccess(c)
-	commercial := view.Edition == storeEditionCommercial && !catalogPurchaseOnly("plugin", id)
-	entitled := buyerOwnsCatalogItem(view, "plugin", id) || (commercial && view.Snapshot.AllPaidItems)
-	if paidEnableAllowed(item.PriceCents, commercial, entitled) {
+	if resolveCatalogAccess(view, "plugin", id, item.PriceCents).Owned {
 		return false
 	}
 	if item.Kind == "" {
@@ -423,9 +472,7 @@ func rejectPaidTemplateEnable(c *gin.Context, rawID string) bool {
 	if id == "" {
 		id = rawID
 	}
-	commercial := view.Edition == storeEditionCommercial && !catalogPurchaseOnly("template", id)
-	entitled := buyerOwnsCatalogItem(view, "template", id) || (commercial && view.Snapshot.AllPaidItems)
-	if paidEnableAllowed(item.PriceCents, commercial, entitled) {
+	if resolveCatalogAccess(view, "template", id, item.PriceCents).Owned {
 		return false
 	}
 	if item.Kind == "" {
@@ -462,7 +509,8 @@ func rememberPaidCatalogFromIndex(index *remotePluginIndex) {
 	for _, plugin := range index.Plugins {
 		upsert(paidCatalogItem{
 			Kind: "plugin", ID: plugin.ID, Name: plugin.Name, Version: plugin.Version,
-			PriceCents: plugin.PriceCents, Billing: plugin.Billing, PurchaseOnly: plugin.PurchaseOnly,
+			PriceCents: plugin.PriceCents, Billing: plugin.Billing,
+			PurchaseOnly: commercialExcludesItem("plugin", plugin.ID, plugin.PriceCents, 0, plugin.PurchaseOnly),
 		})
 	}
 	for _, raw := range index.HomeTemplates {
@@ -484,7 +532,8 @@ func rememberPaidCatalogFromIndex(index *remotePluginIndex) {
 		}
 		upsert(paidCatalogItem{
 			Kind: "template", ID: id, Name: meta.Name, Version: meta.Version,
-			PriceCents: meta.PriceCents, Billing: meta.Billing, PurchaseOnly: meta.PurchaseOnly,
+			PriceCents: meta.PriceCents, Billing: meta.Billing,
+			PurchaseOnly: commercialExcludesItem("template", id, meta.PriceCents, 0, meta.PurchaseOnly),
 		})
 	}
 	savePaidCatalog(items)

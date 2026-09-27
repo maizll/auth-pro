@@ -73,8 +73,8 @@
                 <strong>{{ commercialUi.offer.name }}</strong>
                 <span
                   class="offer-profile__badge"
-                  :class="commercialUi.offer.purchaseOnly ? 'is-third' : 'is-official'"
-                  >{{ commercialUi.offer.purchaseOnly ? '第三方' : '官方' }}</span
+                  :class="offerIsThird ? 'is-third' : 'is-official'"
+                  >{{ offerIsThird ? '第三方' : '官方' }}</span
                 >
               </div>
               <p v-if="offerMeta" class="offer-profile__meta">{{ offerMeta }}</p>
@@ -269,7 +269,7 @@
               <p class="section-title">选择购买方式</p>
               <div
                 class="choice-grid"
-                :class="{ 'is-single': commercialUi.offer.purchaseOnly }"
+                :class="{ 'is-single': offerIsThird }"
                 role="radiogroup"
                 aria-label="购买方式"
               >
@@ -285,14 +285,14 @@
                     <small>/ {{ offerPeriod }}</small>
                   </span>
                   <span class="choice-card__note">{{
-                    commercialUi.offer.purchaseOnly ? purchaseOnlyNote : singleUnlockNote
+                    offerIsThird ? purchaseOnlyNote : singleUnlockNote
                   }}</span>
                   <span v-if="itemChoice === 'item'" class="choice-card__check" aria-hidden="true"
                     ><ArtSvgIcon icon="ri:check-line"
                   /></span>
                 </button>
                 <button
-                  v-if="!commercialUi.offer.purchaseOnly && recommendedPlan"
+                  v-if="!offerIsThird && recommendedPlan"
                   type="button"
                   class="choice-card"
                   :class="{ 'is-selected': itemChoice === 'plan' }"
@@ -310,9 +310,7 @@
                   /></span>
                 </button>
               </div>
-              <p
-                v-if="!commercialUi.offer.purchaseOnly && !loading && !recommendedPlan"
-                class="upgrade-tip"
+              <p v-if="!offerIsThird && !loading && !recommendedPlan" class="upgrade-tip"
                 >源站尚未配置可购买的套餐。</p
               >
               <section v-if="showCompare" class="compare">
@@ -450,6 +448,7 @@
   import CommercialMark from './CommercialMark.vue'
   import CommercialLicenseCard from './CommercialLicenseCard.vue'
   import {
+    catalogItemAccess,
     commercialCompareNote,
     commercialCompareRows,
     commercialCta,
@@ -505,6 +504,7 @@
   )
   const pendingItem = computed(() => !!commercialUi.offer && !choosingEdition.value)
   const buyingItem = computed(() => pendingItem.value && !needsBind.value)
+  const offerIsThird = computed(() => catalogItemAccess(commercialUi.offer).party === 'third')
   // 卡片上的期限用短写法：永久、年、N 天。
   function slashPeriod(period?: string) {
     const text = commercialPeriodText(period)
@@ -545,7 +545,7 @@
     const offer = commercialUi.offer
     if (!offer) return ''
     const money = `${commercialYuanText(offer.priceCents)} / ${slashPeriod(offer.period)}`
-    if (offer.purchaseOnly) return `单独购买 ${money}`
+    if (catalogItemAccess(offer).party === 'third') return `单独购买 ${money}`
     return `单独购买 ${money}，也可选商业版（绑定后选择）`
   })
   const dialogTitle = computed(() => {
@@ -591,7 +591,7 @@
   // 官方单品和套餐窗口都展示对照表。第三方条目商业版不包含，不放这张表。
   const showCompare = computed(() => {
     if (needsBind.value || payUrl.value) return false
-    if (buyingItem.value) return !commercialUi.offer?.purchaseOnly
+    if (buyingItem.value) return !offerIsThird.value
     return action.value !== 'view'
   })
   const payStatus = ref('')
@@ -994,7 +994,7 @@
   }
 
   async function paySelected() {
-    if (itemChoice.value === 'plan' && recommendedPlan.value && !commercialUi.offer?.purchaseOnly) {
+    if (itemChoice.value === 'plan' && recommendedPlan.value && !offerIsThird.value) {
       planId.value = recommendedPlan.value.id
       settleAsEdition.value = true
       await pay()

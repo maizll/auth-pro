@@ -146,7 +146,7 @@ func writePaidItemRequired(c *gin.Context, feature string, item paidCatalogItem)
 			kind = "plugin"
 		}
 	}
-	purchaseOnly := item.PurchaseOnly || catalogPurchaseOnly(kind, item.ID)
+	access := resolveCatalogAccess(currentBuyerAccess(c), kind, item.ID, item.PriceCents)
 	c.JSON(http.StatusOK, gin.H{
 		"code": storeEditionRequiredCode,
 		"msg":  paidItemRequiredMessage(kind),
@@ -157,7 +157,8 @@ func writePaidItemRequired(c *gin.Context, feature string, item paidCatalogItem)
 			"name":         item.Name,
 			"priceCents":   item.PriceCents,
 			"period":       catalogSalePeriod(item.Billing),
-			"purchaseOnly": purchaseOnly,
+			"purchaseOnly": access.Party == "third",
+			"access":       access,
 		},
 	})
 }

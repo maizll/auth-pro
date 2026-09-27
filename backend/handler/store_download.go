@@ -188,13 +188,10 @@ func licenseCanDownloadPaid(db *sql.DB, licenseID int64, kind, itemID string) bo
 		return false
 	}
 	_, _, _, active := loadCommercialEdition(db, licenseID)
-	official := kind == "plugin" && officialBuiltinPlugin(itemID)
-	if official {
-		// 当面付这类内置官方插件按官方条目放行，不看目录里误填的开发者编号。
-		developerID = 0
-	}
-	if catalogItemPurchaseOnly(kind, itemID) && !official {
+	if commercialExcludesItem(kind, itemID, 1, developerID, false) {
 		active = false
+	} else {
+		developerID = 0
 	}
 	var count int
 	err := db.QueryRow(`SELECT COUNT(*) FROM plugin_entitlements

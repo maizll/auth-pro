@@ -45,6 +45,7 @@ type pluginInfo struct {
 	Billing         string         `json:"billing,omitempty"`
 	PurchaseOnly    bool           `json:"purchaseOnly,omitempty"`
 	Ownership       string         `json:"ownership,omitempty"`
+	Access          catalogAccess  `json:"access,omitempty"`
 }
 
 // pluginCatalog 内置插件清单（代码注册，数据库只持久化启用状态）。

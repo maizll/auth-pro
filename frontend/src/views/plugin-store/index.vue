@@ -142,8 +142,12 @@
                 <div class="plugin-meta">
                   <div class="plugin-name">
                     <strong>{{ plugin.name }}</strong>
-                    <ElTag v-if="plugin.official" type="primary" size="small" effect="plain"
-                      >官方</ElTag
+                    <ElTag
+                      v-if="pluginOriginTag(plugin)"
+                      :type="pluginOriginTag(plugin) === '第三方' ? 'warning' : 'primary'"
+                      size="small"
+                      effect="plain"
+                      >{{ pluginOriginTag(plugin) }}</ElTag
                     >
                     <ElTag type="info" size="small" effect="plain">v{{ plugin.version }}</ElTag>
                     <CommercialMark
@@ -344,15 +348,14 @@
   import TemplateActions from '@/views/home-template/TemplateActions.vue'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
-  import { fetchStoreAccount, fetchStoreCatalog, type StoreCatalogItem } from '@/api/store'
+  import { fetchStoreAccount } from '@/api/store'
   import { fetchSourceCatalogApps, type SourceCatalogApp } from '@/api/source-station'
   import { fetchRestoreLicenseApp } from '@/api/license-manage'
   import {
     catalogCardBuyLabel,
+    catalogItemAccess,
     catalogPurchaseResumeEvent,
     openCatalogPurchase,
-    commercialUi,
-    isCommercialActive,
     rememberCommercialAccount,
     type CatalogPurchaseOffer
   } from '@/utils/commercial'
@@ -585,43 +588,19 @@
     searchTimer = setTimeout(loadPlugins, 400)
   }
 
-  const catalog = ref<StoreCatalogItem[]>([])
-
-  function badgeFor(ownership?: string, price?: number, purchaseOnly?: boolean) {
-    if (!price || price <= 0) return null
-    if (purchaseOnly) {
-      if (ownership === 'included' || ownership === 'purchased') {
-        return { text: '已包含', icon: 'ri:shield-check-fill', tone: 'ok' as const }
-      }
-      return null
+  function pluginOriginTag(plugin: PluginInfo) {
+    if ((plugin.priceCents || 0) > 0) {
+      return catalogItemAccess(plugin).party === 'third' ? '第三方' : '官方'
     }
-    if (ownership === 'purchased') {
-      return { text: '已包含', icon: 'ri:shield-check-fill', tone: 'ok' as const }
-    }
-    return { text: '商业版免费', icon: 'ri:rocket-2-line', tone: 'primary' as const }
-  }
-
-  function officialCommercial(plugin: PluginInfo) {
-    return !!plugin.official && isCommercialActive(commercialUi.account)
+    return plugin.official ? '官方' : ''
   }
 
   function pluginBadge(plugin: PluginInfo) {
-    if (officialCommercial(plugin) && (plugin.priceCents || 0) > 0) {
-      return { text: '商业版免费', icon: 'ri:rocket-2-line', tone: 'primary' as const }
-    }
-    return badgeFor(plugin.ownership, plugin.priceCents, plugin.purchaseOnly)
+    return catalogItemAccess(plugin).badge
   }
 
   function templateBadge(template: HomeTemplateInfo) {
-    const key = template.catalogId || template.templateId
-    const item = catalog.value.find(
-      (row) => row.kind === 'template' && (row.id === key || row.id === String(template.id))
-    )
-    return badgeFor(
-      template.ownership || item?.ownership,
-      template.priceCents || item?.priceCents,
-      template.purchaseOnly || item?.purchaseOnly
-    )
+    return catalogItemAccess(template).badge
   }
 
   async function loadStoreCatalog() {
@@ -631,21 +610,10 @@
     } catch {
       /* 版本状态只在顶栏显示，这里读失败不改顶栏。 */
     }
-    try {
-      const data = await fetchStoreCatalog()
-      catalog.value = data.list || []
-    } catch {
-      catalog.value = []
-    }
-  }
-
-  function coveredByCommercial(purchaseOnly?: boolean) {
-    return !purchaseOnly && isCommercialActive(commercialUi.account)
   }
 
   function unpaidPlugin(plugin: PluginInfo) {
-    if (officialCommercial(plugin) || coveredByCommercial(plugin.purchaseOnly)) return false
-    return !plugin.enabled && (plugin.priceCents || 0) > 0 && plugin.ownership === 'none'
+    return !plugin.enabled && catalogItemAccess(plugin).needsPurchase
   }
 
   function pluginOffer(plugin: PluginInfo, resume: () => Promise<boolean>): CatalogPurchaseOffer {
@@ -655,7 +623,7 @@
       name: plugin.name,
       priceCents: plugin.priceCents || 0,
       period: plugin.billing || 'permanent',
-      purchaseOnly: !!plugin.purchaseOnly,
+      access: plugin.access,
       icon: plugin.icon,
       summary: plugin.description,
       version: plugin.version,

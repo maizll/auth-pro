@@ -445,12 +445,13 @@ func annotateHomeTemplateCommerce(c *gin.Context, rows []gin.H) {
 		if item.PriceCents <= 0 {
 			continue
 		}
-		purchaseOnly := item.PurchaseOnly || catalogPurchaseOnly("template", item.ID)
+		access := resolveCatalogAccess(view, "template", item.ID, item.PriceCents)
 		rows[i]["priceCents"] = item.PriceCents
 		rows[i]["billing"] = item.Billing
-		rows[i]["purchaseOnly"] = purchaseOnly
+		rows[i]["purchaseOnly"] = access.Party == "third"
 		rows[i]["catalogItemId"] = item.ID
-		rows[i]["ownership"] = ownershipForPrice(item.PriceCents, view.Edition == storeEditionCommercial && !purchaseOnly, buyerOwnsCatalogItem(view, "template", item.ID))
+		rows[i]["ownership"] = ownershipLabel(item.PriceCents, access)
+		rows[i]["access"] = access
 	}
 }
 

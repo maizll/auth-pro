@@ -1,5 +1,6 @@
 // 买家站商业版接口：账号、绑定、套餐、下单、查单和安装。
 import request from '@/utils/http'
+import type { CatalogAccess } from '@/utils/catalog-access'
 
 export interface StoreAccount {
   bound: boolean
@@ -52,6 +53,7 @@ export interface StoreCatalogItem {
   billing?: string
   purchaseOnly?: boolean
   ownership: 'free' | 'included' | 'purchased' | 'none' | string
+  access?: CatalogAccess
 }
 
 export function fetchStoreAccount(verify = false) {

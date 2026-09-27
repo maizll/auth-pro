@@ -659,17 +659,7 @@ func grantGrandfatherLicense(db *sql.DB, kind, itemID string, licenseID int64) (
 }
 
 func catalogEntryPurchaseOnly(kind, itemID string, developerID, priceCents int64) bool {
-	if priceCents <= 0 {
-		return false
-	}
-	// 内置官方插件默认由商业版包含。目录上的开发者编号和仅单买策略都不改这条。
-	if kind == "plugin" && officialBuiltinPlugin(itemID) {
-		return false
-	}
-	if developerID > 0 {
-		return true
-	}
-	return catalogItemPurchaseOnly(kind, itemID)
+	return commercialExcludesItem(kind, itemID, priceCents, developerID, false)
 }
 
 func catalogItemPurchaseOnly(kind, itemID string) bool {

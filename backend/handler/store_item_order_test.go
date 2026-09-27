@@ -256,6 +256,10 @@ func TestStoreItemPurchaseMariaDB(t *testing.T) {
 	if blockedData["purchaseOnly"] != true || blockedData["id"] != "dev-extra" || int64(blockedData["priceCents"].(float64)) != 5000 {
 		t.Fatalf("仅单买 402 不正确: %#v", blockedData)
 	}
+	access, _ := blockedData["access"].(map[string]any)
+	if access["party"] != "third" || access["commercialIncluded"] != false || access["owned"] != false {
+		t.Fatalf("402 的购买判断应与列表一致: %#v", access)
+	}
 }
 
 func callSignedStore(t *testing.T, method, path string, body []byte, bindingID string, salt []byte, orderNo string) map[string]any {

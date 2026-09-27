@@ -1,5 +1,6 @@
 // 系统管理接口：用户、角色、菜单、支付、邮件和插件。
 import request from '@/utils/http'
+import type { CatalogAccess } from '@/utils/catalog-access'
 import { AppRouteRecord } from '@/types/router'
 
 export type EpayPayType = 'alipay' | 'wxpay' | 'qqpay'
@@ -571,6 +572,7 @@ export interface PluginInfo {
   billing?: string
   purchaseOnly?: boolean
   ownership?: string
+  access?: CatalogAccess
 }
 
 export interface PluginCategoryGroup {
@@ -661,6 +663,7 @@ export interface HomeTemplateInfo {
   purchaseOnly?: boolean
   ownership?: string
   catalogItemId?: string
+  access?: CatalogAccess
 }
 
 export interface HomeTemplateListData {

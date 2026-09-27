@@ -634,12 +634,13 @@ func AdminPluginList(c *gin.Context) {
 				groups[i].Plugins[j].Billing = cached.Billing
 			}
 			if officialBuiltinPlugin(id) {
-				groups[i].Plugins[j].PurchaseOnly = false
 				groups[i].Plugins[j].Official = true
-			} else if cached.PurchaseOnly || catalogPurchaseOnly("plugin", id) {
-				groups[i].Plugins[j].PurchaseOnly = true
 			}
-			groups[i].Plugins[j].Ownership = buyerCatalogOwnership(view, "plugin", id, groups[i].Plugins[j].PriceCents)
+			price := groups[i].Plugins[j].PriceCents
+			access := resolveCatalogAccess(view, "plugin", id, price)
+			groups[i].Plugins[j].Access = access
+			groups[i].Plugins[j].PurchaseOnly = access.Party == "third"
+			groups[i].Plugins[j].Ownership = ownershipLabel(price, access)
 		}
 	}
 	sourceStates := make([]gin.H, 0, len(managedSources))

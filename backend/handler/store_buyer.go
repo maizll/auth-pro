@@ -185,10 +185,11 @@ func BuyerStoreCatalog(c *gin.Context) {
 	items := loadPaidCatalog()
 	out := make([]gin.H, 0, len(items))
 	for _, item := range items {
+		access := resolveCatalogAccess(view, item.Kind, item.ID, item.PriceCents)
 		out = append(out, gin.H{
 			"kind": item.Kind, "id": item.ID, "name": item.Name, "version": item.Version, "priceCents": item.PriceCents,
-			"billing": item.Billing, "purchaseOnly": item.PurchaseOnly || catalogPurchaseOnly(item.Kind, item.ID),
-			"ownership": buyerCatalogOwnership(view, item.Kind, item.ID, item.PriceCents),
+			"billing": item.Billing, "purchaseOnly": access.Party == "third",
+			"ownership": ownershipLabel(item.PriceCents, access), "access": access,
 		})
 	}
 	storeData(c, gin.H{"list": out, "edition": view.Edition})
