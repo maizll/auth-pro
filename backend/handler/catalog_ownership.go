@@ -22,6 +22,13 @@ func migrateSourceCatalogVersionSize(db *sql.DB) error {
 		{"source_catalog_template_versions", "size_bytes", "ALTER TABLE source_catalog_template_versions ADD COLUMN size_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0"},
 	}
 	for _, column := range columns {
+		var tables int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, column.table).Scan(&tables); err != nil {
+			return err
+		}
+		if tables == 0 {
+			continue
+		}
 		if err := ensureSourceStationColumn(db, column.table, column.column, column.statement); err != nil {
 			return err
 		}

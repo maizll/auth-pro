@@ -231,6 +231,7 @@ func markCommercialGapMigrations(t *testing.T, db *sql.DB) {
 		sourceMigrationCatalogListing,
 		sourceMigrationPaidExternal,
 		sourceMigrationVersionStorage,
+		sourceMigrationVersionSize,
 		storeMigrationBindings,
 		storeMigrationEditions,
 		storeMigrationStatusIndex,
