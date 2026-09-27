@@ -66,9 +66,18 @@
         <div class="table-header">
           <div>
             <span class="card-title">软件目录（共 {{ tableData.length }} 条）</span>
-            <p class="card-hint">
+            <p class="card-hint" :class="{ 'is-collapsed': narrow && !hintExpanded }">
               先选择应用，再按分类筛选。源站只保存说明和下载地址，不保存源码。上架后会自动出现在该应用的软件源里。下架后商店不再显示，已经安装的不会被远程卸掉。弃用后会从公开目录移除，默认列表也不再显示；需要查看时，把状态筛成「已弃用」。
             </p>
+            <el-button
+              v-if="narrow"
+              link
+              type="primary"
+              class="hint-toggle"
+              @click="hintExpanded = !hintExpanded"
+            >
+              {{ hintExpanded ? '收起' : '展开' }}
+            </el-button>
           </div>
           <div class="table-actions">
             <el-button :disabled="!selectedRows.length" @click="openRebind(selectedRows)"
@@ -150,7 +159,13 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="uploadVisible" title="上传安装包" width="640px" destroy-on-close>
+    <el-dialog
+      v-model="uploadVisible"
+      title="上传安装包"
+      width="640px"
+      append-to-body
+      destroy-on-close
+    >
       <el-alert
         type="warning"
         :closable="false"
@@ -159,7 +174,7 @@
         class="mb-3"
       />
       <p class="card-hint mb-3">
-        来源二选一。免费用公开地址，本站不存包。收费可以上传压缩包，或填写公开地址让本站拉一次。配置收费仓库后，安装包会放进站长的私有仓库，买家付款后拿到临时下载地址。
+        来源二选一。免费用公开地址，本站不存包。收费可以上传压缩包，或填写公开地址让本站拉一次。配置收费仓库后，安装包放在站长的私有仓库。买家付款后从官网地址下载，由官网取包并核对校验码。
       </p>
       <el-form label-width="120px">
         <el-form-item label="来源">
@@ -454,11 +469,61 @@
       </el-form>
     </el-dialog>
 
-    <el-drawer v-model="versionVisible" :title="`${currentItem?.name || ''} 多版本`" size="720px">
+    <el-drawer
+      v-model="versionVisible"
+      :title="`${currentItem?.name || '插件'} 的版本`"
+      :size="narrow ? '100%' : '720px'"
+    >
       <div class="table-actions mb-3">
-        <el-button type="primary" @click="versionFormVisible = true">登记新版本</el-button>
+        <el-button type="primary" @click="openVersionUpload">上传新版本</el-button>
+        <el-button @click="versionFormVisible = true">登记外部地址</el-button>
       </div>
-      <el-table :data="versions" v-loading="versionLoading" stripe>
+      <div v-if="narrow" v-loading="versionLoading" class="version-cards">
+        <article v-for="row in versions" :key="row.version" class="version-card">
+          <header class="version-card-head">
+            <strong>{{ row.version }}</strong>
+            <el-tag v-if="row.version === currentItem?.latestVersion" type="success" size="small"
+              >当前最新版</el-tag
+            >
+            <el-tag v-else type="info" size="small">非当前最新版</el-tag>
+          </header>
+          <p>大小：未记录</p>
+          <p>上传时间：{{ formatVersionTime(row.createdAt) }}</p>
+          <p>说明：{{ row.changelog || '无' }}</p>
+          <div class="version-card-actions">
+            <el-button
+              v-if="canVersionAction(row.status, 'approve')"
+              type="success"
+              size="small"
+              @click="runVersion(row, 'approve')"
+              >通过</el-button
+            >
+            <el-button
+              v-if="canVersionAction(row.status, 'reject')"
+              type="warning"
+              size="small"
+              @click="runVersion(row, 'reject')"
+              >驳回</el-button
+            >
+            <el-button
+              v-if="canVersionAction(row.status, 'latest')"
+              type="primary"
+              size="small"
+              @click="runVersion(row, 'latest')"
+              >设为最新版</el-button
+            >
+            <el-button
+              v-if="canVersionAction(row.status, 'deprecate')"
+              type="danger"
+              size="small"
+              @click="runVersion(row, 'deprecate')"
+              >弃用</el-button
+            >
+          </div>
+        </article>
+        <el-empty v-if="!versionLoading && !versions.length" description="还没有版本" />
+      </div>
+      <el-table v-else :data="versions" v-loading="versionLoading" stripe>
         <el-table-column prop="version" label="版本" width="110" />
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
@@ -467,10 +532,10 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="latest" width="80" align="center">
+        <el-table-column label="是否最新" width="90" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.version === currentItem?.latestVersion" type="success" size="small"
-              >latest</el-tag
+              >最新</el-tag
             >
           </template>
         </el-table-column>
@@ -480,7 +545,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="changelog" label="说明" min-width="140" show-overflow-tooltip />
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <el-button
               v-if="canVersionAction(row.status, 'approve')"
@@ -504,7 +569,7 @@
               type="primary"
               size="small"
               @click="runVersion(row, 'latest')"
-              >设为 latest</el-button
+              >设为最新版</el-button
             >
             <el-button
               v-if="canVersionAction(row.status, 'deprecate')"
@@ -772,6 +837,7 @@
   const savingCategories = ref(false)
   const extraForm = reactive({ key: '', label: '', kind: 'plugin' as 'plugin' | 'template' })
 
+  const hintExpanded = ref(false)
   const versionVisible = ref(false)
   const versionLoading = ref(false)
   const versionSaving = ref(false)
@@ -1039,6 +1105,18 @@
     searchForm.status = ''
     searchForm.category = ''
     loadItems()
+  }
+
+  function formatVersionTime(value?: string) {
+    if (!value) return '未记录'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return '未记录'
+    const pad = (part: number) => String(part).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  }
+
+  function openVersionUpload() {
+    openUpload()
   }
 
   function openUpload() {
@@ -1575,7 +1653,75 @@
 
   .table-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
+  }
+
+  .hint-toggle {
+    margin-top: 2px;
+    padding: 0;
+    height: auto;
+  }
+
+  .card-hint.is-collapsed {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    overflow: hidden;
+  }
+
+  .version-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .version-card {
+    padding: 12px;
+    border: 1px solid var(--art-card-border);
+    border-radius: 8px;
+    background: var(--default-box-color);
+  }
+
+  .version-card p {
+    margin: 6px 0 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--art-gray-700);
+    word-break: break-word;
+  }
+
+  .version-card-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .version-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  @media (max-width: 767px) {
+    .table-header {
+      flex-direction: column;
+    }
+
+    .table-actions {
+      width: 100%;
+    }
+
+    .table-actions :deep(.el-button) {
+      flex: 1 1 140px;
+      height: auto;
+      margin-left: 0;
+      padding: 8px 10px;
+      white-space: normal;
+      line-height: 1.35;
+    }
   }
 
   .card-title {
