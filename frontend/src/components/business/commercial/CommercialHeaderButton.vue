@@ -1,5 +1,6 @@
 <template>
   <div class="commercial-header-entry">
+    <span v-if="ready && !commercial" class="commercial-header-entry__free">免费版</span>
     <button
       v-if="ready && pending"
       type="button"
@@ -8,20 +9,20 @@
       @click="openCommercialLicense"
     >
       <ArtSvgIcon icon="ri:shield-check-line" />
-      <span class="commercial-header-entry__full">商业版 · 待校验</span>
-      <span class="commercial-header-entry__short" aria-hidden="true">待校验</span>
+      <span>商业版</span>
+      <span>待校验</span>
       <i class="commercial-header-entry__dot" aria-hidden="true" />
     </button>
     <button
       v-else-if="ready && commercial"
       type="button"
       class="commercial-header-entry__badge"
-      aria-label="商业版 · 已激活"
+      :aria-label="`商业版 ${term}`"
       @click="openCommercialLicense"
     >
       <ArtSvgIcon icon="ri:shield-check-fill" />
-      <span class="commercial-header-entry__full">商业版 · 已激活</span>
-      <span class="commercial-header-entry__short" aria-hidden="true">已激活</span>
+      <span>商业版</span>
+      <span class="commercial-header-entry__expire">{{ term }}</span>
     </button>
     <button
       v-else-if="ready"
@@ -54,6 +55,17 @@
   const ready = ref(!!commercialUi.account)
   const commercial = computed(() => isCommercialActive(account.value))
   const pending = computed(() => commercial.value && !!account.value?.offlineGrace)
+  const term = computed(() => headerTerm(account.value))
+
+  function headerTerm(current: StoreAccount | null) {
+    if (!current) return ''
+    if (current.permanent) return '永久授权'
+    if (!current.editionExpireAt) return '未设置到期时间'
+    const date = new Date(current.editionExpireAt * 1000)
+    if (Number.isNaN(date.getTime())) return '未设置到期时间'
+    const pad = (value: number) => String(value).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} 到期`
+  }
 
   watch(
     () => commercialUi.account,
@@ -89,7 +101,16 @@
   .commercial-header-entry {
     display: inline-flex;
     flex: none;
+    gap: 8px;
     align-items: center;
+  }
+
+  .commercial-header-entry__free {
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1;
+    white-space: nowrap;
   }
 
   .commercial-header-entry__upgrade,
@@ -129,6 +150,12 @@
     background: #273556;
   }
 
+  .commercial-header-entry__expire {
+    font-size: 12px;
+    font-weight: 500;
+    opacity: 0.86;
+  }
+
   .commercial-header-entry__pending {
     color: var(--el-color-warning-dark-2);
     background: var(--el-color-warning-light-9);
@@ -157,6 +184,10 @@
   }
 
   @media (max-width: 640px) {
+    .commercial-header-entry {
+      gap: 6px;
+    }
+
     .commercial-header-entry__upgrade,
     .commercial-header-entry__badge,
     .commercial-header-entry__pending {
@@ -165,7 +196,8 @@
       font-size: 12px;
     }
 
-    .commercial-header-entry__full {
+    .commercial-header-entry__full,
+    .commercial-header-entry__expire {
       display: none;
     }
 

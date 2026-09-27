@@ -7,10 +7,10 @@
     <header class="license-card__head">
       <ArtSvgIcon :icon="account.offlineGrace ? 'ri:shield-check-line' : 'ri:shield-check-fill'" />
       <div>
-        <h3>{{ account.offlineGrace ? '商业版 · 待校验' : '商业版 · 已激活' }}</h3>
+        <h3>{{ account.offlineGrace ? '商业版 · 待校验' : '商业版' }}</h3>
         <p>{{ account.offlineGrace ? '源站暂时连不上，宽限期内仍可使用。' : '当前授权有效，无需再次升级。' }}</p>
       </div>
-      <span class="license-card__pill">{{ account.permanent ? '永久' : '有效期内' }}</span>
+      <span class="license-card__pill">{{ account.permanent ? '永久授权' : '有效期内' }}</span>
     </header>
     <dl class="license-card__grid">
       <div>
