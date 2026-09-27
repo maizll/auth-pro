@@ -82,7 +82,7 @@
 
 ## 应用商店 `/plugin-store`（仅超管）
 
-从软件源安装或启用插件与首页模板。新安装会自带一条官方软件源，地址是 `https://auth.maizll.com/software-source/app_f93896d80066_5811/index.json`，类型是 JSON 目录。升级时如果还留着旧默认地址 `https://auth.maizll.com/software-source/app_4e85b4724223_2603/index.json`，会换成这个新地址并改成 JSON。再启动一次不会多出一条。自己添加的其它软件源不会改。要另外对接目录时，可以在服务器上设置 `AUTO_PRO_SOFTWARE_SOURCE_URL` 与 `AUTO_PRO_SOFTWARE_SOURCE_API_KEY`。未设置时，旧路径 `/admin/app-store` 转到本站 `/plugin-store`。
+从软件源安装或启用插件与首页模板。官网目录写在程序里，应用商店会直接展示其中的内容。软件源管理不列出这一条，也不能删除、修改或停用。这里只显示自己添加的第三方源。升级时会删掉库里已经存在的官网默认源记录，包括以前那个旧默认地址，避免和内置目录重复。自己添加的其它软件源不会改。要另外对接目录时，可以在服务器上设置 `AUTO_PRO_SOFTWARE_SOURCE_URL` 与 `AUTO_PRO_SOFTWARE_SOURCE_API_KEY`。未设置时，旧路径 `/admin/app-store` 转到本站 `/plugin-store`。
 
 远程 ZIP 必须带 64 位 SHA256。公网地址必须是 HTTPS。只有软件源 URL 写成字面量回环或私网 IP 时，才允许 HTTP 和私网。主机名一律按公网处理。
 

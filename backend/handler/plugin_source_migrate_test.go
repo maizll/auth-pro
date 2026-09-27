@@ -110,59 +110,78 @@ func TestMigrateMisclassifiedJSONPluginSources(t *testing.T) {
 	}
 }
 
-func TestMigrateRetiredDefaultPluginSource(t *testing.T) {
+func TestMigrateHideBuiltinPluginSource(t *testing.T) {
 	db := openPluginSourceMigrateDB(t)
+	result, err := db.Exec(`INSERT INTO plugin_sources (name, url, source_type, created_at) VALUES
+		('旧官方', ?, 'git', NOW())`, retiredDefaultPluginSourceURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retiredID, _ := result.LastInsertId()
+	if _, err := db.Exec(`INSERT INTO plugin_source_cache (source_id, source_type, manifest_json, fetched_at, expires_at) VALUES (?, 'git', '{}', NOW(), NOW())`, retiredID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`INSERT INTO plugin_sources (name, url, source_type, created_at) VALUES
-		('旧官方', ?, 'git', NOW()),
 		('旧官方斜杠', ?, 'git', NOW()),
-		('自定义', 'https://github.com/example/custom-plugins.git', 'git', NOW()),
+		('当前官方', ?, 'json', NOW()),
+		('http 官方', ?, 'json', NOW()),
+		('自定义', 'https://cdn.example.com/mine.json', 'json', NOW()),
 		('镜像', 'https://mirror.example.com/software-source/app_4e85b4724223_2603/index.json', 'json', NOW())`,
-		retiredDefaultPluginSourceURL, retiredDefaultPluginSourceURL+"/"); err != nil {
+		retiredDefaultPluginSourceURL+"/", defaultPluginSourceURL, "http://auth.maizll.com/software-source/app_f93896d80066_5811/index.json"); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensurePluginSourceStorage(db); err != nil {
 		t.Fatal(err)
 	}
-	assertDefaultPluginSource(t, db, "旧官方")
-	assertPluginSourceKept(t, db, "自定义", "https://github.com/example/custom-plugins.git", "git")
+	assertNoBuiltinPluginSource(t, db)
+	assertPluginSourceKept(t, db, "自定义", "https://cdn.example.com/mine.json", "json")
 	assertPluginSourceKept(t, db, "镜像", "https://mirror.example.com/software-source/app_4e85b4724223_2603/index.json", "json")
+	var cacheLeft int
+	if err := db.QueryRow("SELECT COUNT(*) FROM plugin_source_cache WHERE source_id=?", retiredID).Scan(&cacheLeft); err != nil {
+		t.Fatal(err)
+	}
+	if cacheLeft != 0 {
+		t.Fatalf("builtin cache rows=%d", cacheLeft)
+	}
 	if err := ensurePluginSourceStorage(db); err != nil {
 		t.Fatal(err)
 	}
-	assertDefaultPluginSource(t, db, "旧官方")
-
-	both := openPluginSourceMigrateDB(t)
-	if _, err := both.Exec(`INSERT INTO plugin_sources (name, url, source_type, created_at) VALUES
-		('旧官方', ?, 'git', NOW()),
-		('已是新地址', ?, 'git', NOW()),
-		('自定义', 'https://cdn.example.com/mine.json', 'json', NOW())`,
-		retiredDefaultPluginSourceURL, defaultPluginSourceURL+"/"); err != nil {
-		t.Fatal(err)
-	}
-	if err := ensurePluginSourceStorage(both); err != nil {
-		t.Fatal(err)
-	}
-	if err := ensurePluginSourceStorage(both); err != nil {
-		t.Fatal(err)
-	}
-	assertDefaultPluginSource(t, both, "已是新地址")
-	assertPluginSourceKept(t, both, "自定义", "https://cdn.example.com/mine.json", "json")
-	var retiredLeft int
-	if err := both.QueryRow("SELECT COUNT(*) FROM plugin_sources WHERE url LIKE ?", "%app_4e85b4724223_2603%").Scan(&retiredLeft); err != nil {
-		t.Fatal(err)
-	}
-	if retiredLeft != 0 {
-		t.Fatalf("retired rows=%d", retiredLeft)
-	}
+	assertNoBuiltinPluginSource(t, db)
 
 	fresh := openPluginSourceMigrateDB(t)
 	if err := ensurePluginSourceStorage(fresh); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensurePluginSourceStorage(fresh); err != nil {
+	assertNoBuiltinPluginSource(t, fresh)
+	var total int
+	if err := fresh.QueryRow("SELECT COUNT(*) FROM plugin_sources").Scan(&total); err != nil {
 		t.Fatal(err)
 	}
-	assertDefaultPluginSource(t, fresh, defaultPluginSourceName)
+	if total != 0 {
+		t.Fatalf("fresh rows=%d", total)
+	}
+}
+
+func TestCatalogPluginSourcesOmitBuiltinRow(t *testing.T) {
+	stored := []pluginSourceRecord{
+		{ID: 3, Name: "官方软件源", URL: defaultPluginSourceURL + "/", SourceType: "json"},
+		{ID: 4, Name: "旧官方", URL: retiredDefaultPluginSourceURL, SourceType: "git"},
+		{ID: 8, Name: "自定义", URL: "https://cdn.example.com/mine.json", SourceType: "json"},
+	}
+	managed := managedPluginSources(stored)
+	if len(managed) != 1 || managed[0].ID != 8 {
+		t.Fatalf("managed=%+v", managed)
+	}
+	catalog := catalogPluginSources(stored)
+	if len(catalog) != 2 || catalog[0].ID != builtinPluginSourceID || catalog[0].URL != defaultPluginSourceURL || catalog[0].Name != defaultPluginSourceName || catalog[1].ID != 8 {
+		t.Fatalf("catalog=%+v", catalog)
+	}
+	if !isBuiltinPluginSourceURL("https://auth.maizll.com/software-source/app_f93896d80066_5811/index.json?x=1") {
+		t.Fatal("query variant should still be the builtin source")
+	}
+	if isBuiltinPluginSourceURL("https://cdn.example.com/mine.json") {
+		t.Fatal("customer source must stay editable")
+	}
 }
 
 func openPluginSourceMigrateDB(t *testing.T) *sql.DB {
@@ -200,21 +219,24 @@ func openPluginSourceMigrateDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func assertDefaultPluginSource(t *testing.T, db *sql.DB, name string) {
+func assertNoBuiltinPluginSource(t *testing.T, db *sql.DB) {
 	t.Helper()
-	var count int
-	if err := db.QueryRow("SELECT COUNT(*) FROM plugin_sources WHERE url=?", defaultPluginSourceURL).Scan(&count); err != nil {
+	rows, err := db.Query("SELECT url FROM plugin_sources")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Fatalf("default rows=%d", count)
+	defer rows.Close()
+	for rows.Next() {
+		var rawURL string
+		if err := rows.Scan(&rawURL); err != nil {
+			t.Fatal(err)
+		}
+		if isBuiltinPluginSourceURL(rawURL) {
+			t.Fatalf("builtin source still stored: %s", rawURL)
+		}
 	}
-	var gotName, gotType string
-	if err := db.QueryRow("SELECT name, source_type FROM plugin_sources WHERE url=?", defaultPluginSourceURL).Scan(&gotName, &gotType); err != nil {
+	if err := rows.Err(); err != nil {
 		t.Fatal(err)
-	}
-	if gotName != name || gotType != pluginSourceTypeJSON {
-		t.Fatalf("default name=%s type=%s", gotName, gotType)
 	}
 }
 

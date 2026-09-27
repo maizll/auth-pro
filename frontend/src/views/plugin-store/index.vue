@@ -298,12 +298,13 @@
           </template>
         </ElTableColumn>
         <template #empty>
-          <ElEmpty description="暂无软件源" :image-size="60" />
+          <ElEmpty description="还没有自己添加的软件源" :image-size="60" />
         </template>
       </ElTable>
 
       <div class="source-tip">
-        可以填写 JSON 目录，或填写 Git 仓库地址。以 .json 结尾或内容是 JSON 的地址会按 JSON
+        官网目录已经写在程序里，不在这个列表里，也不能删除或停用。这里只管理自己添加的软件源。可以填写
+        JSON 目录，或填写 Git 仓库地址。以 .json 结尾或内容是 JSON 的地址会按 JSON
         目录保存；类型选错会在添加时自动改正并提示。本站请为每个应用单独添加一条公开清单，避免不同应用的目录混在一起。Git
         仓库的根目录需要有软件清单。
       </div>
@@ -519,7 +520,10 @@
     templateLoadError.value = ''
     try {
       const [pluginResult, templateResult] = await Promise.allSettled([
-        fetchPluginList({ q: searchText.value || undefined }),
+        fetchPluginList({
+          q: searchText.value || undefined,
+          refresh: refreshTemplates === true ? '1' : undefined
+        }),
         fetchHomeTemplateList(refreshTemplates === true)
       ])
 

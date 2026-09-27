@@ -97,13 +97,18 @@ func ensurePluginSourceStorage(db *sql.DB) error {
 	if err := migrateMisclassifiedJSONPluginSources(db); err != nil {
 		return err
 	}
-	return migrateRetiredDefaultPluginSource(db)
+	return migrateHideBuiltinPluginSource(db)
 }
 
 const (
-	retiredDefaultPluginSourceURL = "https://auth.maizll.com/software-source/app_4e85b4724223_2603/index.json"
-	defaultPluginSourceURL        = "https://auth.maizll.com/software-source/app_f93896d80066_5811/index.json"
-	defaultPluginSourceName       = "官方软件源"
+	builtinPluginSourceID         int64 = 0
+	retiredDefaultPluginSourceURL       = "https://auth.maizll.com/software-source/app_4e85b4724223_2603/index.json"
+	defaultPluginSourceURL              = "https://auth.maizll.com/software-source/app_f93896d80066_5811/index.json"
+	defaultPluginSourceName             = "官方软件源"
+	errBuiltinPluginSourceAdd           = "内置软件源已经写在程序里，不用再添加"
+	errBuiltinPluginSourceDelete        = "内置软件源不能删除"
+	errBuiltinPluginSourceEdit          = "内置软件源不能修改"
+	errBuiltinPluginSourceRefresh       = "内置软件源不能在这里刷新"
 )
 
 func canonicalPluginSourceURL(raw string) string {
@@ -118,78 +123,81 @@ func canonicalPluginSourceURL(raw string) string {
 	return parsed.String()
 }
 
-func migrateRetiredDefaultPluginSource(db *sql.DB) error {
-	rows, err := db.Query("SELECT id, url, source_type FROM plugin_sources ORDER BY id ASC")
+func pluginSourceIdentity(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Hostname() == "" {
+		return canonicalPluginSourceURL(raw)
+	}
+	return strings.ToLower(parsed.Hostname()) + strings.TrimSuffix(parsed.EscapedPath(), "/")
+}
+
+func isBuiltinPluginSourceURL(raw string) bool {
+	got := pluginSourceIdentity(raw)
+	if got == "" {
+		return false
+	}
+	for _, item := range []string{defaultPluginSourceURL, retiredDefaultPluginSourceURL} {
+		if got == pluginSourceIdentity(item) {
+			return true
+		}
+	}
+	return false
+}
+
+func builtinPluginSourceRecord() pluginSourceRecord {
+	return pluginSourceRecord{
+		ID: builtinPluginSourceID, Name: defaultPluginSourceName,
+		URL: defaultPluginSourceURL, SourceType: pluginSourceTypeJSON,
+	}
+}
+
+func managedPluginSources(sources []pluginSourceRecord) []pluginSourceRecord {
+	managed := make([]pluginSourceRecord, 0, len(sources))
+	for _, source := range sources {
+		if source.ID == builtinPluginSourceID || isBuiltinPluginSourceURL(source.URL) {
+			continue
+		}
+		managed = append(managed, source)
+	}
+	return managed
+}
+
+func catalogPluginSources(sources []pluginSourceRecord) []pluginSourceRecord {
+	catalog := []pluginSourceRecord{builtinPluginSourceRecord()}
+	return append(catalog, managedPluginSources(sources)...)
+}
+
+// migrateHideBuiltinPluginSource 删掉库里的官网默认源，避免和管理里的第三方源重复。
+// 当前地址和历史旧默认地址都删，缓存一并清掉。官网目录改由程序内置地址拉取。
+func migrateHideBuiltinPluginSource(db *sql.DB) error {
+	rows, err := db.Query("SELECT id, url FROM plugin_sources")
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	type sourceRow struct {
-		id         int64
-		url        string
-		sourceType string
-	}
-	var listed []sourceRow
-	var current sourceRow
-	var retired []sourceRow
+	var ids []int64
 	for rows.Next() {
-		var item sourceRow
-		if err := rows.Scan(&item.id, &item.url, &item.sourceType); err != nil {
+		var id int64
+		var rawURL string
+		if err := rows.Scan(&id, &rawURL); err != nil {
 			return err
 		}
-		listed = append(listed, item)
-		switch canonicalPluginSourceURL(item.url) {
-		case canonicalPluginSourceURL(defaultPluginSourceURL):
-			current = item
-		case canonicalPluginSourceURL(retiredDefaultPluginSourceURL):
-			retired = append(retired, item)
+		if isBuiltinPluginSourceURL(rawURL) {
+			ids = append(ids, id)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	if current.id != 0 {
-		if current.url != defaultPluginSourceURL || current.sourceType != pluginSourceTypeJSON {
-			if _, err := db.Exec("UPDATE plugin_sources SET url=?, source_type=? WHERE id=?", defaultPluginSourceURL, pluginSourceTypeJSON, current.id); err != nil {
-				return err
-			}
-			if _, err := db.Exec("DELETE FROM plugin_source_cache WHERE source_id=?", current.id); err != nil {
-				return err
-			}
-		}
-		for _, item := range retired {
-			if _, err := db.Exec("DELETE FROM plugin_source_cache WHERE source_id=?", item.id); err != nil {
-				return err
-			}
-			if _, err := db.Exec("DELETE FROM plugin_sources WHERE id=?", item.id); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if len(retired) > 0 {
-		keep := retired[0]
-		if _, err := db.Exec("UPDATE plugin_sources SET url=?, source_type=? WHERE id=?", defaultPluginSourceURL, pluginSourceTypeJSON, keep.id); err != nil {
+	for _, id := range ids {
+		if _, err := db.Exec("DELETE FROM plugin_source_cache WHERE source_id=?", id); err != nil {
 			return err
 		}
-		if _, err := db.Exec("DELETE FROM plugin_source_cache WHERE source_id=?", keep.id); err != nil {
+		if _, err := db.Exec("DELETE FROM plugin_sources WHERE id=?", id); err != nil {
 			return err
 		}
-		for _, item := range retired[1:] {
-			if _, err := db.Exec("DELETE FROM plugin_source_cache WHERE source_id=?", item.id); err != nil {
-				return err
-			}
-			if _, err := db.Exec("DELETE FROM plugin_sources WHERE id=?", item.id); err != nil {
-				return err
-			}
-		}
-		return nil
 	}
-	if len(listed) > 0 {
-		return nil
-	}
-	_, err = db.Exec("INSERT INTO plugin_sources (name, url, source_type, created_at) VALUES (?, ?, ?, NOW())", defaultPluginSourceName, defaultPluginSourceURL, pluginSourceTypeJSON)
-	return err
+	return nil
 }
 
 const (
@@ -543,11 +551,14 @@ func AdminPluginList(c *gin.Context) {
 	for _, plugin := range localPlugins {
 		localIDs[plugin.ID] = true
 	}
-	sources, err := listPluginSources(db)
+	storedSources, err := listPluginSources(db)
 	if err != nil {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "读取软件源失败"})
 		return
 	}
+	sources := catalogPluginSources(storedSources)
+	managedSources := managedPluginSources(storedSources)
+	forceBuiltin := c.Query("refresh") == "1"
 	sourceFilter := strings.TrimSpace(c.Query("source"))
 	keyword := strings.ToLower(strings.TrimSpace(c.Query("q")))
 	local := make([]pluginInfo, 0, len(pluginCatalog))
@@ -569,7 +580,8 @@ func AdminPluginList(c *gin.Context) {
 			if sourceFilter != "" && sourceFilter != fmt.Sprintf("%d", source.ID) {
 				continue
 			}
-			index, _, loadErr := loadPluginSourceIndex(c.Request.Context(), db, source, false)
+			force := forceBuiltin && source.ID == builtinPluginSourceID
+			index, _, loadErr := loadPluginSourceIndex(c.Request.Context(), db, source, force)
 			if loadErr != nil {
 				sourceErrors[source.ID] = loadErr.Error()
 			}
@@ -627,8 +639,8 @@ func AdminPluginList(c *gin.Context) {
 			groups[i].Plugins[j].Ownership = buyerCatalogOwnership(view, "plugin", id, groups[i].Plugins[j].PriceCents)
 		}
 	}
-	sourceStates := make([]gin.H, 0, len(sources))
-	for _, source := range sources {
+	sourceStates := make([]gin.H, 0, len(managedSources))
+	for _, source := range managedSources {
 		state := "unknown"
 		if ok, checked := sourceOK[source.ID]; checked {
 			if ok {
@@ -659,6 +671,10 @@ func AdminPluginSourceAdd(c *gin.Context) {
 	repositoryURL, err := validatePluginSourceURL(request.URL)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	if isBuiltinPluginSourceURL(repositoryURL) {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": errBuiltinPluginSourceAdd})
 		return
 	}
 	resolved, err := resolvePluginSource(c.Request.Context(), repositoryURL, request.SourceType)
@@ -733,6 +749,10 @@ func pluginSourceStateView(source pluginSourceRecord, state, lastError string) g
 
 func AdminPluginSourceRetarget(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
+	if id == "0" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": errBuiltinPluginSourceEdit})
+		return
+	}
 	var request struct {
 		TargetAppID int64  `json:"targetAppId"`
 		URL         string `json:"url"`
@@ -753,6 +773,10 @@ func AdminPluginSourceRetarget(c *gin.Context) {
 	var source pluginSourceRecord
 	if err := db.QueryRow("SELECT id, name, url, source_type FROM plugin_sources WHERE id=?", id).Scan(&source.ID, &source.Name, &source.URL, &source.SourceType); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "软件源不存在"})
+		return
+	}
+	if isBuiltinPluginSourceURL(source.URL) {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": errBuiltinPluginSourceEdit})
 		return
 	}
 	newURL := strings.TrimSpace(request.URL)
@@ -781,6 +805,10 @@ func AdminPluginSourceRetarget(c *gin.Context) {
 	}
 	if newURL == "" {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请选择目标应用或填写新的软件源地址"})
+		return
+	}
+	if isBuiltinPluginSourceURL(source.URL) || isBuiltinPluginSourceURL(newURL) {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": errBuiltinPluginSourceEdit})
 		return
 	}
 	newURL, err = validatePluginSourceURL(newURL)
@@ -813,6 +841,10 @@ func AdminPluginSourceRetarget(c *gin.Context) {
 
 func AdminPluginSourceDelete(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
+	if id == "0" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": errBuiltinPluginSourceDelete})
+		return
+	}
 	db, err := openSystemConfigDB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
@@ -820,6 +852,15 @@ func AdminPluginSourceDelete(c *gin.Context) {
 	}
 	if err := ensurePluginStorage(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})
+		return
+	}
+	var rawURL string
+	if err := db.QueryRow("SELECT url FROM plugin_sources WHERE id=?", id).Scan(&rawURL); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "软件源不存在"})
+		return
+	}
+	if isBuiltinPluginSourceURL(rawURL) {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": errBuiltinPluginSourceDelete})
 		return
 	}
 	if _, err := db.Exec("DELETE FROM plugin_sources WHERE id=?", id); err != nil {
@@ -862,11 +903,12 @@ func AdminPluginDownload(c *gin.Context) {
 			installedVersion = item.Version
 		}
 	}
-	sources, err := listPluginSources(db)
+	storedSources, err := listPluginSources(db)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取软件源失败"})
 		return
 	}
+	sources := catalogPluginSources(storedSources)
 	downloadURL := ""
 	sourceURL := ""
 	expectedSHA := ""
@@ -921,6 +963,10 @@ func AdminPluginDownload(c *gin.Context) {
 
 func AdminPluginSourceRefresh(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
+	if id == "0" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": errBuiltinPluginSourceRefresh})
+		return
+	}
 	db, err := openSystemConfigDB()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
@@ -933,6 +979,10 @@ func AdminPluginSourceRefresh(c *gin.Context) {
 	var source pluginSourceRecord
 	if err := db.QueryRow("SELECT id, name, url, source_type FROM plugin_sources WHERE id=?", id).Scan(&source.ID, &source.Name, &source.URL, &source.SourceType); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "软件源不存在"})
+		return
+	}
+	if isBuiltinPluginSourceURL(source.URL) {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": errBuiltinPluginSourceRefresh})
 		return
 	}
 	index, notice, err := loadPluginSourceIndex(c.Request.Context(), db, source, true)

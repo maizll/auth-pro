@@ -598,6 +598,7 @@ export interface PluginListData {
 export interface PluginListParams {
   source?: string
   q?: string
+  refresh?: string
 }
 
 export function fetchPluginList(params?: PluginListParams) {
