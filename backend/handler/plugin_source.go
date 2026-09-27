@@ -36,18 +36,20 @@ type pluginSourceRecord struct {
 }
 
 type remotePluginEntry struct {
-	ID           string         `json:"id"`
-	Category     string         `json:"category"`
-	Name         string         `json:"name"`
-	Description  string         `json:"description"`
-	Icon         string         `json:"icon"`
-	Version      string         `json:"version"`
-	Author       templateAuthor `json:"author"`
-	DownloadURL  string         `json:"downloadUrl"`
-	SHA256       string         `json:"sha256"`
-	PriceCents   int64          `json:"priceCents"`
-	Billing      string         `json:"billing"`
-	PurchaseOnly bool           `json:"purchaseOnly"`
+	ID                 string         `json:"id"`
+	Category           string         `json:"category"`
+	Name               string         `json:"name"`
+	Description        string         `json:"description"`
+	Icon               string         `json:"icon"`
+	Version            string         `json:"version"`
+	Author             templateAuthor `json:"author"`
+	DownloadURL        string         `json:"downloadUrl"`
+	SHA256             string         `json:"sha256"`
+	PriceCents         int64          `json:"priceCents"`
+	Billing            string         `json:"billing"`
+	PurchaseOnly       bool           `json:"purchaseOnly"`
+	Party              string         `json:"party"`
+	CommercialIncluded bool           `json:"commercialIncluded"`
 }
 
 type remotePluginIndex struct {

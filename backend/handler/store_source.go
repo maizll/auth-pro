@@ -998,12 +998,14 @@ func loadPaidCatalog() []paidCatalogItem {
 }
 
 type paidCatalogItem struct {
-	Kind         string `json:"kind"`
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Version      string `json:"version"`
-	PriceCents   int64  `json:"priceCents"`
-	Billing      string `json:"billing"`
-	Delivery     string `json:"delivery"`
-	PurchaseOnly bool   `json:"purchaseOnly"`
+	Kind               string `json:"kind"`
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Version            string `json:"version"`
+	PriceCents         int64  `json:"priceCents"`
+	Billing            string `json:"billing"`
+	Delivery           string `json:"delivery"`
+	PurchaseOnly       bool   `json:"purchaseOnly"`
+	Party              string `json:"party"`
+	CommercialIncluded bool   `json:"commercialIncluded"`
 }

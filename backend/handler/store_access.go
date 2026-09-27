@@ -330,22 +330,22 @@ type catalogAccess struct {
 	Grant              string `json:"grant"`
 }
 
-// commercialExcludesItem 是「官方还是第三方、商业版包不包含」的唯一判断。
-// 内置官方插件始终包含。其余条目以目录的仅单买标记为准，再看开发者编号和访问策略。
+// commercialExcludesItem 表示商业版不包含这条。目录里已经写入来源和商业版免费时只看这两个字段。
+// 旧目录没有这两列时，才退回内置插件、开发者编号和仅单买策略。
 func commercialExcludesItem(kind, id string, priceCents, developerID int64, listedPurchaseOnly bool) bool {
 	if priceCents <= 0 || strings.TrimSpace(id) == "" {
 		return false
 	}
-	if kind == "plugin" && officialBuiltinPlugin(id) {
-		return false
+	if _, _, ok := lookupStoredCatalogListing(kind, id); ok {
+		_, included := resolveListing(kind, id, priceCents)
+		return !included
 	}
-	if listedPurchaseOnly || developerID > 0 {
-		return true
+	item := findPaidCatalog(kind, id)
+	if item.Party == catalogPartyOfficial || item.Party == catalogPartyThird {
+		_, included := resolveListing(kind, id, priceCents)
+		return !included
 	}
-	if catalogItemPurchaseOnly(kind, id) {
-		return true
-	}
-	return catalogDeveloperPaid(kind, id)
+	return legacyCommercialExcludes(kind, id, priceCents, developerID, listedPurchaseOnly)
 }
 
 func catalogPurchaseOnly(kind, id string) bool {
@@ -365,12 +365,7 @@ func resolveCatalogAccess(view buyerAccessView, kind, id string, priceCents int6
 	if priceCents < 0 {
 		priceCents = 0
 	}
-	excluded := priceCents > 0 && catalogPurchaseOnly(kind, id)
-	party := "official"
-	if excluded {
-		party = "third"
-	}
-	included := priceCents > 0 && !excluded
+	party, included := resolveListing(kind, id, priceCents)
 	commercial := view.Edition == storeEditionCommercial && !view.DomainMismatch && !view.ExplicitRevoked
 	purchased := priceCents > 0 && buyerOwnsCatalogItem(view, kind, id)
 	grant := ""
@@ -507,21 +502,24 @@ func rememberPaidCatalogFromIndex(index *remotePluginIndex) {
 		items = append(items, item)
 	}
 	for _, plugin := range index.Plugins {
+		party, included, purchaseOnly := indexListing(sourceKindPlugin, plugin.ID, plugin.PriceCents, plugin.Party, plugin.CommercialIncluded, plugin.PurchaseOnly)
 		upsert(paidCatalogItem{
 			Kind: "plugin", ID: plugin.ID, Name: plugin.Name, Version: plugin.Version,
 			PriceCents: plugin.PriceCents, Billing: plugin.Billing,
-			PurchaseOnly: commercialExcludesItem("plugin", plugin.ID, plugin.PriceCents, 0, plugin.PurchaseOnly),
+			PurchaseOnly: purchaseOnly, Party: party, CommercialIncluded: included,
 		})
 	}
 	for _, raw := range index.HomeTemplates {
 		var meta struct {
-			ID           string `json:"id"`
-			TemplateKey  string `json:"templateKey"`
-			Name         string `json:"name"`
-			Version      string `json:"version"`
-			PriceCents   int64  `json:"priceCents"`
-			Billing      string `json:"billing"`
-			PurchaseOnly bool   `json:"purchaseOnly"`
+			ID                 string `json:"id"`
+			TemplateKey        string `json:"templateKey"`
+			Name               string `json:"name"`
+			Version            string `json:"version"`
+			PriceCents         int64  `json:"priceCents"`
+			Billing            string `json:"billing"`
+			PurchaseOnly       bool   `json:"purchaseOnly"`
+			Party              string `json:"party"`
+			CommercialIncluded bool   `json:"commercialIncluded"`
 		}
 		if json.Unmarshal(raw, &meta) != nil {
 			continue
@@ -530,10 +528,11 @@ func rememberPaidCatalogFromIndex(index *remotePluginIndex) {
 		if id == "" {
 			id = meta.ID
 		}
+		party, included, purchaseOnly := indexListing(sourceKindTemplate, id, meta.PriceCents, meta.Party, meta.CommercialIncluded, meta.PurchaseOnly)
 		upsert(paidCatalogItem{
 			Kind: "template", ID: id, Name: meta.Name, Version: meta.Version,
 			PriceCents: meta.PriceCents, Billing: meta.Billing,
-			PurchaseOnly: commercialExcludesItem("template", id, meta.PriceCents, 0, meta.PurchaseOnly),
+			PurchaseOnly: purchaseOnly, Party: party, CommercialIncluded: included,
 		})
 	}
 	savePaidCatalog(items)

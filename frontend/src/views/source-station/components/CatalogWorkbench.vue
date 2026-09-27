@@ -105,6 +105,7 @@
         <el-table-column prop="name" label="名称" :min-width="narrow ? 48 : 140">
           <template #default="{ row }">
             <div>{{ row.name }}</div>
+            <p class="card-hint">{{ listingLabel(row) }}</p>
             <p v-if="row.fulfillmentHint" class="card-hint">{{ row.fulfillmentHint }}</p>
           </template>
         </el-table-column>
@@ -284,7 +285,12 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="editVisible" title="编辑目录项" width="560px" destroy-on-close>
+    <el-dialog
+      v-model="editVisible"
+      title="编辑目录项"
+      :width="narrow ? '92%' : '560px'"
+      destroy-on-close
+    >
       <el-alert
         type="info"
         :closable="false"
@@ -322,6 +328,20 @@
             会恢复公开下载。
           </p>
         </el-form-item>
+        <el-form-item label="来源">
+          <el-radio-group v-model="editForm.party">
+            <el-radio value="official">官方</el-radio>
+            <el-radio value="third">第三方</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="商业版免费">
+          <el-checkbox
+            v-model="editForm.commercialIncluded"
+            :disabled="editForm.party !== 'official'"
+            >商业版用户可直接启用</el-checkbox
+          >
+          <p class="card-hint">仅官方条目可勾选。官方付费条目默认勾选，第三方不包含在商业版里。</p>
+        </el-form-item>
         <el-form-item label="下载地址" prop="location">
           <el-input v-model="editForm.location" placeholder="https://..." />
         </el-form-item>
@@ -355,7 +375,12 @@
 
     <CatalogPriceSwitchDialog v-model="priceSwitchVisible" @confirm="confirmPriceSwitch" />
 
-    <el-dialog v-model="registerVisible" title="登记外部地址" width="560px" destroy-on-close>
+    <el-dialog
+      v-model="registerVisible"
+      title="登记外部地址"
+      :width="narrow ? '92%' : '560px'"
+      destroy-on-close
+    >
       <el-form ref="registerRef" :model="registerForm" :rules="registerRules" label-width="110px">
         <el-form-item label="应用" prop="appId">
           <el-select v-model="registerForm.appId" placeholder="请选择应用" style="width: 100%">
@@ -394,6 +419,20 @@
           <p class="card-hint">
             填 0 表示免费。大于 0 请到「上传安装包」上传压缩包或填写公开地址。
           </p>
+        </el-form-item>
+        <el-form-item label="来源">
+          <el-radio-group v-model="registerForm.party">
+            <el-radio value="official">官方</el-radio>
+            <el-radio value="third">第三方</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="商业版免费">
+          <el-checkbox
+            v-model="registerForm.commercialIncluded"
+            :disabled="registerForm.party !== 'official'"
+            >商业版用户可直接启用</el-checkbox
+          >
+          <p class="card-hint">仅官方条目可勾选。官方付费条目默认勾选，第三方不包含在商业版里。</p>
         </el-form-item>
         <el-form-item label="下载地址" prop="location">
           <el-input v-model="registerForm.location" placeholder="https://..." />
@@ -634,7 +673,7 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, reactive, ref } from 'vue'
+  import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
   import { useRoute } from 'vue-router'
   import type { FormInstance, FormRules, UploadFile } from 'element-plus'
   import { ElMessage, ElMessageBox } from 'element-plus'
@@ -766,8 +805,42 @@
     authorName: '',
     changelog: '',
     category: 'other',
-    shelf: false
+    shelf: false,
+    party: 'official' as 'official' | 'third',
+    commercialIncluded: false
   })
+  let listingSyncLock = false
+
+  function priceYuanPositive(value: string) {
+    const cents = Number(String(value || '').trim())
+    return Number.isFinite(cents) && cents > 0
+  }
+
+  function listingLabel(row: SourceCatalogItem) {
+    const party = row.party === 'third' ? '第三方' : '官方'
+    if ((row.priceCents || 0) <= 0) return party
+    if (row.party !== 'third' && row.commercialIncluded) return `${party} · 商业版免费`
+    return `${party} · 商业版不包含`
+  }
+
+  watch(
+    () => registerForm.party,
+    (party) => {
+      if (listingSyncLock) return
+      if (party !== 'official') registerForm.commercialIncluded = false
+      else if (priceYuanPositive(registerForm.priceYuan)) registerForm.commercialIncluded = true
+    }
+  )
+  watch(
+    () => registerForm.priceYuan,
+    (value, oldValue) => {
+      if (listingSyncLock || registerForm.party !== 'official') return
+      if (priceYuanPositive(value) && !priceYuanPositive(oldValue || '')) {
+        registerForm.commercialIncluded = true
+      }
+    }
+  )
+
   const editVisible = ref(false)
   const editing = ref(false)
   const priceSwitchVisible = ref(false)
@@ -785,8 +858,26 @@
     changelog: '',
     category: '',
     icon: '',
-    note: ''
+    note: '',
+    party: 'official' as 'official' | 'third',
+    commercialIncluded: false
   })
+  watch(
+    () => editForm.party,
+    (party) => {
+      if (listingSyncLock) return
+      if (party !== 'official') editForm.commercialIncluded = false
+    }
+  )
+  watch(
+    () => editForm.priceYuan,
+    (value, oldValue) => {
+      if (listingSyncLock || editForm.party !== 'official') return
+      if (priceYuanPositive(value) && !priceYuanPositive(oldValue || '')) {
+        editForm.commercialIncluded = true
+      }
+    }
+  )
   const editRules: FormRules = {
     category: [{ required: true, message: '请选择分类', trigger: 'change' }],
     name: [{ required: true, message: '请填写名称', trigger: 'blur' }],
@@ -1223,6 +1314,7 @@
 
   function openEdit(row: SourceCatalogItem) {
     editingItem.value = row
+    listingSyncLock = true
     editForm.id = row.id
     editForm.name = row.name
     editForm.description = row.description || ''
@@ -1234,11 +1326,21 @@
     editForm.category = row.category
     editForm.icon = row.icon || ''
     editForm.note = ''
+    editForm.party = row.party === 'third' ? 'third' : 'official'
+    editForm.commercialIncluded = editForm.party === 'official' && !!row.commercialIncluded
     editVisible.value = true
+    void nextTick(() => {
+      listingSyncLock = false
+    })
   }
 
   function confirmPriceSwitch(policy: 'grandfather' | 'purchase_only') {
     pendingPriceSwitch.value = policy
+    if (policy === 'purchase_only' || editForm.party !== 'official') {
+      editForm.commercialIncluded = false
+    } else {
+      editForm.commercialIncluded = true
+    }
     void saveEdit(policy)
   }
 
@@ -1302,6 +1404,8 @@
           category: editForm.category,
           author: { name: editForm.authorName },
           note,
+          party: editForm.party,
+          commercialIncluded: editForm.party === 'official' && editForm.commercialIncluded,
           ...switchField
         })
       } else {
@@ -1319,6 +1423,8 @@
           icon: editForm.icon,
           author: { name: editForm.authorName },
           note,
+          party: editForm.party,
+          commercialIncluded: editForm.party === 'official' && editForm.commercialIncluded,
           ...switchField
         })
       }
@@ -1354,6 +1460,8 @@
     registerForm.changelog = ''
     registerForm.category = searchForm.category || 'other'
     registerForm.shelf = false
+    registerForm.party = 'official'
+    registerForm.commercialIncluded = false
     registerVisible.value = true
   }
 
@@ -1381,7 +1489,9 @@
           schemaVersion: 1,
           category: registerForm.category,
           author: { name: registerForm.authorName },
-          shelf: registerForm.shelf
+          shelf: registerForm.shelf,
+          party: registerForm.party,
+          commercialIncluded: registerForm.party === 'official' && registerForm.commercialIncluded
         })
       } else {
         await registerSourcePlugin({
@@ -1396,7 +1506,9 @@
           changelog: registerForm.changelog,
           category: registerForm.category,
           author: { name: registerForm.authorName },
-          shelf: registerForm.shelf
+          shelf: registerForm.shelf,
+          party: registerForm.party,
+          commercialIncluded: registerForm.party === 'official' && registerForm.commercialIncluded
         })
       }
       ElMessage.success('已登记外部地址（未上传源码）')

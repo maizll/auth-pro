@@ -35,3 +35,12 @@ const bought = catalogItemAccess({
 assert.equal(bought.needsPurchase, false)
 assert.equal(bought.owned, true)
 assert.equal(bought.badge?.text, '已包含')
+
+const officialSeparate = catalogItemAccess({
+  priceCents: 100,
+  access: { party: 'official', commercialIncluded: false, owned: false, grant: '' }
+})
+assert.equal(officialSeparate.party, 'official')
+assert.equal(officialSeparate.commercialIncluded, false)
+assert.equal(officialSeparate.needsPurchase, true)
+assert.equal(officialSeparate.badge, null)

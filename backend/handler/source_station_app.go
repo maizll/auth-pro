@@ -267,7 +267,8 @@ func sourcePublicPluginEntry(plugin sourcePlugin) map[string]any {
 		"id": plugin.ID, "category": category, "name": plugin.Name, "description": plugin.Description,
 		"icon": plugin.Icon, "version": plugin.Version, "author": publicCatalogAuthor(plugin.Author),
 		"priceCents": plugin.PriceCents, "billing": catalogBillingLabel(plugin.Billing),
-		"purchaseOnly": catalogEntryPurchaseOnly("plugin", plugin.ID, plugin.DeveloperID, plugin.PriceCents),
+		"party": pluginListingParty(plugin), "commercialIncluded": pluginListingIncluded(plugin),
+		"purchaseOnly": plugin.PriceCents > 0 && !pluginListingIncluded(plugin),
 		"forceUpdate":  plugin.ForceUpdate,
 	}
 	// 免费包的下载地址一律换成官网。仓库、外链和本站暂存位置都不写进公开目录。
@@ -297,7 +298,8 @@ func sourcePublicTemplateEntry(template sourceTemplate) map[string]any {
 		"id": template.TemplateKey, "category": category, "name": template.Name, "description": template.Description,
 		"version": template.Version, "schemaVersion": schemaVersion,
 		"priceCents": template.PriceCents, "billing": catalogBillingLabel(template.Billing),
-		"purchaseOnly": catalogEntryPurchaseOnly("template", template.TemplateKey, template.DeveloperID, template.PriceCents),
+		"party": templateListingParty(template), "commercialIncluded": templateListingIncluded(template),
+		"purchaseOnly": template.PriceCents > 0 && !templateListingIncluded(template),
 		"forceUpdate":  template.ForceUpdate,
 	}
 	templateID := strings.TrimSpace(template.TemplateKey)

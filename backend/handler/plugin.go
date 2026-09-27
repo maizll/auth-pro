@@ -128,7 +128,8 @@ func findCatalogPlugin(id string) (pluginInfo, bool) {
 }
 
 // officialBuiltinPlugin 是编译进程序的官方插件，例如支付宝当面付。
-// 软件目录里的开发者编号或「所有人都需购买」不能把这类条目从商业版里划出去。
+// 目录还没写过来源时，开发者编号或「所有人都需购买」不能把这类条目从商业版里划出去。
+// 后台一旦保存了来源，以 listing_party 和 commercial_included 为准。
 func officialBuiltinPlugin(id string) bool {
 	plugin, ok := findCatalogPlugin(id)
 	return ok && plugin.Official

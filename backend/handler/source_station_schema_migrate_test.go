@@ -183,6 +183,7 @@ var sourceStationMigrationNames = []string{
 	"source_developer_agent_backfill_v1",
 	"source_catalog_price_v1",
 	"source_catalog_origin_v1",
+	"source_catalog_listing_v1",
 	"source_catalog_paid_external_visible_v1",
 	"store_bindings_v1",
 	"store_login_handoff_v1",
@@ -483,6 +484,8 @@ func (c *sourceSchemaMigrateConn) QueryContext(_ context.Context, query string, 
 				count++
 			}
 		}
+	case strings.Contains(query, "SELECT id, price_cents FROM"):
+		return &sourceSchemaMigrateRows{done: true}, nil
 	case strings.Contains(query, "LEFT JOIN apps"):
 		count = int64(state.catalogOrphans)
 	default:

@@ -659,7 +659,10 @@ func grantGrandfatherLicense(db *sql.DB, kind, itemID string, licenseID int64) (
 }
 
 func catalogEntryPurchaseOnly(kind, itemID string, developerID, priceCents int64) bool {
-	return commercialExcludesItem(kind, itemID, priceCents, developerID, false)
+	if party, included, ok := lookupStoredCatalogListing(kind, itemID); ok {
+		return priceCents > 0 && !(party == catalogPartyOfficial && included)
+	}
+	return legacyCommercialExcludes(kind, itemID, priceCents, developerID, false)
 }
 
 func catalogItemPurchaseOnly(kind, itemID string) bool {

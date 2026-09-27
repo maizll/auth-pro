@@ -130,6 +130,8 @@ export interface SourceCatalogItem {
   priceCents?: number
   billing?: string
   delivery?: string
+  party?: 'official' | 'third' | string
+  commercialIncluded?: boolean
   originUrl?: string
   originHealth?: string
   originHint?: string
@@ -271,6 +273,8 @@ export interface SourcePluginDraft {
   forceUpdate?: boolean
   author?: SourceAuthor
   shelf?: boolean
+  party?: 'official' | 'third'
+  commercialIncluded?: boolean
   priceSwitch?: 'grandfather' | 'purchase_only'
 }
 
@@ -291,6 +295,8 @@ export interface SourceTemplateDraft {
   forceUpdate?: boolean
   author?: SourceAuthor
   shelf?: boolean
+  party?: 'official' | 'third'
+  commercialIncluded?: boolean
   priceSwitch?: 'grandfather' | 'purchase_only'
 }
 
