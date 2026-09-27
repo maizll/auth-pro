@@ -99,12 +99,8 @@
               <span class="account-bar__role">{{ accountRoleLabel }}</span>
             </div>
             <div class="account-bar__links">
-              <a
-                class="account-bar__link"
-                :href="manageAuthHref"
-                target="_blank"
-                rel="noopener noreferrer"
-                >管理授权</a
+              <button type="button" class="account-bar__link" @click="openManageAuth"
+                >管理授权</button
               >
               <button type="button" class="account-bar__link" @click="switchBinding"
                 >切换绑定</button
@@ -472,6 +468,7 @@
   } from '@/utils/commercial'
   import {
     bindStoreAccount,
+    fetchStoreManageLink,
     fetchStoreRegisterCaptcha,
     sendStoreRegisterEmailCode,
     registerStoreAccount,
@@ -487,8 +484,7 @@
   } from '@/api/store'
   import { verifyGeetestCaptcha } from '@/utils/geetest'
 
-  // 管理授权仍开源站新窗口。注册在购买窗口里完成，不再跳到官网。
-  const sourceSite = 'https://auth.maizll.com'
+  // 管理授权先向本站要一次性链接，再在新标签打开。注册也在购买窗口里完成。
 
   const loading = ref(false)
   const acting = ref(false)
@@ -629,11 +625,6 @@
   const showBoundAccount = computed(() => sourceConfirmedBound(account.value) && !needsBind.value)
   const accountRoleLabel = computed(() => (account.value?.role === 'agent' ? '代理商' : '用户'))
   const maskedAccount = computed(() => maskAccount(account.value?.account || ''))
-  const manageAuthHref = computed(() =>
-    account.value?.role === 'agent'
-      ? `${sourceSite}/agent-panel/licenses`
-      : `${sourceSite}/user/licenses`
-  )
   const siteProblem = computed(
     () => account.value?.connectionIssues?.find((item) => item.field === 'site')?.message || ''
   )
@@ -711,6 +702,27 @@
 
   function yuanText(cents: number) {
     return `${yuanWhole(cents)}.${yuanFrac(cents)}`
+  }
+
+  async function openManageAuth() {
+    // 先开空白标签，再填地址。带 noopener 时拿不到窗口，浏览器会把随后的打开当成弹窗拦截。
+    const popup = window.open('about:blank', '_blank')
+    if (!popup) {
+      ElMessage.error('浏览器拦截了新窗口，请允许弹出后再试')
+      return
+    }
+    try {
+      const data = await fetchStoreManageLink()
+      if (!data?.url) {
+        popup.close()
+        ElMessage.error('暂时打不开我的授权，请稍后再试')
+        return
+      }
+      popup.location.href = data.url
+    } catch (error: unknown) {
+      popup.close()
+      showCaughtError(error, '暂时打不开我的授权，请稍后再试')
+    }
   }
 
   async function switchBinding() {

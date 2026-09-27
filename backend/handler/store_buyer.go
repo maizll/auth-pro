@@ -42,6 +42,8 @@ func RegisterPaidStoreRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 	api.POST("/v1/store/auth/login", StoreAuthLogin)
 	api.POST("/v1/store/auth/confirm", StoreAuthConfirm)
 	api.POST("/v1/store/auth/logout", StoreAuthLogout)
+	api.POST("/v1/store/auth/handoff", StoreLoginHandoffIssue)
+	api.POST("/v1/store/auth/handoff/consume", StoreLoginHandoffConsume)
 	api.POST("/v1/store/auth/rotate", StoreAuthRotate)
 	api.GET("/v1/store/status", StoreStatus)
 	api.GET("/v1/store/binding", StoreBindingCheck)
@@ -74,6 +76,7 @@ func RegisterBuyerStoreRoutes(group *gin.RouterGroup) {
 	group.POST("/store/refresh", BuyerStoreRefresh)
 	group.POST("/store/install", BuyerStoreInstall)
 	group.POST("/store/logout", BuyerStoreLogout)
+	group.POST("/store/manage-link", BuyerStoreManageLink)
 }
 
 // RegisterPanelStoreRoutes 给用户端和代理端挂上「已绑定站点」和「购买记录」。
@@ -539,6 +542,43 @@ func BuyerStoreLogout(c *gin.Context) {
 	_ = signedSourceJSON(http.MethodPost, "/api/v1/store/auth/logout", map[string]any{}, nil)
 	clearBuyerLocalBinding()
 	storeData(c, gin.H{"ok": true})
+}
+
+// BuyerStoreManageLink 用已绑定的签名向源站要一条一次性登录链接。
+// 链接只在响应里交给浏览器，本函数不写日志。绑定已失效时清本地并要求重新绑定。
+func BuyerStoreManageLink(c *gin.Context) {
+	var payload map[string]any
+	err := signedSourceJSON(http.MethodPost, "/api/v1/store/auth/handoff", map[string]any{}, &payload)
+	if err != nil {
+		if storeFailSource(c, err) {
+			return
+		}
+		storeFail(c, 400, plainManageLinkError(err.Error()))
+		return
+	}
+	data, _ := payload["data"].(map[string]any)
+	raw, _ := data["url"].(string)
+	link, err := buyerManageLinkAllowed(raw)
+	if err != nil {
+		storeFail(c, 400, err.Error())
+		return
+	}
+	storeData(c, gin.H{"url": link})
+}
+
+func plainManageLinkError(msg string) string {
+	switch {
+	case strings.Contains(msg, "无法连接源站"), strings.Contains(msg, "网络"):
+		return "网络不通，请稍后再试"
+	case strings.Contains(msg, "尚未绑定"):
+		return "尚未绑定源站账号"
+	case strings.Contains(msg, "无法解析"), strings.Contains(msg, "还没有这个接口"):
+		return "源站暂时不能打开我的授权，请稍后再试"
+	case strings.TrimSpace(msg) == "":
+		return "暂时打不开我的授权，请稍后再试"
+	default:
+		return msg
+	}
 }
 
 // BuyerStoreInstall 按 kind 和 id 把已购买的插件或模板装到本机。

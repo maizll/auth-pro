@@ -130,6 +130,14 @@ export function fetchStoreEditionOrder(orderNo: string) {
   })
 }
 
+export function fetchStoreManageLink() {
+  return request.post<{ url: string }>({
+    url: '/api/store/manage-link',
+    showErrorMessage: false,
+    showSuccessMessage: false
+  })
+}
+
 export function logoutStoreAccount() {
   return request.post({
     url: '/api/store/logout',

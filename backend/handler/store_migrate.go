@@ -17,6 +17,7 @@ const (
 	storeMigrationLicenseSourcePurchase = "licenses_source_store_purchase_v1"
 	storeMigrationDomainChanges         = "license_domain_changes_v1"
 	storeMigrationDropBuyerConnection   = "store_drop_buyer_connection_settings_v1"
+	storeMigrationLoginHandoff          = "store_login_handoff_v1"
 )
 
 func migrateStoreBindings(db *sql.DB) error {
@@ -65,6 +66,28 @@ func migrateStoreBindings(db *sql.DB) error {
 		if _, err := db.Exec(statement); err != nil {
 			return fmt.Errorf("store bindings: %w", err)
 		}
+	}
+	return nil
+}
+
+// migrateStoreLoginHandoff 保存「管理授权」一次性登录票据。只存哈希，原文不落库。
+func migrateStoreLoginHandoff(db *sql.DB) error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS store_login_handoffs (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		token_hash CHAR(64) NOT NULL,
+		binding_id VARCHAR(64) NOT NULL,
+		owner_type ENUM('user','agent') NOT NULL,
+		owner_id BIGINT UNSIGNED NOT NULL,
+		expires_at DATETIME NOT NULL,
+		used_at DATETIME DEFAULT NULL,
+		created_ip VARCHAR(64) NOT NULL DEFAULT '',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		UNIQUE KEY uk_store_handoff_hash (token_hash),
+		KEY idx_store_handoff_expires (expires_at)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`)
+	if err != nil {
+		return fmt.Errorf("store login handoff: %w", err)
 	}
 	return nil
 }

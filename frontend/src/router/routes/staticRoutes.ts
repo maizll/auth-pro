@@ -68,6 +68,18 @@ export const staticRoutes: AppRouteRecordRaw[] = [
     meta: { title: '授权服务首页', isHideTab: true }
   },
   {
+    path: '/user/handoff',
+    name: 'UserLicenseHandoff',
+    component: () => import('@views/user-panel/handoff/index.vue'),
+    meta: { title: '我的授权', isHideTab: true }
+  },
+  {
+    path: '/agent-panel/handoff',
+    name: 'AgentLicenseHandoff',
+    component: () => import('@views/user-panel/handoff/index.vue'),
+    meta: { title: '我的授权', isHideTab: true }
+  },
+  {
     path: '/buy',
     name: 'SitePurchase',
     component: () => import('@views/site/purchase/index.vue'),
