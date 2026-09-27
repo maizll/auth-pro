@@ -76,6 +76,8 @@
   import {
     catalogCardBuyLabel,
     catalogPurchaseResumeEvent,
+    commercialUi,
+    isCommercialActive,
     openCatalogPurchase,
     type CatalogPurchaseOffer
   } from '@/utils/commercial'
@@ -86,13 +88,16 @@
   const builtin = computed(
     () => props.template.id === 'default' || props.template.sourceType === 'builtin'
   )
-  const unpaid = computed(
-    () =>
+  const unpaid = computed(() => {
+    const covered = !props.template.purchaseOnly && isCommercialActive(commercialUi.account)
+    return (
       !builtin.value &&
       !props.template.enabled &&
       (props.template.priceCents || 0) > 0 &&
-      props.template.ownership === 'none'
-  )
+      props.template.ownership === 'none' &&
+      !covered
+    )
+  })
   const buyLabel = computed(() => catalogCardBuyLabel(props.template.priceCents))
   const catalogId = computed(
     () => props.template.catalogItemId || props.template.catalogId || props.template.templateId

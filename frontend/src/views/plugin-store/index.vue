@@ -351,6 +351,8 @@
     catalogCardBuyLabel,
     catalogPurchaseResumeEvent,
     openCatalogPurchase,
+    commercialUi,
+    isCommercialActive,
     rememberCommercialAccount,
     type CatalogPurchaseOffer
   } from '@/utils/commercial'
@@ -585,16 +587,22 @@
 
   const catalog = ref<StoreCatalogItem[]>([])
 
-  function badgeFor(ownership?: string, price?: number) {
+  function badgeFor(ownership?: string, price?: number, purchaseOnly?: boolean) {
     if (!price || price <= 0) return null
-    if (ownership === 'included' || ownership === 'purchased') {
+    if (purchaseOnly) {
+      if (ownership === 'included' || ownership === 'purchased') {
+        return { text: '已包含', icon: 'ri:shield-check-fill', tone: 'ok' as const }
+      }
+      return null
+    }
+    if (ownership === 'purchased') {
       return { text: '已包含', icon: 'ri:shield-check-fill', tone: 'ok' as const }
     }
     return { text: '商业版免费', icon: 'ri:rocket-2-line', tone: 'primary' as const }
   }
 
   function pluginBadge(plugin: PluginInfo) {
-    return badgeFor(plugin.ownership, plugin.priceCents)
+    return badgeFor(plugin.ownership, plugin.priceCents, plugin.purchaseOnly)
   }
 
   function templateBadge(template: HomeTemplateInfo) {
@@ -602,7 +610,11 @@
     const item = catalog.value.find(
       (row) => row.kind === 'template' && (row.id === key || row.id === String(template.id))
     )
-    return badgeFor(item?.ownership, item?.priceCents)
+    return badgeFor(
+      template.ownership || item?.ownership,
+      template.priceCents || item?.priceCents,
+      template.purchaseOnly || item?.purchaseOnly
+    )
   }
 
   async function loadStoreCatalog() {
@@ -620,7 +632,12 @@
     }
   }
 
+  function coveredByCommercial(purchaseOnly?: boolean) {
+    return !purchaseOnly && isCommercialActive(commercialUi.account)
+  }
+
   function unpaidPlugin(plugin: PluginInfo) {
+    if (coveredByCommercial(plugin.purchaseOnly)) return false
     return !plugin.enabled && (plugin.priceCents || 0) > 0 && plugin.ownership === 'none'
   }
 

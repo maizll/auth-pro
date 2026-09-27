@@ -361,6 +361,17 @@ func paidEnableAllowed(priceCents int64, commercial, entitled bool) bool {
 	return commercial || entitled
 }
 
+// buyerMayInstallPaid 判断当前买家能不能直接安装这个标价条目。
+// 商业版覆盖官方条目。开发者条目和标成仅单买的条目必须另有购买权益。
+func buyerMayInstallPaid(c *gin.Context, kind, id string, priceCents int64) bool {
+	if priceCents <= 0 {
+		return true
+	}
+	view := currentBuyerAccess(c)
+	commercial := view.Edition == storeEditionCommercial && !catalogPurchaseOnly(kind, id)
+	return paidEnableAllowed(priceCents, commercial, buyerOwnsCatalogItem(view, kind, id))
+}
+
 func findPaidCatalog(kind, id string) paidCatalogItem {
 	for _, item := range loadPaidCatalog() {
 		if item.Kind == kind && item.ID == id {

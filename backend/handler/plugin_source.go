@@ -914,29 +914,57 @@ func AdminPluginDownload(c *gin.Context) {
 	expectedSHA := ""
 	remoteVersion := ""
 	var metadata pluginInfo
+	var priced remotePluginEntry
+	found := false
 	for _, source := range sources {
 		index, _, _ := loadPluginSourceIndex(c.Request.Context(), db, source, false)
 		if index == nil {
 			continue
 		}
 		for _, plugin := range index.Plugins {
-			if plugin.ID == pluginID {
-				downloadURL = strings.TrimSpace(plugin.DownloadURL)
-				expectedSHA = plugin.SHA256
-				remoteVersion = plugin.Version
-				sourceURL = source.URL
-				metadata = pluginInfo{ID: plugin.ID, Category: plugin.Category, Name: plugin.Name,
-					Description: plugin.Description, Icon: plugin.Icon, Version: plugin.Version,
-					Author: plugin.Author, Source: source.Name, DownloadURL: downloadURL}
-				if metadata.Source == "" {
-					metadata.Source = index.Name
-				}
-				break
+			if plugin.ID != pluginID {
+				continue
 			}
-		}
-		if downloadURL != "" {
+			found = true
+			priced = plugin
+			downloadURL = strings.TrimSpace(plugin.DownloadURL)
+			expectedSHA = plugin.SHA256
+			remoteVersion = plugin.Version
+			sourceURL = source.URL
+			metadata = pluginInfo{ID: plugin.ID, Category: plugin.Category, Name: plugin.Name,
+				Description: plugin.Description, Icon: plugin.Icon, Version: plugin.Version,
+				Author: plugin.Author, Source: source.Name, DownloadURL: downloadURL}
+			if metadata.Source == "" {
+				metadata.Source = index.Name
+			}
 			break
 		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		if cached := findPaidCatalog("plugin", pluginID); cached.PriceCents > 0 {
+			found = true
+			priced = remotePluginEntry{ID: cached.ID, Name: cached.Name, Version: cached.Version, PriceCents: cached.PriceCents, Billing: cached.Billing, PurchaseOnly: cached.PurchaseOnly}
+		}
+	}
+	// 标价大于 0 的包不走公开目录地址。商业版包含的官方条目换官网下载票，仅单买的条目仍要求付款。
+	if found && priced.PriceCents > 0 {
+		if !buyerMayInstallPaid(c, "plugin", pluginID, priced.PriceCents) {
+			item := findPaidCatalog("plugin", pluginID)
+			if item.ID == "" {
+				item = paidCatalogItem{Kind: "plugin", ID: pluginID, Name: priced.Name, Version: priced.Version, PriceCents: priced.PriceCents, Billing: priced.Billing, PurchaseOnly: priced.PurchaseOnly}
+			}
+			writePaidItemRequired(c, "paid_plugin", item)
+			return
+		}
+		if err := installPaidPackage(c.Request.Context(), "plugin", pluginID); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "下载失败：" + err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "插件已下载、解压并安装"})
+		return
 	}
 	if downloadURL == "" {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "未在任何软件源中找到该插件或插件未提供下载地址"})
@@ -1011,7 +1039,7 @@ func applyCatalogPluginUpdates(local []pluginInfo, indexes []*remotePluginIndex)
 			continue
 		}
 		for _, item := range index.Plugins {
-			if item.ID == "" || item.PriceCents > 0 || strings.TrimSpace(item.Version) == "" {
+			if item.ID == "" || strings.TrimSpace(item.Version) == "" {
 				continue
 			}
 			if prev, ok := latest[item.ID]; ok && compareVersions(item.Version, prev.Version) <= 0 {
@@ -1029,7 +1057,8 @@ func applyCatalogPluginUpdates(local []pluginInfo, indexes []*remotePluginIndex)
 			continue
 		}
 		local[i].UpdateAvailable = true
-		if !catalogRepoHostBlocked(remote.DownloadURL) {
+		// 付费包没有公开地址，更新时改走官网下载票，不把目录里的地址交给页面。
+		if remote.PriceCents <= 0 && !catalogRepoHostBlocked(remote.DownloadURL) {
 			local[i].DownloadURL = remote.DownloadURL
 		}
 	}

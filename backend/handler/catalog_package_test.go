@@ -80,6 +80,13 @@ func TestApplyCatalogPluginUpdatesUsesCatalogVersion(t *testing.T) {
 	if local[0].UpdateAvailable {
 		t.Fatal("same version must not offer an update")
 	}
+	paidLocal := []pluginInfo{{ID: "official-pay", Version: "1.0.0", Local: true}}
+	applyCatalogPluginUpdates(paidLocal, []*remotePluginIndex{{Plugins: []remotePluginEntry{{
+		ID: "official-pay", Version: "1.1.0", PriceCents: 9900, DownloadURL: "https://github.com/acme/paid/releases/download/v1/a.zip",
+	}}}})
+	if !paidLocal[0].UpdateAvailable || paidLocal[0].DownloadURL != "" {
+		t.Fatalf("paid update=%#v", paidLocal[0])
+	}
 	builtin := []pluginInfo{{ID: "epay", Version: "1.0.0"}}
 	applyCatalogPluginUpdates(builtin, []*remotePluginIndex{{Plugins: []remotePluginEntry{{
 		ID: "epay", Version: "9.0.0", DownloadURL: official,

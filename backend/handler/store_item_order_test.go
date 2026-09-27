@@ -131,11 +131,13 @@ func TestStoreItemPurchaseMariaDB(t *testing.T) {
 	}
 	if _, err := db.Exec(`INSERT INTO source_catalog_plugins (id, developer_id, name, version, price_cents, billing, status) VALUES
 		('epay', 0, '易支付', '1.0.0', 9900, 'one_time', 'published'),
+		('epay-v2', 0, '易支付 V2', '2.0.0', 9900, 'one_time', 'published'),
 		('dev-extra', 8, '开发者插件', '1.0.0', 5000, 'one_time', 'published')`); err != nil {
 		t.Fatal(err)
 	}
 	savePaidCatalog([]paidCatalogItem{
 		{Kind: "plugin", ID: "epay", Name: "易支付", PriceCents: 9900, Billing: "one_time"},
+		{Kind: "plugin", ID: "epay-v2", Name: "易支付 V2", PriceCents: 9900, Billing: "one_time"},
 		{Kind: "plugin", ID: "dev-extra", Name: "开发者插件", PriceCents: 5000, Billing: "one_time", PurchaseOnly: true},
 	})
 
@@ -203,6 +205,10 @@ func TestStoreItemPurchaseMariaDB(t *testing.T) {
 		GraceUntil: time.Now().Add(7 * 24 * time.Hour).Unix(), BindingID: bindingID, LicenseNo: "LIC-ITEM",
 	}); err != nil {
 		t.Fatal(err)
+	}
+	opened := callPluginToggle(t, "epay-v2", true)
+	if jsonCode(opened) != 200 {
+		t.Fatalf("商业版应直接启用未单买的官方付费插件: %#v", opened)
 	}
 	blocked := callPluginGate(t, "dev-extra")
 	if jsonCode(blocked) != 402 || blocked["msg"] != "该插件需要购买后才能启用" {

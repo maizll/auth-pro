@@ -564,21 +564,23 @@ func StartStoreSnapshotRefresher() {
 	})
 }
 
-func installPaidPackage(ctx context.Context, kind, id string) error {
+// downloadPaidPackage 向官网换下载票并取回安装包字节。
+// 票面地址必须是官网。代码托管站的临时链接在这里拒绝，不跟随跳转。
+func downloadPaidPackage(ctx context.Context, kind, id string) ([]byte, error) {
 	var ticket struct {
 		Data struct {
 			URL string `json:"url"`
 		} `json:"data"`
 	}
 	if err := signedSourceJSON(http.MethodPost, "/api/v1/store/download-ticket", map[string]any{"kind": kind, "id": id}, &ticket); err != nil {
-		return err
+		return nil, err
 	}
 	if ticket.Data.URL == "" || !strings.HasPrefix(ticket.Data.URL, "https://") || catalogRepoHostBlocked(ticket.Data.URL) {
-		return errPackageHostBlocked
+		return nil, errPackageHostBlocked
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ticket.Data.URL, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	client := &http.Client{
 		Timeout: 2 * time.Minute,
@@ -591,15 +593,15 @@ func installPaidPackage(ctx context.Context, kind, id string) error {
 	}
 	resp, err := client.Do(req)
 	if err != nil && errors.Is(err, errPackageHostBlocked) {
-		return errPackageHostBlocked
+		return nil, errPackageHostBlocked
 	}
 	if err != nil {
-		return errors.New("下载付费包失败")
+		return nil, errors.New("下载付费包失败")
 	}
 	defer resp.Body.Close()
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, pluginPackageMaxSize))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(payload) > 0 && payload[0] == '{' {
 		var envelope struct {
@@ -608,10 +610,21 @@ func installPaidPackage(ctx context.Context, kind, id string) error {
 		}
 		if json.Unmarshal(payload, &envelope) == nil && envelope.Code != 0 && envelope.Code != 200 {
 			if strings.TrimSpace(envelope.Msg) == "" || strings.Contains(strings.ToLower(envelope.Msg), "github") {
-				return errors.New("下载付费包失败")
+				return nil, errors.New("下载付费包失败")
 			}
-			return errors.New(envelope.Msg)
+			return nil, errors.New(envelope.Msg)
 		}
+	}
+	if len(payload) == 0 {
+		return nil, errors.New("下载付费包失败")
+	}
+	return payload, nil
+}
+
+func installPaidPackage(ctx context.Context, kind, id string) error {
+	payload, err := downloadPaidPackage(ctx, kind, id)
+	if err != nil {
+		return err
 	}
 	if kind == "plugin" {
 		if err := installPluginZIP(payload, pluginInfo{ID: id, Name: id, Category: "other"}); err != nil {
