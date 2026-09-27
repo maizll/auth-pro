@@ -15,38 +15,40 @@
       </div>
     </header>
 
-    <section class="hero">
-      <div class="hero-copy">
-        <p v-if="document.hero.badge" class="badge">{{ document.hero.badge }}</p>
-        <h1>
-          {{ document.hero.title }}
-          <span v-if="document.hero.highlight">{{ document.hero.highlight }}</span>
-        </h1>
-        <p class="desc">{{ document.hero.description || siteSubtitle }}</p>
-        <div class="hero-actions">
-          <button class="primary" type="button" @click="emit('login', 'login')">
-            {{ document.hero.primaryAction?.label || '进入用户中心' }}
-          </button>
-          <RouterLink v-if="secondaryPath" class="secondary" :to="secondaryPath">
-            {{ document.hero.secondaryAction?.label || '授权购买' }}
-          </RouterLink>
-          <button
-            v-else-if="document.hero.secondaryAction"
-            class="secondary"
-            type="button"
-            @click="emit('login', 'register')"
-          >
-            {{ document.hero.secondaryAction.label || '注册' }}
-          </button>
+    <section class="hero-band">
+      <div class="hero">
+        <div class="hero-copy">
+          <p v-if="document.hero.badge" class="badge">{{ document.hero.badge }}</p>
+          <h1>
+            {{ document.hero.title }}
+            <span v-if="document.hero.highlight">{{ document.hero.highlight }}</span>
+          </h1>
+          <p class="desc">{{ document.hero.description || siteSubtitle }}</p>
+          <div class="hero-actions">
+            <button class="primary" type="button" @click="emit('login', 'login')">
+              {{ document.hero.primaryAction?.label || '进入用户中心' }}
+            </button>
+            <RouterLink v-if="secondaryPath" class="secondary" :to="secondaryPath">
+              {{ document.hero.secondaryAction?.label || '授权购买' }}
+            </RouterLink>
+            <button
+              v-else-if="document.hero.secondaryAction"
+              class="secondary"
+              type="button"
+              @click="emit('login', 'register')"
+            >
+              {{ document.hero.secondaryAction.label || '注册' }}
+            </button>
+          </div>
         </div>
-      </div>
-      <div class="hero-art" aria-hidden="true">
-        <div class="panel">
-          <div class="panel-top"><i /><i /><i /><span>授权服务</span></div>
-          <div class="bars"><span /><span /><span /><span /><span /></div>
-          <div class="chips"><em /><em /><em /></div>
+        <div class="hero-art" aria-hidden="true">
+          <div class="panel">
+            <div class="panel-top"><i /><i /><i /><span>授权服务</span></div>
+            <div class="bars"><span /><span /><span /><span /><span /></div>
+            <div class="chips"><em /><em /><em /></div>
+          </div>
+          <div class="float-card">域名授权</div>
         </div>
-        <div class="float-card">域名授权</div>
       </div>
     </section>
 
@@ -54,6 +56,9 @@
       <h2>开箱即用的能力</h2>
       <div class="feature-grid">
         <article v-for="feature in features" :key="feature.title">
+          <span class="feature-icon" aria-hidden="true">
+            <IconifyIcon :icon="feature.icon || 'ri:checkbox-circle-line'" />
+          </span>
           <h3>{{ feature.title }}</h3>
           <p>{{ feature.description }}</p>
         </article>
@@ -74,12 +79,19 @@
     </section>
 
     <footer>
-      <div class="footer-links">
-        <RouterLink v-for="item in footerLinks" :key="item.key" :to="item.href">
-          {{ item.label }}
-        </RouterLink>
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <strong>{{ siteName }}</strong>
+          <p>{{ document.footer?.text || `© ${year} ${siteName}` }}</p>
+          <p v-if="footerAuthor">{{ footerAuthor }}</p>
+          <p v-if="footerContact">{{ footerContact }}</p>
+        </div>
+        <nav class="footer-links" aria-label="页脚">
+          <RouterLink v-for="item in footerLinks" :key="item.key" :to="item.href">
+            {{ item.label }}
+          </RouterLink>
+        </nav>
       </div>
-      <p>{{ document.footer?.text || `© ${year} ${siteName}` }}</p>
     </footer>
   </div>
 </template>
@@ -87,6 +99,7 @@
 <script setup lang="ts">
   import { computed, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
+  import { Icon as IconifyIcon } from '@iconify/vue'
   import PublicSiteNav from '@/components/site/PublicSiteNav.vue'
   import {
     type HomeTemplateDocument,
@@ -114,6 +127,8 @@
   const scenes = computed(() => props.document.scenes || [])
   const secondaryPath = computed(() => templateRoutePath(props.document.hero.secondaryAction))
   const footerLinks = computed(() => items.value.filter((item) => !item.external))
+  const footerAuthor = computed(() => (props.document.footer?.author || '').trim())
+  const footerContact = computed(() => (props.document.footer?.contact || '').trim())
 
   function goHome() {
     void router.push('/user/login')
@@ -129,9 +144,7 @@
     min-height: 100vh;
     overflow-x: clip;
     color: var(--remote-text);
-    background:
-      radial-gradient(circle at 80% 0%, rgb(47 111 237 / 16%), transparent 28%),
-      linear-gradient(180deg, #f7f9ff 0%, var(--remote-background) 32%, #fff 100%);
+    background: linear-gradient(180deg, #eef3ff 0%, var(--remote-background) 28%, #fff 100%);
   }
 
   .bar {
@@ -146,9 +159,16 @@
   .hero,
   .features,
   .scenes,
-  footer {
+  .footer-grid {
     width: min(1120px, calc(100% - 24px));
     margin: 0 auto;
+  }
+
+  .hero-band {
+    background:
+      radial-gradient(circle at 85% 20%, rgb(255 255 255 / 28%), transparent 26%),
+      linear-gradient(120deg, #1d4ed8 0%, #2f6fed 46%, #60a5fa 100%);
+    color: #fff;
   }
 
   .bar-inner {
@@ -209,10 +229,10 @@
     display: inline-block;
     margin: 0 0 12px;
     padding: 4px 10px;
-    color: var(--remote-primary);
+    color: #fff;
     font-size: 13px;
     white-space: nowrap;
-    background: rgb(47 111 237 / 10%);
+    background: rgb(255 255 255 / 16%);
     border-radius: 999px;
   }
 
@@ -220,16 +240,17 @@
     margin: 0;
     font-size: 44px;
     line-height: 1.2;
+    overflow-wrap: anywhere;
   }
 
   h1 span {
     display: block;
-    color: var(--remote-primary);
+    color: #dbe7ff;
   }
 
   .desc {
     max-width: 36em;
-    color: rgb(28 39 64 / 72%);
+    color: rgb(255 255 255 / 88%);
     font-size: 16px;
     line-height: 1.7;
   }
@@ -253,15 +274,15 @@
   }
 
   .primary {
-    color: #fff;
-    background: var(--remote-primary);
+    color: var(--remote-primary);
+    background: #fff;
     border: 0;
   }
 
   .secondary {
-    color: var(--remote-primary);
-    background: #fff;
-    border: 1px solid rgb(47 111 237 / 30%);
+    color: #fff;
+    background: transparent;
+    border: 1px solid rgb(255 255 255 / 70%);
   }
 
   .hero-art {
@@ -377,15 +398,28 @@
     min-width: 0;
     padding: 18px;
     background: #fff;
+    border: 1px solid rgb(47 111 237 / 8%);
     border-radius: 16px;
+    box-shadow: 0 10px 28px rgb(47 111 237 / 6%);
+  }
+
+  .feature-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    margin-bottom: 10px;
+    color: var(--remote-primary);
+    font-size: 20px;
+    background: rgb(47 111 237 / 10%);
+    border-radius: 10px;
   }
 
   h3 {
     margin: 0 0 8px;
-    overflow: hidden;
     font-size: 16px;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
   }
 
   article p,
@@ -401,21 +435,36 @@
 
   footer {
     padding: 28px 0 40px;
+    background: #fff;
+    border-top: 1px solid rgb(28 39 64 / 6%);
+  }
+
+  .footer-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .footer-brand strong {
+    display: block;
+    margin-bottom: 8px;
+    overflow-wrap: anywhere;
   }
 
   .footer-links {
     display: flex;
-    gap: 14px;
-    overflow: hidden;
+    flex-wrap: wrap;
+    gap: 12px 16px;
+    align-content: start;
+    justify-content: flex-end;
   }
 
   .footer-links a,
   footer p {
-    overflow: hidden;
     color: rgb(28 39 64 / 70%);
     font-size: 13px;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
   }
 
   .footer-links a {
@@ -426,8 +475,13 @@
   @media (max-width: 900px) {
     .hero,
     .feature-grid,
-    .scene-grid {
+    .scene-grid,
+    .footer-grid {
       grid-template-columns: 1fr;
+    }
+
+    .footer-links {
+      justify-content: flex-start;
     }
 
     h1 {

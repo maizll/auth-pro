@@ -273,9 +273,8 @@ func siteID(c *gin.Context) (int64, bool) {
 	return id, true
 }
 
-// SitePurchaseInfoPublic 返回免费版下载地址和域名规则。
-// 规则来自绑定代码：精确匹配、www 与裸域分开、拒绝 IP/localhost/内网/http、每 30 天自助更换 1 次。
-// 商业版价格不在这里，前端另读 /api/v1/store/edition-plans。
+// SitePurchaseInfoPublic 返回免费版下载地址和给客户看的域名说明。
+// 商业版价格由前端另读 /api/v1/store/edition-plans，再按套餐拼免费更换次数。
 func SitePurchaseInfoPublic(c *gin.Context) {
 	days := int(storeDomainChangeWindow / (24 * time.Hour))
 	siteOK(c, gin.H{
@@ -286,14 +285,17 @@ func SitePurchaseInfoPublic(c *gin.Context) {
 	})
 }
 
+// siteDomainRules 给客户看的域名说明。不写字段名，也不列举内网后缀，避免手机上被截断。
+// 套餐免费次数和超出单价由购买页按套餐数据另写，这里只保留和套餐无关的规则。
 func siteDomainRules(days int) []string {
+	if days < 1 {
+		days = 1
+	}
 	return []string{
-		"绑定按域名精确匹配，访问后台时的主机名必须和授权域名一致。",
-		"www 和裸域是两个域名。例如 www.example.com 和 example.com 各占一个名额。",
-		"不接受 IP、localhost，以及 .local、.localhost、.localdomain、.home.arpa、.internal、.intranet、.lan 这类内网域名。",
-		"必须使用 HTTPS。用 http 打开后台不能绑定。",
-		fmt.Sprintf("自助更换域名每 %d 天 1 次。管理员更换不受这个间隔限制。", days),
-		"套餐上的免费更换次数另计：-1 表示不限，0 表示不能免费更换。次数用完后，若套餐写了超出单价就按次支付；单价为空则不能付费更换。",
+		"www 和不带 www 算两个域名。",
+		"不支持 IP、本地和内网地址。",
+		"必须使用 HTTPS。",
+		fmt.Sprintf("每 %d 天可自助更换一次。", days),
 	}
 }
 

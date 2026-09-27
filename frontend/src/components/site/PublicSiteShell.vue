@@ -26,6 +26,8 @@
         </RouterLink>
       </div>
       <p>{{ footerText }}</p>
+      <p v-if="footerAuthor">{{ footerAuthor }}</p>
+      <p v-if="footerContact">{{ footerContact }}</p>
     </footer>
   </div>
 </template>
@@ -65,6 +67,8 @@
   const footerText = computed(
     () => document.value?.footer?.text || `© ${new Date().getFullYear()} ${siteName.value}`
   )
+  const footerAuthor = computed(() => (document.value?.footer?.author || '').trim())
+  const footerContact = computed(() => (document.value?.footer?.contact || '').trim())
   const footerLinks = computed(() => items.value.filter((item) => !item.external).slice(0, 5))
 
   function login() {
@@ -205,5 +209,9 @@
     font-size: 13px;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+
+  .site-shell__footer p + p {
+    margin-top: 4px;
   }
 </style>

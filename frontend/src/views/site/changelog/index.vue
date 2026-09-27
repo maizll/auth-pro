@@ -1,22 +1,42 @@
-<!-- 更新日志时间线。日期是北京时间的发布日，标签区分新增、优化和修复。 -->
+<!-- 更新日志：顶部最新版本，下面是左侧时间线和版本卡片。 -->
 <template>
   <PublicSiteShell>
-    <p class="kicker">更新日志</p>
-    <h1>版本记录</h1>
-    <p v-if="!groups.length" class="muted">还没有公开的更新记录。</p>
-    <ol v-else class="timeline">
+    <article v-if="latest" class="latest">
+      <div>
+        <p class="kicker">最新版本</p>
+        <h1>V{{ latest.version }}</h1>
+        <time>{{ latest.releasedOn || '日期待补充' }}</time>
+      </div>
+      <a
+        v-if="downloadUrl"
+        class="download"
+        :href="downloadUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        下载
+      </a>
+    </article>
+    <div v-else>
+      <p class="kicker">更新日志</p>
+      <h1>版本记录</h1>
+      <p class="muted">还没有公开的更新记录。</p>
+    </div>
+
+    <ol v-if="groups.length" class="timeline">
       <li v-for="group in groups" :key="group.version">
-        <div class="version">
-          <strong>V{{ group.version }}</strong>
-          <time v-if="group.releasedOn">{{ group.releasedOn }}</time>
-          <time v-else>日期待补充</time>
-        </div>
-        <ul>
-          <li v-for="item in group.items" :key="item.id">
-            <span class="tag" :class="`tag-${item.tag}`">{{ tagLabel(item.tag) }}</span>
-            <p>{{ item.body }}</p>
-          </li>
-        </ul>
+        <article class="version-card">
+          <header>
+            <strong>V{{ group.version }}</strong>
+            <time>{{ group.releasedOn || '日期待补充' }}</time>
+          </header>
+          <ul>
+            <li v-for="item in group.items" :key="item.id">
+              <span class="tag" :class="`tag-${item.tag}`">{{ tagLabel(item.tag) }}</span>
+              <p>{{ item.body }}</p>
+            </li>
+          </ul>
+        </article>
       </li>
     </ol>
   </PublicSiteShell>
@@ -24,7 +44,7 @@
 
 <script setup lang="ts">
   import axios from 'axios'
-  import { onMounted, ref } from 'vue'
+  import { computed, onMounted, ref } from 'vue'
   import PublicSiteShell from '@/components/site/PublicSiteShell.vue'
 
   defineOptions({ name: 'SiteChangelog' })
@@ -41,6 +61,8 @@
   }
 
   const groups = ref<ChangelogGroup[]>([])
+  const downloadUrl = ref('')
+  const latest = computed(() => groups.value[0] || null)
   const labels: Record<string, string> = { added: '新增', improved: '优化', fixed: '修复' }
 
   function tagLabel(tag: string) {
@@ -49,9 +71,15 @@
 
   onMounted(async () => {
     try {
-      const { data } = await axios.get('/api/v1/site/changelog', { timeout: 8000 })
-      if (data?.code === 200 && Array.isArray(data.data?.list)) {
-        groups.value = data.data.list
+      const [log, info] = await Promise.all([
+        axios.get('/api/v1/site/changelog', { timeout: 8000 }),
+        axios.get('/api/v1/site/purchase-info', { timeout: 8000 })
+      ])
+      if (log.data?.code === 200 && Array.isArray(log.data.data?.list)) {
+        groups.value = log.data.data.list
+      }
+      if (info.data?.code === 200) {
+        downloadUrl.value = String(info.data.data?.freeDownloadUrl || '')
       }
     } catch {
       groups.value = []
@@ -67,38 +95,95 @@
   }
 
   h1 {
-    margin: 0 0 20px;
+    margin: 0;
+    overflow-wrap: anywhere;
   }
 
   .muted {
     color: rgb(28 39 64 / 68%);
   }
 
+  .latest {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+    padding: 24px;
+    color: #fff;
+    background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 55%, #60a5fa 100%);
+    border-radius: 20px;
+  }
+
+  .latest .kicker,
+  .latest time {
+    color: rgb(255 255 255 / 82%);
+  }
+
+  .latest h1 {
+    font-size: 36px;
+  }
+
+  .latest time {
+    display: block;
+    margin-top: 6px;
+  }
+
+  .download {
+    flex: 0 0 auto;
+    padding: 8px 16px;
+    color: #1d4ed8;
+    font-weight: 700;
+    white-space: nowrap;
+    text-decoration: none;
+    background: #fff;
+    border-radius: 10px;
+  }
+
   .timeline {
-    margin: 0;
-    padding: 0;
+    margin: 28px 0 0;
+    padding: 0 0 0 22px;
     list-style: none;
+    border-left: 2px solid rgb(47 111 237 / 28%);
   }
 
   .timeline > li {
-    display: grid;
-    grid-template-columns: 140px 1fr;
-    gap: 16px;
-    padding: 16px 0;
-    border-top: 1px solid rgb(28 39 64 / 8%);
+    position: relative;
+    margin: 0 0 16px;
   }
 
-  .version strong,
-  .version time {
-    display: block;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+  .timeline > li::before {
+    position: absolute;
+    top: 22px;
+    left: -28px;
+    width: 12px;
+    height: 12px;
+    content: '';
+    background: var(--remote-primary, #2f6fed);
+    border: 2px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px rgb(47 111 237 / 35%);
   }
 
-  .version time {
-    color: rgb(28 39 64 / 60%);
+  .version-card {
+    min-width: 0;
+    padding: 16px 18px;
+    background: #fff;
+    border-radius: 16px;
+  }
+
+  .version-card header {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .version-card time {
+    color: rgb(28 39 64 / 55%);
     font-size: 13px;
+    white-space: nowrap;
   }
 
   ul {
@@ -144,9 +229,13 @@
   }
 
   @media (max-width: 640px) {
-    .timeline > li {
-      grid-template-columns: 1fr;
-      gap: 8px;
+    .latest {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .latest h1 {
+      font-size: 28px;
     }
   }
 </style>

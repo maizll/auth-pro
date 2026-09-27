@@ -39,6 +39,9 @@ export interface HomeTemplateDocument {
   scenes?: HomeTemplateScene[]
   footer?: {
     text?: string
+    /** 没填就不显示，避免用管理员账号名占位。 */
+    author?: string
+    contact?: string
   }
 }
 

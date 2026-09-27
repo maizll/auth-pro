@@ -1,9 +1,9 @@
 <!-- 官网页面：导航、文档、更新日志、两边都有的能力。差别行和套餐价格不在这里改。 -->
 <template>
   <div class="site-pages">
-    <ElAlert type="info" show-icon :closable="false" title="授权购买的价格来自套餐设置">
-      <RouterLink to="/license/plans">前往套餐管理</RouterLink>
-    </ElAlert>
+    <p class="price-hint">
+      授权价格在 <RouterLink to="/license/plans">套餐设置</RouterLink> 里修改。
+    </p>
     <ElCard shadow="never">
       <ElTabs v-model="tab">
         <ElTabPane label="导航" name="nav">
@@ -11,15 +11,29 @@
             <ElButton type="primary" @click="openNav()">添加外链</ElButton>
           </div>
           <ElTable :data="navRows" class="fit-table">
-            <ElTableColumn prop="label" label="名称" min-width="120" show-overflow-tooltip />
-            <ElTableColumn label="类型" width="90">
+            <ElTableColumn prop="label" label="名称" min-width="96" show-overflow-tooltip />
+            <ElTableColumn
+              label="类型"
+              width="90"
+              class-name="mobile-col-hidden"
+              label-class-name="mobile-col-hidden"
+            >
               <template #default="{ row }">{{ row.kind === 'builtin' ? '内置' : '外链' }}</template>
             </ElTableColumn>
-            <ElTableColumn prop="href" label="地址" min-width="140" show-overflow-tooltip />
-            <ElTableColumn label="显示" width="80">
-              <template #default="{ row }">{{ row.enabled ? '开' : '关' }}</template>
+            <ElTableColumn
+              prop="href"
+              label="地址"
+              min-width="140"
+              show-overflow-tooltip
+              class-name="mobile-col-hidden"
+              label-class-name="mobile-col-hidden"
+            />
+            <ElTableColumn label="开关" width="72">
+              <template #default="{ row }">
+                <ElSwitch :model-value="row.enabled" @change="onNavSwitch(row, $event)" />
+              </template>
             </ElTableColumn>
-            <ElTableColumn label="操作" width="120">
+            <ElTableColumn label="操作" width="108">
               <template #default="{ row }">
                 <RowActions
                   :primary="[{ key: 'edit', label: '编辑' }]"
@@ -38,12 +52,21 @@
           </div>
           <h3>分类</h3>
           <ElTable :data="categories" class="fit-table">
-            <ElTableColumn prop="name" label="名称" min-width="120" show-overflow-tooltip />
-            <ElTableColumn prop="slug" label="标识" min-width="100" show-overflow-tooltip />
-            <ElTableColumn label="状态" width="80">
-              <template #default="{ row }">{{ row.hidden ? '隐藏' : '显示' }}</template>
+            <ElTableColumn prop="name" label="名称" min-width="96" show-overflow-tooltip />
+            <ElTableColumn
+              prop="slug"
+              label="标识"
+              min-width="100"
+              show-overflow-tooltip
+              class-name="mobile-col-hidden"
+              label-class-name="mobile-col-hidden"
+            />
+            <ElTableColumn label="开关" width="72">
+              <template #default="{ row }">
+                <ElSwitch :model-value="!row.hidden" @change="onCategorySwitch(row, $event)" />
+              </template>
             </ElTableColumn>
-            <ElTableColumn label="操作" width="120">
+            <ElTableColumn label="操作" width="108">
               <template #default="{ row }">
                 <RowActions
                   :primary="[{ key: 'edit', label: '编辑' }]"
@@ -60,12 +83,21 @@
           </ElTable>
           <h3>文章</h3>
           <ElTable :data="docs" class="fit-table">
-            <ElTableColumn prop="title" label="标题" min-width="140" show-overflow-tooltip />
-            <ElTableColumn prop="category" label="分类" width="110" show-overflow-tooltip />
-            <ElTableColumn label="状态" width="80">
-              <template #default="{ row }">{{ row.hidden ? '隐藏' : '显示' }}</template>
+            <ElTableColumn prop="title" label="名称" min-width="96" show-overflow-tooltip />
+            <ElTableColumn
+              prop="category"
+              label="分类"
+              width="110"
+              show-overflow-tooltip
+              class-name="mobile-col-hidden"
+              label-class-name="mobile-col-hidden"
+            />
+            <ElTableColumn label="开关" width="72">
+              <template #default="{ row }">
+                <ElSwitch :model-value="!row.hidden" @change="onDocSwitch(row, $event)" />
+              </template>
             </ElTableColumn>
-            <ElTableColumn label="操作" width="120">
+            <ElTableColumn label="操作" width="108">
               <template #default="{ row }">
                 <RowActions
                   :primary="[{ key: 'edit', label: '编辑' }]"
@@ -87,20 +119,43 @@
             <ElButton type="primary" @click="openLog()">添加条目</ElButton>
           </div>
           <ElTable :data="logs" class="fit-table">
-            <ElTableColumn prop="version" label="版本" width="90" show-overflow-tooltip />
-            <ElTableColumn prop="releasedOn" label="日期" width="110" show-overflow-tooltip />
-            <ElTableColumn label="类型" width="80">
+            <ElTableColumn prop="version" label="名称" width="90" show-overflow-tooltip />
+            <ElTableColumn
+              prop="releasedOn"
+              label="日期"
+              width="110"
+              show-overflow-tooltip
+              class-name="mobile-col-hidden"
+              label-class-name="mobile-col-hidden"
+            />
+            <ElTableColumn
+              label="类型"
+              width="80"
+              class-name="mobile-col-hidden"
+              label-class-name="mobile-col-hidden"
+            >
               <template #default="{ row }">{{ tagLabel(row.tag) }}</template>
             </ElTableColumn>
-            <ElTableColumn prop="body" label="内容" min-width="160" show-overflow-tooltip />
-            <ElTableColumn label="状态" width="80">
-              <template #default="{ row }">{{ row.hidden ? '隐藏' : '显示' }}</template>
+            <ElTableColumn
+              prop="body"
+              label="内容"
+              min-width="160"
+              show-overflow-tooltip
+              class-name="mobile-col-hidden"
+              label-class-name="mobile-col-hidden"
+            />
+            <ElTableColumn label="开关" width="72">
+              <template #default="{ row }">
+                <ElSwitch :model-value="!row.hidden" @change="onLogSwitch(row, $event)" />
+              </template>
             </ElTableColumn>
-            <ElTableColumn label="操作" width="120">
+            <ElTableColumn label="操作" width="108">
               <template #default="{ row }">
                 <RowActions
                   :primary="[{ key: 'edit', label: '编辑' }]"
                   :more="[
+                    { key: 'up', label: '上移' },
+                    { key: 'down', label: '下移' },
                     { key: 'toggle', label: row.hidden ? '显示' : '隐藏' },
                     { key: 'delete', label: '删除', danger: true }
                   ]"
@@ -117,16 +172,13 @@
             <ElButton type="primary" @click="openShared()">添加能力</ElButton>
           </div>
           <ElTable :data="shared" class="fit-table">
-            <ElTableColumn
-              prop="body"
-              label="两个版本都具备"
-              min-width="180"
-              show-overflow-tooltip
-            />
-            <ElTableColumn label="状态" width="80">
-              <template #default="{ row }">{{ row.hidden ? '隐藏' : '显示' }}</template>
+            <ElTableColumn prop="body" label="名称" min-width="96" show-overflow-tooltip />
+            <ElTableColumn label="开关" width="72">
+              <template #default="{ row }">
+                <ElSwitch :model-value="!row.hidden" @change="onSharedSwitch(row, $event)" />
+              </template>
             </ElTableColumn>
-            <ElTableColumn label="操作" width="120">
+            <ElTableColumn label="操作" width="108">
               <template #default="{ row }">
                 <RowActions
                   :primary="[{ key: 'edit', label: '编辑' }]"
@@ -373,6 +425,48 @@
     await loadAll()
   }
 
+  function switchedOn(value: string | number | boolean) {
+    return value === true || value === 1 || value === 'true'
+  }
+
+  async function onNavSwitch(row: SiteNavRow, value: string | number | boolean) {
+    await updateAdminNav(row.id, {
+      label: row.label,
+      href: row.href,
+      enabled: switchedOn(value),
+      sort: row.sort
+    })
+    await loadAll()
+  }
+
+  async function onCategorySwitch(row: SiteDocCategory, value: string | number | boolean) {
+    await saveAdminDocCategory(row.id, {
+      name: row.name,
+      sort: row.sort,
+      hidden: !switchedOn(value)
+    })
+    await loadAll()
+  }
+
+  async function onDocSwitch(row: SiteDocRow, value: string | number | boolean) {
+    await saveAdminDoc(row.id, { ...row, hidden: !switchedOn(value) })
+    await loadAll()
+  }
+
+  async function onLogSwitch(row: SiteChangelogRow, value: string | number | boolean) {
+    await saveAdminChangelog(row.id, { ...row, hidden: !switchedOn(value) })
+    await loadAll()
+  }
+
+  async function onSharedSwitch(row: SiteCompareRow, value: string | number | boolean) {
+    await saveAdminCompare(row.id, {
+      body: row.body,
+      sort: row.sort,
+      hidden: !switchedOn(value)
+    })
+    await loadAll()
+  }
+
   async function onNavAction(action: RowActionItem, row: SiteNavRow) {
     if (action.key === 'edit') return openNav(row)
     if (action.key === 'toggle') {
@@ -512,6 +606,14 @@
       await loadAll()
       return
     }
+    if (action.key === 'up' || action.key === 'down') {
+      await move(logs.value, row, action.key === 'up' ? -1 : 1, async (id, sort) => {
+        const current = logs.value.find((item) => item.id === id)
+        if (!current) return
+        await saveAdminChangelog(id, { ...current, sort })
+      })
+      return
+    }
     if (action.key === 'delete') {
       await confirmDelete(row.version)
       await deleteAdminChangelog(row.id)
@@ -584,9 +686,21 @@
     font-size: 14px;
   }
 
+  .price-hint,
+  .hint {
+    margin: 0;
+    color: var(--el-text-color-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .price-hint a,
+  .hint {
+    overflow-wrap: anywhere;
+  }
+
   .hint {
     margin: 0 0 12px;
-    color: var(--el-text-color-secondary);
   }
 
   .fit-table {
@@ -597,5 +711,14 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+
+  @media (max-width: 767px) {
+    .fit-table :deep(.mobile-col-hidden) {
+      display: none !important;
+      width: 0 !important;
+      padding: 0 !important;
+      border: none !important;
+    }
   }
 </style>

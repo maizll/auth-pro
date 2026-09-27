@@ -1,57 +1,81 @@
-<!-- 系统文档：分类、文章和目录。正文来自后台，Markdown 用站点共用渲染。 -->
+<!-- 系统文档：电脑左侧目录、右侧正文；手机上目录默认收起。 -->
 <template>
   <PublicSiteShell>
-    <div v-if="!slug" class="docs-home">
-      <p class="kicker">系统文档</p>
-      <h1>文档</h1>
-      <div v-for="category in categories" :key="category.id" class="category">
-        <h2>{{ category.name }}</h2>
-        <RouterLink
-          v-for="article in articlesOf(category.id)"
-          :key="article.slug"
-          class="article-link"
-          :to="`/docs/${article.slug}`"
-          :title="article.title"
-        >
-          <strong>{{ article.title }}</strong>
-          <span>{{ article.summary }}</span>
-        </RouterLink>
+    <div class="docs-layout">
+      <button class="toc-toggle" type="button" :aria-expanded="tocOpen" @click="tocOpen = !tocOpen">
+        {{ tocOpen ? '收起目录' : '目录' }}
+      </button>
+      <aside class="docs-side" :class="{ 'is-open': tocOpen }">
+        <p class="side-label">目录</p>
+        <div v-for="category in categories" :key="category.id" class="side-group">
+          <h2>{{ category.name }}</h2>
+          <RouterLink
+            v-for="article in articlesOf(category.id)"
+            :key="article.slug"
+            :class="{ 'is-current': article.slug === slug }"
+            :to="`/docs/${article.slug}`"
+            :title="article.title"
+            @click="tocOpen = false"
+          >
+            {{ article.title }}
+          </RouterLink>
+        </div>
+        <div v-if="slug && toc.length" class="heading-toc">
+          <h2>本页</h2>
+          <a
+            v-for="item in toc"
+            :key="item.id"
+            :href="`#${item.id}`"
+            :class="`toc-l${item.level}`"
+            :title="item.text"
+            @click="tocOpen = false"
+          >
+            {{ item.text }}
+          </a>
+        </div>
+        <p v-if="!categories.length" class="muted">还没有公开文档。</p>
+      </aside>
+
+      <div class="docs-main">
+        <div v-if="!slug" class="docs-home">
+          <p class="kicker">系统文档</p>
+          <h1>文档</h1>
+          <p class="lead">从左侧目录选择一篇说明。手机上先点「目录」。</p>
+          <RouterLink
+            v-for="article in articles"
+            :key="article.slug"
+            class="article-link"
+            :to="`/docs/${article.slug}`"
+            :title="article.title"
+          >
+            <strong>{{ article.title }}</strong>
+            <span>{{ article.summary }}</span>
+          </RouterLink>
+        </div>
+        <article v-else class="doc-detail">
+          <p class="kicker">{{ current?.category || '系统文档' }}</p>
+          <h1>{{ current?.title || '文档' }}</h1>
+          <div class="markdown-body" v-html="html" />
+          <p v-if="current && !html" class="muted">这篇文档还没有正文。</p>
+          <div class="neighbors">
+            <RouterLink
+              v-if="current?.prev"
+              :to="`/docs/${current.prev.slug}`"
+              :title="current.prev.title"
+            >
+              上一篇 {{ current.prev.title }}
+            </RouterLink>
+            <RouterLink
+              v-if="current?.next"
+              :to="`/docs/${current.next.slug}`"
+              :title="current.next.title"
+            >
+              下一篇 {{ current.next.title }}
+            </RouterLink>
+          </div>
+        </article>
       </div>
-      <p v-if="!categories.length" class="muted">还没有公开文档。</p>
     </div>
-    <article v-else class="doc-detail">
-      <RouterLink class="back" to="/docs">返回文档</RouterLink>
-      <p class="kicker">{{ current?.category }}</p>
-      <h1>{{ current?.title || '文档' }}</h1>
-      <nav v-if="toc.length" class="toc" aria-label="目录">
-        <a
-          v-for="item in toc"
-          :key="item.id"
-          :href="`#${item.id}`"
-          :class="`toc-l${item.level}`"
-          :title="item.text"
-        >
-          {{ item.text }}
-        </a>
-      </nav>
-      <div class="markdown-body" v-html="html" />
-      <div class="neighbors">
-        <RouterLink
-          v-if="current?.prev"
-          :to="`/docs/${current.prev.slug}`"
-          :title="current.prev.title"
-        >
-          上一篇 {{ current.prev.title }}
-        </RouterLink>
-        <RouterLink
-          v-if="current?.next"
-          :to="`/docs/${current.next.slug}`"
-          :title="current.next.title"
-        >
-          下一篇 {{ current.next.title }}
-        </RouterLink>
-      </div>
-    </article>
   </PublicSiteShell>
 </template>
 
@@ -86,6 +110,7 @@
   const current = ref<DocArticle | null>(null)
   const html = ref('')
   const toc = ref<SiteTocItem[]>([])
+  const tocOpen = ref(false)
   const slug = computed(() => (typeof route.params.slug === 'string' ? route.params.slug : ''))
 
   function articlesOf(categoryId: number) {
@@ -103,6 +128,7 @@
     current.value = null
     html.value = ''
     toc.value = []
+    tocOpen.value = false
     if (!value) return
     try {
       const { data } = await axios.get(`/api/v1/site/docs/${encodeURIComponent(value)}`, {
@@ -129,36 +155,89 @@
 </script>
 
 <style scoped>
+  .docs-layout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
+    min-width: 0;
+  }
+
+  .toc-toggle {
+    display: none;
+  }
+
+  .docs-side,
+  .doc-detail,
+  .docs-home {
+    min-width: 0;
+  }
+
+  .docs-side {
+    position: sticky;
+    top: 80px;
+    padding: 16px;
+    background: #fff;
+    border-radius: 16px;
+  }
+
+  .side-label,
   .kicker {
     margin: 0 0 8px;
+    color: var(--remote-primary, #2f6fed);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .side-group,
+  .heading-toc {
+    margin-top: 14px;
+  }
+
+  .docs-side h2 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    color: rgb(28 39 64 / 55%);
+  }
+
+  .docs-side a,
+  .article-link,
+  .neighbors a {
+    display: block;
+    overflow: hidden;
+    color: inherit;
+    line-height: 1.6;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+
+  .docs-side a {
+    padding: 4px 0;
+  }
+
+  .docs-side a.is-current {
     color: var(--remote-primary, #2f6fed);
     font-weight: 700;
   }
 
-  h1,
-  h2 {
-    margin: 0 0 12px;
+  .toc-l2 {
+    padding-left: 12px;
   }
 
+  .toc-l3 {
+    padding-left: 24px;
+  }
+
+  h1 {
+    margin: 0 0 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .lead,
   .muted,
   .article-link span {
     color: rgb(28 39 64 / 68%);
-  }
-
-  .category {
-    margin-top: 22px;
-  }
-
-  .article-link,
-  .back,
-  .neighbors a,
-  .toc a {
-    display: block;
-    overflow: hidden;
-    color: inherit;
-    white-space: nowrap;
-    text-decoration: none;
-    text-overflow: ellipsis;
+    line-height: 1.7;
   }
 
   .article-link {
@@ -168,28 +247,6 @@
 
   .article-link strong {
     display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .doc-detail,
-  .docs-home {
-    min-width: 0;
-  }
-
-  .toc {
-    margin: 8px 0 20px;
-    padding: 12px 14px;
-    background: #fff;
-    border-radius: 12px;
-  }
-
-  .toc-l2 {
-    padding-left: 12px;
-  }
-
-  .toc-l3 {
-    padding-left: 24px;
   }
 
   .markdown-body {
@@ -213,8 +270,36 @@
     gap: 8px;
   }
 
-  .back {
-    margin-bottom: 12px;
+  .neighbors a {
     color: var(--remote-primary, #2f6fed);
+  }
+
+  @media (max-width: 800px) {
+    .docs-layout {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    .toc-toggle {
+      display: inline-flex;
+      align-items: center;
+      height: 36px;
+      padding: 0 14px;
+      color: var(--remote-primary, #2f6fed);
+      font-weight: 700;
+      background: #fff;
+      border: 1px solid rgb(47 111 237 / 25%);
+      border-radius: 10px;
+      cursor: pointer;
+    }
+
+    .docs-side {
+      display: none;
+      position: static;
+    }
+
+    .docs-side.is-open {
+      display: block;
+    }
   }
 </style>

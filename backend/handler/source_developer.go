@@ -744,7 +744,8 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 	if icon == "" {
 		icon = "ri:puzzle-line"
 	}
-	authorName := sourceFirstNonEmpty(truncateText(req.Author.Name, 100), developer.DisplayName, developer.Username)
+	// 作者没填就留空。不要用开发者账号顶上，否则页面会把用户名（例如 admin）当成作者显示出来。
+	authorName := truncateText(req.Author.Name, 100)
 	category, err := normalizeAssignedCatalogCategory(sourceKindPlugin, req.Category)
 	if err != nil {
 		return sourcePlugin{}, err
@@ -782,7 +783,7 @@ func bindSourcePluginDraft(c *gin.Context, developer sourceDeveloper) (sourcePlu
 		Author: sourceAuthor{
 			Name:  authorName,
 			URL:   truncateText(req.Author.URL, 300),
-			Email: sourceFirstNonEmpty(truncateText(req.Author.Email, 200), developer.Email),
+			Email: truncateText(req.Author.Email, 200),
 		},
 	}, nil
 }
@@ -876,9 +877,10 @@ func bindSourceTemplateDraft(c *gin.Context, developer sourceDeveloper) (sourceT
 		MinVersion:    truncateText(req.MinVersion, 40),
 		ForceUpdate:   req.ForceUpdate,
 		Author: sourceAuthor{
-			Name:  sourceFirstNonEmpty(truncateText(req.Author.Name, 100), developer.DisplayName, developer.Username),
+			// 作者没填就留空，不要用开发者账号顶上。
+			Name:  truncateText(req.Author.Name, 100),
 			URL:   truncateText(req.Author.URL, 300),
-			Email: sourceFirstNonEmpty(truncateText(req.Author.Email, 200), developer.Email),
+			Email: truncateText(req.Author.Email, 200),
 		},
 	}, nil
 }

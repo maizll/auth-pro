@@ -91,11 +91,10 @@
   .compare-table th,
   .compare-table td {
     padding: 12px 8px;
-    overflow: hidden;
     font-size: 13px;
     text-align: left;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: anywhere;
     border-bottom: 1px solid rgb(28 39 64 / 8%);
   }
 
@@ -113,9 +112,8 @@
   }
 
   .shared li {
-    overflow: hidden;
     line-height: 1.8;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 </style>

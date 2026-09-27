@@ -77,24 +77,38 @@
       return
     }
     const available = box.clientWidth
-    const widths = Array.from(rule.querySelectorAll<HTMLElement>('[data-nav-item]')).map(
-      (node) => node.offsetWidth
-    )
+    const nodes = Array.from(rule.querySelectorAll<HTMLElement>('[data-nav-item]'))
+    const widthOf = new Map<string, number>()
+    items.forEach((item, index) => widthOf.set(item.key, nodes[index]?.offsetWidth || 0))
     const moreWidth = rule.querySelector<HTMLElement>('[data-nav-more]')?.offsetWidth || 52
     const gap = 8
+    // 内置项优先留在这一行。外链最多露 2 个，多出来的直接进「更多」。
+    let externalShown = 0
+    const preferred: PublicNavItem[] = []
+    const forced: PublicNavItem[] = []
+    for (const item of items) {
+      if (item.external) {
+        externalShown += 1
+        if (externalShown > 2) {
+          forced.push(item)
+          continue
+        }
+      }
+      preferred.push(item)
+    }
     let used = 0
     let count = 0
-    for (let index = 0; index < items.length; index += 1) {
-      const width = widths[index] || 0
-      const needsMore = index < items.length - 1
+    for (let index = 0; index < preferred.length; index += 1) {
+      const width = widthOf.get(preferred[index].key) || 0
+      const needsMore = forced.length > 0 || index < preferred.length - 1
       const limit = needsMore ? available - moreWidth - gap : available
       if (count > 0 && used + width > limit) break
       used += width + gap
       count += 1
     }
-    if (count < 1) count = 1
-    shown.value = items.slice(0, count)
-    overflow.value = items.slice(count)
+    if (count < 1 && preferred.length) count = 1
+    shown.value = preferred.slice(0, count)
+    overflow.value = preferred.slice(count).concat(forced)
     if (!overflow.value.length) open.value = false
   }
 
