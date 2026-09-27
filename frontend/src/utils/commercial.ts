@@ -115,22 +115,26 @@ export function openCommercialUpgrade() {
 }
 
 export function openCatalogPurchase(offer: CatalogPurchaseOffer) {
+  // 商业版已经包含的官方插件或模板不再弹出购买，直接启用。开发者条目仍要单独购买。
+  if (!offer.purchaseOnly && isCommercialActive(commercialUi.account)) {
+    if (offer.resume) {
+      void offer.resume()
+      return
+    }
+    requestCatalogResume(offer)
+    return
+  }
   commercialUi.offer = offer
   commercialUi.promptOpen = false
   commercialUi.licenseOpen = false
   commercialUi.upgradeOpen = true
 }
 
-export function commercialYuanText(cents?: number) {
+function commercialYuanText(cents?: number) {
   const value = cents || 0
   if (!Number.isFinite(value) || value <= 0) return '¥0'
   if (value % 100 === 0) return `¥${value / 100}`
   return `¥${(value / 100).toFixed(2)}`
-}
-
-export function catalogPurchaseButton(kind: CatalogPurchaseOffer['kind'], cents?: number) {
-  const noun = kind === 'template' ? '模板' : '插件'
-  return `单独购买此${noun} ${commercialYuanText(cents)}`
 }
 
 export function catalogCardBuyLabel(cents?: number) {

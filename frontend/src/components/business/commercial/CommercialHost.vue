@@ -98,21 +98,29 @@
             show-icon
             :title="rebindNotice"
           />
-          <section
-            v-if="action !== 'view' && !buyingItem && !needsBind && !rebindNotice"
-            class="compare"
-          >
-            <div class="compare__head">
-              <span>能力</span>
-              <span>免费版</span>
-              <span>商业版</span>
+          <section v-if="showCompare" class="compare">
+            <button
+              v-if="narrow"
+              type="button"
+              class="compare__toggle"
+              @click="compareOpen = !compareOpen"
+            >
+              <span>免费版 vs 商业版</span>
+              <span>{{ compareOpen ? '收起' : '展开' }}</span>
+            </button>
+            <div v-show="!narrow || compareOpen">
+              <div class="compare__head">
+                <span>能力</span>
+                <span>免费版</span>
+                <span>商业版</span>
+              </div>
+              <div v-for="row in commercialCompareRows" :key="row.label" class="compare__row">
+                <span class="compare__label">{{ row.label }}</span>
+                <span class="compare__free">{{ row.free }}</span>
+                <span class="compare__paid">{{ row.commercial }}</span>
+              </div>
+              <p class="upgrade-tip">{{ commercialCompareNote }}</p>
             </div>
-            <div v-for="row in commercialCompareRows" :key="row.label" class="compare__row">
-              <span class="compare__label">{{ row.label }}</span>
-              <span class="compare__free">{{ row.free }}</span>
-              <span class="compare__paid">{{ row.commercial }}</span>
-            </div>
-            <p class="upgrade-tip">{{ commercialCompareNote }}</p>
           </section>
           <ElAlert
             v-if="account?.domainMismatch"
@@ -209,12 +217,50 @@
           <template v-else-if="buyingItem && commercialUi.offer">
             <section class="item-offer">
               <p class="item-offer__name">{{ commercialUi.offer.name }}</p>
-              <p class="item-offer__price">
-                {{ commercialYuanText(commercialUi.offer.priceCents) }}
-                <span v-if="offerPeriod"> · {{ offerPeriod }}</span>
-              </p>
-              <p v-if="commercialUi.offer.purchaseOnly" class="item-offer__note"
-                >商业版不包含此项</p
+              <div
+                class="choice-grid"
+                :class="{ 'is-single': commercialUi.offer.purchaseOnly }"
+                role="radiogroup"
+                aria-label="购买方式"
+              >
+                <button
+                  type="button"
+                  class="choice-card"
+                  :class="{ 'is-selected': itemChoice === 'item' }"
+                  @click="itemChoice = 'item'"
+                >
+                  <span class="choice-card__name">{{ singleBuyTitle }}</span>
+                  <span class="choice-card__price">
+                    <small>¥</small>{{ yuanWhole(commercialUi.offer.priceCents)
+                    }}<small>.{{ yuanFrac(commercialUi.offer.priceCents) }}</small>
+                  </span>
+                  <span class="choice-card__period">{{ offerPeriod || '按约定时长' }}</span>
+                </button>
+                <button
+                  v-if="!commercialUi.offer.purchaseOnly && recommendedPlan"
+                  type="button"
+                  class="choice-card is-recommended"
+                  :class="{ 'is-selected': itemChoice === 'plan' }"
+                  @click="itemChoice = 'plan'"
+                >
+                  <span class="plan-card__ribbon">推荐</span>
+                  <span class="choice-card__name">推荐套餐</span>
+                  <span class="choice-card__plan">{{ recommendedPlan.name }}</span>
+                  <span class="choice-card__price">
+                    <small>¥</small>{{ yuanWhole(recommendedPlan.priceCents)
+                    }}<small>.{{ yuanFrac(recommendedPlan.priceCents) }}</small>
+                  </span>
+                  <span class="choice-card__period">{{
+                    commercialPeriodText(recommendedPlan.period) || '按约定时长'
+                  }}</span>
+                  <span class="choice-card__note">含全部官方付费插件和模板</span>
+                </button>
+              </div>
+              <p v-if="commercialUi.offer.purchaseOnly" class="item-offer__note">{{
+                purchaseOnlyNote
+              }}</p>
+              <p v-else-if="!loading && !recommendedPlan" class="upgrade-tip"
+                >源站尚未配置可购买的套餐。</p
               >
               <div
                 v-if="payOptions.length"
@@ -238,16 +284,7 @@
                   <span>{{ option.label }}</span>
                 </button>
               </div>
-              <div class="item-offer__actions">
-                <ElButton type="primary" :loading="acting" @click="buyItem">
-                  {{
-                    catalogPurchaseButton(commercialUi.offer.kind, commercialUi.offer.priceCents)
-                  }}
-                </ElButton>
-                <ElButton v-if="!commercialUi.offer.purchaseOnly" @click="chooseEdition">
-                  升级商业版（包含全部付费插件和模板）
-                </ElButton>
-              </div>
+              <ElButton type="primary" :loading="acting" @click="paySelected">生成付款码</ElButton>
             </section>
           </template>
           <template v-else>
@@ -293,9 +330,6 @@
             <ElButton type="primary" :loading="acting" :disabled="!planId" @click="pay"
               >生成付款码</ElButton
             >
-            <ElButton v-if="commercialUi.offer" link type="primary" @click="choosingEdition = false"
-              >返回单独购买</ElButton
-            >
             <p v-if="!plans.length" class="upgrade-tip">源站尚未配置可购买的套餐。</p>
           </template>
         </template>
@@ -331,7 +365,6 @@
   import CommercialMark from './CommercialMark.vue'
   import CommercialLicenseCard from './CommercialLicenseCard.vue'
   import {
-    catalogPurchaseButton,
     commercialCompareNote,
     commercialCompareRows,
     commercialCta,
@@ -340,7 +373,6 @@
     commercialPeriodText,
     commercialPitch,
     commercialUi,
-    commercialYuanText,
     logoutFailureIsAlreadyGone,
     purchaseNeedsRebind,
     purchaseRebindNotice,
@@ -361,6 +393,7 @@
     type StorePayOption,
     type StorePlan
   } from '@/api/store'
+  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
 
   // 管理授权和注册都开源站新窗口。用户和代理商的「我的授权」路径不同。
   const sourceSite = 'https://auth.maizll.com'
@@ -373,6 +406,11 @@
   const action = computed(() => commercialCta(account.value))
   const upgraded = ref(false)
   const choosingEdition = ref(false)
+  // 单品窗口里选推荐套餐时，付的是商业版，成功后不要再去启用这条单品。
+  const settleAsEdition = ref(false)
+  const itemChoice = ref<'item' | 'plan'>('item')
+  const narrow = useNarrowScreen()
+  const compareOpen = ref(true)
   const itemContinued = ref(false)
   // 未绑定、源站判定绑定失效，或这次请求被要求重绑，都回到绑定步骤。本地旧记录不能单独算已绑定。
   const needsBind = computed(() => purchaseNeedsRebind(account.value, commercialUi.rebindRequired))
@@ -382,6 +420,14 @@
   const pendingItem = computed(() => !!commercialUi.offer && !choosingEdition.value)
   const buyingItem = computed(() => pendingItem.value && !needsBind.value)
   const offerPeriod = computed(() => commercialPeriodText(commercialUi.offer?.period))
+  const singleBuyTitle = computed(() =>
+    commercialUi.offer?.kind === 'template' ? '单独购买此模板' : '单独购买此插件'
+  )
+  const purchaseOnlyNote = computed(() =>
+    commercialUi.offer?.kind === 'template'
+      ? '此模板由第三方开发者提供，商业版不包含'
+      : '此插件由第三方开发者提供，商业版不包含'
+  )
   const dialogTitle = computed(() => {
     if (upgraded.value) {
       if (pendingItem.value) return itemContinued.value ? '已购买并启用' : '已购买'
@@ -411,6 +457,13 @@
   const payUrl = ref('')
   const orderTitle = ref('')
   const payAmountCents = ref(0)
+  const recommendedPlan = computed(() => plans.value[0])
+  // 套餐窗口始终能看对比。单品窗口只在选中推荐套餐时展开，避免和单独购买挤在一起。
+  const showCompare = computed(() => {
+    if (needsBind.value || rebindNotice.value || payUrl.value) return false
+    if (buyingItem.value) return itemChoice.value === 'plan' && !commercialUi.offer?.purchaseOnly
+    return action.value !== 'view'
+  })
   const payStatus = ref('')
   const payFailed = ref('')
   const showBrandBanner = computed(
@@ -497,7 +550,8 @@
     const changed = payMethod.value !== code
     payMethod.value = code
     if (!changed || !payUrl.value || acting.value) return
-    if (buyingItem.value) await buyItem()
+    if (settleAsEdition.value) await pay()
+    else if (buyingItem.value) await buyItem()
     else await pay()
   }
 
@@ -568,6 +622,8 @@
     upgraded.value = false
     itemContinued.value = false
     choosingEdition.value = false
+    settleAsEdition.value = false
+    itemChoice.value = 'item'
     successTitle.value = commercialUi.offer ? '已购买' : '已升级为商业版'
     resetPay()
     loadError.value = ''
@@ -656,20 +712,16 @@
     }
   }
 
-  async function chooseEdition() {
-    choosingEdition.value = true
-    if (plans.value.length || !account.value?.bound) return
-    acting.value = true
-    try {
-      const data = await fetchStorePlans()
-      plans.value = data.list || []
-      applyPayOptions(data.payOptions)
-      planId.value = plans.value[0]?.id
-    } catch (error: unknown) {
-      showCaughtError(error, '读取套餐失败')
-    } finally {
-      acting.value = false
+  async function paySelected() {
+    if (itemChoice.value === 'plan' && recommendedPlan.value && !commercialUi.offer?.purchaseOnly) {
+      planId.value = recommendedPlan.value.id
+      settleAsEdition.value = true
+      await pay()
+      return
     }
+    settleAsEdition.value = false
+    itemChoice.value = 'item'
+    await buyItem()
   }
 
   function startPayWait(payLink: string, orderNo: string, title: string, amountCents: number) {
@@ -797,7 +849,7 @@
       showCaughtError(error, '支付已完成，但读取授权失败。关闭窗口后会再试一次。')
     }
     payUrl.value = ''
-    if (commercialUi.offer && !choosingEdition.value) {
+    if (commercialUi.offer && !choosingEdition.value && !settleAsEdition.value) {
       const resume = commercialUi.offer.resume
       if (resume) {
         try {
@@ -844,6 +896,8 @@
     upgraded.value = false
     itemContinued.value = false
     choosingEdition.value = false
+    settleAsEdition.value = false
+    itemChoice.value = 'item'
     commercialUi.offer = null
     resetPay()
   }
@@ -879,6 +933,14 @@
         if (account.value) account.value = { ...account.value, bound: false, explicitRevoked: true }
       }
     }
+  )
+
+  watch(
+    narrow,
+    (value) => {
+      compareOpen.value = !value
+    },
+    { immediate: true }
   )
 
   onMounted(() => {
@@ -953,6 +1015,18 @@
     overflow: hidden;
     border: 1px solid var(--el-border-color-lighter);
     border-radius: 12px;
+  }
+
+  .compare__toggle {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    padding: 10px 12px;
+    color: var(--el-text-color-primary);
+    font-size: 13px;
+    cursor: pointer;
+    background: var(--el-fill-color-light);
+    border: 0;
   }
 
   .compare__head,
@@ -1109,6 +1183,73 @@
   .item-offer__note {
     color: var(--el-text-color-secondary);
     font-size: 13px;
+  }
+
+  .choice-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .choice-grid.is-single {
+    grid-template-columns: 1fr;
+  }
+
+  .choice-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+    min-width: 0;
+    padding: 16px 14px 14px;
+    overflow: hidden;
+    text-align: left;
+    cursor: pointer;
+    background: var(--el-bg-color);
+    border: 1px solid var(--el-border-color);
+    border-radius: 12px;
+  }
+
+  .choice-card.is-recommended {
+    padding-top: 22px;
+  }
+
+  .choice-card.is-selected {
+    border-color: var(--el-color-primary);
+    box-shadow: 0 0 0 2px var(--el-color-primary-light-7);
+  }
+
+  .choice-card__name,
+  .choice-card__plan,
+  .choice-card__period,
+  .choice-card__note {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .choice-card__name {
+    color: var(--el-text-color-primary);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .choice-card__plan,
+  .choice-card__period,
+  .choice-card__note {
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+  }
+
+  .choice-card__price {
+    color: var(--el-color-primary);
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .choice-card__price small {
+    font-size: 14px;
   }
 
   .item-offer__actions {
@@ -1301,6 +1442,12 @@
     }
   }
 
+  @media (max-width: 767px) {
+    .choice-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
   @media (max-width: 640px) {
     .edition-banner {
       padding: 16px 48px 16px 14px;
@@ -1325,7 +1472,8 @@
     }
 
     .plan-grid,
-    .pay-panel {
+    .pay-panel,
+    .choice-grid {
       grid-template-columns: 1fr;
     }
 
