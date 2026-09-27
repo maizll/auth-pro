@@ -21,3 +21,6 @@
 
 // 主题切换圆形扩散动画
 @use './core/theme-animation.scss';
+
+// 手机列表只留关键列，宽度放进屏幕。
+@use './core/mobile-list-table.scss';

@@ -142,24 +142,39 @@
       </div>
 
       <el-table :data="tableData" stripe v-loading="loading">
-        <el-table-column prop="orderNo" label="流水号" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="typeLabel" label="类型" width="90" align="center">
+        <el-table-column
+          prop="orderNo"
+          label="流水号"
+          :min-width="narrow ? 48 : 180"
+          show-overflow-tooltip
+        />
+        <el-table-column prop="typeLabel" label="类型" :width="narrow ? 64 : 90" align="center">
           <template #default="{ row }">
             <el-tag :type="typeTagMap[row.type]" size="small" effect="light">{{
               row.typeLabel
             }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="amount" label="金额" width="130" align="right">
+        <el-table-column prop="amount" label="金额" :width="narrow ? 72 : 130" align="right">
           <template #default="{ row }">
             <span :class="amountClass(row)">{{ formatAmount(row) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="balanceAfter" label="余额" width="120" align="right">
+        <el-table-column v-if="!narrow" prop="balanceAfter" label="余额" width="120" align="right">
           <template #default="{ row }">¥{{ row.balanceAfter.toFixed(2) }}</template>
         </el-table-column>
-        <el-table-column prop="remark" label="备注" min-width="220" show-overflow-tooltip />
-        <el-table-column prop="createdAt" label="时间" width="170" />
+        <el-table-column
+          v-if="!narrow"
+          prop="remark"
+          label="备注"
+          min-width="220"
+          show-overflow-tooltip
+        />
+        <el-table-column prop="createdAt" label="时间" :width="narrow ? 92 : 170">
+          <template #default="{ row }">
+            {{ narrow ? String(row.createdAt || '').slice(0, 10) : row.createdAt }}
+          </template>
+        </el-table-column>
         <template #empty>
           <el-empty description="暂无流水记录" :image-size="80" />
         </template>
@@ -171,7 +186,9 @@
           v-model:page-size="pagination.pageSize"
           :page-sizes="[20, 50, 100]"
           :total="pagination.total"
-          layout="total, sizes, prev, pager, next, jumper"
+          :layout="narrow ? 'prev, pager, next, total' : 'total, sizes, prev, pager, next, jumper'"
+          :pager-count="narrow ? 5 : 7"
+          :size="narrow ? 'small' : 'default'"
           @current-change="handlePageChange"
           @size-change="handleSearch"
         />
@@ -217,11 +234,13 @@
   import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
   import { useRoute, useRouter } from 'vue-router'
+  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import PayQrDialog from '@/components/core/pay/PayQrDialog.vue'
   import { isQrCheckout } from '@/utils/checkout'
 
   const route = useRoute()
   const router = useRouter()
+  const narrow = useNarrowScreen()
 
   function getToken() {
     return localStorage.getItem('agent_panel_token') || ''

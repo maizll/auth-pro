@@ -109,7 +109,7 @@ func StoreEditionPlans(c *gin.Context) {
 		storeFail(c, 500, "读取套餐失败")
 		return
 	}
-	storeData(c, gin.H{"list": list})
+	storeData(c, gin.H{"list": list, "payOptions": configuredOnlinePayOptions(db)})
 }
 
 // StoreOrderCreate 为已签名的买家创建商业版或单品订单。
@@ -125,9 +125,10 @@ func StoreOrderCreate(c *gin.Context) {
 		return
 	}
 	var req struct {
-		ItemKind string `json:"itemKind"`
-		ItemID   string `json:"itemId"`
-		PlanID   int64  `json:"planId"`
+		ItemKind  string `json:"itemKind"`
+		ItemID    string `json:"itemId"`
+		PlanID    int64  `json:"planId"`
+		PayMethod string `json:"payMethod"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		storeFail(c, 400, "参数错误")
@@ -136,6 +137,8 @@ func StoreOrderCreate(c *gin.Context) {
 	if req.ItemKind == "" {
 		req.ItemKind = "edition"
 	}
+	// 空字符串表示沿用源站排在第一位的收款方式，兼容还没传支付方式的旧买家。
+	c.Set("storePayMethod", strings.TrimSpace(req.PayMethod))
 	db := c.MustGet("storeDB").(*sql.DB)
 	orderNo := storeOrderPrefix + strconv.FormatInt(time.Now().Unix(), 10) + randomHex(4)
 	returnURL := buildRequestURL(c, "/store/pay-complete")
@@ -301,12 +304,31 @@ func StoreOrderQuery(c *gin.Context) {
 
 var createStorePayment = createStorePaymentDefault
 
-func createStorePaymentDefault(c *gin.Context, db *sql.DB, orderNo string, amountCents int64, title string) (payURL, channel, method string, err error) {
-	options := configuredOnlinePayOptions(db)
+// pickConfiguredPayOption 按买家选的 code 取收款方式。没传时用列表第一项，传了但不在列表里就拒绝。
+func pickConfiguredPayOption(options []payOption, requested string) (payOption, error) {
 	if len(options) == 0 {
-		return "", "", "", errors.New("源站未配置收款方式")
+		return payOption{}, errors.New("源站未配置收款方式")
 	}
-	selection, ok := parseOnlinePaySelection(options[0].Code)
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return options[0], nil
+	}
+	for _, option := range options {
+		if option.Code == requested {
+			return option, nil
+		}
+	}
+	return payOption{}, errors.New("该支付方式未开启")
+}
+
+func createStorePaymentDefault(c *gin.Context, db *sql.DB, orderNo string, amountCents int64, title string) (payURL, channel, method string, err error) {
+	requested, _ := c.Get("storePayMethod")
+	requestedText, _ := requested.(string)
+	option, err := pickConfiguredPayOption(configuredOnlinePayOptions(db), requestedText)
+	if err != nil {
+		return "", "", "", err
+	}
+	selection, ok := parseOnlinePaySelection(option.Code)
 	if !ok {
 		return "", "", "", errors.New("源站未配置收款方式")
 	}

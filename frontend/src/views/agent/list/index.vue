@@ -78,10 +78,7 @@
         <!-- 操作 -->
         <template #operation="{ row }">
           <RowActions
-            :primary="[
-              { key: 'edit', label: '编辑' },
-              { key: 'login', label: '登录' }
-            ]"
+            :primary="agentPrimaryActions"
             :more="agentMoreActions(row)"
             @click="(action) => onAgentAction(row, action)"
           />
@@ -170,6 +167,7 @@
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { showCaughtError } from '@/utils/http/error-toast'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
+  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchAgentList,
@@ -321,9 +319,20 @@
     }
   })
 
+  const narrow = useNarrowScreen()
+  const agentPrimaryActions = computed(() =>
+    narrow.value
+      ? [{ key: 'edit', label: '编辑' }]
+      : [
+          { key: 'edit', label: '编辑' },
+          { key: 'login', label: '登录' }
+        ]
+  )
+
   function agentMoreActions(row: AgentItem): RowActionItem[] {
     const locked = row.source === 'user_upgrade'
     return [
+      ...(narrow.value ? [{ key: 'login', label: '登录' }] : []),
       { key: 'recharge', label: '充值' },
       { key: 'toggle', label: row.status === 'active' ? '冻结' : '解冻' },
       {

@@ -282,7 +282,7 @@
           <template #default="{ row }">{{ sourceTypeLabel(row.sourceType) }}</template>
         </ElTableColumn>
         <ElTableColumn prop="url" label="地址" show-overflow-tooltip />
-        <ElTableColumn label="操作" width="148" align="center">
+        <ElTableColumn label="操作" width="148" fixed="right" align="center">
           <template #default="{ row }">
             <RowActions
               :primary="sourcePrimary(row)"
@@ -623,6 +623,10 @@
       priceCents: plugin.priceCents || 0,
       period: plugin.billing || 'permanent',
       purchaseOnly: !!plugin.purchaseOnly,
+      icon: plugin.icon,
+      summary: plugin.description,
+      version: plugin.version,
+      author: plugin.author?.name,
       resume
     }
   }

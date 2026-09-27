@@ -333,7 +333,25 @@ func openBuyerBindingSecret() ([]byte, string, error) {
 	return secret, string(parts[0]), nil
 }
 
-func persistBuyerBind(envelope map[string]any) error {
+// buyerAccountLine 把源站返回的账号整理成「名字\n身份」。没有名字时返回空，避免刷新把旧快照里的账号清掉。
+func buyerAccountLine(raw any) string {
+	account, _ := raw.(map[string]any)
+	if account == nil {
+		return ""
+	}
+	name, _ := account["name"].(string)
+	role, _ := account["role"].(string)
+	name = strings.TrimSpace(name)
+	role = strings.TrimSpace(role)
+	if name == "" {
+		return ""
+	}
+	return name + "\n" + role
+}
+
+// persistBuyerBind 把源站确认结果写成绑定凭据和快照。
+// 源站没带回账号名或身份时，用这次登录提交的账号和身份补上，避免老的确认响应把快照里的名字写空。
+func persistBuyerBind(envelope map[string]any, fallbackName, fallbackRole string) error {
 	data, _ := envelope["data"].(map[string]any)
 	bindingID, _ := data["bindingId"].(string)
 	secretHex, _ := data["bindingSecret"].(string)
@@ -359,7 +377,19 @@ func persistBuyerBind(envelope map[string]any) error {
 		account, _ := data["account"].(map[string]any)
 		name, _ := account["name"].(string)
 		role, _ := account["role"].(string)
-		return saveSnapshotMap(snap, true, false, name+"\n"+role)
+		name = strings.TrimSpace(name)
+		role = strings.TrimSpace(role)
+		if name == "" {
+			name = strings.TrimSpace(fallbackName)
+		}
+		if role == "" {
+			role = strings.TrimSpace(fallbackRole)
+		}
+		accountLine := ""
+		if name != "" {
+			accountLine = name + "\n" + role
+		}
+		return saveSnapshotMap(snap, true, false, accountLine)
 	}
 	return nil
 }
@@ -428,7 +458,7 @@ func refreshBuyerSnapshot(ctx context.Context, domain string) error {
 	}
 	data, _ := payload["data"].(map[string]any)
 	snap, _ := data["snapshot"].(map[string]any)
-	return saveSnapshotMap(snap, true, false, "")
+	return saveSnapshotMap(snap, true, false, buyerAccountLine(data["account"]))
 }
 
 // StartStoreSnapshotRefresher 在后台定期向源站核对快照。

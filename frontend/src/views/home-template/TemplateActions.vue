@@ -114,6 +114,9 @@
       priceCents: props.template.priceCents || 0,
       period: props.template.billing || 'permanent',
       purchaseOnly: !!props.template.purchaseOnly,
+      summary: props.template.description,
+      version: props.template.version,
+      author: props.template.author?.name,
       resume: enableAfterPurchase
     })
   }
