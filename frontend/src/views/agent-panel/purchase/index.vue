@@ -378,7 +378,7 @@
 
           <el-alert
             class="bind-guide"
-            type="warning"
+            type="info"
             show-icon
             :closable="false"
             :title="

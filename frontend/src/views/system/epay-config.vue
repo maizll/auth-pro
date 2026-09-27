@@ -173,7 +173,7 @@
                   {{ form.easypayPid || '-' }}
                 </ElDescriptionsItem>
                 <ElDescriptionsItem label="商户 Key">
-                  <ElTag :type="keyReady ? 'success' : 'warning'">
+                  <ElTag :type="keyReady ? 'success' : 'info'">
                     {{ keyReady ? '已配置' : '未配置' }}
                   </ElTag>
                 </ElDescriptionsItem>
@@ -397,7 +397,7 @@
                     :type="
                       formV2.easypayMerchantKeySet || formV2.easypayMerchantKey
                         ? 'success'
-                        : 'warning'
+                        : 'info'
                     "
                   >
                     {{
@@ -412,7 +412,7 @@
                     :type="
                       formV2.easypayPlatformKeySet || formV2.easypayPlatformKey
                         ? 'success'
-                        : 'warning'
+                        : 'info'
                     "
                   >
                     {{

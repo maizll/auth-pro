@@ -42,7 +42,7 @@
         <ElAlert
           v-if="templateLoadError && showHomeTemplates"
           :title="templateLoadError"
-          type="warning"
+          type="info"
           show-icon
           :closable="false"
           class="store-error"
@@ -191,9 +191,10 @@
                     >
                     <ElTag v-else type="info" size="small" effect="plain">未启用</ElTag>
                     <ElText
-                      :type="plugin.configured ? 'success' : 'warning'"
+                      :type="plugin.configured ? 'success' : 'info'"
                       size="small"
                       class="config-status"
+                      :class="{ 'is-muted': !plugin.configured }"
                     >
                       <ArtSvgIcon
                         :icon="
@@ -1014,6 +1015,10 @@
             display: inline-flex;
             align-items: center;
             gap: 3px;
+          }
+
+          .config-status.is-muted {
+            color: var(--el-text-color-secondary);
           }
         }
 

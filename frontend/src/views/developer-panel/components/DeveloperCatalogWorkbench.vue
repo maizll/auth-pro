@@ -253,7 +253,7 @@
         />
         <el-alert
           v-if="currentItem?.reviewNote"
-          type="warning"
+          type="info"
           :closable="false"
           show-icon
           :title="`审核说明：${currentItem.reviewNote}`"

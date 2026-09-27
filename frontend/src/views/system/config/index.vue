@@ -413,7 +413,7 @@
 
                     <ElAlert
                       v-if="!realnameConfig.pluginEnabled"
-                      type="warning"
+                      type="info"
                       :closable="false"
                       title="尚未启用实名认证服务商插件"
                       description="请前往应用商店，在「实名认证服务商」分区启用一个插件后再回来配置"

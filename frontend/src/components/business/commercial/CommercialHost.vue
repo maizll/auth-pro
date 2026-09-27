@@ -34,7 +34,7 @@
         <ElAlert v-if="loadError" type="error" :closable="false" show-icon :title="loadError" />
         <ElAlert
           v-else-if="siteProblem"
-          type="warning"
+          type="info"
           :closable="false"
           show-icon
           :title="siteProblem"
@@ -120,7 +120,7 @@
           <p v-else class="upgrade-tip">尚未经源站确认绑定，确认后才显示当前账号。</p>
           <ElAlert
             v-if="account?.domainMismatch"
-            type="warning"
+            type="info"
             :closable="false"
             show-icon
             title="当前访问域名与授权域名不一致，付费能力暂按免费版处理。"
@@ -1496,11 +1496,11 @@
     align-items: center;
     justify-content: space-between;
     padding: 10px 12px;
-    color: #9a3412;
+    color: var(--el-text-color-regular);
     font-size: 13px;
     line-height: 1.5;
-    background: #fff7ed;
-    border: 1px solid #fdba74;
+    background: var(--el-color-primary-light-9);
+    border: 1px solid var(--el-color-primary-light-7);
     border-radius: 10px;
   }
 

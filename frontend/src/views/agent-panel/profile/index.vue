@@ -167,7 +167,7 @@
         />
         <template v-else>
           <el-alert
-            type="warning"
+            type="info"
             :closable="false"
             title="部分应用要求代理商完成实名认证后才能安装使用"
             class="mb-4"

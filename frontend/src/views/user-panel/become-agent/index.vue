@@ -55,7 +55,7 @@
         class="risk-alert"
         title="账户升级不可撤销"
         description="升级成功后将无法继续登录用户端。原账号密码、实名资料、现有授权和剩余余额会迁移到新代理账户，历史支付与流水记录继续保留在原用户主体下。"
-        type="warning"
+        type="info"
         :closable="false"
         show-icon
       />
@@ -188,7 +188,7 @@
               <el-alert
                 title="已有待支付的代理开通订单"
                 :description="`订单 ${pendingOrder.orderNo} 尚未完成，可继续前往收银台或取消后重新选择。`"
-                type="warning"
+                type="info"
                 :closable="false"
                 show-icon
               />

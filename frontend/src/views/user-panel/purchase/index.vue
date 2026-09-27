@@ -52,7 +52,7 @@
 
       <el-alert
         class="bind-guide"
-        type="warning"
+        type="info"
         show-icon
         :closable="false"
         :title="
@@ -315,7 +315,7 @@
             </div>
             <el-alert
               v-if="balanceShort"
-              type="warning"
+              type="info"
               show-icon
               :closable="false"
               title="当前余额不足，无法使用余额支付"

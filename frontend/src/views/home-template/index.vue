@@ -48,7 +48,7 @@
         <ElAlert
           v-if="refreshWarning"
           :title="refreshWarning"
-          type="warning"
+          type="info"
           show-icon
           :closable="false"
           class="panel-error"
