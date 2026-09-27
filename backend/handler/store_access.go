@@ -325,6 +325,9 @@ func catalogPurchaseOnly(kind, id string) bool {
 	if id == "" {
 		return false
 	}
+	if kind == "plugin" && officialBuiltinPlugin(id) {
+		return false
+	}
 	if findPaidCatalog(kind, id).PurchaseOnly {
 		return true
 	}

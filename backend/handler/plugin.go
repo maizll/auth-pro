@@ -126,6 +126,13 @@ func findCatalogPlugin(id string) (pluginInfo, bool) {
 	return pluginInfo{}, false
 }
 
+// officialBuiltinPlugin 是编译进程序的官方插件，例如支付宝当面付。
+// 软件目录里的开发者编号或「所有人都需购买」不能把这类条目从商业版里划出去。
+func officialBuiltinPlugin(id string) bool {
+	plugin, ok := findCatalogPlugin(id)
+	return ok && plugin.Official
+}
+
 // pluginHasCompiledRuntime 表示当前二进制已包含该插件的运行实现。
 // 内置 catalog（易支付等）始终可启用；支付渠道 SPI 注册表中的官方渠道同样可启用。
 // 纯 ZIP 安装没有 Go 实现，必须返回 false，商店才会显示「需运行实现」。

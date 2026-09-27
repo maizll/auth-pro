@@ -633,7 +633,10 @@ func AdminPluginList(c *gin.Context) {
 			if groups[i].Plugins[j].Billing == "" {
 				groups[i].Plugins[j].Billing = cached.Billing
 			}
-			if cached.PurchaseOnly || catalogPurchaseOnly("plugin", id) {
+			if officialBuiltinPlugin(id) {
+				groups[i].Plugins[j].PurchaseOnly = false
+				groups[i].Plugins[j].Official = true
+			} else if cached.PurchaseOnly || catalogPurchaseOnly("plugin", id) {
 				groups[i].Plugins[j].PurchaseOnly = true
 			}
 			groups[i].Plugins[j].Ownership = buyerCatalogOwnership(view, "plugin", id, groups[i].Plugins[j].PriceCents)

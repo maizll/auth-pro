@@ -59,6 +59,13 @@ func TestCatalogEntryPurchaseOnly(t *testing.T) {
 	if free["purchaseOnly"] != false {
 		t.Fatalf("免费条目不是仅单买: %#v", free)
 	}
+	face := sourcePublicPluginEntry(sourcePlugin{
+		ID: "alipay-f2f", DeveloperID: 9, Name: "支付宝当面付", Version: "1.0.0",
+		PriceCents: 1990, Billing: sourceBillingOneTime, Status: sourceItemPublished,
+	})
+	if face["purchaseOnly"] != false {
+		t.Fatalf("内置官方插件支付宝当面付应被商业版包含: %#v", face)
+	}
 }
 
 func TestStoreItemPurchaseMariaDB(t *testing.T) {
@@ -209,6 +216,37 @@ func TestStoreItemPurchaseMariaDB(t *testing.T) {
 	opened := callPluginToggle(t, "epay-v2", true)
 	if jsonCode(opened) != 200 {
 		t.Fatalf("商业版应直接启用未单买的官方付费插件: %#v", opened)
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS source_catalog_access (
+		item_kind VARCHAR(20) NOT NULL,
+		item_id VARCHAR(80) NOT NULL,
+		policy VARCHAR(40) NOT NULL,
+		PRIMARY KEY (item_kind, item_id)
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO source_catalog_plugins (id, developer_id, name, version, price_cents, billing, status) VALUES
+		('alipay-f2f', 9, '支付宝当面付', '1.0.0', 1990, 'one_time', 'published')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO source_catalog_access (item_kind, item_id, policy) VALUES ('plugin', 'alipay-f2f', 'purchase_only')`); err != nil {
+		t.Fatal(err)
+	}
+	savePaidCatalog([]paidCatalogItem{
+		{Kind: "plugin", ID: "epay", Name: "易支付", PriceCents: 9900, Billing: "one_time"},
+		{Kind: "plugin", ID: "epay-v2", Name: "易支付 V2", PriceCents: 9900, Billing: "one_time"},
+		{Kind: "plugin", ID: "alipay-f2f", Name: "支付宝当面付", PriceCents: 1990, Billing: "one_time", PurchaseOnly: true},
+		{Kind: "plugin", ID: "dev-extra", Name: "开发者插件", PriceCents: 5000, Billing: "one_time", PurchaseOnly: true},
+	})
+	face := callPluginToggle(t, "alipay-f2f", true)
+	if jsonCode(face) != 200 {
+		t.Fatalf("商业版应直接启用支付宝当面付: %#v", face)
+	}
+	if !licenseCanDownloadPaid(db, 100, "plugin", "alipay-f2f") {
+		t.Fatal("商业版应能下载支付宝当面付，目录上的开发者编号和仅单买策略都不拦")
+	}
+	if licenseCanDownloadPaid(db, 100, "plugin", "dev-extra") {
+		t.Fatal("商业版不能下载开发者插件")
 	}
 	blocked := callPluginGate(t, "dev-extra")
 	if jsonCode(blocked) != 402 || blocked["msg"] != "该插件需要购买后才能启用" {

@@ -601,7 +601,14 @@
     return { text: '商业版免费', icon: 'ri:rocket-2-line', tone: 'primary' as const }
   }
 
+  function officialCommercial(plugin: PluginInfo) {
+    return !!plugin.official && isCommercialActive(commercialUi.account)
+  }
+
   function pluginBadge(plugin: PluginInfo) {
+    if (officialCommercial(plugin) && (plugin.priceCents || 0) > 0) {
+      return { text: '商业版免费', icon: 'ri:rocket-2-line', tone: 'primary' as const }
+    }
     return badgeFor(plugin.ownership, plugin.priceCents, plugin.purchaseOnly)
   }
 
@@ -637,7 +644,7 @@
   }
 
   function unpaidPlugin(plugin: PluginInfo) {
-    if (coveredByCommercial(plugin.purchaseOnly)) return false
+    if (officialCommercial(plugin) || coveredByCommercial(plugin.purchaseOnly)) return false
     return !plugin.enabled && (plugin.priceCents || 0) > 0 && plugin.ownership === 'none'
   }
 
