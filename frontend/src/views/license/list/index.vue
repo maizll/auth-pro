@@ -33,9 +33,12 @@
         </template>
 
         <template #expireAt="{ row }">
-          <span :title="formatLicenseExpire(row.expireAt)">{{
-            formatLicenseExpire(row.expireAt, narrow)
-          }}</span>
+          <EditionExpire
+            :commercial="row.commercialActive"
+            :title="formatLicenseExpire(row.expireAt)"
+          >
+            {{ formatLicenseExpire(row.expireAt, narrow) }}
+          </EditionExpire>
         </template>
 
         <!-- 归属账号 -->
@@ -266,6 +269,7 @@
 <script setup lang="ts">
   import { ElMessage, ElMessageBox } from 'element-plus'
   import CommercialReissueBanner from '@/components/business/commercial/CommercialReissueBanner.vue'
+  import EditionExpire from '@/components/business/commercial/EditionExpire.vue'
   import { showCaughtError } from '@/utils/http/error-toast'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
@@ -476,10 +480,10 @@
           prop: 'expireAt',
           label: '到期时间',
           mobileLabel: '到期',
-          width: 160,
+          width: 228,
           useSlot: true,
           mobilePriority: 3,
-          mobileWidth: 92
+          mobileWidth: 168
         },
         { prop: 'verifyCount', label: '验证次数', width: 100, align: 'center', mobileHidden: true },
         {

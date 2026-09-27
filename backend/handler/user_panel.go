@@ -382,6 +382,7 @@ func UserLicenseList(c *gin.Context) {
 		SiteChangePrice *float64 `json:"siteChangePrice"`
 		ExpireAt        string   `json:"expireAt"`
 		CreatedAt       string   `json:"createdAt"`
+		CommercialActive bool    `json:"commercialActive"`
 	}
 
 	var list []licenseItem
@@ -426,6 +427,8 @@ func UserLicenseList(c *gin.Context) {
 		if createdAt.Valid {
 			item.CreatedAt = createdAt.Time.Format("2006-01-02")
 		}
+		// 和客户端快照用同一个判断：最新一条商业版仍有效才显示商业版。
+		_, _, _, item.CommercialActive = loadCommercialEdition(db, item.ID)
 
 		// status label
 		if item.Status == "active" {

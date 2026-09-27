@@ -86,8 +86,12 @@
             />
           </template>
         </el-table-column>
-        <el-table-column :label="narrow ? '到期' : '到期时间'" :width="narrow ? 92 : 140">
-          <template #default="{ row }">{{ formatLicenseExpire(row.expireAt, narrow) }}</template>
+        <el-table-column :label="narrow ? '到期' : '到期时间'" :width="narrow ? 168 : 210">
+          <template #default="{ row }">
+            <EditionExpire :commercial="row.commercialActive">
+              {{ formatLicenseExpire(row.expireAt, narrow) }}
+            </EditionExpire>
+          </template>
         </el-table-column>
         <el-table-column v-if="!narrow" prop="createdAt" label="开通时间" width="130" />
         <el-table-column v-if="!narrow" prop="source" label="来源" width="110">
@@ -379,6 +383,7 @@
   import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import { licenseTargetError } from '@/utils/license-target'
   import { formatLicenseExpire } from '@/utils/license-expire'
+  import EditionExpire from '@/components/business/commercial/EditionExpire.vue'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import SiteChangePayDialog from '@/components/core/pay/SiteChangePayDialog.vue'
   import { Icon as IconifyIcon } from '@iconify/vue'
