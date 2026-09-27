@@ -685,7 +685,7 @@ func sourceTemplateView(item sourceTemplate) gin.H {
 func sourceReleaseView(item sourceRelease) gin.H {
 	view := gin.H{
 		"kind": item.Kind, "itemId": item.ItemID, "version": item.Version, "changelog": item.Changelog,
-		"sha256": item.SHA256, "status": item.Status, "reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
+		"sha256": item.SHA256, "sizeBytes": item.SizeBytes, "status": item.Status, "reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
 		"createdAt": item.CreatedAt.Format(time.RFC3339), "updatedAt": item.UpdatedAt.Format(time.RFC3339),
 	}
 	if item.Kind == sourceKindTemplate {

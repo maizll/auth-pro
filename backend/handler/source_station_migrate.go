@@ -45,6 +45,7 @@ func ensureSourceStationMigrations(db *sql.DB) error {
 		{sourceMigrationCatalogListing, migrateSourceCatalogListing},
 		{sourceMigrationPaidExternal, migratePaidExternalVisible},
 		{sourceMigrationVersionStorage, migrateSourceCatalogVersionStorage},
+		{sourceMigrationVersionSize, migrateSourceCatalogVersionSize},
 		{storeMigrationBindings, migrateStoreBindings},
 		{storeMigrationLoginHandoff, migrateStoreLoginHandoff},
 		{storeMigrationEditions, migrateStoreEditions},

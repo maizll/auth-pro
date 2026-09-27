@@ -211,6 +211,9 @@ func AdminSourcePackagePublish(c *gin.Context) {
 			writeCatalogPriceError(c, convErr)
 			return
 		}
+		if manifest.Size > 0 {
+			item.packageBytes = int64(manifest.Size)
+		}
 		saved, upsertErr := currentSourceStationStore().UpsertTemplate(item, true)
 		if upsertErr != nil {
 			writeSourceDeveloperStoreError(c, upsertErr)
@@ -259,6 +262,9 @@ func AdminSourcePackagePublish(c *gin.Context) {
 		if convErr != nil {
 			writeCatalogPriceError(c, convErr)
 			return
+		}
+		if manifest.Size > 0 {
+			item.packageBytes = int64(manifest.Size)
 		}
 		saved, upsertErr := currentSourceStationStore().UpsertPlugin(item, true)
 		if upsertErr != nil {

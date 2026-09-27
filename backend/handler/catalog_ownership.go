@@ -7,10 +7,26 @@ import (
 )
 
 const sourceMigrationVersionStorage = "source_catalog_version_storage_v1"
+const sourceMigrationVersionSize = "source_catalog_version_size_v1"
 
 func ensureAppDeletedAt(db *sql.DB) error {
 	return ensureSourceStationColumn(db, "apps", "deleted_at",
 		"ALTER TABLE apps ADD COLUMN deleted_at DATETIME NULL DEFAULT NULL")
+}
+
+func migrateSourceCatalogVersionSize(db *sql.DB) error {
+	columns := []struct {
+		table, column, statement string
+	}{
+		{"source_catalog_plugin_versions", "size_bytes", "ALTER TABLE source_catalog_plugin_versions ADD COLUMN size_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0"},
+		{"source_catalog_template_versions", "size_bytes", "ALTER TABLE source_catalog_template_versions ADD COLUMN size_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0"},
+	}
+	for _, column := range columns {
+		if err := ensureSourceStationColumn(db, column.table, column.column, column.statement); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func migrateSourceCatalogVersionStorage(db *sql.DB) error {

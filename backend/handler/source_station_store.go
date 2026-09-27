@@ -123,6 +123,7 @@ type sourcePlugin struct {
 	switchMoves        map[string]catalogLocationMove
 	switchPrepared     bool
 	touchOrigin        bool
+	packageBytes       int64
 	Changelog          string    `json:"changelog"`
 	LatestVersion      string    `json:"latestVersion"`
 	MinVersion         string    `json:"minVersion"`
@@ -157,6 +158,7 @@ type sourceTemplate struct {
 	switchMoves        map[string]catalogLocationMove
 	switchPrepared     bool
 	touchOrigin        bool
+	packageBytes       int64
 	Changelog          string       `json:"changelog"`
 	LatestVersion      string       `json:"latestVersion"`
 	MinVersion         string       `json:"minVersion"`
@@ -179,6 +181,7 @@ type sourceRelease struct {
 	ObjectKey     string    `json:"objectKey"`
 	OriginURL     string    `json:"-"`
 	SHA256        string    `json:"sha256"`
+	SizeBytes     int64     `json:"sizeBytes"`
 	Status        string    `json:"status"`
 	ReviewNote    string    `json:"reviewNote"`
 	ReviewedBy    string    `json:"reviewedBy"`
@@ -789,7 +792,7 @@ func (store *memorySourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) 
 	if incomingVersion != "" || incomingURL != "" || incomingSHA != "" {
 		rel := sourceRelease{
 			Kind: sourceKindPlugin, ItemID: plugin.ID, Version: incomingVersion,
-			Changelog: incomingLog, Location: incomingURL, OriginURL: paidOriginForLocation(plugin.OriginURL, plugin.DownloadURL, incomingURL), SHA256: incomingSHA, Status: sourceVersionDraft,
+			Changelog: incomingLog, Location: incomingURL, OriginURL: paidOriginForLocation(plugin.OriginURL, plugin.DownloadURL, incomingURL), SHA256: incomingSHA, SizeBytes: plugin.packageBytes, Status: sourceVersionDraft,
 		}
 		if _, err := store.upsertVersionLocked(rel, plugin.DeveloperID, asAdmin); err != nil {
 			return sourcePlugin{}, err
@@ -968,7 +971,7 @@ func (store *memorySourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool
 	if incomingVersion != "" || incomingURL != "" || incomingSHA != "" {
 		rel := sourceRelease{
 			Kind: sourceKindTemplate, ItemID: item.ID, Version: incomingVersion,
-			Changelog: incomingLog, Location: incomingURL, OriginURL: paidOriginForLocation(item.OriginURL, item.TemplateURL, incomingURL), SHA256: incomingSHA, Status: sourceVersionDraft,
+			Changelog: incomingLog, Location: incomingURL, OriginURL: paidOriginForLocation(item.OriginURL, item.TemplateURL, incomingURL), SHA256: incomingSHA, SizeBytes: item.packageBytes, Status: sourceVersionDraft,
 		}
 		if _, err := store.upsertVersionLocked(rel, item.DeveloperID, asAdmin); err != nil {
 			return sourceTemplate{}, err
@@ -1952,7 +1955,7 @@ func (mysqlSourceStore) UpsertPlugin(plugin sourcePlugin, asAdmin bool) (sourceP
 	if incomingVersion != "" || incomingURL != "" || incomingSHA != "" {
 		if _, err := (mysqlSourceStore{}).UpsertVersion(sourceRelease{
 			Kind: sourceKindPlugin, ItemID: plugin.ID, Version: incomingVersion,
-			Changelog: incomingLog, Location: incomingURL, OriginURL: paidOriginForLocation(plugin.OriginURL, plugin.DownloadURL, incomingURL), SHA256: incomingSHA, Status: sourceVersionDraft,
+			Changelog: incomingLog, Location: incomingURL, OriginURL: paidOriginForLocation(plugin.OriginURL, plugin.DownloadURL, incomingURL), SHA256: incomingSHA, SizeBytes: plugin.packageBytes, Status: sourceVersionDraft,
 		}, plugin.DeveloperID, asAdmin); err != nil {
 			return sourcePlugin{}, err
 		}
@@ -2222,7 +2225,7 @@ func (mysqlSourceStore) UpsertTemplate(item sourceTemplate, asAdmin bool) (sourc
 	if incomingVersion != "" || incomingURL != "" || incomingSHA != "" {
 		if _, err := (mysqlSourceStore{}).UpsertVersion(sourceRelease{
 			Kind: sourceKindTemplate, ItemID: item.ID, Version: incomingVersion,
-			Changelog: incomingLog, Location: incomingURL, OriginURL: paidOriginForLocation(item.OriginURL, item.TemplateURL, incomingURL), SHA256: incomingSHA, Status: sourceVersionDraft,
+			Changelog: incomingLog, Location: incomingURL, OriginURL: paidOriginForLocation(item.OriginURL, item.TemplateURL, incomingURL), SHA256: incomingSHA, SizeBytes: item.packageBytes, Status: sourceVersionDraft,
 		}, item.DeveloperID, asAdmin); err != nil {
 			return sourceTemplate{}, err
 		}
