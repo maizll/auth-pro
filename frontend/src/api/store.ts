@@ -86,6 +86,10 @@ export function fetchStoreEditionOrder(orderNo: string) {
   })
 }
 
+export function logoutStoreAccount() {
+  return request.post({ url: '/api/store/logout', showErrorMessage: true, showSuccessMessage: false })
+}
+
 export function refreshStoreSnapshot() {
   return request.post<StoreAccount>({ url: '/api/store/refresh' })
 }

@@ -604,6 +604,78 @@ def run_upgrade(ca: str) -> str:
     return token
 
 
+def rebind_after_source_deletes_binding(buyer: str, buyer_token: str, ca: str, buyer_data: str) -> None:
+    """绑定之后源站删除绑定，买家下单应清掉本地凭据，重新绑定后可以再次下单。"""
+    plans = must_api(buyer, "GET", "/api/store/plans", token=buyer_token, ca=ca)
+    listing = (plans.get("data") or {}).get("list") or []
+    if not listing:
+        raise Fail(f"没有可购买套餐: {plans}")
+    plan_id = int(listing[0]["id"])
+    row = sql_query(
+        SOURCE_DB,
+        "SELECT binding_id, license_id, domain_snapshot FROM store_bindings WHERE status='active' ORDER BY id DESC LIMIT 1",
+    )
+    if not row:
+        raise Fail("重新绑定测试开始前没有活跃绑定")
+    binding_id, license_id, domain = row.split("\t")
+    license_no = int(license_id)
+    domain_sql = domain.replace("'", "")
+    binding_sql = binding_id.replace("'", "")
+    source_base = sql_query(BUYER_DB, "SELECT value FROM system_configs WHERE `group`='store' AND `key`='store_source_base'")
+    site_url = sql_query(BUYER_DB, "SELECT value FROM system_configs WHERE `group`='store' AND `key`='store_site_url'")
+    if SOURCE_HOST not in source_base or BUYER_HOST not in site_url:
+        raise Fail(f"连接设置异常 source={source_base} site={site_url}")
+    key_path = os.path.join(buyer_data, "store", "binding.key")
+    snap_path = os.path.join(buyer_data, "store", "snapshot.json")
+    if not os.path.exists(key_path) or not os.path.exists(snap_path):
+        raise Fail("买家本地绑定凭据或快照不存在")
+    sudo_mysql(
+        f"""
+        USE {SOURCE_DB};
+        UPDATE licenses SET status='revoked' WHERE id={license_no};
+        INSERT INTO licenses (license_no, app_id, type, status, source, owner_type, owner_id, duration_days, started_at, license_key, max_domains, remark)
+        SELECT 'LIC-OLD-EXPIRED', app_id, 'domain', 'expired', 'store_bind', 'user', owner_id + 100000, 0, NOW(), '', 0, '旧的已过期记录'
+        FROM licenses WHERE id={license_no};
+        INSERT INTO license_domains (license_id, domain, is_wildcard)
+        SELECT id, '{domain_sql}', 0 FROM licenses WHERE license_no='LIC-OLD-EXPIRED';
+        DELETE FROM store_bindings WHERE binding_id='{binding_sql}';
+        """
+    )
+    code, parsed, raw = http_json(buyer + "/api/store/orders", "POST", {"planId": plan_id}, token=buyer_token, ca=ca)
+    if not isinstance(parsed, dict):
+        raise Fail(f"下单响应不是 JSON {raw[:400]!r}")
+    data = parsed.get("data") or {}
+    if parsed.get("code") != 400 or parsed.get("msg") != "之前的绑定已在源站删除，请重新绑定账号后继续购买":
+        raise Fail(f"下单没有要求重新绑定: {parsed}")
+    if data.get("rebind") is not True or data.get("revoked") is not True or data.get("reason") != "binding_deleted":
+        raise Fail(f"重新绑定原因不正确: {parsed}")
+    if code != 200:
+        raise Fail(f"业务错误不应使用 HTTP {code}")
+    if os.path.exists(key_path) or os.path.exists(snap_path):
+        raise Fail("本地绑定凭据或快照没有清除")
+    if sql_query(BUYER_DB, "SELECT value FROM system_configs WHERE `group`='store' AND `key`='store_source_base'") != source_base:
+        raise Fail("源站地址被清掉了")
+    if sql_query(BUYER_DB, "SELECT value FROM system_configs WHERE `group`='store' AND `key`='store_site_url'") != site_url:
+        raise Fail("站点地址被清掉了")
+    bound = must_api(
+        buyer,
+        "POST",
+        "/api/store/bind",
+        {"account": BUYER_EMAIL, "password": BUYER_PASS, "role": "user"},
+        buyer_token,
+        ca,
+    )
+    if not (bound.get("data") or {}).get("bound"):
+        raise Fail(f"重新绑定失败: {bound}")
+    ordered = must_api(buyer, "POST", "/api/store/orders", {"planId": plan_id}, token=buyer_token, ca=ca)
+    if not (ordered.get("data") or {}).get("payUrl"):
+        raise Fail(f"重新绑定后下单没有付款地址: {ordered}")
+    active = sql_query(SOURCE_DB, "SELECT COUNT(*) FROM store_bindings WHERE status='active'")
+    if active == "0":
+        raise Fail("重新绑定没有新建活跃绑定")
+    log("源站删除绑定后，买家已自动清除并重新绑定下单")
+
+
 def run_shots(state_path: str) -> None:
     env = os.environ.copy()
     env["AUTH_PRO_E2E_STATE"] = state_path
@@ -695,6 +767,8 @@ def main() -> int:
         raise errors[0]
     if thread.is_alive():
         raise Fail("支付线程没有结束")
+    log("rebind after source deletes binding")
+    rebind_after_source_deletes_binding(buyer, buyer_token, ca, buyer_data)
     log("commercial mysql e2e ok")
     return 0
 

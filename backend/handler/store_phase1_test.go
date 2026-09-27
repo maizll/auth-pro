@@ -46,6 +46,20 @@ func TestDecideMainLicenseRejectsOccupiedDomain(t *testing.T) {
 	if err != nil || action != "associate" || id != 9 {
 		t.Fatalf("associate action=%s id=%d err=%v", action, id, err)
 	}
+	for _, status := range []string{"revoked", "expired", "disabled", "deleted", "inactive", ""} {
+		action, id, err = decideMainLicense("user", 2, []mainLicenseMatch{{ID: 9, OwnerType: "user", OwnerID: 1, Type: "domain", Status: status}})
+		if err != nil || action != "create" || id != 0 {
+			t.Fatalf("status %q should allow a new binding, action=%s id=%d err=%v", status, action, id, err)
+		}
+	}
+	action, id, err = decideMainLicense("user", 2, []mainLicenseMatch{
+		{ID: 3, OwnerType: "user", OwnerID: 9, Type: "domain", Status: "revoked"},
+		{ID: 4, OwnerType: "agent", OwnerID: 8, Type: "domain", Status: "expired"},
+		{ID: 5, OwnerType: "user", OwnerID: 2, Type: "domain", Status: "active"},
+	})
+	if err != nil || action != "associate" || id != 5 {
+		t.Fatalf("dead records must not hide the active license, action=%s id=%d err=%v", action, id, err)
+	}
 }
 
 func TestDomainChangeWindowAndGrace(t *testing.T) {

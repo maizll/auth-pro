@@ -49,7 +49,15 @@
           </div>
         </template>
         <template v-else>
-          <section v-if="action !== 'view' && !buyingItem" class="compare">
+          <ElAlert
+            v-if="showRebindNotice"
+            class="rebind-notice"
+            type="warning"
+            :closable="false"
+            show-icon
+            title="之前的绑定已在源站删除，请重新绑定账号后继续购买"
+          />
+          <section v-if="action !== 'view' && !buyingItem && !showRebindNotice" class="compare">
             <div class="compare__head">
               <span>能力</span>
               <span>免费版</span>
@@ -69,10 +77,10 @@
             show-icon
             title="当前访问域名与授权域名不一致，付费能力暂按免费版处理。"
           />
-          <template v-if="action === 'view' && !commercialUi.offer">
+          <template v-if="action === 'view' && !commercialUi.offer && !needsBind">
             <CommercialLicenseCard :account="account" @refreshed="onAccountRefreshed" />
           </template>
-          <template v-else-if="!account?.bound">
+          <template v-else-if="needsBind">
             <ElForm label-width="72px" class="upgrade-form">
               <ElFormItem label="身份">
                 <ElRadioGroup v-model="form.role">
@@ -147,6 +155,16 @@
             <ElButton v-if="commercialUi.offer" link type="primary" @click="choosingEdition = false">返回单独购买</ElButton>
             <p v-if="!plans.length" class="upgrade-tip">源站尚未配置可购买的套餐。</p>
           </template>
+          <ElButton
+            v-if="account?.bound"
+            class="rebind-fallback"
+            plain
+            type="warning"
+            :loading="acting"
+            @click="releaseBinding"
+          >
+            解除绑定 / 重新绑定
+          </ElButton>
           <ElCollapse class="upgrade-settings">
             <ElCollapseItem title="源站连接" name="conn">
               <ElForm label-width="88px">
@@ -189,7 +207,7 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+  import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
   import { ElMessage } from 'element-plus'
   import { caughtErrorText, errorAlreadyToasted, showCaughtError } from '@/utils/http/error-toast'
   import QrcodeVue from 'qrcode.vue'
@@ -216,6 +234,7 @@
     fetchStoreAccount,
     fetchStoreEditionOrder,
     fetchStorePlans,
+    logoutStoreAccount,
     saveStoreConnection,
     type StoreAccount,
     type StorePlan
@@ -229,14 +248,19 @@
   const upgraded = ref(false)
   const choosingEdition = ref(false)
   const itemContinued = ref(false)
-  const buyingItem = computed(() => !!commercialUi.offer && !choosingEdition.value)
+  const needsBind = computed(
+    () => !account.value?.bound || !!account.value?.explicitRevoked || commercialUi.rebindRequired
+  )
+  const showRebindNotice = computed(() => commercialUi.rebindRequired || !!account.value?.explicitRevoked)
+  const pendingItem = computed(() => !!commercialUi.offer && !choosingEdition.value)
+  const buyingItem = computed(() => pendingItem.value && !needsBind.value)
   const offerPeriod = computed(() => commercialPeriodText(commercialUi.offer?.period))
   const dialogTitle = computed(() => {
     if (upgraded.value) {
-      if (buyingItem.value) return itemContinued.value ? '已购买并启用' : '已购买'
+      if (pendingItem.value) return itemContinued.value ? '已购买并启用' : '已购买'
       return '升级完成'
     }
-    if (buyingItem.value) return commercialUi.offer?.kind === 'template' ? '购买模板' : '购买插件'
+    if (pendingItem.value) return commercialUi.offer?.kind === 'template' ? '购买模板' : '购买插件'
     if (action.value === 'view') return '查看授权'
     if (action.value === 'renew') return '续费'
     return '升级商业版'
@@ -259,7 +283,7 @@
   const orderTitle = ref('')
   const payStatus = ref('')
   const payFailed = ref('')
-  const showBrandBanner = computed(() => !upgraded.value && action.value !== 'view' && !buyingItem.value)
+  const showBrandBanner = computed(() => !upgraded.value && action.value !== 'view' && !pendingItem.value)
   const purchaseModalClass = computed(() =>
     showBrandBanner.value ? 'commercial-purchase-modal is-brand' : 'commercial-purchase-modal is-plain'
   )
@@ -343,7 +367,9 @@
     try {
       const next = await fetchStoreAccount()
       applyAccount(next)
-      if (next.bound && commercialCta(next) !== 'view') {
+      if (next.explicitRevoked) commercialUi.rebindRequired = true
+      else if (next.bound) commercialUi.rebindRequired = false
+      if (next.bound && !next.explicitRevoked && commercialCta(next) !== 'view') {
         const data = await fetchStorePlans()
         plans.value = data.list || []
         planId.value = plans.value[0]?.id
@@ -380,14 +406,16 @@
     }
     acting.value = true
     try {
+      const keptPlan = planId.value
       const next = await bindStoreAccount({ ...form })
+      commercialUi.rebindRequired = false
       applyAccount(next)
       form.password = ''
       ElMessage.success('已绑定，请继续支付')
-      if (!commercialUi.offer) {
+      if (!commercialUi.offer || choosingEdition.value) {
         const data = await fetchStorePlans()
         plans.value = data.list || []
-        planId.value = plans.value[0]?.id
+        planId.value = plans.value.some((item) => item.id === keptPlan) ? keptPlan : plans.value[0]?.id
         if (!plans.value.length) {
           ElMessage.warning('源站尚未配置可购买的套餐')
         }
@@ -505,6 +533,11 @@
         }
         payStatus.value = '正在等待支付'
       } catch (error: unknown) {
+        if (commercialUi.rebindRequired) {
+          stopPoll()
+          resetPay()
+          return
+        }
         pollFailures += 1
         payStatus.value = '暂时连不上源站，正在重试'
         if (pollFailures >= 5) {
@@ -578,6 +611,35 @@
     commercialUi.offer = null
     resetPay()
   }
+
+  async function releaseBinding() {
+    acting.value = true
+    try {
+      await logoutStoreAccount()
+      commercialUi.rebindRequired = true
+      resetPay()
+      const next = await fetchStoreAccount()
+      applyAccount(next)
+    } catch (error: unknown) {
+      showCaughtError(error, '解除绑定失败')
+    } finally {
+      acting.value = false
+    }
+  }
+
+  watch(
+    () => commercialUi.rebindRequired,
+    async (required) => {
+      if (!required) return
+      resetPay()
+      try {
+        const next = await fetchStoreAccount()
+        applyAccount(next)
+      } catch {
+        if (account.value) account.value = { ...account.value, bound: false, explicitRevoked: true }
+      }
+    }
+  )
 
   async function saveConnection() {
     if (!connection.sourceBase.startsWith('https://')) {
@@ -706,6 +768,11 @@
   :global(html.dark) .celebrate-copy__icon,
   :global(.dark) .celebrate-copy__icon {
     color: var(--el-color-primary-light-3);
+  }
+
+  .rebind-fallback {
+    width: 100%;
+    min-height: 36px;
   }
 
   .item-offer {

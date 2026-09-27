@@ -74,10 +74,11 @@ type mainLicenseMatch struct {
 }
 
 // decideMainLicense 决定绑定域名时关联、新建，还是拒绝。
-// 只接受 domain 类型。域名属于其他账号时拒绝，不自动转移。
+// 只接受 domain 类型。域名属于其他账号的有效授权时拒绝，不自动转移。
+// 已删除、已吊销、已过期或其他非活跃记录不占用域名，可以新建绑定。
 func decideMainLicense(accountType string, accountID int64, matches []mainLicenseMatch) (action string, licenseID int64, err error) {
 	for _, item := range matches {
-		if item.Status == "revoked" || item.Status == "expired" {
+		if strings.TrimSpace(item.Status) != "active" {
 			continue
 		}
 		if item.Type != "domain" {

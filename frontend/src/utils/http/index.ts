@@ -26,7 +26,7 @@ import {
 } from './backend-unavailable'
 import { $t } from '@/locales'
 import { BaseResponse } from '@/types'
-import { notifyCommercialRequired } from '@/utils/commercial'
+import { buyerRebindMessage, noteStoreRebind, notifyCommercialRequired } from '@/utils/commercial'
 
 /** 请求配置常量 */
 const REQUEST_TIMEOUT = 15000
@@ -117,6 +117,9 @@ axiosInstance.interceptors.response.use(
     if (code === 402) {
       notifyCommercialRequired(response.data)
       throw createHttpError(responseMessage || '该功能需要商业版', code)
+    }
+    if (noteStoreRebind(response.data?.data)) {
+      throw createHttpError(responseMessage || buyerRebindMessage, code, response.data?.data)
     }
     if (code === ApiStatus.success) return response
     if (code === ApiStatus.unauthorized) handleUnauthorizedError(responseMessage)

@@ -6,8 +6,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -250,6 +248,9 @@ func BuyerStoreOrderCreate(c *gin.Context) {
 	}
 	var payload map[string]any
 	if err := signedSourceJSON(http.MethodPost, "/api/v1/store/orders", body, &payload); err != nil {
+		if storeFailSource(c, err) {
+			return
+		}
 		storeFail(c, 400, err.Error())
 		return
 	}
@@ -260,6 +261,9 @@ func BuyerStoreOrderQuery(c *gin.Context) {
 	orderNo := strings.TrimSpace(c.Param("orderNo"))
 	var payload map[string]any
 	if err := signedSourceJSON(http.MethodGet, "/api/v1/store/orders/"+orderNo, nil, &payload); err != nil {
+		if storeFailSource(c, err) {
+			return
+		}
 		storeFail(c, 400, err.Error())
 		return
 	}
@@ -273,7 +277,10 @@ func BuyerStoreOrderQuery(c *gin.Context) {
 
 func BuyerStoreRefresh(c *gin.Context) {
 	err := refreshBuyerSnapshot(c.Request.Context(), buyerRequestDomain(c))
-	if err != nil && !buyerRefreshFailureRevoked(err) {
+	if err != nil {
+		if storeFailSource(c, err) {
+			return
+		}
 		storeFail(c, 400, err.Error())
 		return
 	}
@@ -285,10 +292,30 @@ func buyerRefreshFailureRevoked(err error) bool {
 	return errors.As(err, &src) && buyerSnapshotTerminal(src.Reason, src.Revoked)
 }
 
+const buyerRebindMessage = "之前的绑定已在源站删除，请重新绑定账号后继续购买"
+
+// storeFailSource 在源站明确终止绑定时返回重新绑定原因。
+// 业务码用 400：401 会被前端当成管理员登录失效并退出后台。
+func storeFailSource(c *gin.Context, err error) bool {
+	var src *sourceResponseError
+	if !errors.As(err, &src) || !buyerSnapshotTerminal(src.Reason, src.Revoked) {
+		return false
+	}
+	reason := strings.TrimSpace(src.Reason)
+	if reason == "" {
+		reason = "revoked"
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code": 400,
+		"msg":  buyerRebindMessage,
+		"data": gin.H{"reason": reason, "revoked": true, "rebind": true},
+	})
+	return true
+}
+
 func BuyerStoreLogout(c *gin.Context) {
 	_ = signedSourceJSON(http.MethodPost, "/api/v1/store/auth/logout", map[string]any{}, nil)
-	_ = os.Remove(buyerSnapshotPath())
-	_ = os.Remove(filepath.Join(config.GetDataDir(), "store", "binding.key"))
+	clearBuyerLocalBinding()
 	storeData(c, gin.H{"ok": true})
 }
 
@@ -302,6 +329,9 @@ func BuyerStoreInstall(c *gin.Context) {
 		return
 	}
 	if err := installPaidPackage(c.Request.Context(), req.Kind, req.ID); err != nil {
+		if storeFailSource(c, err) {
+			return
+		}
 		enqueueInstall(req.Kind, req.ID, err.Error())
 		storeFail(c, 400, err.Error())
 		return

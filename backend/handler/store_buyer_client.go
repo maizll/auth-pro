@@ -38,11 +38,20 @@ func loadBuyerInstallID() string {
 	return id
 }
 
+// 测试把源站指到 httptest，避免改系统配置。生产环境保持空。
+var (
+	buyerSourceBaseForTest  string
+	sourceHTTPClientForTest *http.Client
+)
+
 func buyerSourceBase() (string, error) {
-	base := "https://auth.maizll.com"
-	if db, err := config.DB(); err == nil {
-		if value := strings.TrimSpace(configValue(db, storeConfigGroup, storeConfigSourceBase)); value != "" {
-			base = value
+	base := strings.TrimSpace(buyerSourceBaseForTest)
+	if base == "" {
+		base = "https://auth.maizll.com"
+		if db, err := config.DB(); err == nil {
+			if value := strings.TrimSpace(configValue(db, storeConfigGroup, storeConfigSourceBase)); value != "" {
+				base = value
+			}
 		}
 	}
 	parsed, err := parseHTTPSBase(base)
@@ -50,6 +59,24 @@ func buyerSourceBase() (string, error) {
 		return "", err
 	}
 	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
+func newSourceHTTPClient() *http.Client {
+	if sourceHTTPClientForTest != nil {
+		client := *sourceHTTPClientForTest
+		if client.Timeout == 0 {
+			client.Timeout = 20 * time.Second
+		}
+		if client.CheckRedirect == nil {
+			client.CheckRedirect = refuseSourceRedirect
+		}
+		return &client
+	}
+	return &http.Client{Timeout: 20 * time.Second, CheckRedirect: refuseSourceRedirect}
+}
+
+func refuseSourceRedirect(*http.Request, []*http.Request) error {
+	return errStoreNoRedirect
 }
 
 func callSourceJSON(method, path string, body any, headers map[string]string, out any) error {
@@ -72,10 +99,7 @@ func callSourceJSON(method, path string, body any, headers map[string]string, ou
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
-	client := &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
-		return errStoreNoRedirect
-	}}
-	resp, err := client.Do(req)
+	resp, err := newSourceHTTPClient().Do(req)
 	if err != nil {
 		return errors.New("无法连接源站")
 	}
@@ -248,7 +272,26 @@ func signedSourceJSONPath(method, signPath, requestPath string, body any, out an
 	if len(payload) > 0 {
 		send = json.RawMessage(payload)
 	}
-	return callSourceJSON(method, requestPath, send, headers, out)
+	err = callSourceJSON(method, requestPath, send, headers, out)
+	if err != nil {
+		clearBuyerBindingIfTerminal(err)
+	}
+	return err
+}
+
+// clearBuyerLocalBinding 去掉本机绑定凭据和快照，效果同退出绑定。
+// 源站地址、站点地址和信任代理仍留在系统配置里。
+func clearBuyerLocalBinding() {
+	_ = os.Remove(buyerSnapshotPath())
+	_ = os.Remove(filepath.Join(config.GetDataDir(), "store", "binding.key"))
+}
+
+func clearBuyerBindingIfTerminal(err error) {
+	var src *sourceResponseError
+	if !errors.As(err, &src) || !buyerSnapshotTerminal(src.Reason, src.Revoked) {
+		return
+	}
+	clearBuyerLocalBinding()
 }
 
 func openBuyerBindingSecret() ([]byte, string, error) {
@@ -356,6 +399,10 @@ func refreshBuyerSnapshot(ctx context.Context, domain string) error {
 	}
 	err := signedSourceJSONPath(http.MethodGet, signPath, requestPath, nil, &payload)
 	if err != nil {
+		// 授权或绑定已终止时，签名请求已经清掉快照，不要再写回一份吊销快照。
+		if buyerRefreshFailureRevoked(err) {
+			return err
+		}
 		state, ok := loadBuyerSnapshot()
 		if ok {
 			if next, save := applyBuyerRefreshFailure(state, err); save {
