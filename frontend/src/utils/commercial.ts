@@ -3,6 +3,16 @@ import { h, reactive } from 'vue'
 import { ElButton, ElNotification } from 'element-plus'
 import type { StoreAccount } from '@/api/store'
 import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
+import { storePayloadRebind } from './commercial-bind'
+
+export {
+  buyerRebindMessage,
+  logoutFailureIsAlreadyGone,
+  purchaseNeedsRebind,
+  purchaseRebindNotice,
+  shouldAnnounceBound,
+  sourceConfirmedBound
+} from './commercial-bind'
 
 export const commercialCopy: Record<string, string> = {
   multi_app: '免费版仅支持 1 个授权应用，升级商业版可创建多个',
@@ -44,18 +54,6 @@ export interface CatalogPurchaseOffer {
 
 export const catalogPurchaseResumeEvent = 'catalog-purchase-resume'
 
-export const buyerRebindMessage = '之前的绑定已在源站删除，请重新绑定账号后继续购买'
-
-const buyerTerminalReasons = new Set([
-  'license_deleted',
-  'binding_deleted',
-  'binding_revoked',
-  'binding_expired',
-  'license_not_found',
-  'license_revoked',
-  'license_expired'
-])
-
 export const commercialUi = reactive({
   upgradeOpen: false,
   promptOpen: false,
@@ -66,13 +64,6 @@ export const commercialUi = reactive({
   account: null as StoreAccount | null,
   offer: null as CatalogPurchaseOffer | null
 })
-
-export function storePayloadRebind(data: unknown) {
-  if (!data || typeof data !== 'object') return false
-  const row = data as { rebind?: boolean; reason?: string }
-  if (row.rebind) return true
-  return buyerTerminalReasons.has((row.reason || '').trim())
-}
 
 /** 源站已删除绑定。打开购买窗口并停在重新绑定，不把业务 401 当成管理员退出。 */
 export function noteStoreRebind(data: unknown) {

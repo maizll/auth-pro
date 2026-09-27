@@ -18,6 +18,11 @@ export interface StoreAccount {
   offlineGrace: boolean
   graceWarning: boolean
   explicitRevoked: boolean
+  /** 源站核对后确认本地旧绑定已不能用。 */
+  bindingInvalid?: boolean
+  bindingInvalidReason?: string
+  /** 本次读取已向源站确认绑定仍然有效。 */
+  sourceVerified?: boolean
   reason: string
   connectionIssues?: { field: string; message: string }[]
   installId: string
@@ -41,8 +46,12 @@ export interface StoreCatalogItem {
   ownership: 'free' | 'included' | 'purchased' | 'none' | string
 }
 
-export function fetchStoreAccount() {
-  return request.get<StoreAccount>({ url: '/api/store/account', showErrorMessage: false })
+export function fetchStoreAccount(verify = false) {
+  return request.get<StoreAccount>({
+    url: '/api/store/account',
+    params: verify ? { verify: 1 } : undefined,
+    showErrorMessage: false
+  })
 }
 
 export function fetchStorePlans() {
@@ -84,7 +93,7 @@ export function fetchStoreEditionOrder(orderNo: string) {
 export function logoutStoreAccount() {
   return request.post({
     url: '/api/store/logout',
-    showErrorMessage: true,
+    showErrorMessage: false,
     showSuccessMessage: false
   })
 }

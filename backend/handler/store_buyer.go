@@ -42,6 +42,7 @@ func RegisterPaidStoreRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 	api.POST("/v1/store/auth/logout", StoreAuthLogout)
 	api.POST("/v1/store/auth/rotate", StoreAuthRotate)
 	api.GET("/v1/store/status", StoreStatus)
+	api.GET("/v1/store/binding", StoreBindingCheck)
 	api.GET("/v1/store/edition-plans", StoreEditionPlans)
 	api.POST("/v1/store/orders", StoreOrderCreate)
 	api.GET("/v1/store/orders/:orderNo", StoreOrderQuery)
@@ -89,10 +90,40 @@ func BuyerStationVerify(c *gin.Context) {
 	c.String(http.StatusOK, stationChallengeReceipt(installID, nonce))
 }
 
-// BuyerStoreAccount 返回本机快照里的商业版状态、域名和连接问题。
-// 没有快照时仍返回未绑定，不向源站现查。
+// BuyerStoreAccount 返回本机商业版状态。
+// 不带 verify 时只读本地快照，供顶栏快速显示。
+// verify=1 时向源站核对绑定：源站确认有效才标 sourceVerified。
+// 绑定不存在、已删除或令牌失效则清掉本地旧记录，返回未绑定和 bindingInvalid。
+// 连不上源站时保留本地快照，不把商业版降成未绑定。
 func BuyerStoreAccount(c *gin.Context) {
-	storeData(c, buyerAccountPayload(currentBuyerAccess(c), buyerConnectionForRequest(c), loadBuyerInstallID()))
+	invalidReason, verified := "", false
+	if c.Query("verify") == "1" || c.Query("verify") == "true" {
+		invalidReason, verified = reconcileBuyerBinding()
+	}
+	writeBuyerAccountResult(c, invalidReason, verified)
+}
+
+func writeBuyerAccountResult(c *gin.Context, invalidReason string, verified bool) {
+	payload := buyerAccountPayload(currentBuyerAccess(c), buyerConnectionForRequest(c), loadBuyerInstallID())
+	payload["sourceVerified"] = verified && invalidReason == ""
+	payload["bindingInvalid"] = false
+	payload["bindingInvalidReason"] = ""
+	if invalidReason != "" {
+		payload["bound"] = false
+		payload["explicitRevoked"] = false
+		payload["edition"] = storeEditionFree
+		payload["permanent"] = false
+		payload["editionExpireAt"] = nil
+		payload["features"] = []string{}
+		payload["offlineGrace"] = false
+		payload["bindingInvalid"] = true
+		payload["bindingInvalidReason"] = invalidReason
+		payload["sourceVerified"] = false
+		if reason, _ := payload["reason"].(string); buyerSnapshotTerminal(reason, false) {
+			payload["reason"] = "unbound"
+		}
+	}
+	storeData(c, payload)
 }
 
 func buyerAccountPayload(view buyerAccessView, conn buyerConnectionView, installID string) gin.H {
@@ -201,7 +232,12 @@ func BuyerStoreBind(c *gin.Context) {
 		storeFail(c, 500, err.Error())
 		return
 	}
-	BuyerStoreAccount(c)
+	// 登录确认已经通过源站。随后的核对若只是网络抖动，仍视为刚刚绑定成功。
+	invalidReason, verified := reconcileBuyerBinding()
+	if invalidReason == "" {
+		verified = true
+	}
+	writeBuyerAccountResult(c, invalidReason, verified)
 }
 
 // BuyerStoreRegisterCode 把注册验证码请求原样转到源站用户端。
@@ -322,8 +358,14 @@ func storeFailSource(c *gin.Context, err error) bool {
 }
 
 // BuyerStoreLogout 通知源站退出，并清掉本机绑定和快照。
-// 源站暂时连不上也会清本地，避免界面还显示已经不想用的商业版。
+// 本地已经没有令牌时不再请求源站。源站说绑定已删除或令牌失效时，本地清掉后仍返回成功，
+// 避免购买窗口因为删一条已经不存在的绑定而报错。源站暂时连不上也会清本地。
 func BuyerStoreLogout(c *gin.Context) {
+	if _, _, err := openBuyerBindingSecret(); err != nil {
+		clearBuyerLocalBinding()
+		storeData(c, gin.H{"ok": true})
+		return
+	}
 	_ = signedSourceJSON(http.MethodPost, "/api/v1/store/auth/logout", map[string]any{}, nil)
 	clearBuyerLocalBinding()
 	storeData(c, gin.H{"ok": true})

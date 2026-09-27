@@ -20,6 +20,26 @@ func TestLocalCommercialCacheStale(t *testing.T) {
 	}
 }
 
+func TestEditionRevokeDoesNotForceRebind(t *testing.T) {
+	state := buyerSnapshotState{}
+	state.Snapshot.Edition = storeEditionCommercial
+	next, edition := classifyLocalCommercialStale(state, "edition_revoked")
+	if next.ExplicitRevoked || edition != storeEditionFree {
+		t.Fatalf("权益未开通不应要求重绑 revoked=%v edition=%s", next.ExplicitRevoked, edition)
+	}
+	revoked, kept := classifyLocalCommercialStale(state, "binding_revoked")
+	if !revoked.ExplicitRevoked || revoked.RevokeReason != "binding_revoked" || kept != storeEditionCommercial {
+		t.Fatalf("绑定吊销应标记失效 %+v edition=%s", revoked, kept)
+	}
+	healed, changed := clearEditionOnlyRevoke(buyerSnapshotState{ExplicitRevoked: true, RevokeReason: "edition_revoked"})
+	if !changed || healed.ExplicitRevoked || healed.RevokeReason != "" {
+		t.Fatalf("应清掉误标的失效 %+v changed=%v", healed, changed)
+	}
+	if _, changed := clearEditionOnlyRevoke(buyerSnapshotState{ExplicitRevoked: true, RevokeReason: "binding_deleted"}); changed {
+		t.Fatal("真正的绑定删除不能被当成未开通")
+	}
+}
+
 func TestSnapshotMatchesCommercialLicense(t *testing.T) {
 	state := buyerSnapshotState{LicenseNo: "LIC-1", BindingID: "sb_1"}
 	state.Snapshot.LicenseNo = "LIC-1"

@@ -62,14 +62,14 @@
         </template>
         <template v-else>
           <ElAlert
-            v-if="showRebindNotice"
+            v-if="rebindNotice"
             class="rebind-notice"
             type="warning"
             :closable="false"
             show-icon
-            title="之前的绑定已在源站删除，请重新绑定账号后继续购买"
+            :title="rebindNotice"
           />
-          <section v-if="action !== 'view' && !buyingItem && !showRebindNotice" class="compare">
+          <section v-if="action !== 'view' && !buyingItem && !rebindNotice" class="compare">
             <div class="compare__head">
               <span>能力</span>
               <span>免费版</span>
@@ -193,7 +193,7 @@
             <p v-if="!plans.length" class="upgrade-tip">源站尚未配置可购买的套餐。</p>
           </template>
           <ElButton
-            v-if="account?.bound"
+            v-if="account?.bound || account?.bindingInvalid"
             class="rebind-fallback"
             plain
             type="warning"
@@ -245,8 +245,13 @@
     commercialPitch,
     commercialUi,
     commercialYuanText,
+    logoutFailureIsAlreadyGone,
+    purchaseNeedsRebind,
+    purchaseRebindNotice,
     rememberCommercialAccount,
-    requestCatalogResume
+    requestCatalogResume,
+    shouldAnnounceBound,
+    sourceConfirmedBound
   } from '@/utils/commercial'
   import {
     bindStoreAccount,
@@ -268,12 +273,10 @@
   const upgraded = ref(false)
   const choosingEdition = ref(false)
   const itemContinued = ref(false)
-  // 未绑定、快照已是明确吊销，或这次请求被源站要求重绑，都回到绑定步骤。不能只看本地还记着账号。
-  const needsBind = computed(
-    () => !account.value?.bound || !!account.value?.explicitRevoked || commercialUi.rebindRequired
-  )
-  const showRebindNotice = computed(
-    () => commercialUi.rebindRequired || !!account.value?.explicitRevoked
+  // 未绑定、源站判定绑定失效，或这次请求被要求重绑，都回到绑定步骤。本地旧记录不能单独算已绑定。
+  const needsBind = computed(() => purchaseNeedsRebind(account.value, commercialUi.rebindRequired))
+  const rebindNotice = computed(() =>
+    purchaseRebindNotice(account.value, commercialUi.rebindRequired)
   )
   const pendingItem = computed(() => !!commercialUi.offer && !choosingEdition.value)
   const buyingItem = computed(() => pendingItem.value && !needsBind.value)
@@ -391,14 +394,20 @@
     loadError.value = ''
     loading.value = true
     try {
-      const next = await fetchStoreAccount()
+      const next = await fetchStoreAccount(true)
       applyAccount(next)
-      if (next.explicitRevoked) commercialUi.rebindRequired = true
-      else if (next.bound) commercialUi.rebindRequired = false
-      if (next.bound && !next.explicitRevoked && commercialCta(next) !== 'view') {
+      // bindingInvalid 自己会带说明。不要再把 rebindRequired 打成 true，否则随后的刷新会丢掉具体原因。
+      if (next.bindingInvalid) commercialUi.rebindRequired = false
+      else if (next.explicitRevoked) commercialUi.rebindRequired = true
+      else if (sourceConfirmedBound(next)) commercialUi.rebindRequired = false
+      if (
+        !purchaseNeedsRebind(next, commercialUi.rebindRequired) &&
+        commercialCta(next) !== 'view'
+      ) {
         const data = await fetchStorePlans()
         plans.value = data.list || []
         planId.value = plans.value[0]?.id
+        if (shouldAnnounceBound(next)) ElMessage.success('已绑定，请继续支付')
       } else {
         plans.value = []
         planId.value = undefined
@@ -417,7 +426,7 @@
     loadError.value = ''
     loading.value = true
     try {
-      const next = await fetchStoreAccount()
+      const next = await fetchStoreAccount(true)
       applyAccount(next)
     } catch (error: unknown) {
       loadError.value =
@@ -437,9 +446,14 @@
     try {
       const keptPlan = planId.value
       const next = await bindStoreAccount({ ...form })
-      commercialUi.rebindRequired = false
       applyAccount(next)
       form.password = ''
+      if (!sourceConfirmedBound(next)) {
+        commercialUi.rebindRequired =
+          !next.bindingInvalid && (!!next.explicitRevoked || !next.bound)
+        return
+      }
+      commercialUi.rebindRequired = false
       ElMessage.success('已绑定，请继续支付')
       if (!commercialUi.offer || choosingEdition.value) {
         const data = await fetchStorePlans()
@@ -591,7 +605,7 @@
   async function finishPaid() {
     payStatus.value = '支付成功，正在同步授权'
     try {
-      const next = await fetchStoreAccount()
+      const next = await fetchStoreAccount(true)
       applyAccount(next)
     } catch (error: unknown) {
       showCaughtError(error, '支付已完成，但读取授权失败。关闭窗口后会再试一次。')
@@ -651,11 +665,15 @@
   async function releaseBinding() {
     acting.value = true
     try {
-      await logoutStoreAccount()
-      commercialUi.rebindRequired = true
+      try {
+        await logoutStoreAccount()
+      } catch (error: unknown) {
+        if (!logoutFailureIsAlreadyGone(error)) throw error
+      }
       resetPay()
-      const next = await fetchStoreAccount()
+      const next = await fetchStoreAccount(true)
       applyAccount(next)
+      commercialUi.rebindRequired = !!next.bindingInvalid || !!next.explicitRevoked
     } catch (error: unknown) {
       showCaughtError(error, '解除绑定失败')
     } finally {
@@ -669,7 +687,7 @@
       if (!required) return
       resetPay()
       try {
-        const next = await fetchStoreAccount()
+        const next = await fetchStoreAccount(true)
         applyAccount(next)
       } catch {
         if (account.value) account.value = { ...account.value, bound: false, explicitRevoked: true }
