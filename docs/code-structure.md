@@ -1,6 +1,6 @@
 # 代码结构与维护指南
 
-这份文档给接手源码的人用。产品版本以仓库根目录 `VERSION` 为准。当前是 **1.6.7**。
+这份文档给接手源码的人用。产品版本以仓库根目录 `VERSION` 为准。当前是 **1.6.8**。
 
 从这一版起，合并和发版前必须通过 `scripts/quality-check.sh`。检查失败时，GitHub 的 CI 和打标签发版都会停住，不会打出安装包。
 
@@ -36,7 +36,7 @@
 
 买家站顶栏和购买窗口是 `frontend/src/components/business/commercial/CommercialHost.vue`。状态在 `frontend/src/utils/commercial.ts`，请求在 `frontend/src/api/store.ts`。
 
-买家站接口在 `backend/handler/store_buyer.go`（`RegisterBuyerStoreRoutes`）：账号、绑定、下单、查单、刷新、安装。请求源站的 HTTP 客户端在 `store_buyer_client.go`。源站根地址在正式程序里固定为 `https://auth.maizll.com`，测试只在 `store_buyer_hooks_test.go` 里替换。
+买家站接口在 `backend/handler/store_buyer.go`（`RegisterBuyerStoreRoutes`）：账号、绑定、下单、查单、刷新、安装。打开购买窗口时用 `GET /api/v1/store/binding` 向源站核对绑定是否还在，处理函数是 `store_source.go` 的 `StoreBindingCheck`。请求源站的 HTTP 客户端在 `store_buyer_client.go`。源站根地址在正式程序里固定为 `https://auth.maizll.com`，测试只在 `store_buyer_hooks_test.go` 里替换。
 
 源站侧创建订单、快照和绑定在 `store_source.go`、`store_orders.go`、`store_policy.go`。买家本机快照和「是不是商业版」在 `store_access.go`。升级时删旧菜单、删旧连接配置的迁移在 `store_migrate.go` 和 `menu.go` 的 `removeRetiredStoreMenus`。这些迁移要留着，老客户升级还要走。
 
@@ -60,7 +60,7 @@
 
 ## 单文件行数
 
-目标是单个 Go、Vue、TypeScript 文件不超过 800 行，文件名能看出职责。1.6.7 没有做这次拆分。下面这些文件已经超过 800 行，其中商店和商业版相关的会在 **1.6.8** 单独拆，避免在当前发版里搬动下单、支付和授权代码。
+目标是单个 Go、Vue、TypeScript 文件不超过 800 行，文件名能看出职责。1.6.8 仍没有做这次拆分。下面这些文件已经超过 800 行。商店和商业版相关的拆分留到后续版本，避免在绑定核对这次发版里搬动下单、支付和授权代码。
 
 商业版和商店，优先拆这些：
 
@@ -75,7 +75,7 @@
 | `frontend/src/views/plugin-store/index.vue` | 1100 | 插件列表与模板列表分开 |
 | `frontend/src/views/source-station/components/CatalogWorkbench.vue` | 1500 | 列表、编辑、上传分开 |
 
-其余超过 800 行的还有授权、支付、实名、在线更新和若干页面（例如 `license.go`、`epay.go`、`realname.go`、`update.go`、用户购买页）。它们和行为稳定相关，同样放到 1.6.8，不在 1.6.7 里移动。
+其余超过 800 行的还有授权、支付、实名、在线更新和若干页面（例如 `license.go`、`epay.go`、`realname.go`、`update.go`、用户购买页）。它们和行为稳定相关，同样留到后续版本，不在 1.6.8 里移动。
 
 ## 注释
 
@@ -85,7 +85,7 @@
 2. 导出函数、HTTP handler 和关键内部函数写中文：做什么、输入是什么、成功返回什么、什么情况下返回错误或哪个业务码。
 3. 授权校验、商业版签名和快照、支付回调、付费包下载、在线更新，在分支处写清为什么这样分，而不是只写走了哪条分支。
 4. Vue 组件在文件顶部说明这个组件给谁用、点下去做什么。复杂的状态（例如重新绑定、付款轮询）在计算属性或函数旁边写原因。
-5. 1.6.7 先覆盖商业版、商店、付费包、在线更新，以及这一版改过的文件。授权、实名、支付渠道的其余函数在后续版本补齐。
+5. 1.6.8 覆盖购买窗口按源站核对绑定，以及这一版改过的文件。授权、实名、支付渠道的其余函数在后续版本补齐。
 
 ## 本地检查
 
