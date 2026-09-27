@@ -408,7 +408,6 @@
     purchaseRebindNotice,
     rememberCommercialAccount,
     requestCatalogResume,
-    shouldAnnounceBound,
     sourceConfirmedBound
   } from '@/utils/commercial'
   import {
@@ -710,7 +709,6 @@
         if (commercialCta(next) !== 'view') {
           plans.value = data.list || []
           planId.value = plans.value[0]?.id
-          if (shouldAnnounceBound(next)) ElMessage.success('已绑定，请继续支付')
         } else {
           plans.value = []
           planId.value = undefined
@@ -761,7 +759,7 @@
         return
       }
       commercialUi.rebindRequired = false
-      ElMessage.success('已绑定，请继续支付')
+      ElMessage.success('绑定成功')
       const data = await fetchStorePlans()
       applyPayOptions(data.payOptions)
       // 单品窗口也要套餐列表，绑定成功后才能画出「商业版套餐」那张卡。

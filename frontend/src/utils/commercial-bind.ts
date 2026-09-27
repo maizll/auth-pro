@@ -33,7 +33,7 @@ export function storePayloadRebind(data: unknown) {
   return buyerTerminalReasons.has((row.reason || '').trim())
 }
 
-/** 源站已经确认这条绑定还能用，才允许提示已绑定并进入付款。 */
+/** 源站已经确认这条绑定还能用，才进入付款。 */
 export function sourceConfirmedBound(account: PurchaseBindInput | null | undefined) {
   return (
     !!account &&
@@ -43,12 +43,6 @@ export function sourceConfirmedBound(account: PurchaseBindInput | null | undefin
     !account.bindingInvalid &&
     !account.domainMismatch
   )
-}
-
-export function shouldAnnounceBound(account: PurchaseBindInput | null | undefined) {
-  if (!sourceConfirmedBound(account)) return false
-  if (account?.edition === 'commercial' && account.permanent) return false
-  return true
 }
 
 export function purchaseNeedsRebind(
