@@ -495,6 +495,9 @@ func recordCatalogPriceSwitch(kind, itemID string, appID, developerID int64, bef
 				return 0, err
 			}
 			if normalized == catalogSwitchPurchaseOnly {
+				if err := setCatalogCommercialIncluded(db, kind, itemID, false); err != nil {
+					return 0, err
+				}
 				if _, err := db.Exec(`UPDATE plugin_entitlements
 					SET status = 'revoked', revoked_at = NOW(), revoke_reason = ?
 					WHERE item_kind = ? AND item_id = ? AND source = ? AND status = 'active'`,
@@ -502,6 +505,9 @@ func recordCatalogPriceSwitch(kind, itemID string, appID, developerID int64, bef
 					return 0, err
 				}
 			} else {
+				if err := setCatalogCommercialIncluded(db, kind, itemID, true); err != nil {
+					return 0, err
+				}
 				granted, err = grantCatalogGrandfather(db, kind, itemID, appID)
 				if err != nil {
 					return 0, err
@@ -551,6 +557,31 @@ func appendCatalogPriceSwitchAudit(kind, itemID string, crossing bool, policy, a
 		TargetType: kind, TargetID: itemID, Detail: detail,
 	})
 	return granted, nil
+}
+
+// setCatalogCommercialIncluded 在「所有人都需购买」时关掉商业版免费，老用户免费则重新打开。
+func setCatalogCommercialIncluded(db *sql.DB, kind, itemID string, included bool) error {
+	table := "source_catalog_plugins"
+	column := "id"
+	if kind == sourceKindTemplate {
+		table = "source_catalog_templates"
+		column = "template_key"
+	}
+	bit := 0
+	if included {
+		bit = 1
+	}
+	_, err := db.Exec(`UPDATE `+table+` SET commercial_included = ? WHERE `+column+` = ?`, bit, itemID)
+	if err != nil && isMissingTable(err) {
+		return nil
+	}
+	if err != nil && kind == sourceKindTemplate {
+		_, err = db.Exec(`UPDATE source_catalog_templates SET commercial_included = ? WHERE id = ?`, bit, itemID)
+		if err != nil && isMissingTable(err) {
+			return nil
+		}
+	}
+	return err
 }
 
 func isMissingTable(err error) bool {
