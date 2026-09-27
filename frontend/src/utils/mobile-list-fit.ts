@@ -415,7 +415,7 @@ function measureOperationWidth(root: HTMLElement) {
     width = Math.max(width, box.scrollWidth)
   })
   if (!width) return 0
-  return Math.min(132, Math.max(72, width + 12))
+  return Math.min(200, Math.max(72, width + 12))
 }
 
 /** 后台、用户端、代理端列表共用：手机横向滚动，操作列固定，截断内容可预览和复制。 */

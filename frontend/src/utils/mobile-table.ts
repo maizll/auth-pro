@@ -1,7 +1,7 @@
 import type { ColumnOption } from '@/types'
 
 const WIDTH_OP = 108
-const WIDTH_OP_MAX = 132
+const WIDTH_OP_MAX = 200
 const WIDTH_STATUS = 80
 const WIDTH_EXPIRE = 168
 const WIDTH_DATE = 120
@@ -71,7 +71,7 @@ export function mobileScrollLayout<T extends ColumnOption>(cols: T[]) {
       const floor = Math.max(floorWidth(col), asNumber(col.mobileWidth))
       let declared = Math.max(asNumber(col.width), asNumber(col.minWidth), floor)
       if (isOperation(col)) {
-        // 操作列按按钮内容收缩，避免固定列盖住旁边的「商业版」胶囊。
+        // 操作列按按钮内容留出宽度，不超过一排文字按钮所需。
         declared = declared > 0 && declared <= WIDTH_OP_MAX ? declared : WIDTH_OP
       }
       next.width = declared

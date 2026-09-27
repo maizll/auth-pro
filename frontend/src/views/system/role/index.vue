@@ -45,10 +45,9 @@
 </template>
 
 <script setup lang="ts">
-  import { ButtonMoreItem } from '@/components/core/forms/art-button-more/index.vue'
+  import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import { useTable } from '@/hooks/core/useTable'
   import { fetchGetRoleList, fetchDeleteRole } from '@/api/system-manage'
-  import ArtButtonMore from '@/components/core/forms/art-button-more/index.vue'
   import RoleSearch from './modules/role-search.vue'
   import RoleEditDialog from './modules/role-edit-dialog.vue'
   import { ElTag, ElButton, ElMessageBox } from 'element-plus'
@@ -129,7 +128,7 @@
             return h(
               ElTag,
               {
-                type: color === '#67c23a' ? 'success' : color === '#e6a23c' ? 'warning' : 'info',
+                type: color === '#67c23a' ? 'success' : 'info',
                 size: 'small'
               },
               () => text
@@ -143,10 +142,10 @@
           formatter: (row) => {
             const statusConfig = row.enabled
               ? { type: 'success', text: '启用' }
-              : { type: 'warning', text: '禁用' }
+              : { type: 'info', text: '禁用' }
             return h(
               ElTag,
-              { type: statusConfig.type as 'success' | 'warning' },
+              { type: statusConfig.type as 'success' | 'info' },
               () => statusConfig.text
             )
           }
@@ -160,27 +159,18 @@
         {
           prop: 'operation',
           label: '操作',
-          width: 80,
+          width: 148,
           fixed: 'right',
+          align: 'left',
           formatter: (row) =>
-            h('div', [
-              h(ArtButtonMore, {
-                list: [
-                  {
-                    key: 'edit',
-                    label: '编辑角色',
-                    icon: 'ri:edit-2-line'
-                  },
-                  {
-                    key: 'delete',
-                    label: '删除角色',
-                    icon: 'ri:delete-bin-4-line',
-                    color: '#f56c6c'
-                  }
-                ],
-                onClick: (item: ButtonMoreItem) => buttonMoreClick(item, row)
-              })
-            ])
+            h(RowActions, {
+              primary: [{ key: 'edit', label: '编辑' }],
+              more: [{ key: 'delete', label: '删除', danger: true }],
+              onClick: (action: RowActionItem) => {
+                if (action.key === 'edit') showDialog('edit', row)
+                else if (action.key === 'delete') deleteRole(row)
+              }
+            })
         }
       ]
     }
@@ -205,17 +195,6 @@
 
     replaceSearchParams({ ...filtersParams, startTime, endTime })
     getData()
-  }
-
-  const buttonMoreClick = (item: ButtonMoreItem, row: RoleListItem) => {
-    switch (item.key) {
-      case 'edit':
-        showDialog('edit', row)
-        break
-      case 'delete':
-        deleteRole(row)
-        break
-    }
   }
 
   const deleteRole = (row: RoleListItem) => {

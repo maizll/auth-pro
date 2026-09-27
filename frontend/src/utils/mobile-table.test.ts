@@ -18,7 +18,7 @@ assert.equal(laid.at(-1)?.prop, 'operation')
 assert.ok(Number(laid.find((col) => col.prop === 'domain')?.width) >= 168)
 assert.equal(laid.at(-1)?.width, 108)
 const wideOp = mobileScrollLayout([{ prop: 'operation', label: '操作', width: 176 }])
-assert.equal(wideOp[0].width, 108)
+assert.equal(wideOp[0].width, 176)
 const sum = laid.reduce((total, col) => total + Number(col.width || 0), 0)
 assert.ok(sum > 390, `列宽合计 ${sum} 应超出手机屏`)
 
