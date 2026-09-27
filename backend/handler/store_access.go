@@ -95,11 +95,8 @@ func requestHostOnly(c *gin.Context) string {
 }
 
 const (
-	buyerSourceDefault       = "https://auth.maizll.com"
-	buyerSitePrivateMessage  = "识别到的是本机或内网地址，不能用来绑定。请填写对外的本站域名。"
-	buyerSiteHTTPMessage     = "当前访问不是 https，绑定需要 https。请填写本站的 https 地址。"
-	buyerSiteUnusableMessage = "识别到的是本机、内网或 http 地址，不能用来绑定。请填写对外的 https 域名。"
-	buyerSourceHTTPSMessage  = "购买网站地址需要以 https:// 开头。"
+	buyerSourceDefault    = "https://auth.maizll.com"
+	buyerSiteRetryMessage = "请用正式的 https 域名打开后台后再试。本机、内网或 http 地址不能用来绑定。"
 )
 
 type buyerConnectionIssue struct {
@@ -126,53 +123,15 @@ func buyerRequestDomain(c *gin.Context) string {
 }
 
 func buyerConnectionForRequest(c *gin.Context) buyerConnectionView {
-	sourceBase, savedSite, savedTrust := loadBuyerConnectionSettings()
-	return resolveBuyerConnection(c, sourceBase, savedSite, savedTrust)
+	return resolveBuyerConnection(c)
 }
 
-func loadBuyerConnectionSettings() (sourceBase, siteURL string, trust bool) {
-	sourceBase = buyerSourceDefault
-	db, err := config.DB()
-	if err != nil || db == nil {
-		return sourceBase, "", false
-	}
-	if value := strings.TrimRight(strings.TrimSpace(configValue(db, storeConfigGroup, storeConfigSourceBase)), "/"); value != "" {
-		sourceBase = value
-	}
-	siteURL = strings.TrimSpace(configValue(db, storeConfigGroup, storeConfigSiteURL))
-	trust = configValue(db, storeConfigGroup, storeConfigTrustProxy) == "1"
-	return sourceBase, siteURL, trust
-}
-
-// resolveBuyerConnection 在没有手填时自动确定购买网站、本站域名和是否信任本机反代。
-// 已经保存的本站域名优先。请求来自本机反代且带有 X-Forwarded-Host、X-Forwarded-Proto 时自动信任转发。
-func resolveBuyerConnection(c *gin.Context, sourceBase, savedSite string, savedTrust bool) buyerConnectionView {
-	sourceBase = strings.TrimRight(strings.TrimSpace(sourceBase), "/")
-	if sourceBase == "" {
-		sourceBase = buyerSourceDefault
-	}
-	view := buyerConnectionView{SourceBase: sourceBase, SiteURL: strings.TrimSpace(savedSite), TrustProxy: savedTrust}
-	if _, err := parseHTTPSBase(view.SourceBase); err != nil {
-		view.Issues = append(view.Issues, buyerConnectionIssue{Field: "source", Message: buyerSourceHTTPSMessage})
-	}
-	if view.SiteURL != "" {
-		if msg := savedSiteProblem(view.SiteURL); msg != "" {
-			view.Issues = append(view.Issues, buyerConnectionIssue{Field: "site", Message: msg})
-		}
-		return view
-	}
-	host, https, trustAuto := detectBuyerVisit(c)
-	if savedTrust {
-		view.TrustProxy = true
-		if forwarded := headerHost(c, "X-Forwarded-Host"); forwarded != "" {
-			host = forwarded
-		}
-		if headerProto(c) == "https" {
-			https = true
-		}
-	} else {
-		view.TrustProxy = trustAuto
-	}
+// resolveBuyerConnection 按本次访问自动确定本站域名，以及是否信任本机反代。
+// 不读取数据库里保存的源站根、站点地址或信任代理。
+func resolveBuyerConnection(c *gin.Context) buyerConnectionView {
+	view := buyerConnectionView{}
+	host, https, trust := detectBuyerVisit(c)
+	view.TrustProxy = trust
 	if msg := buyerVisitProblem(host, https); msg != "" {
 		view.Issues = append(view.Issues, buyerConnectionIssue{Field: "site", Message: msg})
 		return view
@@ -181,43 +140,34 @@ func resolveBuyerConnection(c *gin.Context, sourceBase, savedSite string, savedT
 	return view
 }
 
-func savedSiteProblem(siteURL string) string {
-	parsed, err := parseHTTPSBase(siteURL)
-	if err != nil {
-		return buyerSiteHTTPMessage
-	}
-	if storeDomainShapeRejected(normalizeLicenseDomain(parsed.Hostname())) {
-		return buyerSitePrivateMessage
+func buyerVisitProblem(host string, https bool) string {
+	if host == "" || storeDomainShapeRejected(host) || !https {
+		return buyerSiteRetryMessage
 	}
 	return ""
 }
 
-func buyerVisitProblem(host string, https bool) string {
-	private := host == "" || storeDomainShapeRejected(host)
-	switch {
-	case private && !https:
-		return buyerSiteUnusableMessage
-	case private:
-		return buyerSitePrivateMessage
-	case !https:
-		return buyerSiteHTTPMessage
-	default:
-		return ""
-	}
-}
-
-// detectBuyerVisit 从这次请求判断访问域名。只有来自本机反代、且同时带有转发头时才采用转发域名并打开信任代理。
+// detectBuyerVisit 从这次请求判断访问域名。
+// 只有直接连到本机的反代才采用转发头。公网对端带来的 X-Forwarded-* 一律忽略。
+// 宝塔常见配置只设置 Host 和 X-Forwarded-Proto，没有 X-Forwarded-Host，同样按 https 站点识别。
 func detectBuyerVisit(c *gin.Context) (host string, https bool, trust bool) {
 	if c == nil || c.Request == nil {
 		return "", false, false
 	}
+	requestHost := headerHost(c, "")
 	peer := requestPeerIP(c.Request.RemoteAddr)
+	if peer == nil || !peer.IsLoopback() {
+		return requestHost, c.Request.TLS != nil, false
+	}
 	forwardedHost := headerHost(c, "X-Forwarded-Host")
 	proto := headerProto(c)
-	if peer != nil && peer.IsLoopback() && forwardedHost != "" && proto != "" {
+	if forwardedHost != "" && proto != "" {
 		return forwardedHost, proto == "https", true
 	}
-	return headerHost(c, ""), c.Request.TLS != nil, false
+	if proto == "https" || proto == "http" {
+		return requestHost, proto == "https", true
+	}
+	return requestHost, c.Request.TLS != nil, false
 }
 
 func headerHost(c *gin.Context, name string) string {

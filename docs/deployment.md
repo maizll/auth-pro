@@ -152,6 +152,17 @@ location / {
 
 若 Nginx 直接读网站根的静态文件，而不是整站反代到 Go，仍必须拦截上面的路径。不要给 `backend/`、插件目录或模板目录再配可执行的静态 alias。
 
+上面的反代足够让商业版认出本站域名：后端只监听本机，并看到 `Host` 和 `X-Forwarded-Proto: https`。也可以再加 `X-Forwarded-Host`。公网客户端直接带来的转发头不会被信任。请用站点自己的 https 域名打开后台；用本机、内网或 http 打开时，购买窗口只会提示换正式域名后再试，没有手填框。
+
+购买网站固定是 `https://auth.maizll.com`。后台不显示、也不能修改。数据库 `system_configs.store_source_base` 升级后不再读取。`PUT /api/store/settings` 里的 `sourceBase` 会被忽略，不会写回。
+
+自动化测试要把买家指到另一台源站时，地址必须是 `https://`，任选一种：
+
+1. 环境变量 `AUTH_PRO_STORE_SOURCE_BASE`。宝塔站点可以临时写进 `backend/baota.env`（`start.sh` 会加载）。测完删掉，避免正式站连到测试源。
+2. 数据目录文件 `store/source-base`，只写一行 https 地址。
+
+两者都有时，环境变量优先。都没有时使用 `https://auth.maizll.com`。
+
 生产进程从盘上的 `index.html` 提供前端。找不到盘上前端时启动失败，或对页面返回 503 并带版本号，不会静默改用编译进二进制的旧页面。只有开发或引导才设置 `AUTO_PRO_ALLOW_EMBEDDED_FRONTEND=1`。盘上前端根可用 `AUTO_PRO_FRONTEND_DIR` 指定；不设时按 `data/frontend/current` 或宝塔网站根解析。
 
 ## 手工部署（不用宝塔脚本）

@@ -38,27 +38,47 @@ func loadBuyerInstallID() string {
 	return id
 }
 
-// 测试把源站指到 httptest，避免改系统配置。生产环境保持空。
+// 测试把源站指到 httptest。生产环境保持空，正式源站根见 buyerSourceDefault。
+const buyerSourceBaseEnv = "AUTH_PRO_STORE_SOURCE_BASE"
+
 var (
 	buyerSourceBaseForTest  string
 	sourceHTTPClientForTest *http.Client
 )
 
+// buyerSourceBase 只认测试钩子、环境变量和数据目录文件。数据库里的 store_source_base 不再生效。
 func buyerSourceBase() (string, error) {
 	base := strings.TrimSpace(buyerSourceBaseForTest)
 	if base == "" {
-		base = "https://auth.maizll.com"
-		if db, err := config.DB(); err == nil {
-			if value := strings.TrimSpace(configValue(db, storeConfigGroup, storeConfigSourceBase)); value != "" {
-				base = value
-			}
-		}
+		base = strings.TrimSpace(os.Getenv(buyerSourceBaseEnv))
+	}
+	if base == "" {
+		base = readBuyerSourceFile()
+	}
+	if base == "" {
+		base = buyerSourceDefault
 	}
 	parsed, err := parseHTTPSBase(base)
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
+func buyerSourceFilePath() string {
+	return filepath.Join(config.GetDataDir(), "store", "source-base")
+}
+
+func readBuyerSourceFile() string {
+	payload, err := os.ReadFile(buyerSourceFilePath())
+	if err != nil {
+		return ""
+	}
+	line := strings.TrimSpace(string(payload))
+	if i := strings.IndexAny(line, "\r\n"); i >= 0 {
+		line = strings.TrimSpace(line[:i])
+	}
+	return line
 }
 
 func newSourceHTTPClient() *http.Client {

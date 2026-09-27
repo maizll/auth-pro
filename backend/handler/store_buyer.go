@@ -80,21 +80,23 @@ func BuyerStationVerify(c *gin.Context) {
 }
 
 func BuyerStoreAccount(c *gin.Context) {
-	view := currentBuyerAccess(c)
-	conn := buyerConnectionForRequest(c)
+	storeData(c, buyerAccountPayload(currentBuyerAccess(c), buyerConnectionForRequest(c), loadBuyerInstallID()))
+}
+
+func buyerAccountPayload(view buyerAccessView, conn buyerConnectionView, installID string) gin.H {
 	issues := conn.Issues
 	if issues == nil {
 		issues = []buyerConnectionIssue{}
 	}
-	storeData(c, gin.H{
+	return gin.H{
 		"bound": view.Bound, "account": view.AccountName, "role": view.AccountRole, "licenseNo": view.LicenseNo,
 		"domain": view.Domain, "requestDomain": view.RequestDomain, "domainMismatch": view.DomainMismatch,
 		"edition": view.Edition, "editionExpireAt": view.ExpireAt, "permanent": view.Permanent,
 		"features": view.Features, "verifiedAt": view.VerifiedAt, "graceUntil": view.GraceUntil,
 		"offlineGrace": view.OfflineGrace, "graceWarning": view.GraceWarning, "explicitRevoked": view.ExplicitRevoked,
-		"reason": view.Reason, "sourceBase": conn.SourceBase, "siteUrl": conn.SiteURL, "trustProxy": conn.TrustProxy,
-		"connectionIssues": issues, "installId": loadBuyerInstallID(),
-	})
+		"reason": view.Reason, "siteUrl": conn.SiteURL, "trustProxy": conn.TrustProxy,
+		"connectionIssues": issues, "installId": installID,
+	}
 }
 
 func BuyerStoreSettingsSave(c *gin.Context) {
@@ -107,30 +109,10 @@ func BuyerStoreSettingsSave(c *gin.Context) {
 		storeFail(c, 400, "参数错误")
 		return
 	}
-	if _, err := parseHTTPSBase(req.SourceBase); err != nil {
-		storeFail(c, 400, "源站地址必须是 https")
-		return
-	}
-	if strings.TrimSpace(req.SiteURL) != "" {
-		if _, err := parseHTTPSBase(req.SiteURL); err != nil {
-			storeFail(c, 400, "站点地址必须是 https")
-			return
-		}
-	}
-	db, err := openStoreDB(c)
-	if err != nil {
-		return
-	}
-	trust := "0"
-	if req.TrustProxy {
-		trust = "1"
-	}
-	if err := upsertConfigValue(db, storeConfigGroup, storeConfigSourceBase, strings.TrimRight(strings.TrimSpace(req.SourceBase), "/"), "买方商店源站根地址"); err != nil {
-		storeFail(c, 500, "保存失败")
-		return
-	}
-	_ = upsertConfigValue(db, storeConfigGroup, storeConfigSiteURL, strings.TrimSpace(req.SiteURL), "买方站点公网地址")
-	_ = upsertConfigValue(db, storeConfigGroup, storeConfigTrustProxy, trust, "绑定域名是否信任反向代理")
+	// 源站根只由环境变量或数据目录文件覆盖。这里忽略 sourceBase，也不再保存手填域名和信任代理。
+	_ = req.SourceBase
+	_ = req.SiteURL
+	_ = req.TrustProxy
 	storeData(c, gin.H{"ok": true})
 }
 

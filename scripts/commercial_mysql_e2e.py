@@ -238,7 +238,7 @@ def stop_named(*names: str) -> None:
         PROCS.pop(name, None)
 
 
-def start_server(name: str, binary: str, port: int, database: str, data_dir: str) -> None:
+def start_server(name: str, binary: str, port: int, database: str, data_dir: str, extra_env: dict | None = None) -> None:
     os.makedirs(data_dir, exist_ok=True)
     env = os.environ.copy()
     # 不预置数据库环境变量。空库上的启动迁移会直接退出，安装页也就打不开。
@@ -252,6 +252,8 @@ def start_server(name: str, binary: str, port: int, database: str, data_dir: str
             "CGO_ENABLED": "1",
         }
     )
+    if extra_env:
+        env.update(extra_env)
     log_path = os.path.join(RUNTIME, f"{name}.log")
     log_file = open(log_path, "ab")
     proc = subprocess.Popen([binary], cwd=data_dir, env=env, stdout=log_file, stderr=subprocess.STDOUT)
@@ -424,6 +426,7 @@ def assert_sale_ready(base: str, token: str, ca: str) -> None:
 
 
 def buyer_prepare(base: str, token: str, ca: str) -> None:
+    before = sql_query(BUYER_DB, "SELECT value FROM system_configs WHERE `group`='store' AND `key`='store_source_base'")
     must_api(
         base,
         "PUT",
@@ -432,6 +435,9 @@ def buyer_prepare(base: str, token: str, ca: str) -> None:
         token,
         ca,
     )
+    after = sql_query(BUYER_DB, "SELECT value FROM system_configs WHERE `group`='store' AND `key`='store_source_base'")
+    if after != before or SOURCE_HOST in after:
+        raise Fail(f"PUT /store/settings 仍写入了 sourceBase: before={before!r} after={after!r}")
     must_api(
         base,
         "POST",
@@ -623,8 +629,8 @@ def rebind_after_source_deletes_binding(buyer: str, buyer_token: str, ca: str, b
     binding_sql = binding_id.replace("'", "")
     source_base = sql_query(BUYER_DB, "SELECT value FROM system_configs WHERE `group`='store' AND `key`='store_source_base'")
     site_url = sql_query(BUYER_DB, "SELECT value FROM system_configs WHERE `group`='store' AND `key`='store_site_url'")
-    if SOURCE_HOST not in source_base or BUYER_HOST not in site_url:
-        raise Fail(f"连接设置异常 source={source_base} site={site_url}")
+    if SOURCE_HOST in source_base:
+        raise Fail(f"数据库里的自定义源站仍在生效: {source_base}")
     key_path = os.path.join(buyer_data, "store", "binding.key")
     snap_path = os.path.join(buyer_data, "store", "snapshot.json")
     if not os.path.exists(key_path) or not os.path.exists(snap_path):
@@ -707,8 +713,9 @@ def main() -> int:
     buyer_data = os.path.join(RUNTIME, "buyer")
     shutil.rmtree(source_data, ignore_errors=True)
     shutil.rmtree(buyer_data, ignore_errors=True)
+    buyer_env = {"AUTH_PRO_STORE_SOURCE_BASE": f"https://{SOURCE_HOST}"}
     start_server("source", BIN_159, 18081, SOURCE_DB, source_data)
-    start_server("buyer", BIN_159, 18082, BUYER_DB, buyer_data)
+    start_server("buyer", BIN_159, 18082, BUYER_DB, buyer_data, buyer_env)
     source = f"https://{SOURCE_HOST}"
     buyer = f"https://{BUYER_HOST}"
     # 确认 Go 与本脚本都能校验证书。安装走本机端口，避免安装接口的来源限制。
@@ -724,7 +731,7 @@ def main() -> int:
     stop_named()
     build_159(pub)
     start_server("source", BIN_159, 18081, SOURCE_DB, source_data)
-    start_server("buyer", BIN_159, 18082, BUYER_DB, buyer_data)
+    start_server("buyer", BIN_159, 18082, BUYER_DB, buyer_data, buyer_env)
     source_token = must_api(source, "POST", "/api/auth/login", {"userName": ADMIN_USER, "password": ADMIN_PASS}, ca=ca)["data"]["token"]
     buyer_token = must_api(buyer, "POST", "/api/auth/login", {"userName": ADMIN_USER, "password": ADMIN_PASS}, ca=ca)["data"]["token"]
     assert_sale_ready(source, source_token, ca)

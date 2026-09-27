@@ -28,6 +28,7 @@
       </template>
       <div v-loading="loading" class="upgrade-body">
         <ElAlert v-if="loadError" type="error" :closable="false" show-icon :title="loadError" />
+        <ElAlert v-else-if="siteProblem" type="warning" :closable="false" show-icon :title="siteProblem" />
         <template v-else-if="upgraded && buyingItem && !itemContinued">
           <div class="celebrate-copy">
             <ArtSvgIcon icon="ri:shield-check-fill" class="celebrate-copy__icon" />
@@ -95,9 +96,8 @@
                 <ElInput v-model="form.password" type="password" show-password placeholder="仅用于本次登录，不会保存" />
               </ElFormItem>
             </ElForm>
-            <ElButton type="primary" :loading="acting" @click="bind">登录并绑定</ElButton>
-            <p v-if="siteIssue" class="upgrade-tip">填好本站域名并保存后，再登录绑定。</p>
-            <p v-else class="upgrade-tip">将使用站点域名 {{ account?.requestDomain || '（未识别）' }} 绑定，域名不可在此修改。</p>
+            <ElButton type="primary" :loading="acting" :disabled="!!siteProblem" @click="bind">登录并绑定</ElButton>
+            <p v-if="!siteProblem" class="upgrade-tip">将使用站点域名 {{ account?.requestDomain || '（未识别）' }} 绑定，域名不可在此修改。</p>
           </template>
           <template v-else-if="payUrl">
             <div class="pay-panel">
@@ -166,48 +166,6 @@
           >
             解除绑定 / 重新绑定
           </ElButton>
-          <ElAlert
-            v-for="issue in connectionIssues"
-            :key="issue.field"
-            type="warning"
-            :closable="false"
-            show-icon
-            :title="issue.message"
-          />
-          <template v-if="showAdvanced">
-            <section class="connection-advanced-panel">
-              <div class="connection-field">
-                <p class="connection-field__label">购买网站地址</p>
-                <p class="connection-field__help">商业版从这里下单，默认是 https://auth.maizll.com，一般不用改。</p>
-                <ElInput v-model.trim="connection.sourceBase" placeholder="https://auth.maizll.com" />
-              </div>
-              <div class="connection-field">
-                <p class="connection-field__label">本站域名</p>
-                <p class="connection-field__help">填写这个网站对外的 https 地址，用来确认是你的站点。</p>
-                <ElInput v-model.trim="connection.siteUrl" placeholder="https://你的域名" />
-              </div>
-              <div class="connection-field">
-                <p class="connection-field__label">经过宝塔/CDN 转发</p>
-                <p class="connection-field__help">前面有宝塔、Nginx 或 CDN 时打开，才能认出真实域名。</p>
-                <ElSwitch v-model="connection.trustProxy" />
-              </div>
-              <ElButton :loading="acting" @click="saveConnection">保存</ElButton>
-            </section>
-          </template>
-          <template v-else>
-            <section v-if="sourceIssue" class="connection-field">
-              <p class="connection-field__label">购买网站地址</p>
-              <p class="connection-field__help">商业版从这里下单，默认是 https://auth.maizll.com，一般不用改。</p>
-              <ElInput v-model.trim="connection.sourceBase" placeholder="https://auth.maizll.com" />
-            </section>
-            <section v-if="siteIssue" class="connection-field">
-              <p class="connection-field__label">本站域名</p>
-              <p class="connection-field__help">填写这个网站对外的 https 地址，用来确认是你的站点。</p>
-              <ElInput v-model.trim="connection.siteUrl" placeholder="https://你的域名" />
-            </section>
-            <ElButton v-if="sourceIssue || siteIssue" :loading="acting" @click="saveConnection">保存</ElButton>
-          </template>
-          <button type="button" class="connection-advanced" @click="showAdvanced = !showAdvanced">高级</button>
         </template>
       </div>
       <template v-if="upgraded" #footer>
@@ -262,7 +220,6 @@
     fetchStoreEditionOrder,
     fetchStorePlans,
     logoutStoreAccount,
-    saveStoreConnection,
     type StoreAccount,
     type StorePlan
   } from '@/api/store'
@@ -316,11 +273,9 @@
   )
   const successTitle = ref('已升级为商业版')
   const form = reactive({ account: '', password: '', role: 'user' })
-  const connection = reactive({ sourceBase: 'https://auth.maizll.com', siteUrl: '', trustProxy: false })
-  const showAdvanced = ref(false)
-  const connectionIssues = computed(() => account.value?.connectionIssues || [])
-  const siteIssue = computed(() => connectionIssues.value.some((item) => item.field === 'site'))
-  const sourceIssue = computed(() => connectionIssues.value.some((item) => item.field === 'source'))
+  const siteProblem = computed(
+    () => account.value?.connectionIssues?.find((item) => item.field === 'site')?.message || ''
+  )
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let pollFailures = 0
   let pendingRefresh = false
@@ -377,9 +332,6 @@
   function applyAccount(next: StoreAccount) {
     account.value = next
     rememberCommercialAccount(next)
-    connection.sourceBase = next.sourceBase || connection.sourceBase
-    connection.siteUrl = next.siteUrl || ''
-    connection.trustProxy = !!next.trustProxy
   }
 
   function onAccountRefreshed(next: StoreAccount) {
@@ -672,22 +624,6 @@
     }
   )
 
-  async function saveConnection() {
-    if (!connection.sourceBase.startsWith('https://')) {
-      ElMessage.error('购买网站地址需要以 https:// 开头')
-      return
-    }
-    acting.value = true
-    try {
-      await saveStoreConnection({ ...connection })
-      await loadPurchase()
-    } catch (error: unknown) {
-      showCaughtError(error, '保存源站连接失败')
-    } finally {
-      acting.value = false
-    }
-  }
-
   onBeforeUnmount(() => {
     stopPoll()
     stopTick()
@@ -804,40 +740,6 @@
   .rebind-fallback {
     width: 100%;
     min-height: 36px;
-  }
-
-  .connection-advanced-panel,
-  .connection-field {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .connection-field__label,
-  .connection-field__help {
-    margin: 0;
-  }
-
-  .connection-field__label {
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  .connection-field__help {
-    color: var(--el-text-color-secondary);
-    font-size: 12px;
-    line-height: 1.5;
-  }
-
-  .connection-advanced {
-    align-self: flex-start;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--el-text-color-secondary);
-    font-size: 12px;
-    line-height: 1.4;
-    cursor: pointer;
   }
 
   .item-offer {

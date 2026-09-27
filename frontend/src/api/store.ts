@@ -18,9 +18,6 @@ export interface StoreAccount {
   graceWarning: boolean
   explicitRevoked: boolean
   reason: string
-  sourceBase: string
-  siteUrl: string
-  trustProxy: boolean
   connectionIssues?: { field: string; message: string }[]
   installId: string
 }
@@ -45,10 +42,6 @@ export interface StoreCatalogItem {
 
 export function fetchStoreAccount() {
   return request.get<StoreAccount>({ url: '/api/store/account', showErrorMessage: false })
-}
-
-export function saveStoreConnection(data: { sourceBase: string; siteUrl: string; trustProxy: boolean }) {
-  return request.put({ url: '/api/store/settings', data, showSuccessMessage: true })
 }
 
 export function fetchStorePlans() {
