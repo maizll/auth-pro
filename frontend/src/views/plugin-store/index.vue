@@ -1,9 +1,6 @@
 <template>
   <div class="plugin-store">
     <ElCard shadow="never" class="art-table-card">
-      <div v-if="showAccountNotice" class="store-account-bar">
-        <CommercialMark icon="ri:error-warning-line" :text="accountText" tone="warning" />
-      </div>
       <div class="store-header">
         <div>
           <h2 class="store-title">应用商店</h2>
@@ -338,7 +335,7 @@
   import TemplateActions from '@/views/home-template/TemplateActions.vue'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
-  import { fetchStoreAccount, fetchStoreCatalog, type StoreAccount, type StoreCatalogItem } from '@/api/store'
+  import { fetchStoreAccount, fetchStoreCatalog, type StoreCatalogItem } from '@/api/store'
   import { fetchSourceCatalogApps, type SourceCatalogApp } from '@/api/source-station'
   import { fetchRestoreLicenseApp } from '@/api/license-manage'
   import {
@@ -573,22 +570,7 @@
     searchTimer = setTimeout(loadPlugins, 400)
   }
 
-  const storeAccount = ref<StoreAccount | null>(null)
   const catalog = ref<StoreCatalogItem[]>([])
-  const accountUnconfigured = computed(() => storeAccount.value?.reason === 'snapshot_key_unconfigured')
-  const showAccountNotice = computed(() => {
-    const account = storeAccount.value
-    if (!account) return false
-    return accountUnconfigured.value || account.domainMismatch || account.offlineGrace || account.graceWarning
-  })
-  const accountText = computed(() => {
-    const account = storeAccount.value
-    if (!account) return ''
-    if (accountUnconfigured.value) return '发行包未配置商店验签公钥，快照一律无效，当前按免费版使用'
-    if (account.domainMismatch) return `授权域名与当前域名不一致（${account.domain || '未绑定'}）`
-    if (account.offlineGrace || account.graceWarning) return '源站暂时不可达，商业版仍在待校验'
-    return ''
-  })
 
   function badgeFor(ownership?: string, price?: number) {
     if (!price || price <= 0) return null
@@ -608,36 +590,18 @@
     return badgeFor(item?.ownership, item?.priceCents)
   }
 
-  async function loadStoreAccountBar() {
+  async function loadStoreCatalog() {
     try {
-      storeAccount.value = await fetchStoreAccount()
+      const account = await fetchStoreAccount()
+      rememberCommercialAccount(account)
+    } catch {
+      /* 版本状态只在顶栏显示，这里读失败不改顶栏。 */
+    }
+    try {
       const data = await fetchStoreCatalog()
       catalog.value = data.list || []
-      rememberCommercialAccount(storeAccount.value)
     } catch {
-      storeAccount.value = {
-        bound: false,
-        account: '',
-        role: '',
-        licenseNo: '',
-        domain: '',
-        requestDomain: '',
-        domainMismatch: false,
-        edition: 'free',
-        permanent: false,
-        features: [],
-        verifiedAt: 0,
-        graceUntil: 0,
-        offlineGrace: false,
-        graceWarning: false,
-        explicitRevoked: false,
-        reason: '',
-        sourceBase: '',
-        siteUrl: '',
-        trustProxy: false,
-        installId: ''
-      }
-      rememberCommercialAccount(storeAccount.value)
+      catalog.value = []
     }
   }
 
@@ -789,10 +753,10 @@
 
   onMounted(() => {
     loadPlugins()
-    loadStoreAccountBar()
-    window.addEventListener('store-account-refresh', loadStoreAccountBar)
+    loadStoreCatalog()
+    window.addEventListener('store-account-refresh', loadStoreCatalog)
   })
-  onBeforeUnmount(() => window.removeEventListener('store-account-refresh', loadStoreAccountBar))
+  onBeforeUnmount(() => window.removeEventListener('store-account-refresh', loadStoreCatalog))
 </script>
 
 <style lang="scss" scoped>
@@ -820,16 +784,6 @@
         height: 100%;
         object-fit: cover;
       }
-    }
-
-    .store-account-bar {
-      display: flex;
-      align-items: center;
-      margin-bottom: 12px;
-      padding: 8px 12px;
-      background: var(--el-fill-color-light);
-      border: 1px solid var(--el-border-color-lighter);
-      border-radius: 8px;
     }
 
     .store-header {

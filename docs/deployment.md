@@ -25,7 +25,7 @@ AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY='<打印出的公钥>' ./scripts/build-releas
 go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出的公钥>" -o auth_pro .
 ```
 
-构建时若把公钥覆盖成占位符，买方会保持免费版，商店账号条显示警告；源站拒绝签发并返回明确错误。完整说明见 [商业版](commercial.md) 和 [发布包目录](../PACKAGING.md)。
+构建时若把公钥覆盖成占位符，买方会保持免费版，顶栏仍是「升级商业版」；源站拒绝签发并返回明确错误。完整说明见 [商业版](commercial.md) 和 [发布包目录](../PACKAGING.md)。
 
 ## 宝塔：全新安装
 
