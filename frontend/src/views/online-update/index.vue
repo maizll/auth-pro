@@ -30,7 +30,7 @@
       <ElAlert
         v-if="packageError"
         :title="packageError"
-        type="warning"
+        type="info"
         show-icon
         :closable="false"
         class="update-alert"
@@ -113,18 +113,17 @@
           <div class="version-value">
             <strong>{{ latestVersion }}</strong>
             <ElTag :type="updateAvailable ? 'success' : 'info'" effect="plain">
-              {{ updateAvailable ? '可更新' : '已是最新' }}
+              {{ latestStatusText }}
             </ElTag>
           </div>
-          <span class="version-meta">{{ formatDate(latest?.releasedAt) }}</span>
+          <span class="version-meta">{{ latestVersionMeta }}</span>
         </div>
 
         <div class="version-item">
           <span class="version-label">更新通道</span>
           <div class="version-value plain">
-            <strong>{{ latest?.channel || 'stable' }}</strong>
+            <strong>{{ updateChannelLabel(latest?.channel) }}</strong>
           </div>
-          <span class="version-meta">{{ status?.serviceName || 'auth_pro' }}</span>
         </div>
       </div>
 
@@ -155,7 +154,7 @@
         <ElAlert
           v-if="historyError"
           :title="historyError"
-          type="warning"
+          type="info"
           show-icon
           :closable="false"
           class="history-alert"
@@ -172,7 +171,9 @@
               <div class="release-header">
                 <div class="release-version">
                   <strong>v{{ release.version }}</strong>
-                  <ElTag size="small" effect="plain">{{ release.channel || 'stable' }}</ElTag>
+                  <ElTag size="small" effect="plain">{{
+                    updateChannelLabel(release.channel)
+                  }}</ElTag>
                   <ElTag
                     v-if="isCurrentRelease(release.version)"
                     size="small"
@@ -248,6 +249,7 @@
   import { HttpError } from '@/utils/http/error'
   import { setBackendUnreachableRedirectPaused } from '@/utils/http/backend-unavailable'
   import { UPDATE_RESTART_RECOVERY, clearRestartStart } from './restart-timeout'
+  import { latestVersionStatus, updateChannelLabel } from './status-label'
   import {
     clearUpdateWait,
     interpretUpdatePoll,
@@ -267,6 +269,8 @@
   const checking = ref(false)
   const applying = ref(false)
   const status = ref<OnlineUpdateStatus | null>(null)
+  const statusFailed = ref(false)
+  const checkFailed = ref(false)
   const history = ref<OnlineUpdateHistory | null>(null)
   const historyError = ref('')
   const checkResult = ref<OnlineUpdateCheckResult | null>(null)
@@ -291,6 +295,17 @@
   const latestVersion = computed(() => (latest.value?.version ? `v${latest.value.version}` : '-'))
   const historyReleases = computed(() => history.value?.releases || [])
   const updateAvailable = computed(() => checkResult.value?.updateAvailable === true)
+  const latestStatusText = computed(() =>
+    latestVersionStatus({
+      version: latest.value?.version,
+      updateAvailable: updateAvailable.value,
+      unreachable: statusFailed.value || checkFailed.value
+    })
+  )
+  const latestVersionMeta = computed(() => {
+    if (!latest.value?.version) return ''
+    return formatDate(latest.value.releasedAt)
+  })
   const packageError = computed(() => checkResult.value?.packageError || '')
   const versionError = computed(() => checkResult.value?.versionError || '')
   const packageValid = computed(() => checkResult.value?.packageValid === true)
@@ -318,11 +333,13 @@
     loading.value = true
     try {
       status.value = await fetchOnlineUpdateStatus()
+      statusFailed.value = false
       job.value = status.value.runningJob || job.value
       if (job.value && ['running', 'restarting'].includes(job.value.status)) {
         startJobPolling(job.value.id)
       }
     } catch (error) {
+      statusFailed.value = true
       if (handleUpdateError(error)) return
       ElMessage.error('更新状态加载失败')
     } finally {
@@ -350,6 +367,7 @@
     checking.value = true
     try {
       checkResult.value = await fetchOnlineUpdateCheck()
+      checkFailed.value = false
       void loadHistory(true)
       if (checkResult.value.updateAvailable) {
         ElMessage.success(`发现新版本 v${checkResult.value.latest.version}`)
@@ -357,6 +375,7 @@
         ElMessage.success('当前已经是最新版本')
       }
     } catch (error: any) {
+      checkFailed.value = true
       if (handleUpdateError(error)) return
       ElMessage.error(error?.message || '检查更新失败')
     } finally {
