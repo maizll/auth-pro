@@ -879,11 +879,11 @@ func settleLicensePurchaseOrder(db *sql.DB, orderNo string, paidCents int64, pay
 		return err
 	}
 	if commercial {
-		if _, err := grantCommercialEditionTx(tx, commercialEditionGrant{
+		if _, err := openCommercialEdition(tx, commercialEditionGrant{
 			LicenseID: licenseID,
 			Period:    salePeriodFromDuration(durationDays),
 			Extend:    true,
-		}); err != nil {
+		}, nil); err != nil {
 			return err
 		}
 	}

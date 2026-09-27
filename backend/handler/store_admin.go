@@ -4,6 +4,7 @@ package handler
 
 import (
 	"database/sql"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -223,15 +224,24 @@ func AdminStoreLicenseGrant(c *gin.Context) {
 	if err != nil {
 		return
 	}
+	extra, err := boundLicensesForSameDomain(db, licenseID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			storeFail(c, 400, "授权不正确")
+			return
+		}
+		storeFail(c, 500, "授予失败")
+		return
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		storeFail(c, 500, "授予失败")
 		return
 	}
 	defer tx.Rollback()
-	if _, err := grantCommercialEditionTx(tx, commercialEditionGrant{
+	if _, err := openCommercialEdition(tx, commercialEditionGrant{
 		LicenseID: licenseID, Period: req.Period, GrantedBy: currentAdminID(c), Extend: true,
-	}); err != nil {
+	}, extra); err != nil {
 		storeFail(c, 500, "授予失败")
 		return
 	}

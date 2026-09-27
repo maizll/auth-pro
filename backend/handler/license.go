@@ -890,6 +890,29 @@ func LicenseCreate(c *gin.Context) {
 		}
 	}
 
+	// 商业版应用上手动建授权，和用户购买走同一条开通。同域名上已有客户站绑定时，权益写到那条绑定上，刷新即可生效。
+	commercialProduct, err := appIsCommercialProduct(db, req.AppID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建授权失败"})
+		return
+	}
+	if commercialProduct {
+		extra, err := boundLicensesForSameDomain(tx, licenseID)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建授权失败"})
+			return
+		}
+		if _, err := openCommercialEdition(tx, commercialEditionGrant{
+			LicenseID: licenseID,
+			Period:    salePeriodFromDuration(plan.DurationDays),
+			GrantedBy: currentAdminID(c),
+			Extend:    true,
+		}, extra); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建授权失败"})
+			return
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建授权失败"})
 		return
