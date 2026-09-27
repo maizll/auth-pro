@@ -3,6 +3,7 @@ package handler
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -244,11 +245,17 @@ func BuyerStoreOrderQuery(c *gin.Context) {
 }
 
 func BuyerStoreRefresh(c *gin.Context) {
-	if err := refreshBuyerSnapshot(c.Request.Context(), buyerRequestDomain(c)); err != nil {
+	err := refreshBuyerSnapshot(c.Request.Context(), buyerRequestDomain(c))
+	if err != nil && !buyerRefreshFailureRevoked(err) {
 		storeFail(c, 400, err.Error())
 		return
 	}
 	BuyerStoreAccount(c)
+}
+
+func buyerRefreshFailureRevoked(err error) bool {
+	var src *sourceResponseError
+	return errors.As(err, &src) && buyerSnapshotTerminal(src.Reason, src.Revoked)
 }
 
 func BuyerStoreLogout(c *gin.Context) {

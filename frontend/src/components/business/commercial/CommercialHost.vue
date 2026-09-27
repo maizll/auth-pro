@@ -61,7 +61,7 @@
             title="当前访问域名与授权域名不一致，付费能力暂按免费版处理。"
           />
           <template v-if="action === 'view'">
-            <CommercialLicenseCard :account="account" />
+            <CommercialLicenseCard :account="account" @refreshed="onAccountRefreshed" />
           </template>
           <template v-else-if="!account?.bound">
             <ElForm label-width="72px" class="upgrade-form">
@@ -151,7 +151,7 @@
     >
       <div v-loading="loading" class="upgrade-body">
         <ElAlert v-if="loadError" type="error" :closable="false" show-icon :title="loadError" />
-        <CommercialLicenseCard v-else :account="account" />
+        <CommercialLicenseCard v-else :account="account" @refreshed="onAccountRefreshed" />
       </div>
       <template #footer>
         <ElButton type="primary" @click="commercialUi.licenseOpen = false">关闭</ElButton>
@@ -283,6 +283,10 @@
     connection.sourceBase = next.sourceBase || connection.sourceBase
     connection.siteUrl = next.siteUrl || ''
     connection.trustProxy = !!next.trustProxy
+  }
+
+  function onAccountRefreshed(next: StoreAccount) {
+    applyAccount(next)
   }
 
   async function loadPurchase() {

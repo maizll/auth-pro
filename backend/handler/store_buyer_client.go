@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -92,15 +93,134 @@ func callSourceJSON(method, path string, body any, headers map[string]string, ou
 			return err
 		}
 	}
-	code, _ := envelope["code"].(float64)
-	if int(code) != 200 {
-		msg, _ := envelope["msg"].(string)
-		if msg == "" {
-			msg = "源站拒绝了请求"
-		}
-		return errors.New(msg)
+	if err := sourceErrorFromEnvelope(envelope); err != nil {
+		return err
 	}
 	return nil
+}
+
+// sourceResponseError 是源站业务拒绝。吊销只看 Reason / Revoked，不看中文 Msg。
+type sourceResponseError struct {
+	Code    int
+	Msg     string
+	Reason  string
+	Revoked bool
+}
+
+func (e *sourceResponseError) Error() string {
+	if e == nil || strings.TrimSpace(e.Msg) == "" {
+		return "源站拒绝了请求"
+	}
+	return e.Msg
+}
+
+func buyerSnapshotTerminal(reason string, revoked bool) bool {
+	if revoked {
+		return true
+	}
+	switch strings.TrimSpace(reason) {
+	case "license_deleted", "binding_deleted", "binding_revoked", "binding_expired", "license_not_found", "license_revoked", "license_expired":
+		return true
+	default:
+		return false
+	}
+}
+
+func envelopeStatus(envelope map[string]any) (int, string) {
+	switch v := envelope["code"].(type) {
+	case float64:
+		return int(v), ""
+	case string:
+		text := strings.TrimSpace(v)
+		if text == "" {
+			return 0, ""
+		}
+		if n, err := strconv.Atoi(text); err == nil {
+			return n, ""
+		}
+		return 0, text
+	default:
+		return 0, ""
+	}
+}
+
+func sourceEnvelopeFlags(envelope map[string]any) (string, bool) {
+	revoked := false
+	if v, ok := envelope["revoked"].(bool); ok && v {
+		revoked = true
+	}
+	reason := ""
+	data, _ := envelope["data"].(map[string]any)
+	if data != nil {
+		if text, ok := data["reason"].(string); ok {
+			reason = strings.TrimSpace(text)
+		}
+		if v, ok := data["revoked"].(bool); ok && v {
+			revoked = true
+		}
+	}
+	return reason, revoked
+}
+
+func sourceErrorFromEnvelope(envelope map[string]any) error {
+	if envelope == nil {
+		return &sourceResponseError{Msg: "源站拒绝了请求"}
+	}
+	code, codedReason := envelopeStatus(envelope)
+	if code == 200 && codedReason == "" {
+		return nil
+	}
+	msg, _ := envelope["msg"].(string)
+	reason, revoked := sourceEnvelopeFlags(envelope)
+	if reason == "" {
+		reason = codedReason
+	}
+	if buyerSnapshotTerminal(reason, revoked) || buyerSnapshotTerminal(codedReason, false) {
+		revoked = true
+	}
+	if strings.TrimSpace(msg) == "" {
+		msg = "源站拒绝了请求"
+	}
+	return &sourceResponseError{Code: code, Msg: msg, Reason: reason, Revoked: revoked}
+}
+
+func buyerRefreshIsNetwork(err error) bool {
+	if err == nil {
+		return false
+	}
+	var src *sourceResponseError
+	if errors.As(err, &src) {
+		return false
+	}
+	switch err.Error() {
+	case "无法连接源站", "源站响应无法解析":
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr)
+}
+
+// applyBuyerRefreshFailure 把刷新失败写回本地快照。
+// 授权删除、绑定删除和吊销立刻标记 ExplicitRevoked，不进宽限。
+// 只有连不上源站或响应无法解析才把 LastRefreshOK 置假，从而进入离线宽限。
+// 返回的 bool 表示要不要落盘。
+func applyBuyerRefreshFailure(state buyerSnapshotState, err error) (buyerSnapshotState, bool) {
+	var src *sourceResponseError
+	if errors.As(err, &src) && buyerSnapshotTerminal(src.Reason, src.Revoked) {
+		state.LastRefreshOK = false
+		state.ExplicitRevoked = true
+		if strings.TrimSpace(src.Reason) != "" {
+			state.RevokeReason = src.Reason
+		} else {
+			state.RevokeReason = "revoked"
+		}
+		return state, true
+	}
+	if buyerRefreshIsNetwork(err) {
+		state.LastRefreshOK = false
+		return state, true
+	}
+	return state, false
 }
 
 func signedSourceJSON(method, path string, body any, out any) error {
@@ -238,12 +358,9 @@ func refreshBuyerSnapshot(ctx context.Context, domain string) error {
 	if err != nil {
 		state, ok := loadBuyerSnapshot()
 		if ok {
-			state.LastRefreshOK = false
-			if strings.Contains(err.Error(), "失效") || strings.Contains(err.Error(), "吊销") || strings.Contains(err.Error(), "过期") {
-				state.ExplicitRevoked = true
-				state.RevokeReason = err.Error()
+			if next, save := applyBuyerRefreshFailure(state, err); save {
+				_ = saveBuyerSnapshot(next)
 			}
-			_ = saveBuyerSnapshot(state)
 		}
 		return err
 	}

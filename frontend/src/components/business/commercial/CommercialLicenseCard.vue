@@ -27,17 +27,58 @@
       </div>
     </dl>
     <p v-if="account.offlineGrace" class="license-card__note">源站暂时连不上，商业版处于离线宽限。</p>
+    <footer class="license-card__foot">
+      <span>上次校验时间：{{ verifiedText }}</span>
+      <ElButton size="small" :loading="refreshing" @click="refreshNow">立即刷新</ElButton>
+    </footer>
   </article>
-  <p v-else class="license-card__empty">当前还不是商业版。</p>
+  <div v-else class="license-card__plain">
+    <p class="license-card__empty">当前还不是商业版。</p>
+    <footer v-if="account" class="license-card__foot">
+      <span>上次校验时间：{{ verifiedText }}</span>
+      <ElButton size="small" :loading="refreshing" @click="refreshNow">立即刷新</ElButton>
+    </footer>
+  </div>
 </template>
 
 <script setup lang="ts">
-  import type { StoreAccount } from '@/api/store'
-  import { commercialExpireText, isCommercialActive } from '@/utils/commercial'
+  import { computed, ref } from 'vue'
+  import { ElMessage } from 'element-plus'
+  import { refreshStoreSnapshot, type StoreAccount } from '@/api/store'
+  import { commercialExpireText, isCommercialActive, rememberCommercialAccount } from '@/utils/commercial'
+  import { showCaughtError } from '@/utils/http/error-toast'
 
   defineOptions({ name: 'CommercialLicenseCard' })
 
-  defineProps<{ account: StoreAccount | null }>()
+  const props = defineProps<{ account: StoreAccount | null }>()
+  const emit = defineEmits<{ refreshed: [account: StoreAccount] }>()
+  const refreshing = ref(false)
+
+  const verifiedText = computed(() => {
+    const ts = props.account?.verifiedAt || 0
+    if (!ts) return '尚未校验'
+    const date = new Date(ts * 1000)
+    const pad = (value: number) => String(value).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  })
+
+  async function refreshNow() {
+    refreshing.value = true
+    try {
+      const next = await refreshStoreSnapshot()
+      if (next) {
+        rememberCommercialAccount(next)
+        emit('refreshed', next)
+      }
+      window.dispatchEvent(new Event('store-account-refresh'))
+      ElMessage.success('已刷新')
+    } catch (error) {
+      showCaughtError(error, '刷新失败')
+      window.dispatchEvent(new Event('store-account-refresh'))
+    } finally {
+      refreshing.value = false
+    }
+  }
 </script>
 
 <style scoped>
@@ -113,6 +154,20 @@
   .license-card__note,
   .license-card__empty {
     padding: 0 16px 16px;
+  }
+
+  .license-card__foot {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px 16px;
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+  }
+
+  .license-card__plain .license-card__empty {
+    padding-bottom: 8px;
   }
 
   :global(html.dark) .license-card,
