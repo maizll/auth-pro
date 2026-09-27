@@ -44,7 +44,7 @@
       </div>
 
       <el-table :data="tableData" stripe v-loading="loading" class="licenses-table">
-        <el-table-column label="域名" :min-width="narrow ? 48 : 220" show-overflow-tooltip>
+        <el-table-column label="域名" min-width="220">
           <template #default="{ row }">
             <div class="target-cell">
               <span v-if="!narrow" class="target-icon" :class="`target-icon-${row.type}`">
@@ -62,21 +62,15 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column
-          v-if="!narrow"
-          prop="appName"
-          label="应用"
-          width="120"
-          show-overflow-tooltip
-        />
-        <el-table-column v-if="!narrow" prop="typeLabel" label="类型" width="90">
+        <el-table-column prop="appName" label="应用" width="120" />
+        <el-table-column prop="typeLabel" label="类型" width="90">
           <template #default="{ row }">
             <el-tag :type="typeTagMap[row.type]" size="small" effect="light">{{
               row.typeLabel
             }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="statusLabel" label="状态" :width="narrow ? 72 : 100" align="center">
+        <el-table-column prop="statusLabel" label="状态" width="100" align="center">
           <template #default="{ row }">
             <BizStatusTag
               domain="license"
@@ -93,17 +87,17 @@
             </EditionExpire>
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" prop="createdAt" label="开通时间" width="130" />
-        <el-table-column v-if="!narrow" prop="source" label="来源" width="110">
+        <el-table-column prop="createdAt" label="开通时间" width="130" />
+        <el-table-column prop="source" label="来源" width="110">
           <template #default="{ row }">
             <span class="source-text">{{ row.source }}</span>
           </template>
         </el-table-column>
         <el-table-column
           label="操作"
-          :width="narrow ? 104 : undefined"
-          :min-width="narrow ? 104 : 220"
-          :fixed="narrow ? false : 'right'"
+          :width="narrow ? 176 : undefined"
+          :min-width="narrow ? 176 : 220"
+          fixed="right"
           align="center"
         >
           <template #default="{ row }">

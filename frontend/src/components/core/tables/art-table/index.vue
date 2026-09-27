@@ -157,7 +157,7 @@
     DESKTOP: 'total, prev, pager, next, sizes, jumper'
   }
 
-  // 手机上后台列表共用这一套：只留关键列，宽度放进屏幕，操作列不再盖住旁边。
+  // 手机上保留全部列。列宽不挤进一屏，表格横向滚动，操作列固定在右侧。
   const renderColumns = computed(() => {
     const cols = props.columns || []
     if (width.value > 767) return cols

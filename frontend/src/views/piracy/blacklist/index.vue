@@ -57,40 +57,28 @@
         v-loading="loading"
         @selection-change="handleSelectionChange"
       >
-        <el-table-column v-if="!narrow" type="selection" width="45" />
-        <el-table-column
-          prop="value"
-          label="域名/IP"
-          :min-width="narrow ? 120 : 200"
-          :width="narrow ? 140 : undefined"
-          show-overflow-tooltip
-        />
-        <el-table-column prop="typeLabel" label="类型" :width="narrow ? 64 : 80" align="center">
+        <el-table-column type="selection" width="45" />
+        <el-table-column prop="value" label="域名/IP" min-width="200" />
+        <el-table-column prop="typeLabel" label="类型" width="80" align="center">
           <template #default="{ row }">
             <el-tag :type="typeTagMap[row.type]" size="small">{{ row.typeLabel }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" prop="sourceLabel" label="来源" width="100" align="center">
+        <el-table-column prop="sourceLabel" label="来源" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="sourceTagMap[row.source]" size="small" effect="plain">{{
               row.sourceLabel
             }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" prop="hitCount" label="命中次数" width="100" align="center">
+        <el-table-column prop="hitCount" label="命中次数" width="100" align="center">
           <template #default="{ row }">
             <span class="hit-count">{{ row.hitCount }}</span>
           </template>
         </el-table-column>
-        <el-table-column
-          v-if="!narrow"
-          prop="remark"
-          label="备注"
-          min-width="150"
-          show-overflow-tooltip
-        />
-        <el-table-column v-if="!narrow" prop="createdAt" label="添加时间" width="160" />
-        <el-table-column label="操作" :width="narrow ? 76 : 150" :fixed="narrow ? false : 'right'">
+        <el-table-column prop="remark" label="备注" min-width="150" />
+        <el-table-column prop="createdAt" label="添加时间" width="160" />
+        <el-table-column label="操作" :width="narrow ? 176 : 150" fixed="right">
           <template #default="{ row }">
             <RowActions
               v-if="narrow"

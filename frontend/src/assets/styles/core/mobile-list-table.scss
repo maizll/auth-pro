@@ -1,33 +1,22 @@
 // 手机上后台、用户端、代理端的列表共用这里。
-// 列由表格收成 3～4 个关键列，宽度放进屏幕。操作列不再固定在右侧盖住中间列。
+// 每行仍是一行。列保持可读宽度，超出屏幕后横向滑动，操作列固定在右侧。
 @media (max-width: 767px) {
   .el-table {
     font-size: 13px;
 
-    .el-table-fixed-column--left,
-    .el-table-fixed-column--right {
-      position: static !important;
-      right: auto !important;
-      left: auto !important;
-    }
-
-    .mobile-col-hidden {
-      display: none !important;
-      width: 0 !important;
-      padding: 0 !important;
-      border: none !important;
+    .el-scrollbar__wrap {
+      overflow: auto !important;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-x pan-y;
     }
 
     .cell {
       padding-right: 4px !important;
       padding-left: 4px !important;
+      overflow: hidden;
+      text-overflow: ellipsis;
       word-break: normal !important;
       white-space: nowrap !important;
-    }
-
-    // 来源、用户、绑定数量这类副信息只在编辑或详情里看。
-    .list-cell-extra {
-      display: none !important;
     }
 
     .target-cell,
@@ -158,4 +147,128 @@
 
 .mobile-op-menu__item.is-danger {
   color: var(--el-color-danger);
+}
+
+.table-cell-preview {
+  position: fixed;
+  z-index: 4100;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  max-width: calc(100vw - 16px);
+  padding: 10px 12px;
+  background: var(--el-bg-color-overlay);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
+  box-shadow: var(--el-box-shadow-light);
+}
+
+.table-cell-preview__text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--el-text-color-primary);
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.table-cell-preview__copy {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--el-color-primary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--el-color-primary);
+  border-radius: 4px;
+}
+
+.table-row-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 4200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgb(0 0 0 / 45%);
+}
+
+.table-row-preview__panel {
+  display: flex;
+  flex-direction: column;
+  width: min(480px, 100%);
+  max-height: min(80vh, 640px);
+  padding: 16px 16px 20px;
+  background: var(--el-bg-color);
+  border-radius: 12px 12px 0 0;
+}
+
+.table-row-preview__head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.table-row-preview__head strong {
+  font-size: 16px;
+  color: var(--el-text-color-primary);
+}
+
+.table-row-preview__close {
+  padding: 4px 10px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.table-row-preview__list {
+  margin: 0;
+  overflow: auto;
+}
+
+.table-row-preview__item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+.table-row-preview__item dt {
+  flex: none;
+  width: 72px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+.table-row-preview__item dd {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--el-text-color-primary);
+  word-break: break-all;
+}
+
+@media (min-width: 768px) {
+  .table-row-preview {
+    align-items: center;
+  }
+
+  .table-row-preview__panel {
+    border-radius: 12px;
+  }
 }

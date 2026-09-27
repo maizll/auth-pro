@@ -94,61 +94,49 @@
       </template>
 
       <el-table :data="tableData" stripe v-loading="loading" @selection-change="onSelectionChange">
-        <el-table-column v-if="!narrow" type="selection" width="42" />
-        <el-table-column
-          v-if="!narrow"
-          prop="id"
-          label="标识"
-          min-width="140"
-          show-overflow-tooltip
-        />
-        <el-table-column prop="name" label="名称" :min-width="narrow ? 48 : 140">
+        <el-table-column type="selection" width="42" />
+        <el-table-column prop="id" label="标识" min-width="140" />
+        <el-table-column prop="name" label="名称" min-width="140">
           <template #default="{ row }">
             <div>{{ row.name }}</div>
             <p class="card-hint">{{ listingLabel(row) }}</p>
             <p v-if="row.fulfillmentHint" class="card-hint">{{ row.fulfillmentHint }}</p>
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" label="分类" width="120">
+        <el-table-column label="分类" width="120">
           <template #default="{ row }">
             {{ row.categoryLabel || categoryLabel(row.category) }}
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" label="当前版本" width="110">
+        <el-table-column label="当前版本" width="110">
           <template #default="{ row }">
             {{ row.latestVersion || row.version || '-' }}
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" label="售价" width="100">
+        <el-table-column label="售价" width="100">
           <template #default="{ row }">{{ formatCatalogPriceLabel(row.priceCents) }}</template>
         </el-table-column>
-        <el-table-column label="状态" :width="narrow ? 72 : 100" align="center">
+        <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="statusMeta(row.status).type" size="small">
               {{ statusMeta(row.status).label }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" label="下载地址" min-width="200" show-overflow-tooltip>
+        <el-table-column label="下载地址" min-width="200">
           <template #default="{ row }">
             {{ itemLocation(row) }}
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" label="来源外链" min-width="180" show-overflow-tooltip>
+        <el-table-column label="来源外链" min-width="180">
           <template #default="{ row }">
             <span>{{ row.originUrl || '-' }}</span>
             <p v-if="row.originHint" class="card-hint">{{ row.originHint }}</p>
           </template>
         </el-table-column>
-        <el-table-column
-          v-if="!narrow"
-          prop="sha256"
-          label="校验码"
-          min-width="160"
-          show-overflow-tooltip
-        />
-        <el-table-column v-if="!narrow" prop="updatedAt" label="更新时间" width="170" />
-        <el-table-column label="操作" :width="narrow ? 104 : 168" :fixed="narrow ? false : 'right'">
+        <el-table-column prop="sha256" label="校验码" min-width="160" />
+        <el-table-column prop="updatedAt" label="更新时间" width="170" />
+        <el-table-column label="操作" width="176" fixed="right">
           <template #default="{ row }">
             <RowActions
               :primary="catalogPrimary(row)"

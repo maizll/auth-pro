@@ -66,15 +66,9 @@
     <el-card shadow="hover">
       <template #header><span class="card-title">我的授权</span></template>
       <el-table :data="recentLicenses" stripe>
-        <el-table-column
-          prop="domain"
-          label="域名/IP/密钥"
-          :min-width="narrow ? 100 : 180"
-          :width="narrow ? 110 : undefined"
-          show-overflow-tooltip
-        />
-        <el-table-column v-if="!narrow" prop="appName" label="应用" width="120" />
-        <el-table-column prop="statusLabel" label="状态" :width="narrow ? 58 : 90" align="center">
+        <el-table-column prop="domain" label="域名/IP/密钥" min-width="180" />
+        <el-table-column prop="appName" label="应用" width="120" />
+        <el-table-column prop="statusLabel" label="状态" width="90" align="center">
           <template #default="{ row }">
             <el-tag
               :type="
@@ -86,7 +80,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column :label="narrow ? '到期' : '到期时间'" :width="narrow ? 96 : 140">
+        <el-table-column :label="narrow ? '到期' : '到期时间'" :width="narrow ? 168 : 140">
           <template #default="{ row }">{{ formatLicenseExpire(row.expireAt, narrow) }}</template>
         </el-table-column>
       </el-table>
