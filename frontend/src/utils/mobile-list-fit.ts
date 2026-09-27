@@ -72,8 +72,13 @@ function applyWidths(root: HTMLElement, store: TableStore) {
   const columns = store.states._columns?.value || []
   if (!columns.length) return
   const laid = mobileScrollLayout(asOptions(columns))
+  const opWidth = Number(root.dataset.opWidth || 0)
+  const applied = (column: { prop?: string; label?: string; width?: string | number }) => {
+    const operation = (column.label === '操作' || column.prop === 'operation') && opWidth > 0
+    return operation ? opWidth : column.width
+  }
   const signature = laid
-    .map((column) => `${column.prop || column.label}:${column.width}:${column.fixed || ''}`)
+    .map((column) => `${column.prop || column.label}:${applied(column)}:${column.fixed || ''}`)
     .join(',')
   const current = columns
     .map(
@@ -86,9 +91,11 @@ function applyWidths(root: HTMLElement, store: TableStore) {
     remember(column)
     const next = laid[index]
     if (!next) return
-    column.width = next.width
-    column.minWidth = next.minWidth
+    const operation = (next.label === '操作' || next.prop === 'operation') && opWidth > 0
+    column.width = operation ? opWidth : next.width
+    column.minWidth = operation ? opWidth : next.minWidth
     column.fixed = next.fixed
+    if (operation) (column as TableColumn & { align?: string }).align = 'left'
     column.showOverflowTooltip = false
     column.className = (column.className || '').replace(/\bmobile-col-hidden\b/g, '').trim()
   })
@@ -382,6 +389,33 @@ function fitOne(root: HTMLElement, mobile: boolean) {
     return
   }
   applyWidths(root, store)
+  fitOperationWidth(root, store)
+}
+
+function fitOperationWidth(root: HTMLElement, store: TableStore) {
+  const measured = measureOperationWidth(root)
+  if (!measured) return
+  if (Math.abs(measured - Number(root.dataset.opWidth || 0)) <= 4) return
+  root.dataset.opWidth = String(measured)
+  delete root.dataset.mobileFit
+  applyWidths(root, store)
+}
+
+function measureOperationWidth(root: HTMLElement) {
+  const headers = Array.from(root.querySelectorAll('.el-table__header-wrapper thead th'))
+  const opIndex = headers.findIndex((cell) =>
+    isOperationHeader((cell as HTMLElement).innerText || '')
+  )
+  if (opIndex < 0) return 0
+  let width = 0
+  root.querySelectorAll('.el-table__body-wrapper tbody tr').forEach((row) => {
+    const cell = row.children[opIndex]
+    const box = cell instanceof HTMLElement ? cellBox(cell) : null
+    if (!box) return
+    width = Math.max(width, box.scrollWidth)
+  })
+  if (!width) return 0
+  return Math.min(132, Math.max(72, width + 12))
 }
 
 /** 后台、用户端、代理端列表共用：手机横向滚动，操作列固定，截断内容可预览和复制。 */

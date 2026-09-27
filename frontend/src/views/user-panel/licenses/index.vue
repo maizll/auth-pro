@@ -97,13 +97,7 @@
             <span class="amount-text">{{ formatLicenseAmount(row.amount) }}</span>
           </template>
         </el-table-column>
-        <el-table-column
-          label="操作"
-          :width="narrow ? 176 : undefined"
-          :min-width="narrow ? 176 : 220"
-          fixed="right"
-          align="center"
-        >
+        <el-table-column label="操作" :min-width="narrow ? 96 : 160" fixed="right" align="left">
           <template #default="{ row }">
             <RowActions
               v-if="narrow"
@@ -345,7 +339,7 @@
           <el-alert
             v-else
             title="授权尚未绑定域名，请在列表中点击「绑定」。"
-            type="warning"
+            type="info"
             show-icon
             :closable="false"
           />
@@ -976,10 +970,12 @@
   }
 
   .row-actions {
-    display: flex;
-    flex-wrap: wrap;
+    display: inline-flex;
+    flex-wrap: nowrap;
     gap: 2px 8px;
-    justify-content: center;
+    align-items: center;
+    justify-content: flex-start;
+    white-space: nowrap;
   }
 
   .change-quota {
