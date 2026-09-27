@@ -50,7 +50,7 @@ func TestInstallDocUsesPublishedBaotaCommands(t *testing.T) {
 		"cd /www/wwwroot/example.com\ntar -xzf auth_pro-full-vX.Y.Z.tar.gz\nbash baota-install.sh",
 		"AUTH_PRO_YES=1 AUTH_PRO_START=0 \\\nbash baota-install.sh \\\n  --site-root /www/wwwroot/example.com \\\n  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz",
 		"bash baota-upgrade.sh \\\n  --site-root /www/wwwroot/example.com \\\n  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \\\n  --no-start",
-		"https://api.github.com/repos/maizll/auth-pro/releases/latest",
+		"https://auth.maizll.com/api/v1/update/latest.json",
 		"检查更新",
 		"立即更新",
 	} {
@@ -76,6 +76,18 @@ func TestInstallDocUsesPublishedBaotaCommands(t *testing.T) {
 		publicBody := readRepoDoc(t, rel)
 		if strings.Contains(publicBody, "从 1.5.5") || strings.Contains(publicBody, "从 1.5.3") || strings.Contains(publicBody, "升到 1.5.7") {
 			t.Fatalf("%s still tells customers how to upgrade a specific old release", rel)
+		}
+	}
+	for rel := range sitePublicDocs {
+		publicBody := readRepoDoc(t, rel)
+		for _, leaked := range []string{
+			"github.com/maizll",
+			"api.github.com/repos/maizll",
+			"raw.githubusercontent.com/maizll",
+		} {
+			if strings.Contains(publicBody, leaked) {
+				t.Fatalf("%s still exposes %s", rel, leaked)
+			}
 		}
 	}
 	admin := readRepoDoc(t, "admin.md")

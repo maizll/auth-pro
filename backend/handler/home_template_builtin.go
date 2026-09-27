@@ -22,7 +22,7 @@ const (
 
 var builtinAuthor = templateAuthor{
 	Name: "auth_pro 官方",
-	URL:  "https://github.com/maizll/auth-pro",
+	URL:  "https://auth.maizll.com",
 }
 
 func builtinDefaultPreviewURL() string {

@@ -6,7 +6,7 @@
   "description": "AuthPro 官方支付渠道插件。启用并配置后出现在收银台，通过 alipay.trade.precreate 正扫收款，异步 notify 入账。",
   "author": {
     "name": "auth_pro 官方",
-    "url": "https://github.com/maizll/auth-pro"
+    "url": "https://auth.maizll.com"
   },
   "category": "payment",
   "icon": "ri:alipay-fill"

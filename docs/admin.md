@@ -92,7 +92,7 @@
 
 ## 在线更新 `/online-update`（仅超管）
 
-检查 GitHub Release 的 `latest.json` 并执行整包更新。签名、备份与回滚见 [部署手册](deployment.md)。
+检查源站上的最新版本并执行整包更新。签名、备份与回滚见 [部署手册](deployment.md)。页面上不显示仓库地址。
 
 ## 系统设置 `/system`
 

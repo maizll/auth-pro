@@ -28,14 +28,6 @@
       </div>
 
       <ElAlert
-        v-if="isInsecureUpdateUrl"
-        title="更新源未启用 HTTPS"
-        type="warning"
-        show-icon
-        :closable="false"
-        class="update-alert"
-      />
-      <ElAlert
         v-if="packageError"
         :title="packageError"
         type="warning"
@@ -320,10 +312,6 @@
     if (job.value?.status === 'success') return 'success' as const
     if (job.value?.status === 'failed') return 'exception' as const
     return undefined
-  })
-  const isInsecureUpdateUrl = computed(() => {
-    const url = checkResult.value?.updateUrl || status.value?.updateUrl || ''
-    return url.startsWith('http://')
   })
 
   const loadStatus = async () => {

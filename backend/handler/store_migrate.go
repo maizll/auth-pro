@@ -17,6 +17,7 @@ const (
 	storeMigrationLicenseSourcePurchase = "licenses_source_store_purchase_v1"
 	storeMigrationDomainChanges         = "license_domain_changes_v1"
 	storeMigrationDropBuyerConnection   = "store_drop_buyer_connection_settings_v1"
+	storeMigrationDropGitHubUpdateURL   = "drop_github_update_url_v1"
 	storeMigrationLoginHandoff          = "store_login_handoff_v1"
 )
 
@@ -261,6 +262,23 @@ func migrateDropBuyerConnectionSettings(db *sql.DB) error {
 	_, err := db.Exec(`DELETE FROM system_configs WHERE ` + "`group`" + ` = 'store' AND ` + "`key`" + ` IN ('store_source_base', 'store_site_url', 'store_trust_proxy')`)
 	if err != nil {
 		return fmt.Errorf("buyer connection settings: %w", err)
+	}
+	return nil
+}
+
+// migrateDropGitHubUpdateURL 清掉旧库里保存的代码托管站更新地址。
+// 在线更新已经写死源站，这些值不再读取。匹配的是地址形态，不是某一个仓库名。
+func migrateDropGitHubUpdateURL(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'system_configs'`).Scan(&count); err != nil {
+		return fmt.Errorf("github update url: %w", err)
+	}
+	if count == 0 {
+		return nil
+	}
+	_, err := db.Exec(`DELETE FROM system_configs WHERE value LIKE '%api.github.com/repos/%' OR value LIKE '%github.com/%/releases/%' OR value LIKE '%raw.githubusercontent.com/%'`)
+	if err != nil {
+		return fmt.Errorf("github update url: %w", err)
 	}
 	return nil
 }

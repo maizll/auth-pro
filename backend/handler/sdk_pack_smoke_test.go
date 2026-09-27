@@ -158,7 +158,7 @@ print(authpro.plugin_source_url())
 		content := `package authpro_smoke_test
 import (
   "testing"
-  authpro "github.com/maizll/auth-pro/sdk/go/authpro"
+  authpro "auth.maizll.com/sdk/go/authpro"
 )
 func TestSmoke(t *testing.T) {
   if err := authpro.Boot("` + filepath.ToSlash(filepath.Join(root, "config.json")) + `"); err != nil { t.Fatal(err) }
@@ -176,7 +176,7 @@ func TestSmoke(t *testing.T) {
 		if out, err := init.CombinedOutput(); err != nil {
 			t.Fatalf("go mod init: %v (%s)", err, out)
 		}
-		edit := exec.Command("go", "mod", "edit", "-require=github.com/maizll/auth-pro/sdk/go@v0.0.0", "-replace=github.com/maizll/auth-pro/sdk/go="+root)
+		edit := exec.Command("go", "mod", "edit", "-require=auth.maizll.com/sdk/go@v0.0.0", "-replace=auth.maizll.com/sdk/go="+root)
 		edit.Dir = filepath.Dir(testMain)
 		if out, err := edit.CombinedOutput(); err != nil {
 			t.Fatalf("go mod edit: %v (%s)", err, out)

@@ -92,8 +92,8 @@ func refreshSiteDocsOnce(db *sql.DB) error {
 		`ALTER TABLE site_doc_articles ADD COLUMN edited TINYINT NOT NULL DEFAULT 0`); err != nil {
 		return err
 	}
-	// v2 刷新安装命令，v3 去掉公开文档里的旧版本升级说明。两轮都跳过用户改过的文章。
-	for _, name := range []string{sitePagesDocsRefreshMigration, sitePagesDocsRefreshMigration3} {
+	// v2 刷新安装命令，v3 去掉旧升级说明，v4 去掉公开文档里的仓库地址。都跳过用户改过的文章。
+	for _, name := range []string{sitePagesDocsRefreshMigration, sitePagesDocsRefreshMigration3, sitePagesDocsRefreshMigration4} {
 		if err := runSiteDocsRefresh(db, name); err != nil {
 			return err
 		}
@@ -1069,6 +1069,21 @@ func groupSiteChangelog(rows []gin.H) []gin.H {
 		list = append(list, grouped[version])
 	}
 	return list
+}
+
+// scrubLeakedRepositoryNotes 删掉没改过、又提到代码托管站的更新日志。
+// 改过的条目保留。仓库全名不写在这里，避免打进发行二进制。
+func scrubLeakedRepositoryNotes(db *sql.DB) error {
+	_, err := db.Exec(`DELETE FROM site_changelog_entries
+		WHERE edited = 0 AND (
+			body LIKE '%github.com%'
+			OR body LIKE '%githubusercontent%'
+			OR (body LIKE '%github%' AND body LIKE '%auth-pro%')
+		)`)
+	if err != nil {
+		return fmt.Errorf("scrub changelog repository notes: %w", err)
+	}
+	return nil
 }
 
 func importSiteReleaseNotes(db *sql.DB, root string) error {
