@@ -66,8 +66,19 @@
           <div>
             <span class="card-title">收费仓库</span>
             <p class="card-hint">
-              站长和开发者的收费安装包都放在这一个私有 GitHub 仓库。令牌需要 Contents 读写，用来上传
-              Release 资产，并在买家付款后换取几分钟有效的下载地址。令牌加密保存，页面不回显明文。
+              站长和开发者的收费安装包都放在这一个私有 GitHub 仓库。只需粘贴令牌，点「测试令牌」就会识别所有者，也可以改选所属组织。仓库默认是
+              auth-pro-paid，不存在时可以自动创建私有仓库。令牌加密保存，页面不回显明文。
+              <a
+                class="token-link"
+                :href="githubTokenCreateUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                >去 GitHub 创建令牌</a
+              >
+            </p>
+            <p class="card-hint">
+              细粒度令牌需要 Administration 读写（创建仓库）和 Contents 读写，经典令牌需要 repo
+              权限。仓库已经存在时，没有创建权限也可以使用。
             </p>
           </div>
           <div class="table-actions">
@@ -79,30 +90,54 @@
         </div>
       </template>
       <el-alert
-        :title="githubConfigured ? '已配置收费仓库' : '尚未配置收费仓库'"
-        :type="githubConfigured ? 'success' : 'warning'"
+        v-if="githubConnected"
+        class="mb-4 github-paid-alert"
+        type="success"
         :closable="false"
         show-icon
-        class="mb-4"
+        :title="githubConnectedTitle"
       >
-        {{
-          githubReminder ||
-          '在 GitHub 创建 fine-grained personal access token，只授权这一个私有仓库，Contents 选 Read and write。'
-        }}
+        <span v-if="!githubConfigured">请点「保存」，令牌才会加密写入服务器。</span>
+        <span v-else>令牌已加密保存，页面不回显明文。</span>
       </el-alert>
-      <el-form label-width="140px" class="settings-form">
+      <el-alert
+        v-else
+        class="mb-4 github-paid-alert"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="尚未配置收费仓库"
+      >
+        安装包暂存在本站。请粘贴令牌并点「测试令牌」，确认私有仓库后再保存。
+      </el-alert>
+      <el-form label-width="140px" class="settings-form github-paid-form">
         <el-form-item label="所有者">
-          <el-input v-model.trim="githubOwner" placeholder="例如 my-org" />
+          <el-select
+            v-model="githubOwner"
+            filterable
+            placeholder="测试令牌后自动填入"
+            class="owner-select"
+          >
+            <el-option
+              v-for="item in githubOwnerOptions"
+              :key="`${item.kind}-${item.login}`"
+              :label="githubOwnerLabel(item)"
+              :value="item.login"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="仓库">
-          <el-input v-model.trim="githubRepo" placeholder="例如 paid-plugins" />
+          <div class="repo-row">
+            <el-input v-model.trim="githubRepo" placeholder="auth-pro-paid" />
+            <el-button :loading="githubCreating" @click="handleGitHubCreate">自动创建私有仓库</el-button>
+          </div>
         </el-form-item>
         <el-form-item label="读写令牌">
           <el-input
             v-model="githubToken"
             type="password"
             show-password
-            :placeholder="githubConfigured ? '已配置，留空不修改' : '粘贴 Contents 读写令牌'"
+            :placeholder="githubConfigured ? '已配置，留空不修改' : '粘贴 GitHub 令牌'"
           />
         </el-form-item>
       </el-form>
@@ -157,6 +192,7 @@
   import { computed, onMounted, reactive, ref } from 'vue'
   import { ElMessage } from 'element-plus'
   import {
+    createGitHubPaidRepo,
     fetchGitHubPaidToken,
     fetchSoftwareSourceAliases,
     fetchSourceCatalogApps,
@@ -166,10 +202,17 @@
     saveSourceReleaseSettings,
     testGitHubPaidToken,
     testSourceReleaseSettings,
+    type GitHubPaidOwner,
+    type GitHubPaidSettings,
     type SoftwareSourceAlias,
     type SourceCatalogApp,
     type SourceReleaseSettings
   } from '@/api/source-station'
+  import { isHttpError } from '@/utils/http/error'
+
+  const githubPaidDefaultRepo = 'auth-pro-paid'
+  const githubPaidTokenUrl =
+    'https://github.com/settings/tokens/new?scopes=repo&description=auth-pro'
 
   const loading = ref(false)
   const saving = ref(false)
@@ -177,11 +220,31 @@
   const githubLoading = ref(false)
   const githubSaving = ref(false)
   const githubTesting = ref(false)
+  const githubCreating = ref(false)
   const githubConfigured = ref(false)
+  const githubConnected = ref(false)
   const githubOwner = ref('')
-  const githubRepo = ref('')
-  const githubReminder = ref('')
+  const githubRepo = ref(githubPaidDefaultRepo)
+  const githubOwners = ref<GitHubPaidOwner[]>([])
+  const githubTokenCreateUrl = ref(githubPaidTokenUrl)
   const githubToken = ref('')
+  const githubOwnerOptions = computed(() => {
+    const list = [...githubOwners.value]
+    const current = githubOwner.value.trim()
+    if (current && !list.some((item) => item.login === current)) {
+      list.unshift({ login: current, kind: 'saved' })
+    }
+    return list
+  })
+  const githubConnectedTitle = computed(
+    () => `已连接：${githubOwner.value}/${githubRepo.value}（私有）`
+  )
+
+  function githubOwnerLabel(item: GitHubPaidOwner) {
+    if (item.kind === 'org') return `${item.login}（组织）`
+    if (item.kind === 'user') return `${item.login}（用户）`
+    return item.login
+  }
   const settings = ref<SourceReleaseSettings>({
     provider: 'github',
     owner: '',
@@ -241,14 +304,36 @@
     return '尚未配置完整，上传时需粘贴外部 https 地址。'
   })
 
+  function applyGitHubPaid(data?: GitHubPaidSettings, preferConnected?: boolean) {
+    if (!data) return
+    githubConfigured.value = Boolean(data.configured)
+    if (data.owner) githubOwner.value = data.owner
+    githubRepo.value = data.repo || data.defaultRepo || githubRepo.value || githubPaidDefaultRepo
+    if (data.owners?.length) githubOwners.value = data.owners
+    if (data.tokenCreateUrl) githubTokenCreateUrl.value = data.tokenCreateUrl
+    githubConnected.value =
+      preferConnected === false ? false : Boolean(data.connected && data.private !== false)
+  }
+
+  function applyGitHubPaidError(error: unknown) {
+    if (!isHttpError(error) || !error.data || typeof error.data !== 'object') return
+    applyGitHubPaid(error.data as GitHubPaidSettings, false)
+  }
+
+  function githubPaidPayload() {
+    return {
+      token: githubToken.value.trim(),
+      owner: githubOwner.value.trim(),
+      repo: githubRepo.value.trim() || githubPaidDefaultRepo
+    }
+  }
+
   async function loadGitHubToken() {
     githubLoading.value = true
     try {
       const data = await fetchGitHubPaidToken()
-      githubConfigured.value = Boolean(data.configured)
-      githubOwner.value = data.owner || ''
-      githubRepo.value = data.repo || ''
-      githubReminder.value = data.reminder || ''
+      applyGitHubPaid(data)
+      if (!data.repo) githubRepo.value = data.defaultRepo || githubPaidDefaultRepo
       githubToken.value = ''
     } finally {
       githubLoading.value = false
@@ -258,17 +343,12 @@
   async function handleGitHubSave() {
     githubSaving.value = true
     try {
-      const data = await saveGitHubPaidToken({
-        token: githubToken.value.trim(),
-        owner: githubOwner.value.trim(),
-        repo: githubRepo.value.trim()
-      })
-      githubConfigured.value = Boolean(data.configured)
-      githubOwner.value = data.owner || githubOwner.value
-      githubRepo.value = data.repo || githubRepo.value
-      githubReminder.value = data.reminder || ''
+      const data = await saveGitHubPaidToken(githubPaidPayload())
+      applyGitHubPaid(data)
       githubToken.value = ''
-      ElMessage.success(githubConfigured.value ? '已保存收费仓库' : '已保留现有令牌')
+      ElMessage.success(data.connected ? githubConnectedTitle.value : '已保存收费仓库')
+    } catch (error) {
+      applyGitHubPaidError(error)
     } finally {
       githubSaving.value = false
     }
@@ -277,14 +357,30 @@
   async function handleGitHubTest() {
     githubTesting.value = true
     try {
-      await testGitHubPaidToken({
-        token: githubToken.value.trim(),
-        owner: githubOwner.value.trim(),
-        repo: githubRepo.value.trim()
-      })
-      ElMessage.success('令牌可用')
+      const data = await testGitHubPaidToken(githubPaidPayload())
+      applyGitHubPaid(data)
+      if (data.connected) {
+        ElMessage.success(githubConnectedTitle.value)
+      } else if (data.hint) {
+        ElMessage.warning(data.hint)
+      }
+    } catch (error) {
+      applyGitHubPaidError(error)
     } finally {
       githubTesting.value = false
+    }
+  }
+
+  async function handleGitHubCreate() {
+    githubCreating.value = true
+    try {
+      const data = await createGitHubPaidRepo(githubPaidPayload())
+      applyGitHubPaid(data)
+      if (data.connected) ElMessage.success(githubConnectedTitle.value)
+    } catch (error) {
+      applyGitHubPaidError(error)
+    } finally {
+      githubCreating.value = false
     }
   }
 
@@ -446,5 +542,73 @@
     font-size: 12px;
     line-height: 1.5;
     color: var(--art-gray-600);
+  }
+
+  .token-link {
+    margin-left: 6px;
+    color: var(--el-color-primary);
+    text-decoration: none;
+  }
+
+  .owner-select {
+    width: 100%;
+  }
+
+  .repo-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+
+    .el-input {
+      flex: 1;
+    }
+  }
+
+  .github-paid-card :deep(.github-paid-alert.el-alert--warning) {
+    background-color: #fff7ed;
+    border: 1px solid #fdba74;
+    border-left: 4px solid #ea580c;
+    color: #c2410c;
+
+    .el-alert__title,
+    .el-alert__description,
+    .el-alert__icon,
+    .el-alert__content {
+      color: #c2410c;
+    }
+  }
+
+  @media (max-width: 767px) {
+    .github-paid-card {
+      .table-actions :deep(.el-button),
+      .repo-row :deep(.el-button) {
+        min-height: 36px;
+      }
+    }
+
+    .github-paid-form {
+      max-width: none;
+
+      :deep(.el-form-item) {
+        display: block;
+      }
+
+      :deep(.el-form-item__label) {
+        width: auto !important;
+        height: auto;
+        justify-content: flex-start;
+        margin-bottom: 4px;
+      }
+
+      :deep(.el-form-item__content) {
+        margin-left: 0 !important;
+      }
+    }
+
+    .repo-row {
+      flex-direction: column;
+      align-items: stretch;
+    }
   }
 </style>

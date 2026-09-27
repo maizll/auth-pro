@@ -27,7 +27,12 @@ const (
 	githubPaidTokenMissingText = "请先在软件源设置里配置收费仓库和 GitHub 令牌"
 	githubPaidTokenInvalidText = "GitHub 令牌无效或已过期，请到软件源设置重新配置。令牌需要 Contents 读写权限"
 	githubPaidAssetMissingText = "收费仓库里找不到该安装包，请重新上传"
-	paidLocalFallbackText      = "尚未配置收费仓库，安装包暂存在本站。请到软件源设置填写私有 GitHub 仓库和 Contents 读写令牌。"
+	paidLocalFallbackText      = "安装包暂存在本站。请到软件源设置粘贴令牌，点「测试令牌」确认私有仓库后再保存。"
+	githubPaidDefaultRepo      = "auth-pro-paid"
+	githubPaidTokenCreateURL   = "https://github.com/settings/tokens/new?scopes=repo&description=auth-pro"
+	githubPaidPermissionText   = "权限不足：细粒度令牌需要 Administration 读写（创建仓库）和 Contents 读写，经典令牌需要 repo 权限。"
+	githubPaidPublicRepoText   = "该仓库已存在，但是公开的，不能存放收费安装包。请改用私有仓库。"
+	githubPaidRepoMissingText  = "仓库还不存在。可点「自动创建私有仓库」，保存时也会自动创建。"
 )
 
 var (
@@ -367,7 +372,20 @@ func githubPaidSettingsView() gin.H {
 	if !configured {
 		reminder = paidLocalFallbackText
 	}
-	return gin.H{"configured": configured, "owner": owner, "repo": repo, "reminder": reminder}
+	view := gin.H{
+		"configured":     configured,
+		"owner":          owner,
+		"repo":           repo,
+		"reminder":       reminder,
+		"defaultRepo":    githubPaidDefaultRepo,
+		"tokenCreateUrl": githubPaidTokenCreateURL,
+		"connected":      configured,
+		"private":        configured,
+	}
+	if configured {
+		view["repoStatus"] = "private"
+	}
+	return view
 }
 
 func AdminGitHubPaidToken(c *gin.Context) {
@@ -384,22 +402,42 @@ func AdminGitHubPaidTokenSave(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
 		return
 	}
+	token, tokenFromBody, err := resolveGitHubPaidPlainToken(body.Token)
+	if err != nil {
+		msg := err.Error()
+		if errors.Is(err, errGitHubPaidTokenMissing) {
+			msg = "请粘贴 GitHub 令牌"
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": msg})
+		return
+	}
 	owner := strings.TrimSpace(body.Owner)
 	repo := strings.TrimSpace(body.Repo)
-	if owner == "" || repo == "" || !sourceReleaseRepoPattern.MatchString(owner) || !sourceReleaseRepoPattern.MatchString(repo) {
+	if repo == "" {
+		repo = githubPaidDefaultRepo
+	}
+	var known *githubPaidIdentity
+	if owner == "" {
+		identity, idErr := fetchGitHubPaidIdentity(c.Request.Context(), token)
+		if idErr != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": idErr.Error(), "data": githubPaidSettingsView()})
+			return
+		}
+		owner = identity.Login
+		known = &identity
+	}
+	if !validGitHubPaidName(owner) || !validGitHubPaidName(repo) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请填写私有仓库的所有者和仓库名"})
 		return
 	}
-	token := strings.TrimSpace(body.Token)
-	if token == "" || isMaskedSourceToken(token) {
-		if _, err := loadGitHubPaidToken(); err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请填写 GitHub 令牌，需要 Contents 读写权限"})
-			return
-		}
-	} else {
-		sealed, err := sealGitHubPaidToken(token)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": err.Error()})
+	if err := ensureGitHubPaidPrivateRepo(c.Request.Context(), token, owner, repo, known); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error(), "data": githubPaidSettingsView()})
+		return
+	}
+	if tokenFromBody {
+		sealed, sealErr := sealGitHubPaidToken(token)
+		if sealErr != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": sealErr.Error()})
 			return
 		}
 		if err := writeGitHubPaidTokenSealed(sealed); err != nil {
@@ -423,32 +461,42 @@ func AdminGitHubPaidTokenSave(c *gin.Context) {
 }
 
 func AdminGitHubPaidTokenTest(c *gin.Context) {
-	var body struct {
-		Token string `json:"token"`
-		Owner string `json:"owner"`
-		Repo  string `json:"repo"`
-	}
-	_ = c.ShouldBindJSON(&body)
-	token := strings.TrimSpace(body.Token)
-	if token == "" || isMaskedSourceToken(token) {
-		var err error
-		token, err = loadGitHubPaidToken()
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
-			return
-		}
-	}
-	owner := strings.TrimSpace(body.Owner)
-	repo := strings.TrimSpace(body.Repo)
-	if owner == "" || repo == "" {
-		savedOwner, savedRepo, _, _ := loadGitHubPaidRepo()
-		owner, repo = savedOwner, savedRepo
-	}
-	if err := probeGitHubPaidRepo(c.Request.Context(), token, owner, repo); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+	token, owner, repo, identity, ok := githubPaidRequestTarget(c, true)
+	if !ok {
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "令牌可用", "data": githubPaidSettingsView()})
+	state, err := lookupGitHubPaidRepoState(c.Request.Context(), token, owner, repo)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error(), "data": githubPaidConnectData(identity, owner, repo, "", false)})
+		return
+	}
+	switch state {
+	case githubPaidRepoPrivate:
+		data := githubPaidConnectData(identity, owner, repo, githubPaidRepoPrivate, true)
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": githubPaidConnectedText(owner, repo), "data": data})
+	case githubPaidRepoPublic:
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": githubPaidPublicRepoText, "data": githubPaidConnectData(identity, owner, repo, githubPaidRepoPublic, false)})
+	default:
+		data := githubPaidConnectData(identity, owner, repo, githubPaidRepoMissing, false)
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": githubPaidRepoMissingText, "data": data})
+	}
+}
+
+func AdminGitHubPaidRepoCreate(c *gin.Context) {
+	token, owner, repo, identity, ok := githubPaidRequestTarget(c, true)
+	if !ok {
+		return
+	}
+	if err := ensureGitHubPaidPrivateRepo(c.Request.Context(), token, owner, repo, &identity); err != nil {
+		status := githubPaidRepoMissing
+		if err.Error() == githubPaidPublicRepoText {
+			status = githubPaidRepoPublic
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error(), "data": githubPaidConnectData(identity, owner, repo, status, false)})
+		return
+	}
+	data := githubPaidConnectData(identity, owner, repo, githubPaidRepoPrivate, true)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": githubPaidConnectedText(owner, repo), "data": data})
 }
 
 func probeGitHubPaidRepo(ctx context.Context, token, owner, repo string) error {

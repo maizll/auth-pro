@@ -619,18 +619,31 @@ export function saveSourceStoreSettings(payload: SourceStoreSettings) {
   return request.put<SourceStoreSettings>({ url: `${BASE}/settings/store`, data: payload })
 }
 
+export interface GitHubPaidOwner {
+  login: string
+  kind?: string
+}
+
 export interface GitHubPaidSettings {
   configured: boolean
   owner?: string
   repo?: string
   reminder?: string
+  login?: string
+  owners?: GitHubPaidOwner[]
+  private?: boolean
+  connected?: boolean
+  repoStatus?: string
+  hint?: string
+  defaultRepo?: string
+  tokenCreateUrl?: string
 }
 
 export function fetchGitHubPaidToken() {
   return request.get<GitHubPaidSettings>({ url: `${BASE}/settings/github-paid` })
 }
 
-export function saveGitHubPaidToken(payload: { token?: string; owner: string; repo: string }) {
+export function saveGitHubPaidToken(payload: { token?: string; owner?: string; repo?: string }) {
   return request.put<GitHubPaidSettings>({
     url: `${BASE}/settings/github-paid`,
     data: payload
@@ -640,6 +653,13 @@ export function saveGitHubPaidToken(payload: { token?: string; owner: string; re
 export function testGitHubPaidToken(payload: { token?: string; owner?: string; repo?: string }) {
   return request.post<GitHubPaidSettings>({
     url: `${BASE}/settings/github-paid/test`,
+    data: payload
+  })
+}
+
+export function createGitHubPaidRepo(payload: { token?: string; owner?: string; repo?: string }) {
+  return request.post<GitHubPaidSettings>({
+    url: `${BASE}/settings/github-paid/repo`,
     data: payload
   })
 }

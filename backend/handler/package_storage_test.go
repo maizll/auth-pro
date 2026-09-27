@@ -84,6 +84,11 @@ func TestSettlePaidZipDoesNotStoreLocallyWhenGitHubPutFails(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/repos/station/paid-plugins" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"private":true,"name":"paid-plugins"}`))
+			return
+		}
 		http.Error(w, "no", http.StatusInternalServerError)
 	}))
 	t.Cleanup(api.Close)

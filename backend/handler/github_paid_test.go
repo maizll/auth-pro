@@ -13,12 +13,13 @@ import (
 
 func TestGitHubPaidTokenIsEncryptedAndNotEchoed(t *testing.T) {
 	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	useGitHubPaidPrivateRepoStub(t, "station")
 	router, _ := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
 	const secret = "github_pat_super_secret_value"
-	missing := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/settings/github-paid", admin, `{"token":"`+secret+`"}`)
-	if sourceBodyCode(t, missing) == 200 || !strings.Contains(missing.Body.String(), "请填写私有仓库") {
-		t.Fatalf("owner required: %s", missing.Body.String())
+	detected := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/settings/github-paid", admin, `{"token":"`+secret+`"}`)
+	if sourceBodyCode(t, detected) != 200 || !strings.Contains(detected.Body.String(), `"owner":"station"`) || !strings.Contains(detected.Body.String(), `"repo":"auth-pro-paid"`) || strings.Contains(detected.Body.String(), secret) {
+		t.Fatalf("token-only save: %s", detected.Body.String())
 	}
 	saved := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/settings/github-paid", admin, `{"token":"`+secret+`","owner":"station","repo":"paid-plugins"}`)
 	if sourceBodyCode(t, saved) != 200 || strings.Contains(saved.Body.String(), secret) || !strings.Contains(saved.Body.String(), `"configured":true`) {
@@ -93,6 +94,8 @@ func TestGitHubPaidRegisterBuyerURLAndTokenFailure(t *testing.T) {
 			return
 		}
 		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/station/paid-plugins":
+			_ = json.NewEncoder(w).Encode(map[string]any{"private": true, "name": "paid-plugins"})
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/releases"):
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -305,6 +308,8 @@ func TestDeveloperPaidPackagesUseStationRepo(t *testing.T) {
 			return
 		}
 		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/station/paid-plugins":
+			_ = json.NewEncoder(w).Encode(map[string]any{"private": true, "name": "paid-plugins"})
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/releases"):
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{

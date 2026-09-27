@@ -120,7 +120,7 @@ axiosInstance.interceptors.response.use(
     }
     if (code === ApiStatus.success) return response
     if (code === ApiStatus.unauthorized) handleUnauthorizedError(responseMessage)
-    throw createHttpError(responseMessage || $t('httpMsg.requestFailed'), code)
+    throw createHttpError(responseMessage || $t('httpMsg.requestFailed'), code, response.data?.data)
   },
   (error) => {
     noteBackendUnreachable(error.response?.status, Boolean(error.response), error.code)
@@ -130,8 +130,8 @@ axiosInstance.interceptors.response.use(
 )
 
 /** 统一创建HttpError */
-function createHttpError(message: string, code: number) {
-  return new HttpError(message, code)
+function createHttpError(message: string, code: number, data?: unknown) {
+  return new HttpError(message, code, data === undefined ? undefined : { data })
 }
 
 /** 处理401错误（带防抖） */
