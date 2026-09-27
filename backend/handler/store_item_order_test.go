@@ -20,22 +20,22 @@ import (
 )
 
 func TestBuyerStoreOrderBody(t *testing.T) {
-	body, err := buyerStoreOrderBody(0, "plugin", " epay ")
-	if err != nil || body["itemKind"] != "plugin" || body["itemId"] != "epay" {
+	body, err := buyerStoreOrderBody(0, "plugin", " epay ", "easypay:alipay")
+	if err != nil || body["itemKind"] != "plugin" || body["itemId"] != "epay" || body["payMethod"] != "easypay:alipay" {
 		t.Fatalf("插件单品 = %#v err=%v", body, err)
 	}
-	body, err = buyerStoreOrderBody(0, "template", "gold")
-	if err != nil || body["itemKind"] != "template" || body["itemId"] != "gold" {
+	body, err = buyerStoreOrderBody(0, "template", "gold", "")
+	if err != nil || body["itemKind"] != "template" || body["itemId"] != "gold" || body["payMethod"] != nil {
 		t.Fatalf("模板单品 = %#v err=%v", body, err)
 	}
-	if _, err := buyerStoreOrderBody(0, "plugin", " "); err == nil {
+	if _, err := buyerStoreOrderBody(0, "plugin", " ", ""); err == nil {
 		t.Fatal("空插件编号应拒绝")
 	}
-	body, err = buyerStoreOrderBody(8, "", "")
-	if err != nil || body["itemKind"] != "edition" || body["planId"] != int64(8) {
+	body, err = buyerStoreOrderBody(8, "", "", "easypay:wxpay")
+	if err != nil || body["itemKind"] != "edition" || body["planId"] != int64(8) || body["payMethod"] != "easypay:wxpay" {
 		t.Fatalf("商业版 = %#v err=%v", body, err)
 	}
-	if _, err := buyerStoreOrderBody(0, "edition", ""); err == nil {
+	if _, err := buyerStoreOrderBody(0, "edition", "", ""); err == nil {
 		t.Fatal("未选套餐应拒绝")
 	}
 }

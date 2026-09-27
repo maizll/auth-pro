@@ -455,7 +455,8 @@ func StoreAuthConfirm(c *gin.Context) {
 		return
 	}
 	secret := deriveBindingSecret(master, bindingID, salt)
-	display := storeAccountLabel(db, ownerType, ownerID)
+	// 确认响应带登录账号。没有邮箱或联系方式时，storeAccountLogin 会退回名称，买家再拿提交的账号兜底。
+	display := storeAccountLogin(db, ownerType, ownerID)
 	snapshot, err := buildStoreSnapshot(db, bindingID, licenseID, licenseNo, domain, settings)
 	if err != nil {
 		storeFail(c, 500, err.Error())
@@ -813,7 +814,26 @@ func StoreStatus(c *gin.Context) {
 		storeFail(c, 500, err.Error())
 		return
 	}
-	storeData(c, gin.H{"snapshot": snapshot})
+	// 刷新时带上当前绑定的登录账号，买家快照里没有名字的旧数据可以补上。
+	storeData(c, gin.H{
+		"snapshot": snapshot,
+		"account":  gin.H{"name": storeAccountLogin(db, ownerType, ownerID), "role": ownerType},
+	})
+}
+
+// storeAccountLogin 取绑定账号用来展示。用户优先邮箱，代理优先邮箱或联系方式，都没有再用名称。
+func storeAccountLogin(db *sql.DB, ownerType string, ownerID int64) string {
+	var value sql.NullString
+	var err error
+	if ownerType == "agent" {
+		err = db.QueryRow(`SELECT COALESCE(NULLIF(email, ''), NULLIF(contact, ''), name) FROM agents WHERE id = ?`, ownerID).Scan(&value)
+	} else {
+		err = db.QueryRow(`SELECT COALESCE(NULLIF(email, ''), nickname) FROM users WHERE id = ?`, ownerID).Scan(&value)
+	}
+	if err != nil || !value.Valid || strings.TrimSpace(value.String) == "" {
+		return storeAccountLabel(db, ownerType, ownerID)
+	}
+	return strings.TrimSpace(value.String)
 }
 
 func buildStoreSnapshot(db *sql.DB, bindingID string, licenseID int64, licenseNo, domain string, settings sourceStoreSettings) (storeSnapshot, error) {

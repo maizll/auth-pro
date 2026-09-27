@@ -58,7 +58,7 @@
           <template #default="{ row }">{{ row.reviewNote || '-' }}</template>
         </el-table-column>
         <el-table-column prop="updatedAt" label="更新时间" width="180" />
-        <el-table-column label="操作" width="168">
+        <el-table-column label="操作" width="168" fixed="right">
           <template #default="{ row }">
             <RowActions
               :primary="developerPrimary(row)"
@@ -450,6 +450,7 @@
   import type { FormInstance, FormRules, UploadFile } from 'element-plus'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
+  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import CatalogPriceSwitchDialog from '@/views/source-station/components/CatalogPriceSwitchDialog.vue'
   import { SOURCE_ITEM_STATUS, SOURCE_VERSION_STATUS } from '@/api/source-station'
   import {
@@ -809,15 +810,19 @@
     return categories.value.find((item) => item.key === key)?.label || key
   }
 
+  const narrow = useNarrowScreen()
+
   function developerPrimary(row: SourceDeveloperCatalogItem): RowActionItem[] {
-    return [
-      { key: 'edit', label: canEditItem(row) ? '编辑' : '查看' },
-      { key: 'versions', label: '版本' }
-    ]
+    const items: RowActionItem[] = [{ key: 'edit', label: canEditItem(row) ? '编辑' : '查看' }]
+    if (!narrow.value) items.push({ key: 'versions', label: '版本' })
+    return items
   }
 
   function developerMore(row: SourceDeveloperCatalogItem): RowActionItem[] {
-    const items: RowActionItem[] = [{ key: 'rebind', label: '切换应用' }]
+    const items: RowActionItem[] = [
+      ...(narrow.value ? [{ key: 'versions', label: '版本' }] : []),
+      { key: 'rebind', label: '切换应用' }
+    ]
     if (canSubmitItem(row)) items.push({ key: 'submit', label: '提交审核' })
     if (row.originUrl) {
       items.push({

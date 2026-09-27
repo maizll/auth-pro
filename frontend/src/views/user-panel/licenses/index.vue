@@ -43,33 +43,39 @@
       </div>
 
       <el-table :data="tableData" stripe v-loading="loading" class="licenses-table">
-        <el-table-column label="域名/IP/密钥" min-width="220" show-overflow-tooltip>
+        <el-table-column label="域名" :min-width="narrow ? 48 : 220" show-overflow-tooltip>
           <template #default="{ row }">
             <div class="target-cell">
-              <span class="target-icon" :class="`target-icon-${row.type}`">
+              <span v-if="!narrow" class="target-icon" :class="`target-icon-${row.type}`">
                 <iconify-icon :icon="typeIconMap[row.type] || 'ri:global-line'" width="15" />
               </span>
               <el-tag v-if="row.bindingPending" type="warning" size="small">未绑定</el-tag>
               <span v-else class="target-value" :class="{ mono: row.type !== 'domain' }">{{
                 row.domain || '--'
               }}</span>
-              <span v-if="row.type === 'key'" class="bound-count">
+              <span v-if="row.type === 'key'" class="bound-count list-cell-extra">
                 已绑定 {{ row.boundSites ?? 0
                 }}{{ Number(row.maxSites) ? ` / ${row.maxSites}` : '' }}
               </span>
-              <span class="change-quota">{{ freeChangeText(row) }}</span>
+              <span class="change-quota list-cell-extra">{{ freeChangeText(row) }}</span>
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="appName" label="应用" width="110" show-overflow-tooltip />
-        <el-table-column prop="typeLabel" label="类型" width="80">
+        <el-table-column
+          v-if="!narrow"
+          prop="appName"
+          label="应用"
+          width="110"
+          show-overflow-tooltip
+        />
+        <el-table-column v-if="!narrow" prop="typeLabel" label="类型" width="80">
           <template #default="{ row }">
             <el-tag :type="typeTagMap[row.type]" size="small" effect="light">{{
               row.typeLabel
             }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="statusLabel" label="状态" width="90" align="center">
+        <el-table-column prop="statusLabel" label="状态" :width="narrow ? 72 : 90" align="center">
           <template #default="{ row }">
             <BizStatusTag
               domain="license"
@@ -79,21 +85,34 @@
             />
           </template>
         </el-table-column>
-        <el-table-column prop="expireAt" label="到期时间" width="130" />
-        <el-table-column prop="createdAt" label="开通时间" width="130" />
-        <el-table-column prop="source" label="来源" width="100">
+        <el-table-column :label="narrow ? '到期' : '到期时间'" :width="narrow ? 92 : 140">
+          <template #default="{ row }">{{ formatLicenseExpire(row.expireAt, narrow) }}</template>
+        </el-table-column>
+        <el-table-column v-if="!narrow" prop="createdAt" label="开通时间" width="130" />
+        <el-table-column v-if="!narrow" prop="source" label="来源" width="100">
           <template #default="{ row }">
             <span class="source-text">{{ row.source }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="amount" label="套餐原价" width="110" align="right">
+        <el-table-column v-if="!narrow" prop="amount" label="套餐原价" width="110" align="right">
           <template #default="{ row }">
             <span class="amount-text">{{ formatLicenseAmount(row.amount) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" min-width="220" fixed="right" align="center">
+        <el-table-column
+          label="操作"
+          :width="narrow ? 104 : undefined"
+          :min-width="narrow ? 104 : 220"
+          :fixed="narrow ? false : 'right'"
+          align="center"
+        >
           <template #default="{ row }">
-            <div class="row-actions">
+            <RowActions
+              v-if="narrow"
+              :more="userLicenseActions(row)"
+              @click="onUserLicenseAction(row, $event)"
+            />
+            <div v-else class="row-actions">
               <template v-if="isDomainLicense(row.type)">
                 <el-button
                   v-if="row.bindingPending"
@@ -139,7 +158,9 @@
           v-model:page-size="pagination.pageSize"
           :page-sizes="[10, 20, 50]"
           :total="pagination.total"
-          layout="total, sizes, prev, pager, next, jumper"
+          :layout="narrow ? 'prev, pager, next, total' : 'total, sizes, prev, pager, next, jumper'"
+          :pager-count="narrow ? 5 : 7"
+          :size="narrow ? 'small' : 'default'"
           @current-change="fetchList"
           @size-change="fetchList"
         />
@@ -352,11 +373,15 @@
   import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
   import LicenseVersionsDialog from '@/components/core/panels/LicenseVersionsDialog.vue'
+  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import { licenseTargetError } from '@/utils/license-target'
+  import { formatLicenseExpire } from '@/utils/license-expire'
+  import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import SiteChangePayDialog from '@/components/core/pay/SiteChangePayDialog.vue'
 
   const route = useRoute()
   const router = useRouter()
+  const narrow = useNarrowScreen()
 
   const loading = ref(false)
   const searchForm = reactive({
@@ -570,6 +595,36 @@
     } finally {
       editDialog.submitting = false
     }
+  }
+
+  function userLicenseActions(row: any): RowActionItem[] {
+    const items: RowActionItem[] = []
+    if (isDomainLicense(row.type)) {
+      if (row.bindingPending) items.push({ key: 'bind', label: '绑定' })
+      else {
+        items.push({ key: 'replace', label: '更换' })
+        items.push({ key: 'unbind', label: '解绑', danger: true })
+      }
+    } else if (row.type === 'key') {
+      items.push({ key: 'bind', label: '绑定' })
+      items.push({ key: 'unbind', label: '解绑', danger: true })
+    }
+    items.push({ key: 'versions', label: '版本下载' })
+    return items
+  }
+
+  function onUserLicenseAction(row: any, action: RowActionItem) {
+    if (action.key === 'bind' || action.key === 'replace') {
+      if (row.type === 'key' && action.key === 'bind') openSiteDialog(row, 'bind')
+      else openEditDialog(row)
+      return
+    }
+    if (action.key === 'unbind') {
+      if (row.type === 'key') openSiteDialog(row, 'unbind')
+      else unbindDomain(row)
+      return
+    }
+    if (action.key === 'versions') openVersionsDialog(row)
   }
 
   async function unbindDomain(row: any) {

@@ -92,17 +92,22 @@
             <el-table-column
               prop="domain"
               label="域名/IP/密钥"
-              min-width="180"
+              :min-width="narrow ? 100 : 180"
+              :width="narrow ? 110 : undefined"
               show-overflow-tooltip
             />
-            <el-table-column prop="appName" label="应用" width="100" />
-            <el-table-column prop="typeLabel" label="类型" width="80">
+            <el-table-column v-if="!narrow" prop="appName" label="应用" width="100" />
+            <el-table-column v-if="!narrow" prop="typeLabel" label="类型" width="80">
               <template #default="{ row }">
                 <el-tag size="small">{{ row.typeLabel }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="expireAt" label="到期时间" width="130" />
-            <el-table-column prop="createdAt" label="开通时间" width="130" />
+            <el-table-column :label="narrow ? '到期' : '到期时间'" :width="narrow ? 96 : 140">
+              <template #default="{ row }">{{
+                formatLicenseExpire(row.expireAt, narrow)
+              }}</template>
+            </el-table-column>
+            <el-table-column v-if="!narrow" prop="createdAt" label="开通时间" width="130" />
           </el-table>
         </div>
       </ElCol>
@@ -117,6 +122,10 @@
   import ArtSvgIcon from '@/components/core/base/art-svg-icon/index.vue'
   import ArtLineChart from '@/components/core/charts/art-line-chart/index.vue'
   import ArtBarChart from '@/components/core/charts/art-bar-chart/index.vue'
+  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
+  import { formatLicenseExpire } from '@/utils/license-expire'
+
+  const narrow = useNarrowScreen()
 
   function headers() {
     return { Authorization: `Bearer ${localStorage.getItem('agent_panel_token') || ''}` }

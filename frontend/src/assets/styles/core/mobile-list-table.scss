@@ -1,0 +1,161 @@
+// 手机上后台、用户端、代理端的列表共用这里。
+// 列由表格收成 3～4 个关键列，宽度放进屏幕。操作列不再固定在右侧盖住中间列。
+@media (max-width: 767px) {
+  .el-table {
+    font-size: 13px;
+
+    .el-table-fixed-column--left,
+    .el-table-fixed-column--right {
+      position: static !important;
+      right: auto !important;
+      left: auto !important;
+    }
+
+    .mobile-col-hidden {
+      display: none !important;
+      width: 0 !important;
+      padding: 0 !important;
+      border: none !important;
+    }
+
+    .cell {
+      padding-right: 4px !important;
+      padding-left: 4px !important;
+      word-break: normal !important;
+      white-space: nowrap !important;
+    }
+
+    // 来源、用户、绑定数量这类副信息只在编辑或详情里看。
+    .list-cell-extra {
+      display: none !important;
+    }
+
+    .target-cell,
+    .domain-cell,
+    .app-name-cell,
+    .owner-cell {
+      flex-wrap: nowrap !important;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .target-value,
+    .domain-cell__value,
+    .app-name-cell__title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .row-actions,
+    .site-replace {
+      flex-wrap: nowrap !important;
+      gap: 0;
+      white-space: nowrap;
+    }
+
+    .row-actions .el-button.is-link,
+    .mobile-op-more,
+    .cell .el-button.is-link {
+      margin: 0 !important;
+      padding: 0 2px !important;
+    }
+
+    .mobile-op-hidden {
+      display: none !important;
+    }
+
+    // 空列表去掉容易被压扁的图，只留完整的说明文字。
+    .el-table__empty-block {
+      height: auto !important;
+      min-height: 120px;
+      overflow: visible;
+    }
+
+    .el-empty__image {
+      display: none;
+    }
+
+    .el-empty__description {
+      margin-top: 0;
+    }
+  }
+
+  .pagination-wrapper,
+  .pagination-wrap,
+  .custom-pagination {
+    justify-content: center;
+    max-width: 100%;
+  }
+
+  .el-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 0;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 100%;
+    padding: 0;
+    white-space: normal;
+
+    .btn-prev,
+    .btn-next,
+    .el-pager li {
+      min-width: 26px;
+      height: 26px;
+      padding: 0;
+      line-height: 26px;
+    }
+
+    .btn-prev {
+      order: 1;
+    }
+
+    .el-pager {
+      order: 2;
+    }
+
+    .btn-next {
+      order: 3;
+    }
+
+    .el-pagination__total {
+      order: 4;
+      margin-left: 6px;
+    }
+  }
+
+  // 手机上不显示「前往」和每页条数，避免分页条两边出界。
+  .el-pagination__jump,
+  .el-pagination__sizes {
+    display: none !important;
+  }
+}
+
+.mobile-op-menu {
+  position: fixed;
+  z-index: 4000;
+  min-width: 96px;
+  padding: 4px 0;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 6px;
+  box-shadow: var(--el-box-shadow-light);
+}
+
+.mobile-op-menu__item {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--el-color-primary);
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+
+.mobile-op-menu__item.is-danger {
+  color: var(--el-color-danger);
+}

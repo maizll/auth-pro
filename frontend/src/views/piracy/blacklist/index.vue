@@ -57,31 +57,51 @@
         v-loading="loading"
         @selection-change="handleSelectionChange"
       >
-        <el-table-column type="selection" width="45" />
-        <el-table-column prop="value" label="域名/IP" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="typeLabel" label="类型" width="80" align="center">
+        <el-table-column v-if="!narrow" type="selection" width="45" />
+        <el-table-column
+          prop="value"
+          label="域名/IP"
+          :min-width="narrow ? 120 : 200"
+          :width="narrow ? 140 : undefined"
+          show-overflow-tooltip
+        />
+        <el-table-column prop="typeLabel" label="类型" :width="narrow ? 64 : 80" align="center">
           <template #default="{ row }">
             <el-tag :type="typeTagMap[row.type]" size="small">{{ row.typeLabel }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="sourceLabel" label="来源" width="100" align="center">
+        <el-table-column v-if="!narrow" prop="sourceLabel" label="来源" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="sourceTagMap[row.source]" size="small" effect="plain">{{
               row.sourceLabel
             }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="hitCount" label="命中次数" width="100" align="center">
+        <el-table-column v-if="!narrow" prop="hitCount" label="命中次数" width="100" align="center">
           <template #default="{ row }">
             <span class="hit-count">{{ row.hitCount }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="remark" label="备注" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="createdAt" label="添加时间" width="160" />
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column
+          v-if="!narrow"
+          prop="remark"
+          label="备注"
+          min-width="150"
+          show-overflow-tooltip
+        />
+        <el-table-column v-if="!narrow" prop="createdAt" label="添加时间" width="160" />
+        <el-table-column label="操作" :width="narrow ? 76 : 150" :fixed="narrow ? false : 'right'">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
-            <el-button link type="danger" size="small" @click="handleRemove(row)">移除</el-button>
+            <RowActions
+              v-if="narrow"
+              :primary="[{ key: 'edit', label: '编辑' }]"
+              :more="[{ key: 'remove', label: '移除', danger: true }]"
+              @click="(action) => (action.key === 'edit' ? handleEdit(row) : handleRemove(row))"
+            />
+            <template v-else>
+              <el-button link type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
+              <el-button link type="danger" size="small" @click="handleRemove(row)">移除</el-button>
+            </template>
           </template>
         </el-table-column>
       </el-table>
@@ -128,7 +148,10 @@
   import { ref, reactive, computed, onMounted } from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import request from '@/utils/http'
+  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
+  import RowActions from '@/components/business/row-actions/index.vue'
 
+  const narrow = useNarrowScreen()
   const loading = ref(false)
   const dialogVisible = ref(false)
   const isEdit = ref(false)
