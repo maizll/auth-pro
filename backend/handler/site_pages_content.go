@@ -1108,10 +1108,74 @@ func importSiteReleaseNotes(db *sql.DB, root string) error {
 		if err != nil {
 			continue
 		}
-		for index, note := range splitReleaseNoteParagraphs(string(payload)) {
-			if err := insertReleaseChangelog(db, version, dates[version], classifyReleaseNote(note), note, index); err != nil {
-				return err
-			}
+		notes := splitReleaseNoteParagraphs(string(payload))
+		if err := syncReleaseChangelog(db, version, dates[version], notes); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// releaseNotesManaged 为真时，这一版的公开更新日志只认仓库里的发布说明。
+func releaseNotesManaged(version string) bool {
+	root := findSiteDocsRoot()
+	if root == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(root, "release-notes-"+version+".txt"))
+	return err == nil && !info.IsDir()
+}
+
+// releaseEntryDropped 判断没改过的发布说明是否已经不在当前文件里。
+// 管理员改过的条目保留。
+func releaseEntryDropped(edited int, source, fingerprint string, keep map[string]struct{}) bool {
+	if edited != 0 || source != siteChangelogRelease {
+		return false
+	}
+	_, ok := keep[fingerprint]
+	return !ok
+}
+
+// syncReleaseChangelog 用当前发布说明覆盖没改过的旧段落，避免同一版本留下多组说明。
+func syncReleaseChangelog(db *sql.DB, version, releasedOn string, notes []string) error {
+	keep := map[string]struct{}{}
+	for index, note := range notes {
+		body := trimSiteText(strings.TrimSpace(note), 2000)
+		if body == "" {
+			continue
+		}
+		tag := classifyReleaseNote(body)
+		if !validSiteChangelogTag(tag) {
+			continue
+		}
+		keep[siteChangelogFingerprint(version, body, "")] = struct{}{}
+		if err := insertReleaseChangelog(db, version, releasedOn, tag, body, index); err != nil {
+			return err
+		}
+	}
+	rows, err := db.Query(`SELECT id, fingerprint, edited FROM site_changelog_entries WHERE version = ? AND source = ?`, version, siteChangelogRelease)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	drop := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		var fingerprint string
+		var edited int
+		if err := rows.Scan(&id, &fingerprint, &edited); err != nil {
+			return err
+		}
+		if releaseEntryDropped(edited, siteChangelogRelease, fingerprint, keep) {
+			drop = append(drop, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, id := range drop {
+		if _, err := db.Exec(`DELETE FROM site_changelog_entries WHERE id = ? AND edited = 0`, id); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1139,6 +1203,9 @@ func rememberSiteChangelogFromReleases(releases []onlineUpdateRelease) {
 		date := dates[version]
 		if date == "" {
 			date = shanghaiReleaseDate(release.ReleasedAt)
+		}
+		if releaseNotesManaged(version) {
+			continue
 		}
 		for index, note := range release.Notes {
 			_ = insertReleaseChangelog(db, version, date, classifyReleaseNote(note), note, index)
@@ -1197,9 +1264,34 @@ func splitReleaseNoteParagraphs(text string) []string {
 		if chunk == "" || isReleaseNoteTitle(chunk) {
 			continue
 		}
-		notes = append(notes, chunk)
+		notes = append(notes, expandReleaseNoteBullets(chunk)...)
 	}
 	return notes
+}
+
+// expandReleaseNoteBullets 把「- 一句话」拆成独立条目。没有列表符时保持原段。
+func expandReleaseNoteBullets(chunk string) []string {
+	lines := strings.Split(chunk, "\n")
+	bullets := make([]string, 0, len(lines))
+	plain := make([]string, 0)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") {
+			item := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(line, "- "), "* "))
+			if item != "" {
+				bullets = append(bullets, item)
+			}
+			continue
+		}
+		plain = append(plain, line)
+	}
+	if len(bullets) == 0 {
+		return []string{strings.TrimSpace(chunk)}
+	}
+	return append(plain, bullets...)
 }
 
 func isReleaseNoteTitle(text string) bool {

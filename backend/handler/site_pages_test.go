@@ -122,6 +122,35 @@ func TestSplitAndClassifyReleaseNotes(t *testing.T) {
 	}
 }
 
+func TestReleaseNotes171ReplacesStaleParagraphs(t *testing.T) {
+	notes := splitReleaseNoteParagraphs(readRepoDoc(t, "release-notes-1.7.1.txt"))
+	if len(notes) < 6 || len(notes) > 8 {
+		t.Fatalf("1.7.1 notes=%d %q", len(notes), notes)
+	}
+	keep := map[string]struct{}{}
+	for _, note := range notes {
+		if strings.Contains(note, "\n") || len([]rune(note)) > 90 {
+			t.Fatalf("note is not one short sentence: %s", note)
+		}
+		keep[siteChangelogFingerprint("1.7.1", note, "")] = struct{}{}
+	}
+	stale := "在线更新改为只走源站。后台「在线更新」不再显示、也不能修改更新地址。安装包仍核对 SHA256 和签名，备份、重启和失败回滚跟以前一样。"
+	staleFP := siteChangelogFingerprint("1.7.1", stale, "")
+	if !releaseEntryDropped(0, siteChangelogRelease, staleFP, keep) {
+		t.Fatal("stale release paragraph should be removed")
+	}
+	if releaseEntryDropped(1, siteChangelogRelease, staleFP, keep) {
+		t.Fatal("edited changelog rows stay")
+	}
+	if releaseEntryDropped(0, "manual", staleFP, keep) {
+		t.Fatal("manual rows stay")
+	}
+	current := siteChangelogFingerprint("1.7.1", notes[0], "")
+	if releaseEntryDropped(0, siteChangelogRelease, current, keep) {
+		t.Fatal("current release sentence should stay")
+	}
+}
+
 func TestChangelogDateUsesDocumentedReleaseDay(t *testing.T) {
 	dates := changelogDatesFromMarkdown("## [v1.6.8] 2026-09-27 — 核对绑定\n")
 	if dates["1.6.8"] != "2026-09-27" {
