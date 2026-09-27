@@ -99,6 +99,10 @@ func TestBuyerAccountVerifyFollowsSourceBinding(t *testing.T) {
 	t.Run("source binding valid", func(t *testing.T) {
 		dir := seedBoundBuyer(t)
 		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/v1/store/status" {
+				writeSignedStatus(t, w, storeEditionCommercial)
+				return
+			}
 			if r.URL.Path != buyerBindingCheckPath {
 				t.Errorf("path %s", r.URL.Path)
 			}
@@ -186,6 +190,39 @@ func TestBuyerAccountVerifyFollowsSourceBinding(t *testing.T) {
 			t.Fatalf("本地快照 %+v", body.Data)
 		}
 		assertBindingFiles(t, dir, true)
+	})
+
+	t.Run("verify pulls latest edition", func(t *testing.T) {
+		dir := seedBoundBuyer(t)
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/v1/store/status" {
+				writeSignedStatus(t, w, storeEditionFree)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"valid": true}})
+		}))
+		defer server.Close()
+		useBuyerSourceForTest(t, server.URL, server.Client())
+		body := callBuyerAccount(t, true)
+		if !body.Data.Bound || body.Data.BindingInvalid || body.Data.Edition != storeEditionFree {
+			t.Fatalf("吊销后打开购买窗口应刷新为免费版 %+v", body.Data)
+		}
+		assertBindingFiles(t, dir, true)
+	})
+}
+
+func writeSignedStatus(t *testing.T, w http.ResponseWriter, edition string) {
+	t.Helper()
+	signed, err := signStoreSnapshot(storeSnapshot{
+		BindingID: "sb_test", LicenseNo: "LIC1", Domain: "shop.example.com",
+		Edition: edition, Features: []string{}, Items: []storeSnapshotItem{}, ServerTime: time.Now().Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"code": 200,
+		"data": map[string]any{"snapshot": signed, "account": map[string]any{"name": "买家", "role": "user"}},
 	})
 }
 

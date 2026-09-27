@@ -44,7 +44,7 @@
 
 <script setup lang="ts">
   import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-  import { fetchStoreAccount, type StoreAccount } from '@/api/store'
+  import { fetchStoreAccount, refreshStoreSnapshot, type StoreAccount } from '@/api/store'
   import {
     commercialUi,
     isCommercialActive,
@@ -81,7 +81,12 @@
 
   async function load() {
     try {
-      const next = await fetchStoreAccount()
+      let next: StoreAccount | null = null
+      try {
+        next = await refreshStoreSnapshot()
+      } catch {
+        next = await fetchStoreAccount()
+      }
       account.value = next
       rememberCommercialAccount(next)
     } catch {

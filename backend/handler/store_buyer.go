@@ -98,15 +98,31 @@ func BuyerStationVerify(c *gin.Context) {
 
 // BuyerStoreAccount 返回本机商业版状态。
 // 不带 verify 时只读本地快照，供顶栏快速显示。
-// verify=1 时向源站核对绑定：源站确认有效才标 sourceVerified。
+// verify=1 时先向源站核对绑定，绑定仍有效再拉取最新签名快照。
+// 这样打开购买弹窗就能看到后台刚开通或吊销的商业版，不必等定时刷新，也不必重新登录。
 // 绑定不存在、已删除或令牌失效则清掉本地旧记录，返回未绑定和 bindingInvalid。
 // 连不上源站时保留本地快照，不把商业版降成未绑定。
 func BuyerStoreAccount(c *gin.Context) {
 	invalidReason, verified := "", false
 	if c.Query("verify") == "1" || c.Query("verify") == "true" {
 		invalidReason, verified = reconcileBuyerBinding()
+		if invalidReason == "" {
+			if err := refreshBuyerSnapshot(c.Request.Context(), buyerRequestDomain(c)); err != nil && buyerRefreshFailureRevoked(err) {
+				invalidReason = buyerRefreshRevokeReason(err)
+				verified = false
+			}
+		}
 	}
 	writeBuyerAccountResult(c, invalidReason, verified)
+}
+
+func buyerRefreshRevokeReason(err error) string {
+	reason := "revoked"
+	var src *sourceResponseError
+	if errors.As(err, &src) && strings.TrimSpace(src.Reason) != "" {
+		reason = strings.TrimSpace(src.Reason)
+	}
+	return reason
 }
 
 func writeBuyerAccountResult(c *gin.Context, invalidReason string, verified bool) {
