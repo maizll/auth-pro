@@ -81,9 +81,13 @@ func settleStorePurchaseOrder(db *sql.DB, orderNo string, paidCents int64, chann
 	default:
 		return errors.New("订单类型不受支持")
 	}
+	ledgerSource := "edition"
+	if itemKind == "plugin" || itemKind == "template" {
+		ledgerSource = itemKind
+	}
 	if _, err := tx.Exec(`INSERT INTO store_revenue_ledger
 		(order_id, source_type, developer_id, gross_cents, fee_bps, net_cents, status, settled_at)
-		VALUES (?, 'edition', NULL, ?, 10000, ?, 'settled', NOW())`, id, amount, amount); err != nil {
+		VALUES (?, ?, NULL, ?, 10000, ?, 'settled', NOW())`, id, ledgerSource, amount, amount); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -113,43 +117,140 @@ func StoreOrderCreate(c *gin.Context) {
 	}
 	var req struct {
 		ItemKind string `json:"itemKind"`
+		ItemID   string `json:"itemId"`
 		PlanID   int64  `json:"planId"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		storeFail(c, 400, "参数错误")
 		return
 	}
-	if req.ItemKind != "edition" {
-		storeFail(c, 400, "当前版本只支持购买商业版")
-		return
+	if req.ItemKind == "" {
+		req.ItemKind = "edition"
 	}
 	db := c.MustGet("storeDB").(*sql.DB)
-	name, period, price, err := loadCommercialSalePlan(db, req.PlanID)
-	if err != nil {
-		storeFail(c, 400, err.Error())
-		return
-	}
 	orderNo := storeOrderPrefix + strconv.FormatInt(time.Now().Unix(), 10) + randomHex(4)
 	returnURL := buildRequestURL(c, "/store/pay-complete")
-	payURL, channel, method, err := createStorePayment(c, db, orderNo, price, name)
+	switch req.ItemKind {
+	case "edition":
+		name, period, price, err := loadCommercialSalePlan(db, req.PlanID)
+		if err != nil {
+			storeFail(c, 400, err.Error())
+			return
+		}
+		payURL, channel, method, err := createStorePayment(c, db, orderNo, price, name)
+		if err != nil {
+			storeFail(c, 400, err.Error())
+			return
+		}
+		if !acceptablePayURL(payURL) {
+			storeFail(c, 400, "收款地址协议不受支持")
+			return
+		}
+		_, err = db.Exec(`INSERT INTO store_purchase_orders
+			(order_no, owner_type, owner_id, license_id, binding_id, item_kind, item_id, period, amount_cents, price_cents_snapshot, title_snapshot, pay_channel, pay_method, status, return_url, expires_at)
+			VALUES (?, ?, ?, ?, ?, 'edition', ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+			orderNo, row.OwnerType, row.OwnerID, row.LicenseID, row.BindingID, strconv.FormatInt(req.PlanID, 10), period,
+			price, price, name, channel, method, returnURL, time.Now().Add(storeOrderTTL))
+		if err != nil {
+			storeFail(c, 500, "创建订单失败")
+			return
+		}
+		storeData(c, gin.H{"orderNo": orderNo, "payUrl": payURL, "amountCents": price, "title": name})
+	case "plugin", "template":
+		quote, err := loadCatalogSaleQuote(db, req.ItemKind, req.ItemID)
+		if err != nil {
+			storeFail(c, 400, err.Error())
+			return
+		}
+		payURL, channel, method, err := createStorePayment(c, db, orderNo, quote.PriceCents, quote.Name)
+		if err != nil {
+			storeFail(c, 400, err.Error())
+			return
+		}
+		if !acceptablePayURL(payURL) {
+			storeFail(c, 400, "收款地址协议不受支持")
+			return
+		}
+		var developer any
+		if quote.DeveloperID > 0 {
+			developer = quote.DeveloperID
+		}
+		_, err = db.Exec(`INSERT INTO store_purchase_orders
+			(order_no, owner_type, owner_id, license_id, binding_id, item_kind, item_id, period, developer_id, amount_cents, price_cents_snapshot, title_snapshot, pay_channel, pay_method, status, return_url, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+			orderNo, row.OwnerType, row.OwnerID, row.LicenseID, row.BindingID, quote.Kind, quote.ID, quote.Period, developer,
+			quote.PriceCents, quote.PriceCents, quote.Name, channel, method, returnURL, time.Now().Add(storeOrderTTL))
+		if err != nil {
+			storeFail(c, 500, "创建订单失败")
+			return
+		}
+		storeData(c, gin.H{
+			"orderNo": orderNo, "payUrl": payURL, "amountCents": quote.PriceCents, "title": quote.Name,
+			"itemKind": quote.Kind, "itemId": quote.ID, "period": quote.Period, "purchaseOnly": quote.PurchaseOnly,
+		})
+	default:
+		storeFail(c, 400, "不支持的购买类型")
+	}
+}
+
+type catalogSaleQuote struct {
+	Kind         string
+	ID           string
+	Name         string
+	PriceCents   int64
+	Billing      string
+	Period       string
+	DeveloperID  int64
+	PurchaseOnly bool
+}
+
+func loadCatalogSaleQuote(db *sql.DB, kind, id string) (catalogSaleQuote, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		if kind == "template" {
+			return catalogSaleQuote{}, errors.New("请选择要购买的模板")
+		}
+		return catalogSaleQuote{}, errors.New("请选择要购买的插件")
+	}
+	var name, billing, status string
+	var price, developerID int64
+	var err error
+	switch kind {
+	case "plugin":
+		err = db.QueryRow(`SELECT name, price_cents, billing, developer_id, status FROM source_catalog_plugins WHERE id = ?`, id).
+			Scan(&name, &price, &billing, &developerID, &status)
+	case "template":
+		err = db.QueryRow(`SELECT name, price_cents, billing, developer_id, status FROM source_catalog_templates WHERE template_key = ? OR id = ? ORDER BY CASE WHEN template_key = ? THEN 0 ELSE 1 END LIMIT 1`, id, id, id).
+			Scan(&name, &price, &billing, &developerID, &status)
+	default:
+		return catalogSaleQuote{}, errors.New("不支持的购买类型")
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return catalogSaleQuote{}, errors.New("该条目不存在或未上架")
+	}
 	if err != nil {
-		storeFail(c, 400, err.Error())
-		return
+		return catalogSaleQuote{}, errors.New("读取条目价格失败")
 	}
-	if !acceptablePayURL(payURL) {
-		storeFail(c, 400, "收款地址协议不受支持")
-		return
+	if status != sourceItemPublished || price <= 0 {
+		return catalogSaleQuote{}, errors.New("该条目不存在或未上架")
 	}
-	_, err = db.Exec(`INSERT INTO store_purchase_orders
-		(order_no, owner_type, owner_id, license_id, binding_id, item_kind, item_id, period, amount_cents, price_cents_snapshot, title_snapshot, pay_channel, pay_method, status, return_url, expires_at)
-		VALUES (?, ?, ?, ?, ?, 'edition', ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-		orderNo, row.OwnerType, row.OwnerID, row.LicenseID, row.BindingID, strconv.FormatInt(req.PlanID, 10), period,
-		price, price, name, channel, method, returnURL, time.Now().Add(storeOrderTTL))
-	if err != nil {
-		storeFail(c, 500, "创建订单失败")
-		return
+	if billing == sourceBillingYearly {
+		return catalogSaleQuote{}, errSourcePaidYearly
 	}
-	storeData(c, gin.H{"orderNo": orderNo, "payUrl": payURL, "amountCents": price, "title": name})
+	purchaseOnly := developerID > 0 || catalogItemPurchaseOnly(kind, id)
+	return catalogSaleQuote{
+		Kind: kind, ID: id, Name: name, PriceCents: price, Billing: billing,
+		Period: catalogSalePeriod(billing), DeveloperID: developerID, PurchaseOnly: purchaseOnly,
+	}, nil
+}
+
+func catalogSalePeriod(billing string) string {
+	switch strings.ToLower(strings.TrimSpace(billing)) {
+	case sourceBillingYearly:
+		return "yearly"
+	default:
+		return "permanent"
+	}
 }
 
 func StoreOrderQuery(c *gin.Context) {
@@ -187,7 +288,9 @@ func StoreOrderQuery(c *gin.Context) {
 	storeData(c, data)
 }
 
-func createStorePayment(c *gin.Context, db *sql.DB, orderNo string, amountCents int64, title string) (payURL, channel, method string, err error) {
+var createStorePayment = createStorePaymentDefault
+
+func createStorePaymentDefault(c *gin.Context, db *sql.DB, orderNo string, amountCents int64, title string) (payURL, channel, method string, err error) {
 	options := configuredOnlinePayOptions(db)
 	if len(options) == 0 {
 		return "", "", "", errors.New("源站未配置收款方式")

@@ -158,7 +158,8 @@ func BuyerStoreCatalog(c *gin.Context) {
 	for _, item := range items {
 		out = append(out, gin.H{
 			"kind": item.Kind, "id": item.ID, "name": item.Name, "version": item.Version, "priceCents": item.PriceCents,
-			"ownership": ownershipForPrice(item.PriceCents, view.Edition == storeEditionCommercial, buyerItemEntitled(view, item.Kind, item.ID)),
+			"billing": item.Billing, "purchaseOnly": item.PurchaseOnly || catalogPurchaseOnly(item.Kind, item.ID),
+			"ownership": buyerCatalogOwnership(view, item.Kind, item.ID, item.PriceCents),
 		})
 	}
 	storeData(c, gin.H{"list": out, "edition": view.Edition})
@@ -213,16 +214,42 @@ func BuyerStoreRegisterCode(c *gin.Context) {
 }
 func BuyerStoreRegister(c *gin.Context) { proxySourcePanel(c, "/api/user-panel/register") }
 
+func buyerStoreOrderBody(planID int64, itemKind, itemID string) (map[string]any, error) {
+	switch itemKind {
+	case "plugin", "template":
+		itemID = strings.TrimSpace(itemID)
+		if itemID == "" {
+			if itemKind == "template" {
+				return nil, errors.New("请选择要购买的模板")
+			}
+			return nil, errors.New("请选择要购买的插件")
+		}
+		return map[string]any{"itemKind": itemKind, "itemId": itemID}, nil
+	default:
+		if planID <= 0 {
+			return nil, errors.New("请选择商业版套餐")
+		}
+		return map[string]any{"itemKind": "edition", "planId": planID}, nil
+	}
+}
+
 func BuyerStoreOrderCreate(c *gin.Context) {
 	var req struct {
-		PlanID int64 `json:"planId"`
+		PlanID   int64  `json:"planId"`
+		ItemKind string `json:"itemKind"`
+		ItemID   string `json:"itemId"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.PlanID <= 0 {
-		storeFail(c, 400, "请选择商业版套餐")
+	if err := c.ShouldBindJSON(&req); err != nil {
+		storeFail(c, 400, "参数错误")
+		return
+	}
+	body, err := buyerStoreOrderBody(req.PlanID, req.ItemKind, req.ItemID)
+	if err != nil {
+		storeFail(c, 400, err.Error())
 		return
 	}
 	var payload map[string]any
-	if err := signedSourceJSON(http.MethodPost, "/api/v1/store/orders", map[string]any{"itemKind": "edition", "planId": req.PlanID}, &payload); err != nil {
+	if err := signedSourceJSON(http.MethodPost, "/api/v1/store/orders", body, &payload); err != nil {
 		storeFail(c, 400, err.Error())
 		return
 	}

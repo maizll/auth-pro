@@ -5,8 +5,8 @@ import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
 
 export const commercialCopy: Record<string, string> = {
   multi_app: '免费版仅支持 1 个授权应用，升级商业版可创建多个',
-  paid_plugin: '该插件需要商业版，升级后可一键安装',
-  paid_template: '该模板需要商业版，升级后可一键安装'
+  paid_plugin: '该插件需要购买后才能启用',
+  paid_template: '该模板需要购买后才能启用'
 }
 
 /**
@@ -29,13 +29,27 @@ export const commercialCompareRows = [
 export const commercialCompareNote =
   '已经存在的应用不会删除，授权校验也不看商业版。升级后不会自动安装全部插件和模板。'
 
+export interface CatalogPurchaseOffer {
+  kind: 'plugin' | 'template'
+  id: string
+  localId?: string
+  name: string
+  priceCents: number
+  period?: string
+  purchaseOnly?: boolean
+  resume?: () => Promise<boolean>
+}
+
+export const catalogPurchaseResumeEvent = 'catalog-purchase-resume'
+
 export const commercialUi = reactive({
   upgradeOpen: false,
   promptOpen: false,
   licenseOpen: false,
   promptText: '',
   feature: '',
-  account: null as StoreAccount | null
+  account: null as StoreAccount | null,
+  offer: null as CatalogPurchaseOffer | null
 })
 
 export type CommercialCta = 'upgrade' | 'renew' | 'view'
@@ -67,8 +81,37 @@ export function commercialText(feature?: string, fallback?: string) {
 }
 
 export function openCommercialUpgrade() {
+  commercialUi.offer = null
   commercialUi.licenseOpen = false
   commercialUi.upgradeOpen = true
+}
+
+export function openCatalogPurchase(offer: CatalogPurchaseOffer) {
+  commercialUi.offer = offer
+  commercialUi.promptOpen = false
+  commercialUi.licenseOpen = false
+  commercialUi.upgradeOpen = true
+}
+
+export function commercialYuanText(cents?: number) {
+  const value = cents || 0
+  if (!Number.isFinite(value) || value <= 0) return '¥0'
+  if (value % 100 === 0) return `¥${value / 100}`
+  return `¥${(value / 100).toFixed(2)}`
+}
+
+export function catalogPurchaseButton(kind: CatalogPurchaseOffer['kind'], cents?: number) {
+  const noun = kind === 'template' ? '模板' : '插件'
+  return `单独购买此${noun} ${commercialYuanText(cents)}`
+}
+
+export function catalogCardBuyLabel(cents?: number) {
+  return `购买 ${commercialYuanText(cents)}`
+}
+
+export function requestCatalogResume(offer: CatalogPurchaseOffer) {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(catalogPurchaseResumeEvent, { detail: offer }))
 }
 
 export function openCommercialLicense() {
@@ -80,7 +123,7 @@ export function openCommercialLicense() {
 export function commercialPeriodText(period?: string) {
   const value = (period || '').trim().toLowerCase()
   if (!value) return ''
-  if (value === 'permanent') return '永久'
+  if (value === 'permanent' || value === 'one_time') return '永久'
   if (value === 'yearly') return '一年'
   const days = /^d(\d+)$/.exec(value)
   if (days) return `${Number(days[1])} 天`
@@ -111,8 +154,28 @@ export function openCommercialPrompt(text: string, feature = '') {
 }
 
 export function notifyCommercialRequired(payload?: { msg?: string; data?: unknown }) {
-  const data = payload?.data as { feature?: string } | undefined
+  const data = payload?.data as {
+    feature?: string
+    kind?: string
+    id?: string
+    name?: string
+    priceCents?: number
+    period?: string
+    purchaseOnly?: boolean
+  } | undefined
   const feature = data?.feature || ''
+  if ((feature === 'paid_plugin' || feature === 'paid_template') && data?.id) {
+    const kind = data.kind === 'template' || feature === 'paid_template' ? 'template' : 'plugin'
+    openCatalogPurchase({
+      kind,
+      id: data.id,
+      name: data.name || (kind === 'template' ? '付费模板' : '付费插件'),
+      priceCents: data.priceCents || 0,
+      period: data.period,
+      purchaseOnly: !!data.purchaseOnly
+    })
+    return
+  }
   const text = commercialText(feature, payload?.msg)
   let note: { close: () => void } | undefined
   note = ElNotification({

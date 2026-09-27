@@ -37,6 +37,8 @@ export interface StoreCatalogItem {
   name: string
   version: string
   priceCents: number
+  billing?: string
+  purchaseOnly?: boolean
   ownership: 'free' | 'included' | 'purchased' | 'none' | string
 }
 
@@ -67,6 +69,13 @@ export function createStoreEditionOrder(planId: number) {
   return request.post<{ orderNo: string; payUrl: string; amountCents: number; title: string }>({
     url: '/api/store/orders',
     data: { planId }
+  })
+}
+
+export function createStoreItemOrder(itemKind: 'plugin' | 'template', itemId: string) {
+  return request.post<{ orderNo: string; payUrl: string; amountCents: number; title: string }>({
+    url: '/api/store/orders',
+    data: { itemKind, itemId }
   })
 }
 

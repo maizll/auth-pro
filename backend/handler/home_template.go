@@ -96,7 +96,9 @@ func AdminHomeTemplateList(c *gin.Context) {
 		writeAppStoreError(c, err)
 		return
 	}
-	writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": legacyHomeTemplateItems(items), "warning": warning}})
+	rows := legacyHomeTemplateItems(items)
+	annotateHomeTemplateCommerce(c, rows)
+	writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": rows, "warning": warning}})
 }
 
 // homeTemplateCatalogRefreshWarning 刷新与插件共用的软件源目录。

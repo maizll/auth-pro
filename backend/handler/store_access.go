@@ -224,15 +224,46 @@ func buyerOwnsCatalogItem(view buyerAccessView, kind, id string) bool {
 }
 
 func buyerItemEntitled(view buyerAccessView, kind, id string) bool {
-	if view.Edition == storeEditionCommercial && view.Snapshot.AllPaidItems {
+	if buyerOwnsCatalogItem(view, kind, id) {
 		return true
 	}
-	for _, item := range view.Snapshot.Items {
-		if item.Kind == kind && item.ID == id {
-			return true
-		}
+	if catalogPurchaseOnly(kind, id) {
+		return false
 	}
-	return false
+	return view.Edition == storeEditionCommercial && view.Snapshot.AllPaidItems
+}
+
+func catalogPurchaseOnly(kind, id string) bool {
+	if id == "" {
+		return false
+	}
+	if findPaidCatalog(kind, id).PurchaseOnly {
+		return true
+	}
+	if catalogItemPurchaseOnly(kind, id) {
+		return true
+	}
+	return catalogDeveloperPaid(kind, id)
+}
+
+func catalogDeveloperPaid(kind, id string) bool {
+	db, err := config.DB()
+	if err != nil || db == nil || id == "" {
+		return false
+	}
+	var developerID int64
+	var queryErr error
+	if kind == "template" {
+		queryErr = db.QueryRow(`SELECT developer_id FROM source_catalog_templates WHERE template_key = ? OR id = ? ORDER BY CASE WHEN template_key = ? THEN 0 ELSE 1 END LIMIT 1`, id, id, id).Scan(&developerID)
+	} else {
+		queryErr = db.QueryRow(`SELECT developer_id FROM source_catalog_plugins WHERE id = ?`, id).Scan(&developerID)
+	}
+	return queryErr == nil && developerID > 0
+}
+
+func buyerCatalogOwnership(view buyerAccessView, kind, id string, priceCents int64) string {
+	covered := view.Edition == storeEditionCommercial && !catalogPurchaseOnly(kind, id)
+	return ownershipForPrice(priceCents, covered, buyerOwnsCatalogItem(view, kind, id))
 }
 
 func paidEnableAllowed(priceCents int64, commercial, entitled bool) bool {
@@ -257,12 +288,18 @@ func rejectPaidPluginEnable(c *gin.Context, id string) bool {
 	}
 	item := findPaidCatalog("plugin", id)
 	view := currentBuyerAccess(c)
-	commercial := view.Edition == storeEditionCommercial && !catalogItemPurchaseOnly("plugin", id)
+	commercial := view.Edition == storeEditionCommercial && !catalogPurchaseOnly("plugin", id)
 	entitled := buyerOwnsCatalogItem(view, "plugin", id) || (commercial && view.Snapshot.AllPaidItems)
 	if paidEnableAllowed(item.PriceCents, commercial, entitled) {
 		return false
 	}
-	writeEditionRequired(c, "paid_plugin")
+	if item.Kind == "" {
+		item.Kind = "plugin"
+	}
+	if item.ID == "" {
+		item.ID = id
+	}
+	writePaidItemRequired(c, "paid_plugin", item)
 	return true
 }
 
@@ -284,12 +321,18 @@ func rejectPaidTemplateEnable(c *gin.Context, rawID string) bool {
 	if id == "" {
 		id = rawID
 	}
-	commercial := view.Edition == storeEditionCommercial && !catalogItemPurchaseOnly("template", id)
+	commercial := view.Edition == storeEditionCommercial && !catalogPurchaseOnly("template", id)
 	entitled := buyerOwnsCatalogItem(view, "template", id) || (commercial && view.Snapshot.AllPaidItems)
 	if paidEnableAllowed(item.PriceCents, commercial, entitled) {
 		return false
 	}
-	writeEditionRequired(c, "paid_template")
+	if item.Kind == "" {
+		item.Kind = "template"
+	}
+	if item.ID == "" {
+		item.ID = id
+	}
+	writePaidItemRequired(c, "paid_template", item)
 	return true
 }
 
@@ -315,15 +358,20 @@ func rememberPaidCatalogFromIndex(index *remotePluginIndex) {
 		items = append(items, item)
 	}
 	for _, plugin := range index.Plugins {
-		upsert(paidCatalogItem{Kind: "plugin", ID: plugin.ID, Name: plugin.Name, Version: plugin.Version, PriceCents: plugin.PriceCents})
+		upsert(paidCatalogItem{
+			Kind: "plugin", ID: plugin.ID, Name: plugin.Name, Version: plugin.Version,
+			PriceCents: plugin.PriceCents, Billing: plugin.Billing, PurchaseOnly: plugin.PurchaseOnly,
+		})
 	}
 	for _, raw := range index.HomeTemplates {
 		var meta struct {
-			ID          string `json:"id"`
-			TemplateKey string `json:"templateKey"`
-			Name        string `json:"name"`
-			Version     string `json:"version"`
-			PriceCents  int64  `json:"priceCents"`
+			ID           string `json:"id"`
+			TemplateKey  string `json:"templateKey"`
+			Name         string `json:"name"`
+			Version      string `json:"version"`
+			PriceCents   int64  `json:"priceCents"`
+			Billing      string `json:"billing"`
+			PurchaseOnly bool   `json:"purchaseOnly"`
 		}
 		if json.Unmarshal(raw, &meta) != nil {
 			continue
@@ -332,7 +380,10 @@ func rememberPaidCatalogFromIndex(index *remotePluginIndex) {
 		if id == "" {
 			id = meta.ID
 		}
-		upsert(paidCatalogItem{Kind: "template", ID: id, Name: meta.Name, Version: meta.Version, PriceCents: meta.PriceCents})
+		upsert(paidCatalogItem{
+			Kind: "template", ID: id, Name: meta.Name, Version: meta.Version,
+			PriceCents: meta.PriceCents, Billing: meta.Billing, PurchaseOnly: meta.PurchaseOnly,
+		})
 	}
 	savePaidCatalog(items)
 }

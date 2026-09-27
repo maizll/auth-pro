@@ -566,6 +566,8 @@ export interface PluginInfo {
   source: string
   downloadUrl: string
   priceCents?: number
+  billing?: string
+  purchaseOnly?: boolean
   ownership?: string
 }
 
@@ -651,6 +653,11 @@ export interface HomeTemplateInfo {
   installed: boolean
   available: boolean
   updatedAt?: string
+  priceCents?: number
+  billing?: string
+  purchaseOnly?: boolean
+  ownership?: string
+  catalogItemId?: string
 }
 
 export interface HomeTemplateListData {

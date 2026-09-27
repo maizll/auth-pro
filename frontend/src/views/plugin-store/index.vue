@@ -212,7 +212,7 @@
                       :loading="downloadingId === plugin.id"
                       @click="handleDownload(plugin)"
                     >
-                      下载并安装
+                      {{ unpaidPlugin(plugin) ? catalogCardBuyLabel(plugin.priceCents) : '下载并安装' }}
                     </ElButton>
                   </template>
                   <template v-else>
@@ -231,7 +231,7 @@
                       :loading="togglingId === plugin.id"
                       @click="handleToggle(plugin)"
                     >
-                      {{ plugin.enabled ? '停用' : '启用' }}
+                      {{ plugin.enabled ? '停用' : unpaidPlugin(plugin) ? catalogCardBuyLabel(plugin.priceCents) : '启用' }}
                     </ElButton>
                     <ElText
                       v-else
@@ -339,9 +339,11 @@
   import { fetchSourceCatalogApps, type SourceCatalogApp } from '@/api/source-station'
   import { fetchRestoreLicenseApp } from '@/api/license-manage'
   import {
-    commercialText,
-    openCommercialPrompt,
-    rememberCommercialAccount
+    catalogCardBuyLabel,
+    catalogPurchaseResumeEvent,
+    openCatalogPurchase,
+    rememberCommercialAccount,
+    type CatalogPurchaseOffer
   } from '@/utils/commercial'
   import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
@@ -605,12 +607,24 @@
     }
   }
 
-  const handleToggle = async (plugin: PluginInfo) => {
-    if (!plugin.enabled && (plugin.priceCents || 0) > 0 && plugin.ownership === 'none') {
-      openCommercialPrompt(commercialText('paid_plugin'), 'paid_plugin')
-      return
+  function unpaidPlugin(plugin: PluginInfo) {
+    return !plugin.enabled && (plugin.priceCents || 0) > 0 && plugin.ownership === 'none'
+  }
+
+  function pluginOffer(plugin: PluginInfo, resume: () => Promise<boolean>): CatalogPurchaseOffer {
+    return {
+      kind: 'plugin',
+      id: plugin.id,
+      name: plugin.name,
+      priceCents: plugin.priceCents || 0,
+      period: plugin.billing || 'permanent',
+      purchaseOnly: !!plugin.purchaseOnly,
+      resume
     }
-    if (!plugin.enabled) {
+  }
+
+  async function enablePlugin(plugin: PluginInfo, skipConfirm: boolean) {
+    if (!plugin.enabled && !skipConfirm) {
       try {
         await ElMessageBox.confirm(
           `启用「${plugin.name}」后，同分区其他插件将自动停用，确认启用？`,
@@ -618,7 +632,7 @@
           { confirmButtonText: '启用', cancelButtonText: '取消', type: 'warning' }
         )
       } catch {
-        return
+        return false
       }
     }
     togglingId.value = plugin.id
@@ -626,24 +640,53 @@
       await fetchTogglePlugin(plugin.id, !plugin.enabled)
       ElMessage.success(plugin.enabled ? '插件已停用' : `已启用「${plugin.name}」`)
       await loadPlugins()
+      return true
     } catch (error: any) {
       if (error?.code !== 402) showCaughtError(error, '操作失败')
+      return false
     } finally {
       togglingId.value = ''
     }
   }
 
-  const handleDownload = async (plugin: PluginInfo) => {
+  const handleToggle = async (plugin: PluginInfo) => {
+    if (unpaidPlugin(plugin)) {
+      openCatalogPurchase(pluginOffer(plugin, () => enablePlugin(plugin, true)))
+      return
+    }
+    await enablePlugin(plugin, false)
+  }
+
+  async function installPlugin(plugin: PluginInfo) {
     downloadingId.value = plugin.id
     try {
       await fetchDownloadPlugin(plugin.id)
       ElMessage.success(`「${plugin.name}」已下载、解压并安装`)
       await loadPlugins()
+      return true
     } catch (error: any) {
-      showCaughtError(error, '插件下载安装失败')
+      if (error?.code !== 402) showCaughtError(error, '插件下载安装失败')
+      return false
     } finally {
       downloadingId.value = ''
     }
+  }
+
+  const handleDownload = async (plugin: PluginInfo) => {
+    if (unpaidPlugin(plugin)) {
+      openCatalogPurchase(pluginOffer(plugin, () => installPlugin(plugin)))
+      return
+    }
+    await installPlugin(plugin)
+  }
+
+  function onCatalogResume(event: Event) {
+    const offer = (event as CustomEvent<CatalogPurchaseOffer>).detail
+    if (!offer || offer.kind !== 'plugin') return
+    const plugin = categories.value.flatMap((group) => group.plugins).find((item) => item.id === offer.id)
+    if (!plugin) return
+    if (plugin.remote) void installPlugin(plugin)
+    else void enablePlugin(plugin, true)
   }
 
   const handleAddSource = async () => {
@@ -754,9 +797,18 @@
   onMounted(() => {
     loadPlugins()
     loadStoreCatalog()
-    window.addEventListener('store-account-refresh', loadStoreCatalog)
+    window.addEventListener('store-account-refresh', onStoreRefresh)
+    window.addEventListener(catalogPurchaseResumeEvent, onCatalogResume)
   })
-  onBeforeUnmount(() => window.removeEventListener('store-account-refresh', loadStoreCatalog))
+  onBeforeUnmount(() => {
+    window.removeEventListener('store-account-refresh', onStoreRefresh)
+    window.removeEventListener(catalogPurchaseResumeEvent, onCatalogResume)
+  })
+
+  async function onStoreRefresh() {
+    await loadStoreCatalog()
+    await loadPlugins()
+  }
 </script>
 
 <style lang="scss" scoped>

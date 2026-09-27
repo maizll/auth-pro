@@ -36,16 +36,18 @@ type pluginSourceRecord struct {
 }
 
 type remotePluginEntry struct {
-	ID          string         `json:"id"`
-	Category    string         `json:"category"`
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Icon        string         `json:"icon"`
-	Version     string         `json:"version"`
-	Author      templateAuthor `json:"author"`
-	DownloadURL string         `json:"downloadUrl"`
-	SHA256      string         `json:"sha256"`
-	PriceCents  int64          `json:"priceCents"`
+	ID           string         `json:"id"`
+	Category     string         `json:"category"`
+	Name         string         `json:"name"`
+	Description  string         `json:"description"`
+	Icon         string         `json:"icon"`
+	Version      string         `json:"version"`
+	Author       templateAuthor `json:"author"`
+	DownloadURL  string         `json:"downloadUrl"`
+	SHA256       string         `json:"sha256"`
+	PriceCents   int64          `json:"priceCents"`
+	Billing      string         `json:"billing"`
+	PurchaseOnly bool           `json:"purchaseOnly"`
 }
 
 type remotePluginIndex struct {
@@ -592,6 +594,7 @@ func AdminPluginList(c *gin.Context) {
 				remote = append(remote, pluginInfo{
 					ID: item.ID, Category: displayPluginCategory(item.Category), Name: item.Name,
 					Description: item.Description, Icon: icon, Version: item.Version, PriceCents: item.PriceCents,
+					Billing: item.Billing, PurchaseOnly: item.PurchaseOnly,
 					Author: item.Author, Local: false, Remote: true, Source: sourceName, DownloadURL: item.DownloadURL,
 				})
 			}
@@ -605,7 +608,15 @@ func AdminPluginList(c *gin.Context) {
 			if groups[i].Plugins[j].PriceCents == 0 {
 				groups[i].Plugins[j].PriceCents = prices[groups[i].Plugins[j].ID]
 			}
-			groups[i].Plugins[j].Ownership = ownershipForPrice(groups[i].Plugins[j].PriceCents, view.Edition == storeEditionCommercial, buyerItemEntitled(view, "plugin", groups[i].Plugins[j].ID))
+			id := groups[i].Plugins[j].ID
+			cached := findPaidCatalog("plugin", id)
+			if groups[i].Plugins[j].Billing == "" {
+				groups[i].Plugins[j].Billing = cached.Billing
+			}
+			if cached.PurchaseOnly || catalogPurchaseOnly("plugin", id) {
+				groups[i].Plugins[j].PurchaseOnly = true
+			}
+			groups[i].Plugins[j].Ownership = buyerCatalogOwnership(view, "plugin", id, groups[i].Plugins[j].PriceCents)
 		}
 	}
 	sourceStates := make([]gin.H, 0, len(sources))

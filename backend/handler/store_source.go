@@ -127,6 +127,38 @@ func writeEditionRequired(c *gin.Context, feature string) {
 	})
 }
 
+func paidItemRequiredMessage(kind string) string {
+	if kind == "template" {
+		return "该模板需要购买后才能启用"
+	}
+	return "该插件需要购买后才能启用"
+}
+
+func writePaidItemRequired(c *gin.Context, feature string, item paidCatalogItem) {
+	kind := item.Kind
+	if kind == "" {
+		if feature == "paid_template" {
+			kind = "template"
+		} else {
+			kind = "plugin"
+		}
+	}
+	purchaseOnly := item.PurchaseOnly || catalogPurchaseOnly(kind, item.ID)
+	c.JSON(http.StatusOK, gin.H{
+		"code": storeEditionRequiredCode,
+		"msg":  paidItemRequiredMessage(kind),
+		"data": gin.H{
+			"feature":      feature,
+			"kind":         kind,
+			"id":           item.ID,
+			"name":         item.Name,
+			"priceCents":   item.PriceCents,
+			"period":       catalogSalePeriod(item.Billing),
+			"purchaseOnly": purchaseOnly,
+		},
+	})
+}
+
 func rejectStoreDomain(ctx context.Context, domain string) error {
 	domain = normalizeLicenseDomain(domain)
 	if storeDomainShapeRejected(domain) {
@@ -884,11 +916,12 @@ func loadPaidCatalog() []paidCatalogItem {
 }
 
 type paidCatalogItem struct {
-	Kind       string `json:"kind"`
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Version    string `json:"version"`
-	PriceCents int64  `json:"priceCents"`
-	Billing    string `json:"billing"`
-	Delivery   string `json:"delivery"`
+	Kind         string `json:"kind"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Version      string `json:"version"`
+	PriceCents   int64  `json:"priceCents"`
+	Billing      string `json:"billing"`
+	Delivery     string `json:"delivery"`
+	PurchaseOnly bool   `json:"purchaseOnly"`
 }

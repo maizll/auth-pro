@@ -9,7 +9,16 @@
       >下载</ElButton
     >
     <ElButton
+      v-if="unpaid"
+      type="primary"
+      size="small"
+      :disabled="!!busy"
+      @click="buy"
+      >{{ buyLabel }}</ElButton
+    >
+    <ElButton
       v-if="
+        !unpaid &&
         !builtin &&
         !template.enabled &&
         template.available &&
@@ -22,7 +31,7 @@
       >{{ template.updateAvailable ? '更新安装' : '安装' }}</ElButton
     >
     <ElButton
-      v-if="!template.enabled || template.updateAvailable || builtin"
+      v-if="!unpaid && (!template.enabled || template.updateAvailable || builtin)"
       type="primary"
       size="small"
       :disabled="
@@ -58,7 +67,7 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, ref } from 'vue'
+  import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import {
     fetchDisableHomeTemplate,
@@ -68,6 +77,12 @@
     fetchUninstallHomeTemplate,
     type HomeTemplateInfo
   } from '@/api/system-manage'
+  import {
+    catalogCardBuyLabel,
+    catalogPurchaseResumeEvent,
+    openCatalogPurchase,
+    type CatalogPurchaseOffer
+  } from '@/utils/commercial'
 
   const props = defineProps<{ template: HomeTemplateInfo }>()
   const emit = defineEmits<{ changed: [] }>()
@@ -75,6 +90,47 @@
   const builtin = computed(
     () => props.template.id === 'default' || props.template.sourceType === 'builtin'
   )
+  const unpaid = computed(
+    () =>
+      !builtin.value &&
+      !props.template.enabled &&
+      (props.template.priceCents || 0) > 0 &&
+      props.template.ownership === 'none'
+  )
+  const buyLabel = computed(() => catalogCardBuyLabel(props.template.priceCents))
+  const catalogId = computed(
+    () => props.template.catalogItemId || props.template.catalogId || props.template.templateId
+  )
+
+  async function enableAfterPurchase() {
+    await fetchEnableHomeTemplate(props.template.id)
+    emit('changed')
+    return true
+  }
+
+  const buy = () => {
+    if (!catalogId.value) return
+    openCatalogPurchase({
+      kind: 'template',
+      id: catalogId.value,
+      localId: String(props.template.id),
+      name: props.template.name,
+      priceCents: props.template.priceCents || 0,
+      period: props.template.billing || 'permanent',
+      purchaseOnly: !!props.template.purchaseOnly,
+      resume: enableAfterPurchase
+    })
+  }
+
+  function onCatalogResume(event: Event) {
+    const offer = (event as CustomEvent<CatalogPurchaseOffer>).detail
+    if (!offer || offer.kind !== 'template') return
+    if (offer.id !== catalogId.value && offer.localId !== String(props.template.id)) return
+    void enableAfterPurchase()
+  }
+
+  onMounted(() => window.addEventListener(catalogPurchaseResumeEvent, onCatalogResume))
+  onBeforeUnmount(() => window.removeEventListener(catalogPurchaseResumeEvent, onCatalogResume))
 
   const download = async () => {
     if (busy.value) return

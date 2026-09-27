@@ -390,6 +390,40 @@ func disableAppStoreTemplate(ctx context.Context, rawID string) error {
 	return nil
 }
 
+func annotateHomeTemplateCommerce(c *gin.Context, rows []gin.H) {
+	if c == nil {
+		return
+	}
+	view := currentBuyerAccess(c)
+	for i := range rows {
+		item := matchPaidTemplate(rows[i])
+		if item.PriceCents <= 0 {
+			continue
+		}
+		purchaseOnly := item.PurchaseOnly || catalogPurchaseOnly("template", item.ID)
+		rows[i]["priceCents"] = item.PriceCents
+		rows[i]["billing"] = item.Billing
+		rows[i]["purchaseOnly"] = purchaseOnly
+		rows[i]["catalogItemId"] = item.ID
+		rows[i]["ownership"] = ownershipForPrice(item.PriceCents, view.Edition == storeEditionCommercial && !purchaseOnly, buyerOwnsCatalogItem(view, "template", item.ID))
+	}
+}
+
+func matchPaidTemplate(row gin.H) paidCatalogItem {
+	for _, key := range []string{"catalogId", "templateId"} {
+		id, _ := row[key].(string)
+		id = strings.TrimSpace(id)
+		if id == "" || id == "default" {
+			continue
+		}
+		item := findPaidCatalog("template", id)
+		if item.PriceCents > 0 {
+			return item
+		}
+	}
+	return paidCatalogItem{}
+}
+
 func legacyHomeTemplateItems(items []appstore.Template) []gin.H {
 	result := make([]gin.H, 0, len(items))
 	for _, item := range items {
