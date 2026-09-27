@@ -140,7 +140,7 @@
                 <IconifyIcon icon="ri:team-line" width="18" style="margin-right: 6px" />
                 代理端
               </el-button>
-              <el-button type="warning" size="large" @click="router.replace('/admin')">
+              <el-button type="info" size="large" @click="router.replace('/admin')">
                 <IconifyIcon icon="ri:admin-line" width="18" style="margin-right: 6px" />
                 管理员面板
               </el-button>
@@ -228,7 +228,7 @@
 
   async function handleSaveAdmin() {
     if (adminForm.password !== adminForm.confirmPassword) {
-      ElMessage.warning('两次密码输入不一致')
+      ElMessage.info('两次密码输入不一致')
       return
     }
     saving.value = true

@@ -44,7 +44,7 @@
         <!-- 归属账号 -->
         <template #owner="{ row }">
           <div class="owner-cell">
-            <ElTag :type="row.ownerType === 'agent' ? 'warning' : 'info'" size="small">
+            <ElTag :type="row.ownerType === 'agent' ? 'primary' : 'info'" size="small">
               {{ row.ownerType === 'agent' ? '代理' : '用户' }}
             </ElTag>
             <span>{{ row.ownerName || `ID ${row.ownerId}` }}</span>
@@ -212,7 +212,7 @@
       <ElTable :data="siteDialog.list" size="small" v-loading="siteDialog.loading" max-height="360">
         <ElTableColumn label="类型" width="80">
           <template #default="{ row }">
-            <ElTag :type="row.targetType === 'ip' ? 'warning' : undefined" size="small">
+            <ElTag :type="row.targetType === 'ip' ? 'info' : undefined" size="small">
               {{ row.targetType === 'ip' ? 'IP' : '域名' }}
             </ElTag>
           </template>
@@ -340,7 +340,7 @@
   const typeTagMap: Record<string, TagType> = {
     domain: undefined,
     wildcard: 'success',
-    ip: 'warning',
+    ip: 'info',
     key: 'info'
   }
 

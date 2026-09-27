@@ -863,7 +863,7 @@
   function openAuthDialog(targetMode: 'login' | 'register' | 'forgot') {
     if (targetMode === 'forgot') targetMode = 'login'
     if (targetMode === 'register' && !registrationEnabled.value) {
-      ElMessage.warning('普通用户注册已关闭，请联系管理员')
+      ElMessage.info('普通用户注册已关闭，请联系管理员')
       targetMode = 'login'
     }
     mode.value = targetMode
@@ -881,7 +881,7 @@
       licenseQueryList.value = []
       licenseQueryTotal.value = 0
       licenseQuerySearched.value = false
-      ElMessage.warning('请先登录，登录后只能查看自己的授权')
+      ElMessage.info('请先登录，登录后只能查看自己的授权')
       openAuthDialog('login')
       return
     }
@@ -900,7 +900,7 @@
         licenseQueryList.value = []
         licenseQueryTotal.value = 0
         licenseQuerySearched.value = false
-        ElMessage.warning(data.msg || '请先登录，登录后只能查看自己的授权')
+        ElMessage.info(data.msg || '请先登录，登录后只能查看自己的授权')
         openAuthDialog('login')
       } else {
         licenseQueryList.value = []
@@ -914,7 +914,7 @@
       licenseQueryTotal.value = 0
       licenseQuerySearched.value = false
       if (status === 401) {
-        ElMessage.warning('请先登录，登录后只能查看自己的授权')
+        ElMessage.info('请先登录，登录后只能查看自己的授权')
         openAuthDialog('login')
       } else {
         ElMessage.error('网络错误，请稍后重试')
@@ -927,7 +927,7 @@
   async function handleAgentQuery() {
     const account = agentQueryAccount.value.trim()
     if (!account) {
-      ElMessage.warning('请输入代理商账号')
+      ElMessage.info('请输入代理商账号')
       return
     }
 
@@ -954,7 +954,7 @@
   async function handleTargetQuery() {
     const target = targetQueryValue.value.trim()
     if (!target) {
-      ElMessage.warning('请输入域名或 IP 地址')
+      ElMessage.info('请输入域名或 IP 地址')
       return
     }
 
@@ -1232,7 +1232,7 @@
 
   function handleRegister() {
     if (!registrationEnabled.value) {
-      ElMessage.warning('普通用户注册已关闭，请联系管理员')
+      ElMessage.info('普通用户注册已关闭，请联系管理员')
       mode.value = 'login'
       return
     }

@@ -537,7 +537,7 @@
     ({ user: '用户', agent: '代理商', all: '全部' })[audience]
 
   const audienceTagType = (audience: PromotionAudience): TagProps['type'] =>
-    ({ user: 'primary', agent: 'warning', all: 'success' })[audience] as TagProps['type']
+    ({ user: 'primary', agent: 'primary', all: 'success' })[audience] as TagProps['type']
 
   const formatDateTime = (value: string) => {
     const date = new Date(value)

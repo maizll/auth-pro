@@ -69,7 +69,7 @@
             >
             <div class="info-item"
               ><span class="info-label">等级</span
-              ><el-tag type="warning" size="small">{{ agentInfo.levelName }}</el-tag></div
+              ><el-tag type="primary" size="small">{{ agentInfo.levelName }}</el-tag></div
             >
             <div class="info-item"
               ><span class="info-label">折扣</span><span>{{ agentInfo.discount }}</span></div

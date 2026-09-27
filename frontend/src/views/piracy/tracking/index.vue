@@ -73,7 +73,7 @@
           <span class="card-title">盗版案例</span>
           <div class="table-actions">
             <el-button
-              type="warning"
+              type="info"
               plain
               :disabled="!selectedRows.length"
               @click="handleBatchBlock"
@@ -235,7 +235,7 @@
     string,
     'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined
   > = {
-    discovered: 'warning',
+    discovered: 'info',
     blocked: 'danger'
   } as const
 

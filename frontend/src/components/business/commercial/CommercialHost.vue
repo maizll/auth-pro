@@ -935,7 +935,7 @@
       planId.value = plans.value.some((item) => item.id === keptPlan)
         ? keptPlan
         : plans.value[0]?.id
-      if (!plans.value.length) ElMessage.warning('源站尚未配置可购买的套餐')
+      if (!plans.value.length) ElMessage.info('源站尚未配置可购买的套餐')
     }
   }
 
@@ -1051,7 +1051,7 @@
 
   async function pay() {
     if (!planId.value) {
-      ElMessage.warning('请选择套餐')
+      ElMessage.info('请选择套餐')
       return
     }
     acting.value = true

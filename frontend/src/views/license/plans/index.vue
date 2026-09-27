@@ -431,11 +431,11 @@
     if (!valid) return
 
     if (formData.freeMode === 'limited' && formData.freeCount < 0) {
-      ElMessage.warning('免费更换次数不能小于 0')
+      ElMessage.info('免费更换次数不能小于 0')
       return
     }
     if (formData.priceMode === 'paid' && !(formData.changePrice > 0)) {
-      ElMessage.warning('更换价格要大于 0，不填表示用完后不能付费更换')
+      ElMessage.info('更换价格要大于 0，不填表示用完后不能付费更换')
       return
     }
     const payload: PlanPayload = {

@@ -50,7 +50,7 @@
               <span v-if="!narrow" class="target-icon" :class="`target-icon-${row.type}`">
                 <iconify-icon :icon="typeIconMap[row.type] || 'ri:global-line'" width="15" />
               </span>
-              <el-tag v-if="row.bindingPending" type="warning" size="small">未绑定</el-tag>
+              <el-tag v-if="row.bindingPending" type="info" size="small">未绑定</el-tag>
               <span v-else class="target-value" :class="{ mono: row.type !== 'domain' }">{{
                 row.domain || '--'
               }}</span>
@@ -251,7 +251,7 @@
       >
         <el-table-column label="类型" width="80">
           <template #default="{ row }">
-            <el-tag :type="row.targetType === 'ip' ? 'warning' : undefined" size="small">
+            <el-tag :type="row.targetType === 'ip' ? 'info' : undefined" size="small">
               {{ row.targetType === 'ip' ? 'IP' : '域名' }}
             </el-tag>
           </template>
@@ -436,7 +436,7 @@
   const typeTagMap: Record<
     string,
     'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined
-  > = { domain: undefined, wildcard: 'success', ip: 'warning', key: 'info' }
+  > = { domain: undefined, wildcard: 'success', ip: 'info', key: 'info' }
   const typeIconMap: Record<string, string> = {
     domain: 'ri:global-line',
     wildcard: 'ri:asterisk',
@@ -710,7 +710,7 @@
     const bound = Number(row.boundSites) || 0
     const maxSites = Number(row.maxSites) || 0
     if (intent === 'bind' && maxSites > 0 && bound >= maxSites) {
-      ElMessage.warning('授权已达到最大站点数')
+      ElMessage.info('授权已达到最大站点数')
     }
     siteDialog.licenseId = Number(row.id)
     siteDialog.licenseNo = row.licenseNo || ''
@@ -741,7 +741,7 @@
   async function replaceSite(row: any) {
     const target = (siteReplace[row.id] || '').trim()
     if (!target) {
-      ElMessage.warning('请填写新的域名或 IP')
+      ElMessage.info('请填写新的域名或 IP')
       return
     }
     const { data } = await axios.post(
@@ -807,7 +807,7 @@
     if (redeemDialog.submitting) return
     const cardCode = redeemDialog.cardCode.trim()
     if (!cardCode) {
-      ElMessage.warning('请输入卡密')
+      ElMessage.info('请输入卡密')
       return
     }
 

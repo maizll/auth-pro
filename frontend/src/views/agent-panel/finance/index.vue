@@ -294,7 +294,7 @@
   > = {
     recharge: 'success',
     consume: 'danger',
-    refund: 'warning',
+    refund: 'info',
     transfer: 'info',
     bonus: 'success'
   } as const
@@ -405,12 +405,12 @@
 
   function handleRecharge() {
     if (!rechargeOptions.enabled || rechargeMethodOptions.value.length === 0) {
-      ElMessage.warning('线上支付未开启，请联系管理员')
+      ElMessage.info('线上支付未开启，请联系管理员')
       return
     }
     const amount = Number(rechargeAmount.value)
     if (!amount || amount <= 0) {
-      ElMessage.warning('请输入充值金额')
+      ElMessage.info('请输入充值金额')
       return
     }
     const codes = rechargeMethodOptions.value.map((item) => item.code)
@@ -484,7 +484,7 @@
           fetchTransactions()
         } else if (status === 'failed' || status === 'cancelled' || attempts >= 20) {
           stopRechargePoll()
-          if (status !== 'pending') ElMessage.warning('充值未完成')
+          if (status !== 'pending') ElMessage.info('充值未完成')
         }
       } catch {
         if (attempts >= 20) stopRechargePoll()
@@ -515,7 +515,7 @@
         }
         if (data.data?.status === 'failed' || data.data?.status === 'cancelled') {
           qrCheckout.visible = false
-          ElMessage.warning('充值未完成')
+          ElMessage.info('充值未完成')
           return
         }
       } catch {

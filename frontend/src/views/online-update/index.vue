@@ -212,7 +212,7 @@
       <div class="update-section package-section">
         <div class="section-header">
           <strong>更新包</strong>
-          <ElTag :type="packageValid ? 'success' : 'warning'" effect="plain">
+          <ElTag :type="packageValid ? 'success' : 'info'" effect="plain">
             {{ packageValid ? '已就绪' : '待完善' }}
           </ElTag>
         </div>
@@ -586,7 +586,7 @@
   const jobStatusTag = (value: OnlineUpdateJob['status']) => {
     const types: Record<OnlineUpdateJob['status'], 'primary' | 'success' | 'danger' | 'warning'> = {
       running: 'primary',
-      restarting: 'warning',
+      restarting: 'info',
       success: 'success',
       failed: 'danger'
     }

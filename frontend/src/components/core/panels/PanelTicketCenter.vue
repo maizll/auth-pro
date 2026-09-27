@@ -142,7 +142,7 @@
 
   type TagType = 'success' | 'warning' | 'info'
   const statusTagMap: Record<string, TagType> = {
-    pending: 'warning',
+    pending: 'info',
     replied: 'success',
     closed: 'info'
   }
@@ -205,11 +205,11 @@
     const title = createDialog.title.trim()
     const content = createDialog.content.trim()
     if (!title) {
-      ElMessage.warning('请填写标题')
+      ElMessage.info('请填写标题')
       return
     }
     if (!content) {
-      ElMessage.warning('请填写问题描述')
+      ElMessage.info('请填写问题描述')
       return
     }
     createDialog.submitting = true

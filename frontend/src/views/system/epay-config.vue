@@ -1016,7 +1016,7 @@
   const submitPaymentTestV2 = async () => {
     if (testDialogV2.submitting) return
     if (!testDialogV2.payType) {
-      ElMessage.warning('请选择支付方式')
+      ElMessage.info('请选择支付方式')
       return
     }
 
@@ -1121,7 +1121,7 @@
   const submitPaymentTest = async () => {
     if (testDialog.submitting) return
     if (!testDialog.payType) {
-      ElMessage.warning('请选择支付方式')
+      ElMessage.info('请选择支付方式')
       return
     }
 

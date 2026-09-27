@@ -217,7 +217,7 @@
   type TagType = 'success' | 'warning' | 'info'
 
   const statusTagMap: Record<string, TagType> = {
-    pending: 'warning',
+    pending: 'info',
     replied: 'success',
     closed: 'info'
   }

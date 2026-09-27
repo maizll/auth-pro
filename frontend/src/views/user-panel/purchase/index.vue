@@ -895,7 +895,7 @@
     if (rechargeDialog.submitting) return
     const amount = Number(rechargeDialog.amount)
     if (!Number.isFinite(amount) || amount < 0.01) {
-      ElMessage.warning('充值金额不能低于 ¥0.01')
+      ElMessage.info('充值金额不能低于 ¥0.01')
       return
     }
 
@@ -1031,7 +1031,7 @@
       if (result?.status === 'failed' || result?.status === 'cancelled') {
         sessionStorage.removeItem(purchaseOrderStorageKey)
         clearPurchaseReturnQuery()
-        ElMessage.warning('支付未完成')
+        ElMessage.info('支付未完成')
         return null
       }
       await wait(1500)
@@ -1069,16 +1069,16 @@
   async function handlePurchase() {
     if (purchasing.value) return
     if (isOnlinePay.value && computedCost.value <= 0) {
-      ElMessage.warning('0 元套餐请使用余额支付')
+      ElMessage.info('0 元套餐请使用余额支付')
       return
     }
     if (payMethod.value === 'balance' && userBalance.value < computedCost.value) {
-      ElMessage.warning('余额不足')
+      ElMessage.info('余额不足')
       return
     }
     const targetError = getTargetError()
     if (targetError) {
-      ElMessage.warning(targetError)
+      ElMessage.info(targetError)
       return
     }
     purchasing.value = true

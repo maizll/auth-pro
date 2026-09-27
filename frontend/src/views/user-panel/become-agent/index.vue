@@ -466,7 +466,7 @@
         }
         if (status === 'failed' || status === 'cancelled') {
           qrCheckout.visible = false
-          ElMessage.warning(data.data?.errorMessage || '支付未完成')
+          ElMessage.info(data.data?.errorMessage || '支付未完成')
           return
         }
       } catch {
@@ -544,7 +544,7 @@
   async function submitUpgrade() {
     if (!selectedLevel.value || !confirmed.value || submitting.value) return
     if (payMethod.value === 'balance' && !selectedLevel.value.canAfford) {
-      ElMessage.warning('当前余额不足，请选择在线支付方式')
+      ElMessage.info('当前余额不足，请选择在线支付方式')
       return
     }
     const paymentLabel = selectedPayOption.value?.label || '所选方式'

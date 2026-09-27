@@ -168,7 +168,7 @@
 
   async function handleRegenerate() {
     if (!selectedAppId.value) {
-      ElMessage.warning('请先选择应用')
+      ElMessage.info('请先选择应用')
       return
     }
     regenerating.value = true

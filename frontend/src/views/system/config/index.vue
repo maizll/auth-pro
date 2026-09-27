@@ -847,7 +847,7 @@
                         </div>
                         <ElTag
                           v-if="realnameForm.requireAppIds.includes(app.id)"
-                          type="warning"
+                          type="info"
                           size="small"
                           effect="light"
                           >需实名</ElTag
@@ -910,7 +910,7 @@
                     <div class="record-owner">
                       <ElTag
                         size="small"
-                        :type="row.ownerType === 'agent' ? 'warning' : 'primary'"
+                        :type="row.ownerType === 'agent' ? 'primary' : 'info'"
                         effect="plain"
                       >
                         {{ row.ownerType === 'agent' ? '代理' : '用户' }}

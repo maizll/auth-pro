@@ -153,11 +153,11 @@
   const typeTagMap: Record<
     string,
     'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined
-  > = { domain: undefined, ip: 'warning', cidr: 'info' } as const
+  > = { domain: undefined, ip: 'info', cidr: 'info' } as const
   const sourceTagMap: Record<
     string,
     'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined
-  > = { piracy: 'danger', manual: undefined, auto: 'warning' } as const
+  > = { piracy: 'danger', manual: undefined, auto: 'info' } as const
 
   const tableData = ref<any[]>([])
 

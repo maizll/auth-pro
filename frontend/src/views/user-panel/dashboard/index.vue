@@ -72,7 +72,7 @@
           <template #default="{ row }">
             <el-tag
               :type="
-                row.status === 'active' ? 'success' : row.status === 'expiring' ? 'warning' : 'info'
+                row.status === 'active' ? 'success' : row.status === 'expiring' ? 'info' : 'info'
               "
               size="small"
             >
@@ -168,7 +168,7 @@
           ElMessage.success('充值成功，余额已到账')
         } else if (status === 'failed' || status === 'cancelled' || attempts >= 20) {
           stopRechargePoll()
-          if (status !== 'pending') ElMessage.warning('充值未完成')
+          if (status !== 'pending') ElMessage.info('充值未完成')
         }
       } catch {
         if (attempts >= 20) stopRechargePoll()

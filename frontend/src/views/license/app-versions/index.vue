@@ -57,7 +57,7 @@
           <div class="policy-tags">
             <ElTag v-if="row.forceUpdate" type="danger" size="small">强制更新</ElTag>
             <ElTag v-else type="info" size="small">可选更新</ElTag>
-            <ElTag v-if="row.minVersion" type="warning" size="small" effect="plain">
+            <ElTag v-if="row.minVersion" type="info" size="small" effect="plain">
               低于 {{ row.minVersion }} 强更
             </ElTag>
           </div>
@@ -558,12 +558,12 @@
     const valid = await formRef.value?.validate().catch(() => false)
     if (!valid) return
     if (form.sourceType === 'upload' && !selectedFile.value && !reusableUploadedPackage.value) {
-      ElMessage.warning('请选择更新包')
+      ElMessage.info('请选择更新包')
       return
     }
     if (form.sourceType === 'url') {
       if (!form.downloadUrl || form.fileSizeMb <= 0 || !/^[0-9a-fA-F]{32}$/.test(form.fileMd5)) {
-        ElMessage.warning('请完整填写下载地址、文件大小和文件 MD5')
+        ElMessage.info('请完整填写下载地址、文件大小和文件 MD5')
         return
       }
     }

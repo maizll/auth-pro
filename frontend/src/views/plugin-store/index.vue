@@ -97,13 +97,13 @@
               </div>
               <div class="plugin-card-bottom">
                 <div class="plugin-status">
-                  <ElTag v-if="template.updateAvailable" type="warning" size="small">待更新</ElTag>
+                  <ElTag v-if="template.updateAvailable" type="info" size="small">待更新</ElTag>
                   <ElTag v-if="template.enabled" type="success" size="small">已启用</ElTag>
                   <ElTag v-else-if="!template.available" type="danger" size="small">{{
                     template.sourceType === 'upload' ? '安装文件损坏' : '源中已移除'
                   }}</ElTag>
                   <ElTag v-else-if="template.installed" type="info" size="small">已安装</ElTag>
-                  <ElTag v-else type="warning" size="small">未安装</ElTag>
+                  <ElTag v-else type="info" size="small">未安装</ElTag>
                   <ElText v-if="template.sourceType" type="info" size="small">
                     {{
                       template.format === 'zip' || template.sourceType === 'upload'
@@ -144,7 +144,7 @@
                     <strong>{{ plugin.name }}</strong>
                     <ElTag
                       v-if="pluginOriginTag(plugin)"
-                      :type="pluginOriginTag(plugin) === '第三方' ? 'warning' : 'primary'"
+                      :type="pluginOriginTag(plugin) === '第三方' ? 'info' : 'primary'"
                       size="small"
                       effect="plain"
                       >{{ pluginOriginTag(plugin) }}</ElTag
@@ -176,16 +176,16 @@
               <div class="plugin-card-bottom">
                 <div class="plugin-status">
                   <template v-if="plugin.remote">
-                    <ElTag type="warning" size="small" effect="light">未安装</ElTag>
+                    <ElTag type="info" size="small" effect="light">未安装</ElTag>
                     <ElText type="info" size="small">来源：{{ plugin.source }}</ElText>
                   </template>
                   <template v-else-if="!pluginHasRuntime(plugin)">
-                    <ElTag v-if="plugin.updateAvailable" type="warning" size="small">待更新</ElTag>
+                    <ElTag v-if="plugin.updateAvailable" type="info" size="small">待更新</ElTag>
                     <ElTag v-else type="success" size="small" effect="plain">已安装</ElTag>
                     <ElText type="info" size="small">资源包已解压</ElText>
                   </template>
                   <template v-else>
-                    <ElTag v-if="plugin.updateAvailable" type="warning" size="small">待更新</ElTag>
+                    <ElTag v-if="plugin.updateAvailable" type="info" size="small">待更新</ElTag>
                     <ElTag v-if="plugin.enabled" type="success" size="small" effect="light"
                       >已启用</ElTag
                     >
@@ -703,7 +703,7 @@
   const handleAddSource = async () => {
     const url = newSourceUrl.value.trim()
     if (!url) {
-      ElMessage.warning('请输入软件源清单地址')
+      ElMessage.info('请输入软件源清单地址')
       return
     }
     addingSource.value = true
@@ -758,7 +758,7 @@
     const source = retargetSource.value
     if (!source) return
     if (!retargetAppId.value && !retargetUrl.value.trim()) {
-      ElMessage.warning('请选择目标应用或填写新的软件源地址')
+      ElMessage.info('请选择目标应用或填写新的软件源地址')
       return
     }
     retargetSaving.value = true

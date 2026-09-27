@@ -304,9 +304,9 @@
     return (
       (
         {
-          pending: 'warning',
+          pending: 'info',
           paid: 'primary',
-          processing: 'warning',
+          processing: 'info',
           completed: 'success',
           failed: 'danger',
           cancelled: 'info'
@@ -322,7 +322,7 @@
   const conversionStatusType = (status: string): TagType => {
     return (
       (
-        { processing: 'warning', completed: 'success', failed: 'danger' } as Record<string, TagType>
+        { processing: 'info', completed: 'success', failed: 'danger' } as Record<string, TagType>
       )[status] || 'info'
     )
   }

@@ -399,7 +399,7 @@
       if (data.connected) {
         ElMessage.success(githubConnectedTitle.value)
       } else if (data.hint) {
-        ElMessage.warning(data.hint)
+        ElMessage.info(data.hint)
       }
     } catch (error) {
       applyGitHubPaidError(error)
@@ -494,7 +494,7 @@
   async function handleAliasSave() {
     const oldAppKey = aliasForm.oldAppKey.trim()
     if (!oldAppKey || !aliasForm.targetAppId) {
-      ElMessage.warning('请填写旧应用标识，并选择要转到的应用')
+      ElMessage.info('请填写旧应用标识，并选择要转到的应用')
       return
     }
     aliasSaving.value = true

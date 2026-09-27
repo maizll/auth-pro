@@ -73,7 +73,7 @@
 
         <!-- 状态 -->
         <template #enabled="{ row }">
-          <ElTag :type="row.archived ? 'warning' : row.enabled ? 'success' : 'info'" size="small">
+          <ElTag :type="row.archived ? 'info' : row.enabled ? 'success' : 'info'" size="small">
             {{ row.archived ? '已归档' : row.enabled ? '启用' : '禁用' }}
           </ElTag>
         </template>
@@ -260,7 +260,7 @@
   > = {
     domain: { label: '单域名', tagType: 'primary' },
     wildcard: { label: '泛域名', tagType: 'success' },
-    ip: { label: 'IP', tagType: 'warning' },
+    ip: { label: 'IP', tagType: 'info' },
     key: { label: '密钥', tagType: 'info' }
   }
 
@@ -584,13 +584,13 @@
   const confirmMigrateAndDelete = async () => {
     const row = migrateSource.value
     if (!row || !migrateAppId.value) {
-      ElMessage.warning('请选择要迁移到的应用')
+      ElMessage.info('请选择要迁移到的应用')
       return
     }
     migrateSaving.value = true
     try {
       if (redirectSource.value && !redirectAppId.value) {
-        ElMessage.warning('请选择要接收软件源地址的应用')
+        ElMessage.info('请选择要接收软件源地址的应用')
         return
       }
       await fetchDeleteLicenseApp(row.id, {
@@ -615,7 +615,7 @@
     archiveSaving.value = true
     try {
       if (redirectSource.value && !redirectAppId.value) {
-        ElMessage.warning('请选择要接收软件源地址的应用')
+        ElMessage.info('请选择要接收软件源地址的应用')
         return
       }
       await fetchDeleteLicenseApp(row.id, {

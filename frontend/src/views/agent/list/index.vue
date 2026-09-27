@@ -38,7 +38,7 @@
         <!-- 账户来源 -->
         <template #sourceLabel="{ row }">
           <ElTag
-            :type="row.source === 'user_upgrade' ? 'warning' : 'info'"
+            :type="row.source === 'user_upgrade' ? 'info' : 'info'"
             size="small"
             effect="plain"
           >
@@ -409,7 +409,7 @@
   }
 
   const levelTagType = (discount: number) => {
-    if (discount <= 7) return 'warning'
+    if (discount <= 7) return 'info'
     if (discount <= 8) return 'success'
     return 'info'
   }
@@ -428,7 +428,7 @@
     await fetchLevelOptions()
     const defaultLevel = getDefaultLevel()
     if (!defaultLevel) {
-      ElMessage.warning('暂无可用代理商等级，请先新增并启用等级')
+      ElMessage.info('暂无可用代理商等级，请先新增并启用等级')
       return
     }
     Object.assign(formData, {
@@ -448,7 +448,7 @@
     isEdit.value = true
     await fetchLevelOptions()
     if (!levelOptions.value.length) {
-      ElMessage.warning('暂无可用代理商等级，请先新增并启用等级')
+      ElMessage.info('暂无可用代理商等级，请先新增并启用等级')
     }
     Object.assign(formData, {
       id: row.id,
@@ -504,7 +504,7 @@
 
   const handleDelete = async (row: AgentItem) => {
     if (row.source === 'user_upgrade') {
-      ElMessage.warning('用户升级产生的代理需保留审计关联，只能冻结，不能删除')
+      ElMessage.info('用户升级产生的代理需保留审计关联，只能冻结，不能删除')
       return
     }
 

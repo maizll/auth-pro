@@ -213,7 +213,7 @@
 
   function enterDeveloper() {
     if (!enterDeveloperSessionFromAgent()) {
-      ElMessage.warning('请先使用代理商账号登录')
+      ElMessage.info('请先使用代理商账号登录')
       router.push('/agent-panel/login')
       return
     }

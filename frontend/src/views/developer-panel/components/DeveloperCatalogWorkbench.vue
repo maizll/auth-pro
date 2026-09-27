@@ -904,7 +904,7 @@
 
   function openRebind(rows: SourceDeveloperCatalogItem[]) {
     if (!rows.length) {
-      ElMessage.warning('请选择要切换的条目')
+      ElMessage.info('请选择要切换的条目')
       return
     }
     rebindItems.value = rows
@@ -915,7 +915,7 @@
 
   async function handleRebind() {
     if (!rebindAppId.value) {
-      ElMessage.warning('请选择目标应用')
+      ElMessage.info('请选择目标应用')
       return
     }
     rebindSaving.value = true
@@ -1167,7 +1167,7 @@
   async function handleAutoHash(target: 'form' | 'version') {
     const location = target === 'form' ? form.location.trim() : versionForm.location.trim()
     if (!isHttpsLocation(location)) {
-      ElMessage.warning(`请先填写有效的${locationLabel.value}（https 外链）`)
+      ElMessage.info(`请先填写有效的${locationLabel.value}（https 外链）`)
       return
     }
     hashing.value = target
@@ -1185,7 +1185,7 @@
       else versionForm.sha256 = hex
       ElMessage.success('校验码已填入')
     } catch {
-      ElMessage.warning(
+      ElMessage.info(
         '浏览器无法直接读取该地址（多为跨域限制）。请在本地用 sha256sum 计算后粘贴，也可先保存草稿稍后补。'
       )
     } finally {
@@ -1201,14 +1201,14 @@
       if (submitAfter) {
         const keys = invalid && typeof invalid === 'object' ? Object.keys(invalid) : []
         if (keys.includes('location') || keys.includes('sha256')) {
-          ElMessage.warning(`提交审核前请先填写${locationLabel.value}和校验码`)
+          ElMessage.info(`提交审核前请先填写${locationLabel.value}和校验码`)
         }
       }
       return
     }
     const blocked = submitAfter ? submitBlockReason.value : draftBlockReason.value
     if (blocked) {
-      ElMessage.warning(blocked)
+      ElMessage.info(blocked)
       return
     }
     if (!form.id.trim()) {
@@ -1217,7 +1217,7 @@
     const location = packageLocationToSave(form)
     const priced = resolveCatalogPriceCents(form.priceYuan, location)
     if (priced.error) {
-      ElMessage.warning(priced.error)
+      ElMessage.info(priced.error)
       return
     }
     const switchAction =
@@ -1323,7 +1323,7 @@
   async function handleSubmit(row: SourceDeveloperCatalogItem) {
     const location = props.kind === 'template' ? row.templateUrl : row.downloadUrl
     if (!row.sha256 || (!location && !row.storedBySite)) {
-      ElMessage.warning(`提交审核前请先填写${locationLabel.value}和校验码`)
+      ElMessage.info(`提交审核前请先填写${locationLabel.value}和校验码`)
       openEdit(row)
       return
     }
@@ -1383,11 +1383,11 @@
   async function handleAddVersion() {
     if (!currentItem.value) return
     if (!versionForm.version.trim()) {
-      ElMessage.warning('请填写版本')
+      ElMessage.info('请填写版本')
       return
     }
     if (versionBlockReason.value) {
-      ElMessage.warning(versionBlockReason.value)
+      ElMessage.info(versionBlockReason.value)
       return
     }
     const location = packageLocationToSave(versionForm)

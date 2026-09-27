@@ -518,11 +518,11 @@
           <header class="version-card-head">
             <strong>{{ row.version }}</strong>
             <el-tag v-if="row.version === currentItem?.latestVersion" type="success" size="small"
-              >当前最新版</el-tag
+              >最新版</el-tag
             >
-            <el-tag v-else type="info" size="small">非当前最新版</el-tag>
+            <el-tag v-else type="info" size="small">历史版本</el-tag>
           </header>
-          <p>大小：未记录</p>
+          <p>大小：{{ formatPackageSize(row.sizeBytes) }}</p>
           <p>上传时间：{{ formatVersionTime(row.createdAt) }}</p>
           <p>说明：{{ row.changelog || '无' }}</p>
           <div class="version-card-actions">
@@ -535,13 +535,13 @@
             >
             <el-button
               v-if="canVersionAction(row.status, 'reject')"
-              type="warning"
+              type="info"
               size="small"
               @click="runVersion(row, 'reject')"
               >驳回</el-button
             >
             <el-button
-              v-if="canVersionAction(row.status, 'latest')"
+              v-if="showSetLatest(row)"
               type="primary"
               size="small"
               @click="runVersion(row, 'latest')"
@@ -593,13 +593,13 @@
             <el-button
               v-if="canVersionAction(row.status, 'reject')"
               link
-              type="warning"
+              type="info"
               size="small"
               @click="runVersion(row, 'reject')"
               >驳回</el-button
             >
             <el-button
-              v-if="canVersionAction(row.status, 'latest')"
+              v-if="showSetLatest(row)"
               link
               type="primary"
               size="small"
@@ -1007,6 +1007,20 @@
     return row.kind === 'template' || categoryKind(row.category) === 'template'
   }
 
+  function showSetLatest(row: SourceVersion) {
+    return (
+      canVersionAction(row.status, 'latest') && row.version !== currentItem.value?.latestVersion
+    )
+  }
+
+  function formatPackageSize(bytes?: number) {
+    const size = Number(bytes || 0)
+    if (!Number.isFinite(size) || size <= 0) return '未记录'
+    if (size < 1024) return `${size} B`
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+    return `${(size / 1024 / 1024).toFixed(2)} MB`
+  }
+
   function canVersionAction(
     status: string,
     action: 'approve' | 'reject' | 'latest' | 'deprecate'
@@ -1172,7 +1186,7 @@
 
   function openRebind(rows: SourceCatalogItem[]) {
     if (!rows.length) {
-      ElMessage.warning('请选择要切换的条目')
+      ElMessage.info('请选择要切换的条目')
       return
     }
     rebindItems.value = rows
@@ -1183,7 +1197,7 @@
 
   async function handleRebind() {
     if (!rebindAppId.value) {
-      ElMessage.warning('请选择目标应用')
+      ElMessage.info('请选择目标应用')
       return
     }
     rebindSaving.value = true
@@ -1239,7 +1253,7 @@
 
   function openUpload() {
     if (registerBlockReason.value) {
-      ElMessage.warning(registerBlockReason.value)
+      ElMessage.info(registerBlockReason.value)
       return
     }
     uploadFile.value = null
@@ -1281,7 +1295,7 @@
 
   async function handleParse() {
     if (uploadBlockReason.value) {
-      ElMessage.warning(uploadBlockReason.value)
+      ElMessage.info(uploadBlockReason.value)
       return
     }
     parsing.value = true
@@ -1308,7 +1322,7 @@
 
   async function handlePublish() {
     if (uploadBlockReason.value) {
-      ElMessage.warning(uploadBlockReason.value)
+      ElMessage.info(uploadBlockReason.value)
       return
     }
     const priced = resolveCatalogPriceCents(
@@ -1316,7 +1330,7 @@
       uploadForm.source === 'upload' ? '' : uploadForm.location
     )
     if (priced.error) {
-      ElMessage.warning(priced.error)
+      ElMessage.info(priced.error)
       return
     }
     publishing.value = true
@@ -1376,7 +1390,7 @@
     await editRef.value?.validate()
     const priced = resolveCatalogPriceCents(editForm.priceYuan, editForm.location)
     if (priced.error) {
-      ElMessage.warning(priced.error)
+      ElMessage.info(priced.error)
       return
     }
     const action = catalogPriceSwitchAction(
@@ -1416,7 +1430,7 @@
     if (!editingItem.value) return
     const priced = resolveCatalogPriceCents(editForm.priceYuan, editForm.location)
     if (priced.error) {
-      ElMessage.warning(priced.error)
+      ElMessage.info(priced.error)
       return
     }
     editing.value = true
@@ -1480,7 +1494,7 @@
 
   function openRegister() {
     if (registerBlockReason.value) {
-      ElMessage.warning(registerBlockReason.value)
+      ElMessage.info(registerBlockReason.value)
       return
     }
     registerForm.appId = searchForm.appId
@@ -1504,7 +1518,7 @@
     await registerRef.value?.validate()
     const priced = resolveCatalogPriceCents(registerForm.priceYuan, registerForm.location)
     if (priced.error) {
-      ElMessage.warning(priced.error)
+      ElMessage.info(priced.error)
       return
     }
     registering.value = true
@@ -1565,7 +1579,7 @@
     const key = extraForm.key.trim().toLowerCase()
     const label = extraForm.label.trim()
     if (!key || !label) {
-      ElMessage.warning('请填写分类标识和名称')
+      ElMessage.info('请填写分类标识和名称')
       return
     }
     savingCategories.value = true
@@ -1682,7 +1696,7 @@
     const cents = currentItem.value.priceCents || 0
     const location = versionForm.location.trim()
     if (!versionForm.version.trim() || !location) {
-      ElMessage.warning('请填写版本和地址')
+      ElMessage.info('请填写版本和地址')
       return
     }
     if (
@@ -1691,14 +1705,14 @@
       !isPrivatePackageLocation(location) &&
       !isHttpsLocation(location)
     ) {
-      ElMessage.warning('付费条目请上传压缩包，或填写 https 网址由本站拉取托管')
+      ElMessage.info('付费条目请上传压缩包，或填写 https 网址由本站拉取托管')
       return
     }
     if (
       !isPaidHttpsImportLocation(location, cents) &&
       !/^[a-fA-F0-9]{64}$/.test(versionForm.sha256.trim())
     ) {
-      ElMessage.warning('请填写 64 位校验码')
+      ElMessage.info('请填写 64 位校验码')
       return
     }
     versionSaving.value = true

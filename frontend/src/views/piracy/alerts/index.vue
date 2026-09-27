@@ -168,13 +168,13 @@
   const levelTagMap: Record<
     string,
     'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined
-  > = { critical: 'danger', warning: 'warning', info: 'info' } as const
+  > = { critical: 'danger', warning: 'info', info: 'info' } as const
   const typeTagMap: Record<
     string,
     'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined
   > = {
     piracy: 'danger',
-    expire: 'warning',
+    expire: 'info',
     balance: undefined,
     quota: 'info',
     verify_anomaly: 'danger'
@@ -182,7 +182,7 @@
   const statusTagMap: Record<
     string,
     'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined
-  > = { pending: 'warning', handled: 'success', ignored: 'info' } as const
+  > = { pending: 'info', handled: 'success', ignored: 'info' } as const
 
   const tableData = ref<any[]>([])
 
