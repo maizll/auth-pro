@@ -24,20 +24,26 @@ https://auth.maizll.com/api/v1/update/package/<版本号>
 2. Release / 仓库设置里的 GitHub 令牌
 3. 不带令牌再试一次
 
-仓库还是公开的时候，没有令牌也能拉。改成私有之后，上面两处至少要有一枚对该仓库有读取权限的令牌（经典令牌的 `repo`，或细粒度令牌的 Contents 读）。
+默认仓库是私有的，没有令牌拉不到包。上面两处至少要有一枚对该仓库有读取权限的令牌（经典令牌的 `repo`，或细粒度令牌的 Contents 读）。只有把环境变量改到一个仍公开的仓库时，最后一步匿名才有用。
 
 ## 仓库名
 
-拉取用的仓库不写进程序，只在源站服务器上配置：
+官网分发接口默认从客户交付仓库取 Release：
+
+```text
+maizll/auth-pro-client
+```
+
+源站服务器可以用环境变量改掉，格式是 `owner/repo`：
 
 ```text
 AUTO_PRO_UPDATE_REPOSITORY=owner/repo
 ```
 
-当前产品仓库应写成 `maizll/auth-pro`。不设这个变量时，分发接口返回「更新仓库未配置」，响应里没有仓库地址。不要把这个默认值写进程序，否则发行二进制里又能搜到。
+写成别的格式时，接口返回「更新仓库未配置」，响应里不回显这段配置。`maizll/auth-pro` 和官网仓库 `maizll/auth-pro-server` 都不作为客户安装包来源。1.7.1 只进入 `auth-pro-client`，不合并进另外两个仓库。
 
-## 什么时候才能把仓库改私有
+## 两个仓库怎么更新
 
-1.7.0 和更早的客户站仍然直接读取 GitHub Release。`release.yml` 继续把安装包发到 GitHub Release，这样旧站还能升到 1.7.1。
+客户站（`auth-pro-client`）从 1.7.1 起只向 `https://auth.maizll.com` 要更新。官网（`auth-pro-server`）停留在 1.7.0，继续按自己的仓库地址更新，不带这套分发改动。
 
-所有客户都升到 1.7.1 之后，才能把仓库改成私有。改私有后，源站必须配好上面的仓库名，以及一枚有读取权限的令牌，否则新客户站会检查更新失败。
+1.7.0 及更早、仍指向 `maizll/auth-pro` 的客户站，不会自动从 `auth-pro-client` 的私有 Release 升上来。它们要先装上 1.7.1 的客户包，之后才走官网更新。

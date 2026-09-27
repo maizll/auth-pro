@@ -24,16 +24,19 @@ import (
 )
 
 const (
-	productUpdateManifestTTL   = 3 * time.Minute
-	productUpdateJSONLimit     = 30
-	productUpdatePackageLimit  = 6
-	productUpdateRateWindow    = time.Minute
-	productUpdateRepoEnv       = "AUTO_PRO_UPDATE_REPOSITORY"
-	productUpdateUnavailable   = "暂时无法获取更新"
-	productUpdateRepoMissing   = "更新仓库未配置"
-	productUpdateRateLimited   = "请求过于频繁，请稍后再试"
-	productUpdatePackagePrefix = "https://auth.maizll.com/api/v1/update/package/"
-	productUpdateReleasesURL   = "https://auth.maizll.com/api/v1/update/releases.json"
+	productUpdateManifestTTL  = 3 * time.Minute
+	productUpdateJSONLimit    = 30
+	productUpdatePackageLimit = 6
+	productUpdateRateWindow   = time.Minute
+	productUpdateRepoEnv      = "AUTO_PRO_UPDATE_REPOSITORY"
+	// 官网从客户交付仓库的 Release 取安装包。仓库已是私有的，必须用源站已保存的令牌。
+	// 环境变量可以改成别的 owner/repo；不设时用这个默认值。
+	productUpdateDefaultRepository = "maizll/auth-pro-client"
+	productUpdateUnavailable       = "暂时无法获取更新"
+	productUpdateRepoMissing       = "更新仓库未配置"
+	productUpdateRateLimited       = "请求过于频繁，请稍后再试"
+	productUpdatePackagePrefix     = "https://auth.maizll.com/api/v1/update/package/"
+	productUpdateReleasesURL       = "https://auth.maizll.com/api/v1/update/releases.json"
 )
 
 var (
@@ -330,8 +333,8 @@ func filterProductUpdateNotes(notes []string) []string {
 	return kept
 }
 
-// productUpdateNoteVisible 丢掉同时提到托管站点和产品名的句子。
-// 仓库全名不写进程序，避免打进发行二进制后被搜到。
+// productUpdateNoteVisible 丢掉提到托管站点的句子。
+// 改写后的清单只给客户站，不能把仓库地址再写回去。
 func productUpdateNoteVisible(note string) bool {
 	lower := strings.ToLower(note)
 	if strings.Contains(lower, "github.com") || strings.Contains(lower, "githubusercontent") {
@@ -439,6 +442,10 @@ func productUpdateFetch(ctx context.Context, rawURL, token, accept string) ([]by
 
 func productUpdateRepository() (string, string, error) {
 	raw := strings.Trim(strings.TrimSpace(os.Getenv(productUpdateRepoEnv)), "/")
+	if raw == "" {
+		// 官网默认从客户交付用的私有仓库取包，不从本仓库或官网仓库取。
+		raw = productUpdateDefaultRepository
+	}
 	parts := strings.Split(raw, "/")
 	if len(parts) != 2 || !sourceReleaseRepoPattern.MatchString(parts[0]) || !sourceReleaseRepoPattern.MatchString(parts[1]) {
 		return "", "", errProductUpdateRepoMissing
@@ -447,7 +454,8 @@ func productUpdateRepository() (string, string, error) {
 }
 
 // productUpdateTokenCandidates 先用收费仓库令牌，再用 Release 设置里的令牌，最后匿名。
-// 仓库公开时匿名就能成功。两处都没有令牌时只试匿名，不新建配置项。
+// 默认仓库是私有的，没有令牌会失败。环境变量改到公开仓库时，匿名这一步仍能成功。
+// 两处都没有令牌时只试匿名，不新建配置项。
 func productUpdateTokenCandidates() []string {
 	seen := map[string]struct{}{}
 	list := make([]string, 0, 3)

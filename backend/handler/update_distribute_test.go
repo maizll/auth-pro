@@ -185,7 +185,7 @@ func TestProductUpdatePackageCachesByVersion(t *testing.T) {
 func TestProductUpdateMissingRepositoryDoesNotMentionHost(t *testing.T) {
 	resetProductUpdateStateForTest()
 	t.Cleanup(resetProductUpdateStateForTest)
-	t.Setenv(productUpdateRepoEnv, "")
+	t.Setenv(productUpdateRepoEnv, "not a repo")
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	RegisterProductUpdateRoutes(router.Group("/api"))
@@ -194,14 +194,38 @@ func TestProductUpdateMissingRepositoryDoesNotMentionHost(t *testing.T) {
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status %d", recorder.Code)
 	}
-	if strings.Contains(recorder.Body.String(), "github") || strings.Contains(strings.ToLower(recorder.Body.String()), "token") {
+	if strings.Contains(recorder.Body.String(), "github") || strings.Contains(recorder.Body.String(), "not a repo") || strings.Contains(strings.ToLower(recorder.Body.String()), "token") {
 		t.Fatalf("error leaked: %s", recorder.Body.String())
+	}
+}
+
+func TestProductUpdateDefaultRepositoryIsClientRepo(t *testing.T) {
+	resetProductUpdateStateForTest()
+	t.Cleanup(resetProductUpdateStateForTest)
+	t.Setenv(productUpdateRepoEnv, "")
+	var gotPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+	productUpdateGitHubAPI = upstream.URL
+	if _, err := productUpdateLatestBody(context.Background(), true); err == nil {
+		t.Fatal("empty upstream should fail")
+	}
+	if gotPath != "/repos/maizll/auth-pro-client/releases/latest" {
+		t.Fatalf("path = %s", gotPath)
 	}
 }
 
 func TestProductUpdateRateLimit(t *testing.T) {
 	resetProductUpdateStateForTest()
 	t.Cleanup(resetProductUpdateStateForTest)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+	productUpdateGitHubAPI = upstream.URL
 	productUpdateJSONLimiter = newProductUpdateRateLimiter(2, productUpdateRateWindow)
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

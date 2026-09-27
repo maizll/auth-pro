@@ -146,7 +146,7 @@ release/packages/latest.json
 release/packages/releases.json
 ```
 
-构建脚本只生成 `Linux amd64` 后端，版本参数必须匹配 `X.Y.Z`。发给旧客户站的 `latest.json` 仍记录平台、文件名、GitHub Release 下载地址、文件大小和 SHA256；1.7.1 客户站看到的地址由源站改写，见 `docs/update-distribution.md`。`releases.json` 合并保留已有历史版本，并将上一版本标签到当前版本之间的 Git 提交标题自动记录到对应版本的 `notes`。首次发布会记录当前 Git 历史；无 Git 历史时才使用兜底说明。可通过 `AUTO_PRO_RELEASE_NOTES` 显式覆盖本次更新内容（JSON 字符串数组或按行分隔文本）。
+构建脚本只生成 `Linux amd64` 后端，版本参数必须匹配 `X.Y.Z`。`latest.json` 记录平台、文件名、客户交付仓库的 Release 下载地址、文件大小和 SHA256；1.7.1 客户站看到的地址由源站改写，见 `docs/update-distribution.md`。`releases.json` 合并保留已有历史版本，并将上一版本标签到当前版本之间的 Git 提交标题自动记录到对应版本的 `notes`。首次发布会记录当前 Git 历史；无 Git 历史时才使用兜底说明。可通过 `AUTO_PRO_RELEASE_NOTES` 显式覆盖本次更新内容（JSON 字符串数组或按行分隔文本）。
 
 ## GitHub Release 发布（规范发布面）
 
@@ -165,14 +165,13 @@ latest.json
 releases.json
 ```
 
-1.7.1 客户站只读源站清单，不再读 GitHub。发布到 GitHub Release 的 `latest.json` 仍写成 GitHub 附件地址，给 1.7.0 及更早的客户站升级用：
+1.7.1 客户站只读源站清单，不再读 GitHub。本地构建默认把 `latest.json` 写成客户交付仓库的附件地址，可用 `AUTO_PRO_RELEASE_REPOSITORY` 改掉：
 
 ```text
-https://api.github.com/repos/maizll/auth-pro/releases/latest
-https://github.com/maizll/auth-pro/releases/latest/download/latest.json
+https://github.com/maizll/auth-pro-client/releases/latest/download/latest.json
 ```
 
-源站 `GET /api/v1/update/latest.json` 会把里面的下载地址改写成 `https://auth.maizll.com/api/v1/update/...`。客户站忽略 `AUTO_PRO_UPDATE_URL`。维护步骤见 `docs/update-distribution.md`。
+官网分发接口默认也从这个私有仓库取 Release，再用已保存的令牌访问。源站 `GET /api/v1/update/latest.json` 会把里面的下载地址改写成 `https://auth.maizll.com/api/v1/update/...`。客户站忽略 `AUTO_PRO_UPDATE_URL`。维护步骤见 `docs/update-distribution.md`。
 
 可选的 `scripts/publish-gitee-release.sh` / `.ps1` 只用于自建 Gitee **镜像**，必须显式传入 `--repository` / `-Repository`，避免误发到历史 fork。
 
