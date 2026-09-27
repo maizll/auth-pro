@@ -815,7 +815,10 @@
 
   const handleDelete = async (row: LicenseItem) => {
     try {
-      await ElMessageBox.confirm('确定删除该授权？删除后不可恢复', '警告', { type: 'error' })
+      const warning = row.commercialActive
+        ? '该授权带有商业版，删除后对应站点将失去商业版'
+        : '确定删除该授权？删除后不可恢复'
+      await ElMessageBox.confirm(warning, '警告', { type: 'error' })
       await fetchDeleteLicense(row.id)
       ElMessage.success('删除成功')
       refreshRemove()

@@ -86,6 +86,35 @@ func storeFail(c *gin.Context, code int, msg string) {
 	c.JSON(http.StatusOK, gin.H{"code": code, "msg": msg})
 }
 
+// storeTerminal 告诉买家这条授权或绑定已经不能再当商业版。revoked 必须是字段，不能靠中文判断。
+func storeTerminal(c *gin.Context, code int, msg, reason string) {
+	c.JSON(http.StatusOK, gin.H{
+		"code": code,
+		"msg":  msg,
+		"data": gin.H{"reason": reason, "revoked": true},
+	})
+}
+
+func storeLicenseGone(db *sql.DB, licenseID int64) bool {
+	if db == nil || licenseID <= 0 {
+		return false
+	}
+	var id int64
+	err := db.QueryRow(`SELECT id FROM licenses WHERE id = ?`, licenseID).Scan(&id)
+	return errors.Is(err, sql.ErrNoRows)
+}
+
+func storeStatusFailure(c *gin.Context, db *sql.DB, boundLicenseID int64, code int, msg, reason string) {
+	if (reason == "license_not_found" || reason == "query_failed") && storeLicenseGone(db, boundLicenseID) {
+		reason = "license_deleted"
+	}
+	if buyerSnapshotTerminal(reason, false) {
+		storeTerminal(c, code, msg, reason)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": code, "msg": msg, "data": gin.H{"reason": reason}})
+}
+
 func storeData(c *gin.Context, data gin.H) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": data})
 }
@@ -586,7 +615,11 @@ func readSignedStoreBody(c *gin.Context) ([]byte, storeBindingRecord, bool) {
 	}
 	row, err := loadStoreBinding(db, bindingID)
 	if err != nil {
-		storeFail(c, 401, "绑定不存在")
+		if errors.Is(err, sql.ErrNoRows) {
+			storeTerminal(c, 401, "绑定不存在", "binding_deleted")
+		} else {
+			storeFail(c, 500, "查询绑定失败")
+		}
 		return nil, storeBindingRecord{}, false
 	}
 	if row.Status != "active" {
@@ -594,12 +627,12 @@ func readSignedStoreBody(c *gin.Context) ([]byte, storeBindingRecord, bool) {
 		if row.Status == "expired" {
 			reason = "binding_expired"
 		}
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": "绑定已失效", "data": gin.H{"reason": reason}})
+		storeTerminal(c, 401, "绑定已失效", reason)
 		return nil, storeBindingRecord{}, false
 	}
 	if row.LastSeen.Valid && time.Since(row.LastSeen.Time) > storeBindingIdleTTL {
 		_, _ = db.Exec(`UPDATE store_bindings SET status = 'expired', revoked_at = NOW(), revoke_reason = 'idle' WHERE binding_id = ? AND status = 'active'`, bindingID)
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": "绑定已过期", "data": gin.H{"reason": "binding_expired"}})
+		storeTerminal(c, 401, "绑定已过期", "binding_expired")
 		return nil, storeBindingRecord{}, false
 	}
 	master, err := loadOrCreateStoreFileKey("binding-master.key")
@@ -687,19 +720,27 @@ func StoreStatus(c *gin.Context) {
 	license, reason, passed := evaluateLicenseForTarget(db, appID, requestDomain, "", "", "")
 	if !passed {
 		writeVerifyLog(db, sql.NullInt64{Int64: license.ID, Valid: license.ID > 0}, appID, requestDomain, "", c.ClientIP(), "fail", reason, "store-status")
-		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "主授权已失效", "data": gin.H{"reason": reason}})
+		storeStatusFailure(c, db, row.LicenseID, 403, "主授权已失效", reason)
 		return
 	}
 	if license.ID != row.LicenseID {
-		writeVerifyLog(db, sql.NullInt64{Int64: license.ID, Valid: true}, appID, requestDomain, "", c.ClientIP(), "fail", "license_not_found", "store-status")
-		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "主授权与绑定不一致", "data": gin.H{"reason": "license_not_found"}})
+		mismatch := "license_not_found"
+		if storeLicenseGone(db, row.LicenseID) {
+			mismatch = "license_deleted"
+		}
+		writeVerifyLog(db, sql.NullInt64{Int64: license.ID, Valid: true}, appID, requestDomain, "", c.ClientIP(), "fail", mismatch, "store-status")
+		storeTerminal(c, 403, "主授权与绑定不一致", mismatch)
 		return
 	}
 	var ownerType string
 	var ownerID int64
 	var licenseNo string
 	if err := db.QueryRow(`SELECT owner_type, owner_id, license_no FROM licenses WHERE id = ?`, row.LicenseID).Scan(&ownerType, &ownerID, &licenseNo); err != nil || ownerType != row.OwnerType || ownerID != row.OwnerID {
-		c.JSON(http.StatusOK, gin.H{"code": 401, "msg": "绑定已失效", "data": gin.H{"reason": "binding_revoked"}})
+		if errors.Is(err, sql.ErrNoRows) {
+			storeTerminal(c, 401, "绑定已失效", "license_deleted")
+			return
+		}
+		storeTerminal(c, 401, "绑定已失效", "binding_revoked")
 		return
 	}
 	writeVerifyLog(db, sql.NullInt64{Int64: license.ID, Valid: true}, appID, requestDomain, "", c.ClientIP(), "pass", "", "store-status")
