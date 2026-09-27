@@ -35,7 +35,7 @@ go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出
 
 ```bash
 cd /www/wwwroot/example.com
-tar -xzf auth_pro-full-v1.5.7.tar.gz
+tar -xzf auth_pro-full-vX.Y.Z.tar.gz
 bash baota-install.sh
 ```
 
@@ -45,7 +45,7 @@ bash baota-install.sh
 AUTH_PRO_YES=1 AUTH_PRO_START=0 \
 bash baota-install.sh \
   --site-root /www/wwwroot/example.com \
-  --package /tmp/auth_pro-full-v1.5.7.tar.gz
+  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz
 ```
 
 ### 安装脚本会做的事
@@ -82,10 +82,10 @@ bash baota-install.sh \
 进程没有被守护托管时，脚本会先停本站进程并确认端口空闲。进程已经由宝塔进程守护或 systemd 托管时，加上 `--start`：脚本不停止守护，替换文件后只结束本站进程，由守护按 `start.sh` 拉起。`--no-start` 在守护仍托管时会拒绝执行，需要先在面板里停止该站点。
 
 ```bash
-tar -xzf /tmp/auth_pro-full-v1.5.7.tar.gz -C /tmp/auth-pro-1.5.7
-bash /tmp/auth-pro-1.5.7/baota-upgrade.sh \
+tar -xzf /tmp/auth_pro-full-vX.Y.Z.tar.gz -C /tmp/auth-pro-vX.Y.Z
+bash /tmp/auth-pro-vX.Y.Z/baota-upgrade.sh \
   --site-root /www/wwwroot/example.com \
-  --package /tmp/auth_pro-full-v1.5.7.tar.gz \
+  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \
   --start --yes
 ```
 

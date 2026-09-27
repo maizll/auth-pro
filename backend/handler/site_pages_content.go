@@ -19,6 +19,7 @@ import (
 // 公开文档白名单。audit、superpowers、design、admin-navigation、发布说明和技能文件不进官网。
 var sitePublicDocs = map[string]struct{}{
 	"README.md":                                       {},
+	"install.md":                                      {},
 	"deployment.md":                                   {},
 	"admin.md":                                        {},
 	"commercial.md":                                   {},
@@ -54,7 +55,7 @@ func siteDocCategoryFor(rel string) (name, slug string, sort int) {
 	switch {
 	case strings.HasPrefix(rel, "developer/"):
 		return "开发者", "developer", 30
-	case rel == "deployment.md" || rel == "security.md" || rel == "code-structure.md" || rel == "source-station-repo-setup.md":
+	case rel == "install.md" || rel == "deployment.md" || rel == "security.md" || rel == "code-structure.md" || rel == "source-station-repo-setup.md":
 		return "部署与运维", "ops", 10
 	default:
 		return "使用说明", "guide", 20
@@ -74,6 +75,112 @@ func seedSiteDocsOnce(db *sql.DB) error {
 		return err
 	}
 	return markSourceStationMigration(db, sitePagesDocsMigration)
+}
+
+// siteDocSeedSort 让「安装部署」排在部署分类最前，其余仍按文件名顺序。
+func siteDocSeedSort(rel string, fallback int) int {
+	if rel == "install.md" {
+		return 5
+	}
+	return fallback
+}
+
+// refreshSiteDocsOnce 给已有站点补上 edited，并刷新没改过的白名单正文。
+// 找不到 docs 目录时不记迁移，下次启动再试。用户改过（edited=1）或自己新建的文章不覆盖。
+func refreshSiteDocsOnce(db *sql.DB) error {
+	if err := ensureSourceStationColumn(db, "site_doc_articles", "edited",
+		`ALTER TABLE site_doc_articles ADD COLUMN edited TINYINT NOT NULL DEFAULT 0`); err != nil {
+		return err
+	}
+	pending, err := sourceStationMigrationPending(db, sitePagesDocsRefreshMigration)
+	if err != nil || !pending {
+		return err
+	}
+	root := findSiteDocsRoot()
+	if root == "" {
+		return nil
+	}
+	if err := refreshUneditedSiteDocs(db, root); err != nil {
+		return err
+	}
+	return markSourceStationMigration(db, sitePagesDocsRefreshMigration)
+}
+
+func refreshUneditedSiteDocs(db *sql.DB, root string) error {
+	// 这一列是后加的。保存过的行 updated_at 会晚于 created_at，视为用户改过。
+	if _, err := db.Exec(`UPDATE site_doc_articles SET edited = 1 WHERE edited = 0 AND updated_at > created_at`); err != nil {
+		return err
+	}
+	paths := make([]string, 0, len(sitePublicDocs))
+	for rel := range sitePublicDocs {
+		paths = append(paths, rel)
+	}
+	sort.Strings(paths)
+	for _, rel := range paths {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		payload, err := os.ReadFile(full)
+		if err != nil {
+			continue
+		}
+		body := strings.TrimSpace(string(payload))
+		if body == "" {
+			continue
+		}
+		title := trimSiteText(siteDocTitle(body, rel), 120)
+		slug := siteDocSlug(rel)
+		summary := trimSiteText(siteDocSummary(body), 300)
+		var id int64
+		var edited int
+		err = db.QueryRow(`SELECT id, edited FROM site_doc_articles WHERE source_path = ? ORDER BY id ASC LIMIT 1`, rel).Scan(&id, &edited)
+		if err == sql.ErrNoRows {
+			// 只补本版新增的安装文档。其余缺失行视为用户删过，不再插回去。
+			if rel != "install.md" {
+				continue
+			}
+			var taken int
+			if err := db.QueryRow(`SELECT COUNT(*) FROM site_doc_articles WHERE slug = ?`, slug).Scan(&taken); err != nil {
+				return err
+			}
+			if taken > 0 {
+				continue
+			}
+			catName, catSlug, catSort := siteDocCategoryFor(rel)
+			categoryID, err := ensureSiteDocCategory(db, catName, catSlug, catSort)
+			if err != nil {
+				return err
+			}
+			if _, err := db.Exec(`INSERT INTO site_doc_articles
+				(category_id, title, slug, summary, body, sort, hidden, source_path, edited)
+				VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0)`,
+				categoryID, title, slug, summary, body, siteDocSeedSort(rel, 10), rel); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if edited != 0 {
+			continue
+		}
+		// 显式写回 updated_at，避免这次刷新被下一轮误判成用户改过。
+		// 只调整安装文档的排序，其它文章保持原有顺序。
+		if rel == "install.md" {
+			_, err = db.Exec(`UPDATE site_doc_articles
+				SET title = ?, summary = ?, body = ?, sort = ?, updated_at = created_at
+				WHERE id = ? AND edited = 0`,
+				title, summary, body, siteDocSeedSort(rel, 10), id)
+		} else {
+			_, err = db.Exec(`UPDATE site_doc_articles
+				SET title = ?, summary = ?, body = ?, updated_at = created_at
+				WHERE id = ? AND edited = 0`,
+				title, summary, body, id)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func seedSiteDocs(db *sql.DB, root string) error {
@@ -112,7 +219,7 @@ func seedSiteDocs(db *sql.DB, root string) error {
 		if _, err := db.Exec(`INSERT INTO site_doc_articles
 			(category_id, title, slug, summary, body, sort, hidden, source_path)
 			VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
-			categoryID, trimSiteText(title, 120), slug, trimSiteText(summary, 300), body, order[catSlug]*10, rel); err != nil {
+			categoryID, trimSiteText(title, 120), slug, trimSiteText(summary, 300), body, siteDocSeedSort(rel, order[catSlug]*10), rel); err != nil {
 			return err
 		}
 	}
@@ -399,7 +506,7 @@ func SiteDocAdminUpdate(c *gin.Context) {
 		return
 	}
 	result, err := db.Exec(`UPDATE site_doc_articles
-		SET category_id = ?, title = ?, slug = ?, summary = ?, body = ?, sort = ?, hidden = ?
+		SET category_id = ?, title = ?, slug = ?, summary = ?, body = ?, sort = ?, hidden = ?, edited = 1
 		WHERE id = ?`,
 		req.CategoryID, req.Title, req.Slug, req.Summary, req.Body, req.Sort, req.Hidden, id)
 	if err != nil {

@@ -23,14 +23,15 @@ import (
 )
 
 const (
-	sitePagesDocsMigration = "site_pages_docs_v1"
-	siteNavBuiltin         = "builtin"
-	siteNavExternal        = "external"
-	siteChangelogRelease   = "release"
-	siteChangelogManual    = "manual"
-	siteTagAdded           = "added"
-	siteTagImproved        = "improved"
-	siteTagFixed           = "fixed"
+	sitePagesDocsMigration        = "site_pages_docs_v1"
+	sitePagesDocsRefreshMigration = "site_pages_docs_v2"
+	siteNavBuiltin                = "builtin"
+	siteNavExternal               = "external"
+	siteChangelogRelease          = "release"
+	siteChangelogManual           = "manual"
+	siteTagAdded                  = "added"
+	siteTagImproved               = "improved"
+	siteTagFixed                  = "fixed"
 	// 免费版安装包固定指向本仓库的 GitHub Releases latest，不在页面上写死某个版本号。
 	freeEditionDownloadURL = "https://github.com/maizll/auth-pro/releases/latest"
 )
@@ -111,6 +112,7 @@ func RegisterSitePageAdminRoutes(api *gin.RouterGroup) {
 }
 
 // EnsureSitePagesSchema 建表、补齐五个内置导航，并在首次启动时灌入公开文档。
+// 已有站点会刷新没改过的白名单文档，并补上安装部署；改过的文章不覆盖。
 // 每次启动都会把新的 release notes 补进更新日志；已改过或已删除的条目不会被盖回去。
 // 数据库执行失败时返回错误，调用方只记日志，不阻断已经在跑的进程。
 func EnsureSitePagesSchema(db *sql.DB) error {
@@ -136,6 +138,9 @@ func EnsureSitePagesSchema(db *sql.DB) error {
 		return err
 	}
 	if err := seedSiteDocsOnce(db); err != nil {
+		return err
+	}
+	if err := refreshSiteDocsOnce(db); err != nil {
 		return err
 	}
 	if err := importSiteReleaseNotes(db, findSiteDocsRoot()); err != nil {
@@ -188,6 +193,7 @@ func ensureSitePagesTables(db *sql.DB) error {
 			sort INT NOT NULL DEFAULT 0,
 			hidden TINYINT NOT NULL DEFAULT 0,
 			source_path VARCHAR(200) NOT NULL DEFAULT '',
+			edited TINYINT NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY (id),

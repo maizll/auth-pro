@@ -2,11 +2,15 @@ package handler
 
 import (
 	"database/sql"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestSiteDocWhitelistSkipsInternalRecords(t *testing.T) {
 	allowed := []string{
+		"install.md",
 		"deployment.md",
 		"commercial.md",
 		"developer/template-package.md",
@@ -30,6 +34,64 @@ func TestSiteDocWhitelistSkipsInternalRecords(t *testing.T) {
 			t.Fatalf("%s must stay off the public site", rel)
 		}
 	}
+}
+
+func TestInstallDocUsesPublishedBaotaCommands(t *testing.T) {
+	name, slug, catSort := siteDocCategoryFor("install.md")
+	if name != "部署与运维" || slug != "ops" || catSort != 10 {
+		t.Fatalf("category=%s %s %d", name, slug, catSort)
+	}
+	if siteDocSeedSort("install.md", 30) != 5 || siteDocSeedSort("deployment.md", 20) != 20 {
+		t.Fatal("install.md should lead the ops category without moving other articles")
+	}
+	body := readRepoDoc(t, "install.md")
+	for _, snippet := range []string{
+		"cd /www/wwwroot/example.com\ntar -xzf auth_pro-full-vX.Y.Z.tar.gz\nbash baota-install.sh",
+		"AUTH_PRO_YES=1 AUTH_PRO_START=0 \\\nbash baota-install.sh \\\n  --site-root /www/wwwroot/example.com \\\n  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz",
+		"bash baota-upgrade.sh \\\n  --site-root /www/wwwroot/example.com \\\n  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \\\n  --no-start",
+		"https://api.github.com/repos/maizll/auth-pro/releases/latest",
+		"检查更新",
+		"立即更新",
+	} {
+		if !strings.Contains(body, snippet) {
+			t.Fatalf("install.md missing %q", snippet)
+		}
+	}
+	if strings.Contains(body, "v1.5.7") || strings.Contains(body, "上传安装包") {
+		t.Fatal("install.md still has a stale or invented install step")
+	}
+	current, historical, ok := strings.Cut(readRepoDoc(t, "deployment.md"), "## 从 1.5.5 或 1.5.6 升级到 1.5.7")
+	if !ok {
+		t.Fatal("deployment.md lost the 1.5.7 historical upgrade section")
+	}
+	if strings.Contains(current, "auth_pro-full-v1.5.7.tar.gz") {
+		t.Fatal("current deployment examples still pin v1.5.7")
+	}
+	if !strings.Contains(current, "auth_pro-full-vX.Y.Z.tar.gz") {
+		t.Fatal("current deployment examples lost the package placeholder")
+	}
+	if !strings.Contains(historical, "auth_pro-full-v1.5.7.tar.gz") {
+		t.Fatal("historical 1.5.7 upgrade command should stay pinned")
+	}
+	admin := readRepoDoc(t, "admin.md")
+	if !strings.Contains(admin, "| 官网页面 | `/system/site-pages` | 仅超管 |") {
+		t.Fatal("admin.md is missing 官网页面")
+	}
+}
+
+func readRepoDoc(t *testing.T, name string) string {
+	t.Helper()
+	for _, candidate := range []string{
+		filepath.Join("..", "..", "docs", name),
+		filepath.Join("docs", name),
+	} {
+		payload, err := os.ReadFile(candidate)
+		if err == nil {
+			return string(payload)
+		}
+	}
+	t.Fatalf("docs/%s not found", name)
+	return ""
 }
 
 func TestSplitAndClassifyReleaseNotes(t *testing.T) {
