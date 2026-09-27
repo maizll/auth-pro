@@ -108,12 +108,23 @@
 
   .shared ul {
     margin: 12px 0 0;
-    padding-left: 18px;
+    padding: 0;
+    list-style: none;
   }
 
   .shared li {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
     line-height: 1.8;
     white-space: normal;
     overflow-wrap: anywhere;
+  }
+
+  .shared li::before {
+    flex: 0 0 auto;
+    color: var(--remote-primary, #2f6fed);
+    font-weight: 700;
+    content: '✓';
   }
 </style>

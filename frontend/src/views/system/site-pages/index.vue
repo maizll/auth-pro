@@ -712,13 +712,4 @@
     white-space: nowrap;
     text-overflow: ellipsis;
   }
-
-  @media (max-width: 767px) {
-    .fit-table :deep(.mobile-col-hidden) {
-      display: none !important;
-      width: 0 !important;
-      padding: 0 !important;
-      border: none !important;
-    }
-  }
 </style>

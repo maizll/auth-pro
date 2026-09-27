@@ -202,7 +202,7 @@
 
   .lead,
   .plan-note,
-  .steps span,
+  .steps li > div > span,
   .rules li,
   .benefits span {
     color: rgb(28 39 64 / 72%);
@@ -325,32 +325,48 @@
     border-radius: 14px;
   }
 
-  .num {
+  .steps .num {
     display: inline-flex;
     flex: 0 0 auto;
     align-items: center;
     justify-content: center;
+    box-sizing: border-box;
     width: 28px;
     height: 28px;
+    padding: 0;
     color: #fff;
+    font-size: 14px;
     font-weight: 700;
+    line-height: 1;
     background: var(--remote-primary, #2f6fed);
     border-radius: 50%;
   }
 
   .steps strong,
-  .steps span {
+  .steps li > div > span {
     display: block;
   }
 
   .rules ol {
     margin: 12px 0 0;
-    padding-left: 1.4em;
+    padding: 0;
+    list-style: none;
   }
 
   .rules li {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
     white-space: normal;
     overflow-wrap: anywhere;
+  }
+
+  .rules li::before {
+    flex: 0 0 auto;
+    color: var(--remote-primary, #2f6fed);
+    font-weight: 700;
+    line-height: 1.7;
+    content: '✓';
   }
 
   @media (max-width: 800px) {

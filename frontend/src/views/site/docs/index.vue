@@ -136,7 +136,10 @@
       })
       if (data?.code !== 200) return
       current.value = data.data
-      const rendered = renderSiteMarkdown(String(data.data?.body || ''))
+      const rendered = renderSiteMarkdown(
+        String(data.data?.body || ''),
+        String(data.data?.title || '')
+      )
       html.value = rendered.html
       toc.value = rendered.toc
     } catch {
@@ -228,6 +231,10 @@
     padding-left: 24px;
   }
 
+  .toc-l4 {
+    padding-left: 36px;
+  }
+
   h1 {
     margin: 0 0 12px;
     overflow-wrap: anywhere;
@@ -251,14 +258,117 @@
 
   .markdown-body {
     min-width: 0;
-    padding: 8px 0 20px;
+    padding: 4px 0 20px;
+    font-size: 15px;
     line-height: 1.75;
     overflow-wrap: anywhere;
   }
 
+  .markdown-body :deep(h1),
+  .markdown-body :deep(h2),
+  .markdown-body :deep(h3),
+  .markdown-body :deep(h4) {
+    margin: 1.15em 0 0.45em;
+    font-weight: 700;
+    line-height: 1.35;
+    color: inherit;
+  }
+
+  .markdown-body :deep(h1) {
+    font-size: 28px;
+  }
+
+  .markdown-body :deep(h2) {
+    font-size: 22px;
+  }
+
+  .markdown-body :deep(h3) {
+    font-size: 18px;
+  }
+
+  .markdown-body :deep(h4) {
+    font-size: 16px;
+  }
+
+  .markdown-body :deep(p),
+  .markdown-body :deep(ul),
+  .markdown-body :deep(ol),
+  .markdown-body :deep(pre),
+  .markdown-body :deep(blockquote),
+  .markdown-body :deep(table) {
+    margin: 0 0 0.9em;
+  }
+
+  .markdown-body :deep(ul),
+  .markdown-body :deep(ol) {
+    padding-left: 1.4em;
+  }
+
+  .markdown-body :deep(ul) {
+    list-style: disc;
+  }
+
+  .markdown-body :deep(ol) {
+    list-style: decimal;
+  }
+
+  .markdown-body :deep(li) {
+    margin: 0.2em 0;
+  }
+
+  .markdown-body :deep(li > ul),
+  .markdown-body :deep(li > ol) {
+    margin-bottom: 0.3em;
+  }
+
+  .markdown-body :deep(a) {
+    color: var(--remote-primary, #2f6fed);
+    text-decoration: underline;
+  }
+
+  .markdown-body :deep(code) {
+    padding: 0.1em 0.35em;
+    font-size: 0.92em;
+    background: rgb(47 111 237 / 8%);
+    border-radius: 4px;
+  }
+
   .markdown-body :deep(pre) {
     max-width: 100%;
+    padding: 12px 14px;
     overflow-x: auto;
+    background: #f4f7fd;
+    border-radius: 10px;
+  }
+
+  .markdown-body :deep(pre code) {
+    padding: 0;
+    background: transparent;
+  }
+
+  .markdown-body :deep(blockquote) {
+    padding: 8px 14px;
+    color: rgb(28 39 64 / 75%);
+    background: rgb(47 111 237 / 6%);
+    border-left: 3px solid var(--remote-primary, #2f6fed);
+  }
+
+  .markdown-body :deep(table) {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .markdown-body :deep(th),
+  .markdown-body :deep(td) {
+    padding: 8px 10px;
+    text-align: left;
+    border: 1px solid rgb(28 39 64 / 12%);
+    overflow-wrap: anywhere;
+  }
+
+  .markdown-body :deep(th) {
+    font-weight: 700;
+    background: #f4f7fd;
   }
 
   .markdown-body :deep(img) {

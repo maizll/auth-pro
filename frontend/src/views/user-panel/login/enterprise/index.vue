@@ -430,7 +430,22 @@
 
   article ul {
     margin: 8px 0 0;
-    padding-left: 18px;
+    padding: 0;
+    list-style: none;
+  }
+
+  article li {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+
+  article li::before {
+    flex: 0 0 auto;
+    color: var(--remote-primary);
+    font-weight: 700;
+    line-height: 1.6;
+    content: '✓';
   }
 
   footer {
