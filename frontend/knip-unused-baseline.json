@@ -160,7 +160,6 @@
     "src/utils/checkout.ts:type:CheckoutPayload",
     "src/utils/commercial.ts:commercialPlanLabel",
     "src/utils/commercial.ts:commercialText",
-    "src/utils/commercial.ts:storePayloadRebind",
     "src/utils/commercial.ts:type:CommercialCta",
     "src/utils/form/catalog-category.ts:type:CatalogCategoryInput",
     "src/utils/form/catalog-category.ts:type:CatalogCategoryKind",

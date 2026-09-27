@@ -134,7 +134,7 @@ func buyerSnapshotTerminal(reason string, revoked bool) bool {
 		return true
 	}
 	switch strings.TrimSpace(reason) {
-	case "license_deleted", "binding_deleted", "binding_revoked", "binding_expired", "license_not_found", "license_revoked", "license_expired":
+	case "license_deleted", "binding_deleted", "binding_revoked", "binding_expired", "license_not_found", "license_revoked", "license_expired", "token_invalid":
 		return true
 	default:
 		return false
@@ -197,6 +197,30 @@ func sourceErrorFromEnvelope(envelope map[string]any) error {
 		msg = "源站拒绝了请求"
 	}
 	return &sourceResponseError{Code: code, Msg: msg, Reason: reason, Revoked: revoked}
+}
+
+const buyerBindingCheckPath = "/api/v1/store/binding"
+
+// reconcileBuyerBinding 用本地绑定令牌问源站这条绑定还在不在。
+// 没有本地令牌时不访问源站。源站明确说绑定已删除或令牌失效时，签名请求会清掉本地记录。
+// 网络失败或源站其它拒绝不算失效，调用方应继续用本地快照。
+func reconcileBuyerBinding() (invalidReason string, verified bool) {
+	if _, _, err := openBuyerBindingSecret(); err != nil {
+		return "", false
+	}
+	err := signedSourceJSON(http.MethodGet, buyerBindingCheckPath, nil, nil)
+	if err == nil {
+		return "", true
+	}
+	if !buyerRefreshFailureRevoked(err) {
+		return "", false
+	}
+	reason := "revoked"
+	var src *sourceResponseError
+	if errors.As(err, &src) && strings.TrimSpace(src.Reason) != "" {
+		reason = strings.TrimSpace(src.Reason)
+	}
+	return reason, false
 }
 
 func buyerRefreshIsNetwork(err error) bool {

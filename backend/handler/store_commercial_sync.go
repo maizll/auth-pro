@@ -128,6 +128,27 @@ func invalidateLocalBuyerSnapshot(licenseNo string, bindingIDs []string, reason 
 	_ = saveBuyerSnapshot(state)
 }
 
+// clearEditionOnlyRevoke 去掉「只是还没买商业版」造成的失效标记。
+// 这种标记会让购买窗口误以为绑定已被源站删除。绑定本身是否还在，要另问源站。
+func clearEditionOnlyRevoke(state buyerSnapshotState) (buyerSnapshotState, bool) {
+	if !state.ExplicitRevoked || state.RevokeReason != "edition_revoked" {
+		return state, false
+	}
+	state.ExplicitRevoked = false
+	state.RevokeReason = ""
+	return state, true
+}
+
+// classifyLocalCommercialStale 区分「权益没了」和「绑定没了」。
+// 商业版权益未开通或已吊销时，绑定仍可用来购买，不能要求重新登录。
+// 绑定或授权记录本身无效时，才标记明确吊销。
+func classifyLocalCommercialStale(state buyerSnapshotState, why string) (buyerSnapshotState, string) {
+	if why == "edition_revoked" {
+		return state, storeEditionFree
+	}
+	return markLocalBuyerSnapshotRevoked(state, why), state.Snapshot.Edition
+}
+
 func markLocalBuyerSnapshotRevoked(state buyerSnapshotState, reason string) buyerSnapshotState {
 	state.ExplicitRevoked = true
 	if state.RevokeReason == "" {

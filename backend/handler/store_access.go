@@ -238,17 +238,25 @@ func currentBuyerAccess(c *gin.Context) buyerAccessView {
 	if !ok {
 		return view
 	}
+	if healed, changed := clearEditionOnlyRevoke(state); changed {
+		state = healed
+		_ = saveBuyerSnapshot(state)
+	}
+	accessEdition := state.Snapshot.Edition
 	if !state.ExplicitRevoked {
 		bindingID := state.Snapshot.BindingID
 		if bindingID == "" {
 			bindingID = state.BindingID
 		}
 		if stale, why := localCommercialSnapshotStale(bindingID); stale {
-			state = markLocalBuyerSnapshotRevoked(state, why)
+			next, edition := classifyLocalCommercialStale(state, why)
 			// 禁用只影响这一次读取。重新启用后仍用原来的快照，不必等下一次刷新。
-			if why != "license_inactive" {
-				_ = saveBuyerSnapshot(state)
+			// 仅仅还没开通商业版不算绑定失效，不写明确吊销。
+			if next.ExplicitRevoked && !state.ExplicitRevoked && why != "license_inactive" {
+				_ = saveBuyerSnapshot(next)
 			}
+			state = next
+			accessEdition = edition
 		}
 	}
 	view.Bound = true
@@ -262,7 +270,11 @@ func currentBuyerAccess(c *gin.Context) buyerAccessView {
 	view.GraceUntil = state.GraceUntil
 	view.ExplicitRevoked = state.ExplicitRevoked
 	view.ExpireAt = state.Snapshot.EditionExpireAt
-	view.Permanent = state.Snapshot.Edition == storeEditionCommercial && state.Snapshot.EditionExpireAt == nil
+	view.Permanent = accessEdition == storeEditionCommercial && state.Snapshot.EditionExpireAt == nil
+	if accessEdition != storeEditionCommercial {
+		view.Permanent = false
+		view.ExpireAt = nil
+	}
 	view.Features = state.Snapshot.Features
 	if view.Features == nil {
 		view.Features = []string{}
@@ -272,7 +284,7 @@ func currentBuyerAccess(c *gin.Context) buyerAccessView {
 		requestDomain = state.Snapshot.Domain
 	}
 	tier, reason := evaluatePaidAccess(paidAccessInput{
-		SnapshotOK: true, Edition: state.Snapshot.Edition, SnapshotDomain: state.Snapshot.Domain,
+		SnapshotOK: true, Edition: accessEdition, SnapshotDomain: state.Snapshot.Domain,
 		RequestDomain: requestDomain, Now: time.Now(), GraceUntil: time.Unix(state.GraceUntil, 0),
 		ExplicitRevoked: state.ExplicitRevoked, Offline: !state.LastRefreshOK,
 	})

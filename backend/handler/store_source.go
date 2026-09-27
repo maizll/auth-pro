@@ -684,7 +684,7 @@ func readSignedStoreBody(c *gin.Context) ([]byte, storeBindingRecord, bool) {
 	secret := deriveBindingSecret(master, row.BindingID, row.Salt)
 	expect := storeRequestSignature(secret, c.Request.Method, c.Request.URL.Path, ts, nonce, body)
 	if !hmac.Equal([]byte(expect), []byte(signature)) {
-		storeFail(c, 401, "签名不正确")
+		rejectMismatchedStoreSignature(c)
 		return nil, storeBindingRecord{}, false
 	}
 	if !rememberStoreNonce(bindingID+":"+nonce, time.Now()) {
@@ -695,6 +695,23 @@ func readSignedStoreBody(c *gin.Context) ([]byte, storeBindingRecord, bool) {
 	c.Set("storeBinding", row)
 	c.Set("storeDB", db)
 	return body, row, true
+}
+
+// rejectMismatchedStoreSignature 表示本地拿来签名的令牌已经对不上源站。
+// 这不是时钟偏差。买家应清掉旧令牌，让用户重新登录绑定。
+func rejectMismatchedStoreSignature(c *gin.Context) {
+	storeTerminal(c, 401, "绑定令牌已失效", "token_invalid")
+}
+
+// StoreBindingCheck 只核对签名和绑定是否还在。
+// 不刷新商业版快照，也不占用状态接口每分钟一次的限制。
+// 绑定已删除或令牌失效时由 readSignedStoreBody 返回终止原因。
+func StoreBindingCheck(c *gin.Context) {
+	_, row, ok := readSignedStoreBody(c)
+	if !ok {
+		return
+	}
+	storeData(c, gin.H{"valid": true, "bindingId": row.BindingID})
 }
 
 // StoreAuthLogout 吊销当前签名对应的绑定。签名无效时 readSignedStoreBody 已写错误。

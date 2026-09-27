@@ -64,7 +64,7 @@ func TestSignedRequestClearsBindingOnTerminalReason(t *testing.T) {
 	restore := useStoreSnapshotKeysForTest(pub, priv)
 	t.Cleanup(restore)
 
-	for _, reason := range []string{"binding_revoked", "binding_deleted", "license_deleted", "license_revoked", "binding_expired"} {
+	for _, reason := range []string{"binding_revoked", "binding_deleted", "license_deleted", "license_revoked", "binding_expired", "token_invalid"} {
 		writeTestBuyerBinding(t, dir)
 		signed, err := signStoreSnapshot(storeSnapshot{
 			BindingID: "sb_test", Domain: "shop.example.com", Edition: storeEditionCommercial,
