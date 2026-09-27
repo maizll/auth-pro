@@ -61,6 +61,13 @@ func preparePluginPriceChange(existing, next sourcePlugin) (sourcePlugin, error)
 	crossing := publicFreeBecomingPaid(existing.Status, existing.LatestVersion, existing.PriceCents, next.PriceCents)
 	reverting := existing.PriceCents > 0 && next.PriceCents <= 0
 	if !crossing && !reverting {
+		if next.PriceCents <= 0 && hostedCatalogPackage(next.DownloadURL) {
+			if strings.TrimSpace(next.DownloadURL) != strings.TrimSpace(existing.DownloadURL) {
+				return next, errors.New("必须是 https:// 外部地址，源站不保存插件或模板源码")
+			}
+			next.switchPrepared = true
+			return next, nil
+		}
 		final, ferr := finalizePluginPackage(next)
 		final.switchPrepared = true
 		return final, ferr
@@ -146,6 +153,13 @@ func prepareTemplatePriceChange(existing, next sourceTemplate) (sourceTemplate, 
 	crossing := publicFreeBecomingPaid(existing.Status, existing.LatestVersion, existing.PriceCents, next.PriceCents)
 	reverting := existing.PriceCents > 0 && next.PriceCents <= 0
 	if !crossing && !reverting {
+		if next.PriceCents <= 0 && hostedCatalogPackage(next.TemplateURL) {
+			if strings.TrimSpace(next.TemplateURL) != strings.TrimSpace(existing.TemplateURL) {
+				return next, errors.New("必须是 https:// 外部地址，源站不保存插件或模板源码")
+			}
+			next.switchPrepared = true
+			return next, nil
+		}
 		final, ferr := finalizeTemplatePackage(next)
 		final.switchPrepared = true
 		return final, ferr
@@ -249,15 +263,37 @@ func relocateCatalogLocations(kind, category, itemID, version string, locations 
 	return moves, nil
 }
 
+func hostedCatalogPackage(location string) bool {
+	return isPrivatePackageRef(location) || isGitHubPackageRef(location)
+}
+
+// keepHostedPackageOnFreeSwitch 在付费改回免费时沿用收费仓库里的托管包。
+// 管理员留空，或表单里仍是「私有仓库 …」这样的说明，都不要求再填外链。
+// 填了新的 https 地址则改用该地址。本来就是免费、又没有托管包的条目不走这里。
+func keepHostedPackageOnFreeSwitch(existingPrice int64, existingLocation, existingSHA string, nextPrice int64, submittedLocation, submittedSHA string) (string, string, error) {
+	submittedLocation = strings.TrimSpace(submittedLocation)
+	if existingPrice <= 0 || nextPrice > 0 || !hostedCatalogPackage(existingLocation) {
+		return submittedLocation, submittedSHA, nil
+	}
+	if submittedLocation == "" || submittedLocation == strings.TrimSpace(existingLocation) || hostedCatalogPackage(submittedLocation) || strings.HasPrefix(submittedLocation, "私有仓库 ") {
+		sha := strings.TrimSpace(submittedSHA)
+		if sha == "" {
+			sha = existingSHA
+		}
+		return strings.TrimSpace(existingLocation), sha, nil
+	}
+	if err := validateExternalHTTPS(submittedLocation); err != nil {
+		return "", "", err
+	}
+	return submittedLocation, submittedSHA, nil
+}
+
 func catalogLocationNeedsMove(location string, price int64) bool {
 	location = strings.TrimSpace(location)
-	if location == "" {
+	if location == "" || price <= 0 {
 		return false
 	}
-	if price > 0 {
-		return !isPrivatePackageRef(location) && !isGitHubPackageRef(location)
-	}
-	return isPrivatePackageRef(location) || isGitHubPackageRef(location)
+	return !isPrivatePackageRef(location) && !isGitHubPackageRef(location)
 }
 
 func relocateOneCatalogLocation(kind, category, itemID, version, location string, price int64) (catalogLocationMove, error) {

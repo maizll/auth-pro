@@ -312,8 +312,9 @@
         <el-form-item label="售价（元）">
           <el-input v-model="editForm.priceYuan" placeholder="0" />
           <p class="card-hint">
-            填 0 表示免费。已公开的免费条目可以改为收费，保存前会确认老用户是否继续免费。改回 0
-            会恢复公开下载。
+            填 0
+            表示免费。已公开的免费条目可以改为收费，保存前会确认老用户是否继续免费。收费仓库已有安装包时，改回
+            0 可以不填外链，下载仍由官网提供。
           </p>
         </el-form-item>
         <el-form-item label="来源">
@@ -331,7 +332,14 @@
           <p class="card-hint">仅官方条目可勾选。官方付费条目默认勾选，第三方不包含在商业版里。</p>
         </el-form-item>
         <el-form-item label="下载地址" prop="location">
-          <el-input v-model="editForm.location" placeholder="https://..." />
+          <el-input
+            v-model="editForm.location"
+            :placeholder="editHostedPackage ? '留空则沿用收费仓库里的安装包' : 'https://...'"
+          />
+          <p v-if="editHostedPackage" class="card-hint">
+            收费仓库已有安装包。改回免费可以不填地址，继续用这份托管包，下载仍由官网提供。填写新的
+            https 地址则改用外链。
+          </p>
         </el-form-item>
         <el-form-item v-if="editingItem?.originUrl" label="来源外链">
           <el-input :model-value="editingItem.originUrl" disabled />
@@ -835,6 +843,17 @@
   const pendingPriceSwitch = ref<'grandfather' | 'purchase_only' | ''>('')
   const editRef = ref<FormInstance>()
   const editingItem = ref<SourceCatalogItem | null>(null)
+  function hostedCatalogItem(row: SourceCatalogItem | null) {
+    if (!row) return false
+    if (row.packageSource === 'github') return true
+    const raw = `${row.downloadUrl || ''} ${row.templateUrl || ''}`
+    return (
+      raw.includes('github:') ||
+      isPrivatePackageLocation(row.downloadUrl || '') ||
+      isPrivatePackageLocation(row.templateUrl || '')
+    )
+  }
+  const editHostedPackage = computed(() => hostedCatalogItem(editingItem.value))
   const editForm = reactive({
     id: '',
     name: '',
@@ -869,7 +888,27 @@
   const editRules: FormRules = {
     category: [{ required: true, message: '请选择分类', trigger: 'change' }],
     name: [{ required: true, message: '请填写名称', trigger: 'blur' }],
-    location: [{ required: true, message: '请填写外部地址', trigger: 'blur' }],
+    location: [
+      {
+        validator: (_rule: unknown, value: string, callback: (error?: Error) => void) => {
+          const raw = String(value || '').trim()
+          if (!raw || raw.startsWith('私有仓库 ')) {
+            if (editHostedPackage.value) {
+              callback()
+              return
+            }
+            callback(new Error('请填写外部地址'))
+            return
+          }
+          if (!isHttpsLocation(raw)) {
+            callback(new Error('外部地址须以 https:// 开头'))
+            return
+          }
+          callback()
+        },
+        trigger: 'blur'
+      }
+    ],
     sha256: [
       optionalPaidShaRule(
         () => editForm.priceYuan,
@@ -1306,7 +1345,7 @@
     editForm.id = row.id
     editForm.name = row.name
     editForm.description = row.description || ''
-    editForm.location = itemLocation(row)
+    editForm.location = hostedCatalogItem(row) ? '' : itemLocation(row)
     editForm.sha256 = row.sha256 || ''
     editForm.priceYuan = formatCatalogPriceYuan(row.priceCents)
     editForm.authorName = row.author?.name || ''
@@ -1354,7 +1393,9 @@
     if (action === 'to-free') {
       try {
         await ElMessageBox.confirm(
-          '改回免费后，安装包会重新提供公开下载地址。已经发给老用户的免费权益会保留。',
+          editHostedPackage.value
+            ? '改回免费后继续使用收费仓库里的安装包，下载由官网提供。留空即可；填写新的 https 地址则改用外链。'
+            : '改回免费后，安装包会重新提供公开下载地址。已经发给老用户的免费权益会保留。',
           '改回免费',
           { confirmButtonText: '确认改回免费', cancelButtonText: '取消', type: 'warning' }
         )
@@ -1363,6 +1404,12 @@
       }
     }
     await saveEdit('')
+  }
+
+  function submittedEditLocation() {
+    const raw = editForm.location.trim()
+    if (editHostedPackage.value && (raw === '' || raw.startsWith('私有仓库 '))) return ''
+    return raw
   }
 
   async function saveEdit(priceSwitch: 'grandfather' | 'purchase_only' | '') {
@@ -1385,7 +1432,7 @@
           description: editForm.description,
           version: editingItem.value.version || '1.0.0',
           schemaVersion: editingItem.value.schemaVersion || 1,
-          templateUrl: editForm.location,
+          templateUrl: submittedEditLocation(),
           sha256: editForm.sha256,
           priceCents: priced.cents,
           changelog: editForm.changelog,
@@ -1403,7 +1450,7 @@
           name: editForm.name,
           description: editForm.description,
           version: editingItem.value.version || '1.0.0',
-          downloadUrl: editForm.location,
+          downloadUrl: submittedEditLocation(),
           sha256: editForm.sha256,
           priceCents: priced.cents,
           changelog: editForm.changelog,

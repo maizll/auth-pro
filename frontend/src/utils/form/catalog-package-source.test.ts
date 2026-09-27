@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
-import { catalogUploadBlockReason, developerCatalogBlockReason } from './catalog-package-source'
+import {
+  catalogHostedFreeLocationOptional,
+  catalogUploadBlockReason,
+  developerCatalogBlockReason
+} from './catalog-package-source'
 
 const github =
   'https://github.com/maizll/authproPlus-source/releases/download/alipay-f2f-1.0.0/alipay-f2f-1.0.0.zip'
@@ -182,3 +186,8 @@ assert.equal(
   }),
   '提交审核前请填写校验码'
 )
+assert.equal(catalogHostedFreeLocationOptional(true, '0', ''), true)
+assert.equal(catalogHostedFreeLocationOptional(true, '0', '私有仓库 acme/paid @ v1 / a.zip'), true)
+assert.equal(catalogHostedFreeLocationOptional(true, '19.9', ''), false)
+assert.equal(catalogHostedFreeLocationOptional(false, '0', ''), false)
+assert.equal(catalogHostedFreeLocationOptional(true, '0', 'https://cdn.example.com/a.zip'), false)

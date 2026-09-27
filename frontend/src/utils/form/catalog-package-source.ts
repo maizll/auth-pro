@@ -4,6 +4,17 @@ import { isHttpsLocation, isTemplateLocation, parseCatalogPriceYuan } from './ca
 export type CatalogPackageSource = 'upload' | 'public'
 export type CatalogPriceSwitchPolicy = 'grandfather' | 'purchase_only'
 
+/** 付费条目已经托管在收费仓库时，改回免费可以不填外链。 */
+export function catalogHostedFreeLocationOptional(
+  hosted: boolean,
+  priceYuan: string,
+  location: string
+) {
+  const cents = parseCatalogPriceYuan(String(priceYuan ?? '').trim() || '0')
+  const raw = String(location || '').trim()
+  return Boolean(hosted) && cents === 0 && (raw === '' || raw.startsWith('私有仓库 '))
+}
+
 /** 已公开的免费条目要改成收费，或收费条目改回免费。 */
 export function catalogPriceSwitchAction(
   currentCents: number,

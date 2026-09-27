@@ -120,6 +120,11 @@ func AdminSourceUpdatePlugin(c *gin.Context) {
 	req.ID = existing.ID
 	req.AppID = existing.AppID
 	req.DownloadURL, req.SHA256 = preferSealedLocation(existing.DownloadURL, existing.SHA256, req.DownloadURL, req.SHA256)
+	req.DownloadURL, req.SHA256, err = keepHostedPackageOnFreeSwitch(existing.PriceCents, existing.DownloadURL, existing.SHA256, req.PriceCents, req.DownloadURL, req.SHA256)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
 	plugin, err := adminPluginFromRequest(req)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
@@ -259,6 +264,11 @@ func AdminSourceUpdateTemplate(c *gin.Context) {
 	req.TemplateKey = existing.TemplateKey
 	req.AppID = existing.AppID
 	req.TemplateURL, req.SHA256 = preferSealedLocation(existing.TemplateURL, existing.SHA256, req.TemplateURL, req.SHA256)
+	req.TemplateURL, req.SHA256, err = keepHostedPackageOnFreeSwitch(existing.PriceCents, existing.TemplateURL, existing.SHA256, req.PriceCents, req.TemplateURL, req.SHA256)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
 	item, err := adminTemplateFromRequest(req)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
@@ -534,7 +544,7 @@ func adminPluginFromRequest(req sourcePluginDraftRequest) (sourcePlugin, error) 
 	if err != nil {
 		return sourcePlugin{}, err
 	}
-	if priceCents <= 0 && downloadURL != "" && !isPrivatePackageRef(downloadURL) {
+	if priceCents <= 0 && downloadURL != "" && !hostedCatalogPackage(downloadURL) {
 		if err := validatePluginDownloadURL(downloadURL); err != nil {
 			return sourcePlugin{}, err
 		}
@@ -623,7 +633,7 @@ func adminTemplateFromRequest(req sourceTemplateDraftRequest) (sourceTemplate, e
 	if err != nil {
 		return sourceTemplate{}, err
 	}
-	if priceCents <= 0 && templateURL != "" && !isPrivatePackageRef(templateURL) {
+	if priceCents <= 0 && templateURL != "" && !hostedCatalogPackage(templateURL) {
 		if err := validateTemplateLocation(templateURL); err != nil {
 			return sourceTemplate{}, err
 		}
