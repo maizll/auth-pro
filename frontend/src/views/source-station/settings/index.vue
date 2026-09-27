@@ -24,7 +24,7 @@
       <el-alert
         v-else-if="showReleaseMissing"
         :title="`当前表单不完整，缺少：${missingFields.join('、')}`"
-        type="warning"
+        type="info"
         :closable="false"
         show-icon
         class="mb-4"
@@ -117,7 +117,7 @@
       <el-alert
         v-else
         class="mb-4 github-paid-alert"
-        type="warning"
+        type="info"
         :closable="false"
         show-icon
         title="尚未配置收费仓库"
@@ -607,17 +607,17 @@
     }
   }
 
-  .github-paid-card :deep(.github-paid-alert.el-alert--warning) {
-    background-color: #fff7ed;
-    border: 1px solid #fdba74;
-    border-left: 4px solid #ea580c;
-    color: #c2410c;
+  .github-paid-card :deep(.github-paid-alert.el-alert--info) {
+    background-color: var(--el-color-primary-light-9);
+    border: 1px solid var(--el-color-primary-light-7);
+    border-left: 4px solid var(--el-color-primary);
+    color: var(--el-text-color-regular);
 
     .el-alert__title,
     .el-alert__description,
     .el-alert__icon,
     .el-alert__content {
-      color: #c2410c;
+      color: var(--el-text-color-regular);
     }
   }
 

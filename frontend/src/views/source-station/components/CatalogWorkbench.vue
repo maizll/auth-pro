@@ -4,7 +4,7 @@
     <el-alert
       v-if="paidRepoReminder"
       class="mb-4"
-      type="warning"
+      type="info"
       :closable="false"
       show-icon
       :title="paidRepoReminder"
@@ -156,7 +156,7 @@
       destroy-on-close
     >
       <el-alert
-        type="warning"
+        type="info"
         :closable="false"
         show-icon
         title="校验不通过就会拒绝：压缩包里要有合法的插件或模板清单，不能包含越界路径。失败不会保存，也不会推送到发布页。"
