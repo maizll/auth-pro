@@ -1,7 +1,8 @@
+<!-- 购买商业版和单独购买插件或模板的窗口。付款区是这一步里的二维码和倒计时，不另做一套支付弹窗。 -->
 <template>
   <div>
     <ElDialog v-model="commercialUi.promptOpen" title="需要商业版" width="460px" append-to-body>
-      <CommercialMark :text="commercialUi.promptText" icon="ri:vip-crown-fill" />
+      <CommercialMark :text="commercialUi.promptText" icon="ri:rocket-2-line" />
       <template #footer>
         <ElButton @click="commercialUi.promptOpen = false">知道了</ElButton>
         <ElButton type="primary" @click="goUpgrade">{{ promptActionLabel }}</ElButton>
@@ -18,9 +19,11 @@
     >
       <template #header>
         <div v-if="showBrandBanner" class="edition-banner">
-          <ArtSvgIcon icon="ri:vip-diamond-fill" class="edition-banner__icon" />
+          <ArtSvgIcon icon="ri:rocket-2-fill" class="edition-banner__icon" />
           <div>
-            <h3>{{ action === 'renew' ? '续费商业版，继续使用全部能力' : commercialPitch.title }}</h3>
+            <h3>{{
+              action === 'renew' ? '续费商业版，继续使用全部能力' : commercialPitch.title
+            }}</h3>
             <p>{{ commercialPitch.subtitle }}</p>
           </div>
         </div>
@@ -28,19 +31,45 @@
       </template>
       <div v-loading="loading" class="upgrade-body">
         <ElAlert v-if="loadError" type="error" :closable="false" show-icon :title="loadError" />
+        <ElAlert
+          v-else-if="siteProblem"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="siteProblem"
+        />
+        <template v-else-if="upgraded && buyingItem && !itemContinued">
+          <div class="celebrate-copy">
+            <ArtSvgIcon icon="ri:shield-check-fill" class="celebrate-copy__icon" />
+            <h3>已购买</h3>
+            <p>权益已刷新。可以立即启用。</p>
+            <ElButton type="primary" :loading="acting" @click="resumeItem"
+              >已购买，立即启用</ElButton
+            >
+          </div>
+        </template>
         <template v-else-if="upgraded">
           <div class="celebrate" aria-hidden="true">
             <span v-for="n in 10" :key="n" class="celebrate__spark" :style="{ '--i': n }" />
           </div>
           <div class="celebrate-copy">
-            <ArtSvgIcon icon="ri:vip-crown-fill" class="celebrate-copy__icon" />
+            <ArtSvgIcon icon="ri:shield-check-fill" class="celebrate-copy__icon" />
             <h3>{{ successTitle }}</h3>
-            <p>授权已经生效。关闭此窗口后，顶栏和页面上的限制提示会马上更新。</p>
-            <p v-if="account">到期时间：{{ commercialExpireText(account) }}</p>
+            <p v-if="buyingItem">购买已生效，并已继续启用。</p>
+            <p v-else>授权已经生效。关闭此窗口后，顶栏和页面上的限制提示会马上更新。</p>
+            <p v-if="account && !buyingItem">到期时间：{{ commercialExpireText(account) }}</p>
           </div>
         </template>
         <template v-else>
-          <section v-if="action !== 'view'" class="compare">
+          <ElAlert
+            v-if="showRebindNotice"
+            class="rebind-notice"
+            type="warning"
+            :closable="false"
+            show-icon
+            title="之前的绑定已在源站删除，请重新绑定账号后继续购买"
+          />
+          <section v-if="action !== 'view' && !buyingItem && !showRebindNotice" class="compare">
             <div class="compare__head">
               <span>能力</span>
               <span>免费版</span>
@@ -60,10 +89,10 @@
             show-icon
             title="当前访问域名与授权域名不一致，付费能力暂按免费版处理。"
           />
-          <template v-if="action === 'view'">
+          <template v-if="action === 'view' && !commercialUi.offer && !needsBind">
             <CommercialLicenseCard :account="account" @refreshed="onAccountRefreshed" />
           </template>
-          <template v-else-if="!account?.bound">
+          <template v-else-if="needsBind">
             <ElForm label-width="72px" class="upgrade-form">
               <ElFormItem label="身份">
                 <ElRadioGroup v-model="form.role">
@@ -75,13 +104,65 @@
                 <ElInput v-model.trim="form.account" placeholder="邮箱或账号" />
               </ElFormItem>
               <ElFormItem label="密码">
-                <ElInput v-model="form.password" type="password" show-password placeholder="仅用于本次登录，不会保存" />
+                <ElInput
+                  v-model="form.password"
+                  type="password"
+                  show-password
+                  placeholder="仅用于本次登录，不会保存"
+                />
               </ElFormItem>
             </ElForm>
-            <ElButton type="primary" :loading="acting" @click="bind">登录并绑定</ElButton>
-            <p class="upgrade-tip">将使用站点域名 {{ account?.requestDomain || '（未识别）' }} 绑定，域名不可在此修改。</p>
+            <ElButton type="primary" :loading="acting" :disabled="!!siteProblem" @click="bind"
+              >登录并绑定</ElButton
+            >
+            <p v-if="!siteProblem" class="upgrade-tip"
+              >将使用站点域名
+              {{ account?.requestDomain || '（未识别）' }} 绑定，域名不可在此修改。</p
+            >
           </template>
-          <template v-else-if="!payUrl">
+          <template v-else-if="payUrl">
+            <div class="pay-panel">
+              <div class="upgrade-qr">
+                <QrcodeVue :value="payUrl" :size="188" />
+              </div>
+              <div class="pay-panel__meta">
+                <p class="pay-panel__title">{{ orderTitle }}</p>
+                <p class="pay-panel__count">剩余 {{ countdownText }}</p>
+                <p v-if="payStatus" class="upgrade-status">{{ payStatus }}</p>
+                <p class="upgrade-tip"
+                  >安全支付：二维码由本站生成。也可以打开付款页，本站不保存支付密码。</p
+                >
+                <ElButton @click="openPayPage">打开付款页</ElButton>
+              </div>
+            </div>
+            <ElAlert v-if="payFailed" type="error" :closable="false" show-icon :title="payFailed" />
+            <ElButton v-if="payFailed" @click="resetPay">{{
+              buyingItem ? '返回' : '重新选择套餐'
+            }}</ElButton>
+          </template>
+          <template v-else-if="buyingItem && commercialUi.offer">
+            <section class="item-offer">
+              <p class="item-offer__name">{{ commercialUi.offer.name }}</p>
+              <p class="item-offer__price">
+                {{ commercialYuanText(commercialUi.offer.priceCents) }}
+                <span v-if="offerPeriod"> · {{ offerPeriod }}</span>
+              </p>
+              <p v-if="commercialUi.offer.purchaseOnly" class="item-offer__note"
+                >商业版不包含此项</p
+              >
+              <div class="item-offer__actions">
+                <ElButton type="primary" :loading="acting" @click="buyItem">
+                  {{
+                    catalogPurchaseButton(commercialUi.offer.kind, commercialUi.offer.priceCents)
+                  }}
+                </ElButton>
+                <ElButton v-if="!commercialUi.offer.purchaseOnly" @click="chooseEdition">
+                  升级商业版（包含全部付费插件和模板）
+                </ElButton>
+              </div>
+            </section>
+          </template>
+          <template v-else>
             <p class="section-title">{{ action === 'renew' ? '选择续费套餐' : '选择套餐' }}</p>
             <div v-if="plans.length" class="plan-grid">
               <button
@@ -95,46 +176,32 @@
                 <span v-if="index === 0" class="plan-card__ribbon">推荐</span>
                 <span class="plan-card__name">{{ plan.name }}</span>
                 <span class="plan-card__price">
-                  <small>¥</small>{{ yuanWhole(plan.priceCents) }}<small>.{{ yuanFrac(plan.priceCents) }}</small>
+                  <small>¥</small>{{ yuanWhole(plan.priceCents)
+                  }}<small>.{{ yuanFrac(plan.priceCents) }}</small>
                 </span>
-                <span class="plan-card__period">{{ commercialPeriodText(plan.period) || '按约定时长' }}</span>
+                <span class="plan-card__period">{{
+                  commercialPeriodText(plan.period) || '按约定时长'
+                }}</span>
               </button>
             </div>
-            <ElButton type="primary" :loading="acting" :disabled="!planId" @click="pay">生成付款码</ElButton>
+            <ElButton type="primary" :loading="acting" :disabled="!planId" @click="pay"
+              >生成付款码</ElButton
+            >
+            <ElButton v-if="commercialUi.offer" link type="primary" @click="choosingEdition = false"
+              >返回单独购买</ElButton
+            >
             <p v-if="!plans.length" class="upgrade-tip">源站尚未配置可购买的套餐。</p>
           </template>
-          <template v-else>
-            <div class="pay-panel">
-              <div class="upgrade-qr">
-                <QrcodeVue :value="payUrl" :size="188" />
-              </div>
-              <div class="pay-panel__meta">
-                <p class="pay-panel__title">{{ orderTitle }}</p>
-                <p class="pay-panel__count">剩余 {{ countdownText }}</p>
-                <p v-if="payStatus" class="upgrade-status">{{ payStatus }}</p>
-                <p class="upgrade-tip">安全支付：二维码由本站生成。也可以打开付款页，本站不保存支付密码。</p>
-                <ElButton @click="openPayPage">打开付款页</ElButton>
-              </div>
-            </div>
-            <ElAlert v-if="payFailed" type="error" :closable="false" show-icon :title="payFailed" />
-            <ElButton v-if="payFailed" @click="resetPay">重新选择套餐</ElButton>
-          </template>
-          <ElCollapse class="upgrade-settings">
-            <ElCollapseItem title="源站连接" name="conn">
-              <ElForm label-width="88px">
-                <ElFormItem label="源站根">
-                  <ElInput v-model.trim="connection.sourceBase" placeholder="https://auth.maizll.com" />
-                </ElFormItem>
-                <ElFormItem label="站点地址">
-                  <ElInput v-model.trim="connection.siteUrl" placeholder="https://你的域名" />
-                </ElFormItem>
-                <ElFormItem label="信任代理">
-                  <ElSwitch v-model="connection.trustProxy" />
-                </ElFormItem>
-              </ElForm>
-              <ElButton :loading="acting" @click="saveConnection">保存连接</ElButton>
-            </ElCollapseItem>
-          </ElCollapse>
+          <ElButton
+            v-if="account?.bound"
+            class="rebind-fallback"
+            plain
+            type="warning"
+            :loading="acting"
+            @click="releaseBinding"
+          >
+            解除绑定 / 重新绑定
+          </ElButton>
         </template>
       </div>
       <template v-if="upgraded" #footer>
@@ -161,13 +228,14 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+  import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
   import { ElMessage } from 'element-plus'
   import { caughtErrorText, errorAlreadyToasted, showCaughtError } from '@/utils/http/error-toast'
   import QrcodeVue from 'qrcode.vue'
   import CommercialMark from './CommercialMark.vue'
   import CommercialLicenseCard from './CommercialLicenseCard.vue'
   import {
+    catalogPurchaseButton,
     commercialCompareNote,
     commercialCompareRows,
     commercialCta,
@@ -176,15 +244,18 @@
     commercialPeriodText,
     commercialPitch,
     commercialUi,
-    rememberCommercialAccount
+    commercialYuanText,
+    rememberCommercialAccount,
+    requestCatalogResume
   } from '@/utils/commercial'
   import {
     bindStoreAccount,
     createStoreEditionOrder,
+    createStoreItemOrder,
     fetchStoreAccount,
     fetchStoreEditionOrder,
     fetchStorePlans,
-    saveStoreConnection,
+    logoutStoreAccount,
     type StoreAccount,
     type StorePlan
   } from '@/api/store'
@@ -195,8 +266,24 @@
   const account = ref<StoreAccount | null>(null)
   const action = computed(() => commercialCta(account.value))
   const upgraded = ref(false)
+  const choosingEdition = ref(false)
+  const itemContinued = ref(false)
+  // 未绑定、快照已是明确吊销，或这次请求被源站要求重绑，都回到绑定步骤。不能只看本地还记着账号。
+  const needsBind = computed(
+    () => !account.value?.bound || !!account.value?.explicitRevoked || commercialUi.rebindRequired
+  )
+  const showRebindNotice = computed(
+    () => commercialUi.rebindRequired || !!account.value?.explicitRevoked
+  )
+  const pendingItem = computed(() => !!commercialUi.offer && !choosingEdition.value)
+  const buyingItem = computed(() => pendingItem.value && !needsBind.value)
+  const offerPeriod = computed(() => commercialPeriodText(commercialUi.offer?.period))
   const dialogTitle = computed(() => {
-    if (upgraded.value) return '升级完成'
+    if (upgraded.value) {
+      if (pendingItem.value) return itemContinued.value ? '已购买并启用' : '已购买'
+      return '升级完成'
+    }
+    if (pendingItem.value) return commercialUi.offer?.kind === 'template' ? '购买模板' : '购买插件'
     if (action.value === 'view') return '查看授权'
     if (action.value === 'renew') return '续费'
     return '升级商业版'
@@ -219,13 +306,19 @@
   const orderTitle = ref('')
   const payStatus = ref('')
   const payFailed = ref('')
-  const showBrandBanner = computed(() => !upgraded.value && action.value !== 'view')
+  const showBrandBanner = computed(
+    () => !upgraded.value && action.value !== 'view' && !pendingItem.value
+  )
   const purchaseModalClass = computed(() =>
-    showBrandBanner.value ? 'commercial-purchase-modal is-brand' : 'commercial-purchase-modal is-plain'
+    showBrandBanner.value
+      ? 'commercial-purchase-modal is-brand'
+      : 'commercial-purchase-modal is-plain'
   )
   const successTitle = ref('已升级为商业版')
   const form = reactive({ account: '', password: '', role: 'user' })
-  const connection = reactive({ sourceBase: 'https://auth.maizll.com', siteUrl: '', trustProxy: false })
+  const siteProblem = computed(
+    () => account.value?.connectionIssues?.find((item) => item.field === 'site')?.message || ''
+  )
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let pollFailures = 0
   let pendingRefresh = false
@@ -273,16 +366,15 @@
     stopTick()
     payStatus.value = ''
     if (payFailed.value) return
-    payFailed.value = '支付等待超时。若已经付款，请关闭窗口后看顶栏是否已变为商业版；若尚未付款，请重新生成付款码。'
+    payFailed.value = buyingItem.value
+      ? '支付等待超时。若已经付款，请关闭窗口后刷新应用商店；若尚未付款，请重新生成付款码。'
+      : '支付等待超时。若已经付款，请关闭窗口后看顶栏是否已变为商业版；若尚未付款，请重新生成付款码。'
     ElMessage.error(payFailed.value)
   }
 
   function applyAccount(next: StoreAccount) {
     account.value = next
     rememberCommercialAccount(next)
-    connection.sourceBase = next.sourceBase || connection.sourceBase
-    connection.siteUrl = next.siteUrl || ''
-    connection.trustProxy = !!next.trustProxy
   }
 
   function onAccountRefreshed(next: StoreAccount) {
@@ -292,14 +384,18 @@
   async function loadPurchase() {
     stopPoll()
     upgraded.value = false
-    successTitle.value = '已升级为商业版'
+    itemContinued.value = false
+    choosingEdition.value = false
+    successTitle.value = commercialUi.offer ? '已购买' : '已升级为商业版'
     resetPay()
     loadError.value = ''
     loading.value = true
     try {
       const next = await fetchStoreAccount()
       applyAccount(next)
-      if (next.bound && commercialCta(next) !== 'view') {
+      if (next.explicitRevoked) commercialUi.rebindRequired = true
+      else if (next.bound) commercialUi.rebindRequired = false
+      if (next.bound && !next.explicitRevoked && commercialCta(next) !== 'view') {
         const data = await fetchStorePlans()
         plans.value = data.list || []
         planId.value = plans.value[0]?.id
@@ -308,7 +404,9 @@
         planId.value = undefined
       }
     } catch (error: unknown) {
-      loadError.value = caughtErrorText(error, '读取商业版信息失败', errorAlreadyToasted(error)) || '读取商业版信息失败'
+      loadError.value =
+        caughtErrorText(error, '读取商业版信息失败', errorAlreadyToasted(error)) ||
+        '读取商业版信息失败'
       showCaughtError(error, '读取商业版信息失败')
     } finally {
       loading.value = false
@@ -322,7 +420,8 @@
       const next = await fetchStoreAccount()
       applyAccount(next)
     } catch (error: unknown) {
-      loadError.value = caughtErrorText(error, '读取授权信息失败', errorAlreadyToasted(error)) || '读取授权信息失败'
+      loadError.value =
+        caughtErrorText(error, '读取授权信息失败', errorAlreadyToasted(error)) || '读取授权信息失败'
       showCaughtError(error, '读取授权信息失败')
     } finally {
       loading.value = false
@@ -336,18 +435,73 @@
     }
     acting.value = true
     try {
+      const keptPlan = planId.value
       const next = await bindStoreAccount({ ...form })
+      commercialUi.rebindRequired = false
       applyAccount(next)
       form.password = ''
       ElMessage.success('已绑定，请继续支付')
-      const data = await fetchStorePlans()
-      plans.value = data.list || []
-      planId.value = plans.value[0]?.id
-      if (!plans.value.length) {
-        ElMessage.warning('源站尚未配置可购买的套餐')
+      if (!commercialUi.offer || choosingEdition.value) {
+        const data = await fetchStorePlans()
+        plans.value = data.list || []
+        planId.value = plans.value.some((item) => item.id === keptPlan)
+          ? keptPlan
+          : plans.value[0]?.id
+        if (!plans.value.length) {
+          ElMessage.warning('源站尚未配置可购买的套餐')
+        }
       }
     } catch (error: unknown) {
       showCaughtError(error, '绑定失败，请检查源站是否可访问')
+    } finally {
+      acting.value = false
+    }
+  }
+
+  async function chooseEdition() {
+    choosingEdition.value = true
+    if (plans.value.length || !account.value?.bound) return
+    acting.value = true
+    try {
+      const data = await fetchStorePlans()
+      plans.value = data.list || []
+      planId.value = plans.value[0]?.id
+    } catch (error: unknown) {
+      showCaughtError(error, '读取套餐失败')
+    } finally {
+      acting.value = false
+    }
+  }
+
+  function startPayWait(payLink: string, orderNo: string, title: string, amountCents: number) {
+    payUrl.value = payLink
+    orderTitle.value = `${title} ${(amountCents / 100).toFixed(2)} 元`
+    payDeadline = Date.now() + payWindowMs
+    nowTick.value = Date.now()
+    stopTick()
+    tickTimer = setInterval(() => {
+      nowTick.value = Date.now()
+      if (payDeadline && nowTick.value >= payDeadline) expirePayWait()
+    }, 1000)
+    poll(orderNo)
+  }
+
+  async function buyItem() {
+    const offer = commercialUi.offer
+    if (!offer?.id) return
+    acting.value = true
+    payFailed.value = ''
+    try {
+      const order = await createStoreItemOrder(offer.kind, offer.id)
+      if (!order?.payUrl || !order.orderNo) {
+        payFailed.value = '源站没有返回付款码，无法继续支付。'
+        ElMessage.error(payFailed.value)
+        return
+      }
+      successTitle.value = '已购买'
+      startPayWait(order.payUrl, order.orderNo, order.title || offer.name, order.amountCents)
+    } catch (error: unknown) {
+      showCaughtError(error, '创建订单失败')
     } finally {
       acting.value = false
     }
@@ -368,17 +522,8 @@
         ElMessage.error(payFailed.value)
         return
       }
-      payUrl.value = order.payUrl
-      orderTitle.value = `${order.title} ${(order.amountCents / 100).toFixed(2)} 元`
       successTitle.value = buyingUpgrade ? '已升级为商业版' : '商业版已续费'
-      payDeadline = Date.now() + payWindowMs
-      nowTick.value = Date.now()
-      stopTick()
-      tickTimer = setInterval(() => {
-        nowTick.value = Date.now()
-        if (payDeadline && nowTick.value >= payDeadline) expirePayWait()
-      }, 1000)
-      poll(order.orderNo)
+      startPayWait(order.payUrl, order.orderNo, order.title, order.amountCents)
     } catch (error: unknown) {
       showCaughtError(error, '创建订单失败')
     } finally {
@@ -406,7 +551,9 @@
         if (order.status === 'refunded') {
           stopPoll()
           payStatus.value = ''
-          payFailed.value = '这笔订单已退款，商业版没有生效。'
+          payFailed.value = buyingItem.value
+            ? '这笔订单已退款，购买没有生效。'
+            : '这笔订单已退款，商业版没有生效。'
           ElMessage.error(payFailed.value)
           return
         }
@@ -419,14 +566,22 @@
         }
         payStatus.value = '正在等待支付'
       } catch (error: unknown) {
+        if (commercialUi.rebindRequired) {
+          stopPoll()
+          resetPay()
+          return
+        }
         pollFailures += 1
         payStatus.value = '暂时连不上源站，正在重试'
         if (pollFailures >= 5) {
           stopPoll()
           payStatus.value = ''
           payFailed.value =
-            caughtErrorText(error, '无法确认支付结果，请检查网络后重试', errorAlreadyToasted(error)) ||
-            '无法确认支付结果，请检查网络后重试'
+            caughtErrorText(
+              error,
+              '无法确认支付结果，请检查网络后重试',
+              errorAlreadyToasted(error)
+            ) || '无法确认支付结果，请检查网络后重试'
           showCaughtError(error, '无法确认支付结果，请检查网络后重试')
         }
       }
@@ -442,9 +597,42 @@
       showCaughtError(error, '支付已完成，但读取授权失败。关闭窗口后会再试一次。')
     }
     payUrl.value = ''
+    if (commercialUi.offer && !choosingEdition.value) {
+      const resume = commercialUi.offer.resume
+      if (resume) {
+        try {
+          itemContinued.value = await resume()
+        } catch {
+          itemContinued.value = false
+        }
+      } else {
+        itemContinued.value = false
+      }
+      successTitle.value = itemContinued.value ? '已购买并启用' : '已购买'
+    }
     upgraded.value = true
     pendingRefresh = true
     payStatus.value = ''
+  }
+
+  async function resumeItem() {
+    const offer = commercialUi.offer
+    if (!offer) return
+    acting.value = true
+    try {
+      if (offer.resume) {
+        itemContinued.value = await offer.resume()
+      } else {
+        requestCatalogResume(offer)
+        itemContinued.value = true
+      }
+      if (itemContinued.value) successTitle.value = '已购买并启用'
+    } catch {
+      itemContinued.value = false
+      ElMessage.error('已购买，但启用失败。请回到应用商店再试一次。')
+    } finally {
+      acting.value = false
+    }
   }
 
   function onPurchaseClosed() {
@@ -454,24 +642,40 @@
       window.dispatchEvent(new Event('store-account-refresh'))
     }
     upgraded.value = false
+    itemContinued.value = false
+    choosingEdition.value = false
+    commercialUi.offer = null
     resetPay()
   }
 
-  async function saveConnection() {
-    if (!connection.sourceBase.startsWith('https://')) {
-      ElMessage.error('源站地址需要以 https:// 开头')
-      return
-    }
+  async function releaseBinding() {
     acting.value = true
     try {
-      await saveStoreConnection({ ...connection })
-      await loadPurchase()
+      await logoutStoreAccount()
+      commercialUi.rebindRequired = true
+      resetPay()
+      const next = await fetchStoreAccount()
+      applyAccount(next)
     } catch (error: unknown) {
-      showCaughtError(error, '保存源站连接失败')
+      showCaughtError(error, '解除绑定失败')
     } finally {
       acting.value = false
     }
   }
+
+  watch(
+    () => commercialUi.rebindRequired,
+    async (required) => {
+      if (!required) return
+      resetPay()
+      try {
+        const next = await fetchStoreAccount()
+        applyAccount(next)
+      } catch {
+        if (account.value) account.value = { ...account.value, bound: false, explicitRevoked: true }
+      }
+    }
+  )
 
   onBeforeUnmount(() => {
     stopPoll()
@@ -490,10 +694,12 @@
     display: flex;
     gap: 12px;
     align-items: flex-start;
-    margin: -16px calc(-16px - var(--el-dialog-padding-primary, 16px) - var(--el-message-close-size, 16px)) 0 -16px;
+    margin: -16px
+      calc(-16px - var(--el-dialog-padding-primary, 16px) - var(--el-message-close-size, 16px))
+      0 -16px;
     padding: 18px 56px 18px 18px;
-    color: #fff8e8;
-    background: linear-gradient(135deg, #3a2a12 0%, #8a6232 48%, #e8c56b 100%);
+    color: #f7faff;
+    background: linear-gradient(135deg, #0b1f4d 0%, #1d4ed8 58%, #38bdf8 100%);
   }
 
   .edition-banner h3,
@@ -515,7 +721,7 @@
 
   .edition-banner p {
     margin-top: 4px;
-    color: rgb(255 248 232 / 88%);
+    color: rgb(247 250 255 / 88%);
     font-size: 13px;
     line-height: 1.5;
   }
@@ -571,7 +777,7 @@
   }
 
   .compare__paid {
-    color: #8a6232;
+    color: var(--el-color-primary);
     font-weight: 600;
   }
 
@@ -583,7 +789,55 @@
   :global(.dark) .pay-panel__count,
   :global(html.dark) .celebrate-copy__icon,
   :global(.dark) .celebrate-copy__icon {
-    color: #f3d48a;
+    color: var(--el-color-primary-light-3);
+  }
+
+  .rebind-fallback {
+    width: 100%;
+    min-height: 36px;
+  }
+
+  .item-offer {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .item-offer__name,
+  .item-offer__price,
+  .item-offer__note {
+    margin: 0;
+  }
+
+  .item-offer__name {
+    color: var(--el-text-color-primary);
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .item-offer__price {
+    color: var(--el-color-primary);
+    font-size: 22px;
+    font-weight: 700;
+  }
+
+  .item-offer__note {
+    color: var(--el-text-color-secondary);
+    font-size: 13px;
+  }
+
+  .item-offer__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .item-offer__actions :deep(.el-button) {
+    height: auto;
+    min-height: 36px;
+    margin-left: 0;
+    white-space: normal;
   }
 
   .section-title {
@@ -617,8 +871,8 @@
   }
 
   .plan-card.is-selected {
-    border-color: #c8962e;
-    box-shadow: 0 0 0 2px rgb(200 150 46 / 35%);
+    border-color: var(--el-color-primary);
+    box-shadow: 0 0 0 2px var(--el-color-primary-light-7);
   }
 
   .plan-card__ribbon {
@@ -626,9 +880,9 @@
     top: 8px;
     right: -28px;
     padding: 2px 32px;
-    color: #6b4a12;
+    color: #fff;
     font-size: 12px;
-    background: linear-gradient(180deg, #fff3cc, #f3d48a);
+    background: linear-gradient(180deg, var(--el-color-primary-light-3), var(--el-color-primary));
     transform: rotate(35deg);
   }
 
@@ -638,7 +892,7 @@
   }
 
   .plan-card__price {
-    color: #8a6232;
+    color: var(--el-color-primary);
     font-size: 28px;
     font-weight: 700;
     line-height: 1;
@@ -675,7 +929,7 @@
 
   .pay-panel__count {
     margin-top: 6px;
-    color: #8a6232;
+    color: var(--el-color-primary);
     font-size: 20px;
     font-variant-numeric: tabular-nums;
   }
@@ -702,7 +956,7 @@
     left: 50%;
     width: 8px;
     height: 8px;
-    background: #e8c56b;
+    background: var(--el-color-primary-light-3);
     border-radius: 50%;
     animation: spark-out 900ms ease-out both;
     animation-delay: calc(var(--i) * 40ms);
@@ -719,8 +973,8 @@
 
   .celebrate-copy__icon {
     font-size: 36px;
-    color: #c8962e;
-    animation: crown-pop 500ms ease-out both;
+    color: var(--el-color-primary);
+    animation: mark-pop 500ms ease-out both;
   }
 
   .celebrate-copy h3 {
@@ -745,7 +999,7 @@
     }
   }
 
-  @keyframes crown-pop {
+  @keyframes mark-pop {
     from {
       transform: scale(0.6);
     }
@@ -797,7 +1051,7 @@
   }
 
   .commercial-purchase-modal.is-brand .el-dialog__headerbtn .el-dialog__close {
-    color: #fff8e8;
+    color: #f7faff;
   }
 
   @media (max-width: 640px) {

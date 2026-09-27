@@ -1,3 +1,4 @@
+// 菜单标题的中文。后台返回的标题键在这里换成界面上的字。
 import zhMessages from '../../locales/langs/zh.json'
 
 type MenuNode = string | { [key: string]: MenuNode }
@@ -58,9 +59,9 @@ export function formatManageMenuName(row: { title?: string | null; name?: string
 }
 
 /** 把管理树的 title 写成可读中文，编辑回填和表格默认单元格都能直接用。 */
-export function resolveManageMenuTree<
-  T extends { title?: string; name?: string; children?: T[] }
->(items: T[]): T[] {
+export function resolveManageMenuTree<T extends { title?: string; name?: string; children?: T[] }>(
+  items: T[]
+): T[] {
   return items.map((item) => ({
     ...item,
     title: formatManageMenuName(item),

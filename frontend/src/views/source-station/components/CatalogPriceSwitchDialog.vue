@@ -1,3 +1,4 @@
+<!-- 免费改收费前的确认。可以选择老用户继续免费，或所有人都要购买。 -->
 <template>
   <el-dialog
     :model-value="modelValue"
@@ -19,7 +20,9 @@
     <p class="card-hint">
       默认保留老用户免费。系统按已有下载记录，给对应授权或账号发放该条目的免费权益，重复保存不会重复发放。选「所有人都需购买」时，已发放的这类免费权益会收回，商业版也不再直接包含这一条。
     </p>
-    <p v-if="developer" class="card-hint">开发者的付费条目仍不能上架。保存后会从公开目录下架，并继续走现有审核规则。</p>
+    <p v-if="developer" class="card-hint"
+      >开发者的付费条目仍不能上架。保存后会从公开目录下架，并继续走现有审核规则。</p
+    >
     <template #footer>
       <el-button @click="emit('update:modelValue', false)">取消</el-button>
       <el-button type="primary" @click="confirm">确认改为收费</el-button>

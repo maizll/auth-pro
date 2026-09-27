@@ -18,7 +18,10 @@ const menus = [
   { id: 9, name: 'SourceStation', title: '源站运营' }
 ]
 
-assert.deepEqual([...collectSelfAndDescendantIds(menus, 8)].sort((a, b) => a - b), [8, 210, 801])
+assert.deepEqual(
+  [...collectSelfAndDescendantIds(menus, 8)].sort((a, b) => a - b),
+  [8, 210, 801]
+)
 assert.equal(isInvalidMenuParent(8, 8, menus), true)
 assert.equal(isInvalidMenuParent(8, 801, menus), true)
 assert.equal(isInvalidMenuParent(8, 210, menus), true)

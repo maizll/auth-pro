@@ -30,7 +30,7 @@
         <ArtIconButton
           v-if="isLeftMenu && shouldShowMenuButton"
           icon="ri:menu-2-fill"
-          class="ml-3 max-sm:ml-[7px]"
+          class="header-icon ml-3 max-sm:ml-[7px]"
           @click="visibleMenu"
         />
 
@@ -60,7 +60,7 @@
         <ArtMixedMenu v-if="isTopLeftMenu" :list="menuList" />
       </div>
 
-      <div class="flex-c gap-2.5 max-sm:gap-1">
+      <div class="header-actions flex-c gap-2.5">
         <CommercialHeaderButton />
 
         <!-- 全屏按钮 -->
@@ -79,7 +79,7 @@
         <ElDropdown
           @command="changeLanguage"
           popper-class="langDropDownStyle"
-          v-if="shouldShowLanguage"
+          v-if="shouldShowLanguage && !narrow"
         >
           <ArtIconButton icon="ri:translate-2" class="language-btn text-[19px]" />
           <template #dropdown>
@@ -98,7 +98,7 @@
         </ElDropdown>
 
         <!-- 设置按钮 -->
-        <div v-if="shouldShowSettings">
+        <div v-if="shouldShowSettings && !narrow">
           <ElPopover :visible="showSettingGuide" placement="bottom-start" :width="190" :offset="0">
             <template #reference>
               <div class="flex-cc">
@@ -118,7 +118,7 @@
 
         <!-- 主题切换按钮 -->
         <ArtIconButton
-          v-if="shouldShowThemeToggle"
+          v-if="shouldShowThemeToggle && !narrow"
           @click="themeAnimation"
           :icon="isDark ? 'ri:sun-fill' : 'ri:moon-line'"
         />
@@ -147,6 +147,7 @@
   import { themeAnimation } from '@/utils/ui/animation'
   import { useCommon } from '@/hooks/core/useCommon'
   import { useHeaderBar } from '@/hooks/core/useHeaderBar'
+  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import ArtUserMenu from './widget/ArtUserMenu.vue'
   import ArtNotificationBell from '@/components/core/layouts/art-notification/bell.vue'
   import CommercialHeaderButton from '@/components/business/commercial/CommercialHeaderButton.vue'
@@ -156,6 +157,7 @@
   const router = useRouter()
   const { locale } = useI18n()
   const { width } = useWindowSize()
+  const narrow = useNarrowScreen(767)
 
   const settingStore = useSettingStore()
   const userStore = useUserStore()
@@ -361,6 +363,19 @@
   @media screen and (width <= 768px) {
     .logo2 {
       display: block !important;
+    }
+  }
+
+  @media screen and (width <= 767px) {
+    .header-actions {
+      gap: 10px;
+      padding-right: 8px;
+    }
+
+    .header-icon,
+    :deep(.header-icon) {
+      width: 36px !important;
+      height: 36px !important;
     }
   }
 

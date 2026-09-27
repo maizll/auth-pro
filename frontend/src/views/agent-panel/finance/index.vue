@@ -1,3 +1,4 @@
+<!-- 代理财务：余额、充值和流水。 -->
 <template>
   <div class="panel-finance">
     <!-- 统计卡片 -->
@@ -184,7 +185,11 @@
           充值金额 <em>¥{{ Number(rechargeAmount).toFixed(2) }}</em>
         </div>
         <el-radio-group v-model="rechargeDialog.payType" class="pay-type-group">
-          <el-radio-button v-for="item in rechargeMethodOptions" :key="item.code" :value="item.code">
+          <el-radio-button
+            v-for="item in rechargeMethodOptions"
+            :key="item.code"
+            :value="item.code"
+          >
             {{ item.label }}
           </el-radio-button>
         </el-radio-group>

@@ -1,3 +1,4 @@
+<!-- 代理申请成为开发者。 -->
 <template>
   <div class="developer-apply">
     <header class="page-hero">
@@ -47,7 +48,11 @@
           <iconify-icon icon="ri:arrow-right-line" />
         </el-button>
         <el-button
-          v-else-if="applyStatus.status === 'rejected' || applyStatus.status === 'frozen' || applyStatus.status === 'cancelled'"
+          v-else-if="
+            applyStatus.status === 'rejected' ||
+            applyStatus.status === 'frozen' ||
+            applyStatus.status === 'cancelled'
+          "
           type="primary"
           :loading="submitting"
           @click="submitApply"
@@ -67,7 +72,9 @@
           </div>
         </div>
         <p class="apply-copy">
-          将以当前登录的代理商账号（{{ agentLabel }}）申请开发者资格。通过后使用同一套登录凭证进入开发者端。
+          将以当前登录的代理商账号（{{
+            agentLabel
+          }}）申请开发者资格。通过后使用同一套登录凭证进入开发者端。
         </p>
         <el-button
           type="primary"

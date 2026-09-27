@@ -1,3 +1,5 @@
+// 把已支付但还没开通的商业版订单补到授权上，并签出快照。普通授权购买页不能下商业版套餐。
+
 package handler
 
 import (
@@ -216,6 +218,7 @@ func reissueCommercialPurchaseGaps(db *sql.DB) (granted, already int, err error)
 	return granted, already, nil
 }
 
+// AdminCommercialPurchaseGaps 列出已支付但还没有商业版权益的订单。读库失败返回 500。
 func AdminCommercialPurchaseGaps(c *gin.Context) {
 	db, err := openStoreDB(c)
 	if err != nil {
@@ -229,6 +232,8 @@ func AdminCommercialPurchaseGaps(c *gin.Context) {
 	storeData(c, gin.H{"count": len(gaps), "orders": gaps})
 }
 
+// AdminCommercialPurchaseReissue 给这些订单补发商业版。已经开通过的不重复发放。
+// 返回补发数量和原本就已经开通的数量。中途写库失败返回 500，已提交的不会回滚。
 func AdminCommercialPurchaseReissue(c *gin.Context) {
 	db, err := openStoreDB(c)
 	if err != nil {

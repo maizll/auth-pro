@@ -1,3 +1,4 @@
+// 软件目录分类：能不能删，以及删除后条目上的分类怎么清掉。
 export type CatalogCategoryKind = 'plugin' | 'template'
 
 export const BUILTIN_CATALOG_CATEGORY_KEYS = [
@@ -25,7 +26,9 @@ export function extrasAfterDeletingCategory(
   categories: CatalogCategoryInput[],
   key: string
 ): Array<{ key: string; label: string; kind: CatalogCategoryKind }> {
-  const target = String(key || '').trim().toLowerCase()
+  const target = String(key || '')
+    .trim()
+    .toLowerCase()
   return categories
     .filter((item) => item.builtin !== true && item.key !== target)
     .map((item) => ({
@@ -39,7 +42,9 @@ export function catalogCategoryUsageCount(
   items: Array<{ category?: string }>,
   key: string
 ): number {
-  const target = String(key || '').trim().toLowerCase()
+  const target = String(key || '')
+    .trim()
+    .toLowerCase()
   return items.filter((item) => String(item.category || '').toLowerCase() === target).length
 }
 

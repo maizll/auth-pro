@@ -1,15 +1,11 @@
+<!-- 应用商店。这里不显示免费版或商业版横幅，状态只看顶栏。 -->
 <template>
   <div class="plugin-store">
     <ElCard shadow="never" class="art-table-card">
-      <div class="store-account-bar">
-        <CommercialMark :icon="accountIcon" :text="accountText" :tone="accountTone" />
-      </div>
       <div class="store-header">
         <div>
           <h2 class="store-title">应用商店</h2>
-          <p class="store-subtitle">
-            浏览并安装插件和首页模板
-          </p>
+          <p class="store-subtitle"> 浏览并安装插件和首页模板 </p>
         </div>
         <div class="store-header-actions">
           <ElButton :icon="FolderAdd" @click="sourceDialogVisible = true">软件源管理</ElButton>
@@ -20,12 +16,7 @@
       <div class="store-toolbar">
         <ElTabs v-model="activeTab" class="store-tabs" @tab-change="loadPlugins">
           <ElTabPane label="全部插件" name="all" />
-          <ElTabPane
-            v-for="tab in storeTabs"
-            :key="tab.name"
-            :label="tab.label"
-            :name="tab.name"
-          />
+          <ElTabPane v-for="tab in storeTabs" :key="tab.name" :label="tab.label" :name="tab.name" />
         </ElTabs>
         <ElInput
           v-model="searchText"
@@ -215,7 +206,9 @@
                       :loading="downloadingId === plugin.id"
                       @click="handleDownload(plugin)"
                     >
-                      下载并安装
+                      {{
+                        unpaidPlugin(plugin) ? catalogCardBuyLabel(plugin.priceCents) : '下载并安装'
+                      }}
                     </ElButton>
                   </template>
                   <template v-else>
@@ -234,7 +227,13 @@
                       :loading="togglingId === plugin.id"
                       @click="handleToggle(plugin)"
                     >
-                      {{ plugin.enabled ? '停用' : '启用' }}
+                      {{
+                        plugin.enabled
+                          ? '停用'
+                          : unpaidPlugin(plugin)
+                            ? catalogCardBuyLabel(plugin.priceCents)
+                            : '启用'
+                      }}
                     </ElButton>
                     <ElText
                       v-else
@@ -298,13 +297,17 @@
       </ElTable>
 
       <div class="source-tip">
-        可以填写 JSON 目录，或填写 Git 仓库地址。以 .json 结尾或内容是 JSON 的地址会按 JSON 目录保存；类型选错会在添加时自动改正并提示。本站请为每个应用单独添加一条公开清单，避免不同应用的目录混在一起。Git 仓库的根目录需要有软件清单。
+        可以填写 JSON 目录，或填写 Git 仓库地址。以 .json 结尾或内容是 JSON 的地址会按 JSON
+        目录保存；类型选错会在添加时自动改正并提示。本站请为每个应用单独添加一条公开清单，避免不同应用的目录混在一起。Git
+        仓库的根目录需要有软件清单。
       </div>
     </ElDialog>
 
     <ElDialog v-model="retargetVisible" title="更换源地址" width="480px">
       <p>
-        旧标识「{{ retargetSource?.goneAppKey || '未知' }}」对应的应用已经删除或归档。可以转到本站另一个应用，旧地址会继续打开目标目录；也可以直接改成新的软件源地址。
+        旧标识「{{
+          retargetSource?.goneAppKey || '未知'
+        }}」对应的应用已经删除或归档。可以转到本站另一个应用，旧地址会继续打开目标目录；也可以直接改成新的软件源地址。
       </p>
       <ElSelect
         v-model="retargetAppId"
@@ -319,11 +322,7 @@
           :value="app.id"
         />
       </ElSelect>
-      <ElInput
-        v-model="retargetUrl"
-        placeholder="或填写新的软件源地址"
-        style="margin-top: 12px"
-      />
+      <ElInput v-model="retargetUrl" placeholder="或填写新的软件源地址" style="margin-top: 12px" />
       <template #footer>
         <ElButton @click="retargetVisible = false">取消</ElButton>
         <ElButton type="primary" :loading="retargetSaving" @click="confirmRetarget">保存</ElButton>
@@ -338,13 +337,15 @@
   import TemplateActions from '@/views/home-template/TemplateActions.vue'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
-  import { fetchStoreAccount, fetchStoreCatalog, type StoreAccount, type StoreCatalogItem } from '@/api/store'
+  import { fetchStoreAccount, fetchStoreCatalog, type StoreCatalogItem } from '@/api/store'
   import { fetchSourceCatalogApps, type SourceCatalogApp } from '@/api/source-station'
   import { fetchRestoreLicenseApp } from '@/api/license-manage'
   import {
-    commercialText,
-    openCommercialPrompt,
-    rememberCommercialAccount
+    catalogCardBuyLabel,
+    catalogPurchaseResumeEvent,
+    openCatalogPurchase,
+    rememberCommercialAccount,
+    type CatalogPurchaseOffer
   } from '@/utils/commercial'
   import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
@@ -573,39 +574,14 @@
     searchTimer = setTimeout(loadPlugins, 400)
   }
 
-  const storeAccount = ref<StoreAccount | null>(null)
   const catalog = ref<StoreCatalogItem[]>([])
-  const accountUnconfigured = computed(() => storeAccount.value?.reason === 'snapshot_key_unconfigured')
-  const accountWarning = computed(
-    () => !!storeAccount.value && (storeAccount.value.graceWarning || accountUnconfigured.value)
-  )
-  const accountText = computed(() => {
-    const account = storeAccount.value
-    if (!account) return '正在读取版本信息'
-    if (accountUnconfigured.value) return '发行包未配置商店验签公钥，快照一律无效，当前按免费版使用'
-    if (account.domainMismatch) return `授权域名与当前域名不一致（${account.domain || '未绑定'}）`
-    if (account.offlineGrace) return '源站暂时不可达，商业版处于离线宽限'
-    if (account.edition === 'commercial') {
-      return account.permanent ? '商业版 · 永久' : `商业版 · ${formatExpire(account.editionExpireAt)} 到期`
-    }
-    return '免费版'
-  })
-  const accountIcon = computed(() => (accountWarning.value ? 'ri:error-warning-fill' : 'ri:vip-crown-fill'))
-  const accountTone = computed(() =>
-    accountWarning.value ? 'warning' : storeAccount.value?.edition === 'commercial' ? 'ok' : 'crown'
-  )
-
-  function formatExpire(value?: number | null) {
-    if (!value) return '未设置到期时间'
-    return new Date(value * 1000).toLocaleDateString()
-  }
 
   function badgeFor(ownership?: string, price?: number) {
     if (!price || price <= 0) return null
     if (ownership === 'included' || ownership === 'purchased') {
-      return { text: '已包含', icon: 'ri:vip-crown-fill', tone: 'ok' as const }
+      return { text: '已包含', icon: 'ri:shield-check-fill', tone: 'ok' as const }
     }
-    return { text: '商业版免费', icon: 'ri:vip-crown-fill', tone: 'crown' as const }
+    return { text: '商业版免费', icon: 'ri:rocket-2-line', tone: 'primary' as const }
   }
 
   function pluginBadge(plugin: PluginInfo) {
@@ -614,49 +590,45 @@
 
   function templateBadge(template: HomeTemplateInfo) {
     const key = template.catalogId || template.templateId
-    const item = catalog.value.find((row) => row.kind === 'template' && (row.id === key || row.id === String(template.id)))
+    const item = catalog.value.find(
+      (row) => row.kind === 'template' && (row.id === key || row.id === String(template.id))
+    )
     return badgeFor(item?.ownership, item?.priceCents)
   }
 
-  async function loadStoreAccountBar() {
+  async function loadStoreCatalog() {
     try {
-      storeAccount.value = await fetchStoreAccount()
+      const account = await fetchStoreAccount()
+      rememberCommercialAccount(account)
+    } catch {
+      /* 版本状态只在顶栏显示，这里读失败不改顶栏。 */
+    }
+    try {
       const data = await fetchStoreCatalog()
       catalog.value = data.list || []
-      rememberCommercialAccount(storeAccount.value)
     } catch {
-      storeAccount.value = {
-        bound: false,
-        account: '',
-        role: '',
-        licenseNo: '',
-        domain: '',
-        requestDomain: '',
-        domainMismatch: false,
-        edition: 'free',
-        permanent: false,
-        features: [],
-        verifiedAt: 0,
-        graceUntil: 0,
-        offlineGrace: false,
-        graceWarning: false,
-        explicitRevoked: false,
-        reason: '',
-        sourceBase: '',
-        siteUrl: '',
-        trustProxy: false,
-        installId: ''
-      }
-      rememberCommercialAccount(storeAccount.value)
+      catalog.value = []
     }
   }
 
-  const handleToggle = async (plugin: PluginInfo) => {
-    if (!plugin.enabled && (plugin.priceCents || 0) > 0 && plugin.ownership === 'none') {
-      openCommercialPrompt(commercialText('paid_plugin'), 'paid_plugin')
-      return
+  function unpaidPlugin(plugin: PluginInfo) {
+    return !plugin.enabled && (plugin.priceCents || 0) > 0 && plugin.ownership === 'none'
+  }
+
+  function pluginOffer(plugin: PluginInfo, resume: () => Promise<boolean>): CatalogPurchaseOffer {
+    return {
+      kind: 'plugin',
+      id: plugin.id,
+      name: plugin.name,
+      priceCents: plugin.priceCents || 0,
+      period: plugin.billing || 'permanent',
+      purchaseOnly: !!plugin.purchaseOnly,
+      resume
     }
-    if (!plugin.enabled) {
+  }
+
+  async function enablePlugin(plugin: PluginInfo, skipConfirm: boolean) {
+    if (!plugin.enabled && !skipConfirm) {
       try {
         await ElMessageBox.confirm(
           `启用「${plugin.name}」后，同分区其他插件将自动停用，确认启用？`,
@@ -664,7 +636,7 @@
           { confirmButtonText: '启用', cancelButtonText: '取消', type: 'warning' }
         )
       } catch {
-        return
+        return false
       }
     }
     togglingId.value = plugin.id
@@ -672,24 +644,55 @@
       await fetchTogglePlugin(plugin.id, !plugin.enabled)
       ElMessage.success(plugin.enabled ? '插件已停用' : `已启用「${plugin.name}」`)
       await loadPlugins()
+      return true
     } catch (error: any) {
       if (error?.code !== 402) showCaughtError(error, '操作失败')
+      return false
     } finally {
       togglingId.value = ''
     }
   }
 
-  const handleDownload = async (plugin: PluginInfo) => {
+  const handleToggle = async (plugin: PluginInfo) => {
+    if (unpaidPlugin(plugin)) {
+      openCatalogPurchase(pluginOffer(plugin, () => enablePlugin(plugin, true)))
+      return
+    }
+    await enablePlugin(plugin, false)
+  }
+
+  async function installPlugin(plugin: PluginInfo) {
     downloadingId.value = plugin.id
     try {
       await fetchDownloadPlugin(plugin.id)
       ElMessage.success(`「${plugin.name}」已下载、解压并安装`)
       await loadPlugins()
+      return true
     } catch (error: any) {
-      showCaughtError(error, '插件下载安装失败')
+      if (error?.code !== 402) showCaughtError(error, '插件下载安装失败')
+      return false
     } finally {
       downloadingId.value = ''
     }
+  }
+
+  const handleDownload = async (plugin: PluginInfo) => {
+    if (unpaidPlugin(plugin)) {
+      openCatalogPurchase(pluginOffer(plugin, () => installPlugin(plugin)))
+      return
+    }
+    await installPlugin(plugin)
+  }
+
+  function onCatalogResume(event: Event) {
+    const offer = (event as CustomEvent<CatalogPurchaseOffer>).detail
+    if (!offer || offer.kind !== 'plugin') return
+    const plugin = categories.value
+      .flatMap((group) => group.plugins)
+      .find((item) => item.id === offer.id)
+    if (!plugin) return
+    if (plugin.remote) void installPlugin(plugin)
+    else void enablePlugin(plugin, true)
   }
 
   const handleAddSource = async () => {
@@ -715,11 +718,11 @@
   const handleRestoreSourceApp = async (source: PluginSource) => {
     if (!source.restoreAppId) return
     try {
-      await ElMessageBox.confirm(
-        '恢复后，这条软件源地址会重新打开该应用自己的目录。',
-        '恢复应用',
-        { type: 'warning', confirmButtonText: '恢复', cancelButtonText: '取消' }
-      )
+      await ElMessageBox.confirm('恢复后，这条软件源地址会重新打开该应用自己的目录。', '恢复应用', {
+        type: 'warning',
+        confirmButtonText: '恢复',
+        cancelButtonText: '取消'
+      })
     } catch {
       return
     }
@@ -799,10 +802,19 @@
 
   onMounted(() => {
     loadPlugins()
-    loadStoreAccountBar()
-    window.addEventListener('store-account-refresh', loadStoreAccountBar)
+    loadStoreCatalog()
+    window.addEventListener('store-account-refresh', onStoreRefresh)
+    window.addEventListener(catalogPurchaseResumeEvent, onCatalogResume)
   })
-  onBeforeUnmount(() => window.removeEventListener('store-account-refresh', loadStoreAccountBar))
+  onBeforeUnmount(() => {
+    window.removeEventListener('store-account-refresh', onStoreRefresh)
+    window.removeEventListener(catalogPurchaseResumeEvent, onCatalogResume)
+  })
+
+  async function onStoreRefresh() {
+    await loadStoreCatalog()
+    await loadPlugins()
+  }
 </script>
 
 <style lang="scss" scoped>
@@ -830,18 +842,6 @@
         height: 100%;
         object-fit: cover;
       }
-    }
-
-    .store-account-bar {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 16px;
-      padding: 10px 12px;
-      background: var(--el-color-warning-light-9);
-      border: 1px solid var(--el-color-warning-light-5);
-      border-radius: 8px;
     }
 
     .store-header {
@@ -1087,7 +1087,22 @@
       color: var(--art-gray-600);
     }
 
-    @media (max-width: 768px) {
+    @media (max-width: 767px) {
+      .store-header {
+        flex-direction: column;
+        gap: 10px;
+
+        .store-subtitle {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .store-header-actions {
+          justify-content: flex-start;
+        }
+      }
+
       .store-toolbar {
         flex-direction: column;
         align-items: stretch;

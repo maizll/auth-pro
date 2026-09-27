@@ -15,10 +15,6 @@ const MISSING_MENU_TITLE_ZH = '未命名菜单'
 assert.equal(resolveMenuTitle('menus.integration.store'), '应用商店')
 assert.equal(resolveMenuTitle('menus.integration.update'), '在线更新')
 assert.equal(resolveMenuTitle('menus.integration.title'), '接入开发')
-assert.equal(resolveMenuTitle('menus.sourceStation.edition'), '商业版设置')
-assert.equal(resolveMenuTitle('menus.sourceStation.storeOrders'), '商店订单')
-assert.equal(resolveMenuTitle('menus.sourceStation.storeLicenses'), '主授权与权益')
-assert.equal(resolveMenuTitle('menus.sourceStation.storeRevenue'), '商业版收入')
 assert.equal(resolveMenuTitle('我的商店'), '我的商店')
 assert.equal(resolveMenuTitle(''), '')
 assert.equal(resolveMenuTitle('', 'PluginStore'), 'PluginStore')
@@ -41,7 +37,10 @@ assert.deepEqual(
   ['Sdk', 'System']
 )
 
-assert.equal(formatManageMenuName({ title: 'menus.integration.store', name: 'PluginStore' }), '应用商店')
+assert.equal(
+  formatManageMenuName({ title: 'menus.integration.store', name: 'PluginStore' }),
+  '应用商店'
+)
 assert.equal(formatManageMenuName({ title: '', name: 'PluginStore' }), 'PluginStore')
 assert.equal(formatManageMenuName({ title: '在线更新', name: 'OnlineUpdate' }), '在线更新')
 
@@ -57,7 +56,11 @@ assert.equal(resolved[0].children?.[0].title, '应用商店')
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
 
-function collectFiles(dir: string, predicate: (file: string) => boolean, out: string[] = []): string[] {
+function collectFiles(
+  dir: string,
+  predicate: (file: string) => boolean,
+  out: string[] = []
+): string[] {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
     if (statSync(full).isDirectory()) {
@@ -93,7 +96,12 @@ for (const file of sources) {
     seen.add(key)
     const title = resolveMenuTitle(key)
     const leaf = key.split('.').pop() || key
-    if (!isChineseMenuTitle(title) || title === key || title === leaf || title === MISSING_MENU_TITLE_ZH) {
+    if (
+      !isChineseMenuTitle(title) ||
+      title === key ||
+      title === leaf ||
+      title === MISSING_MENU_TITLE_ZH
+    ) {
       missing.push(`${key} => ${title} (${path.relative(repoRoot, file)})`)
     }
   }

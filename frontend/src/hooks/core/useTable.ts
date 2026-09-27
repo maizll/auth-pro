@@ -102,14 +102,6 @@ export interface UseTableConfig<
     /** 重置表单回调函数 */
     resetFormCallback?: () => void
   }
-
-  // 调试配置
-  debug?: {
-    /** 是否启用日志输出 */
-    enableLog?: boolean
-    /** 日志级别 */
-    logLevel?: 'info' | 'warn' | 'error'
-  }
 }
 
 export function useTable<TApiFn extends (params: any) => Promise<any>>(
@@ -150,8 +142,7 @@ function useTableImpl<TApiFn extends (params: any) => Promise<any>>(
       debounceTime = 300,
       maxCacheSize = 50
     } = {},
-    hooks: { onSuccess, onError, onCacheHit, resetFormCallback } = {},
-    debug: { enableLog = false } = {}
+    hooks: { onSuccess, onError, onCacheHit, resetFormCallback } = {}
   } = config
 
   // 分页字段名配置：优先使用传入的配置，否则使用全局配置
@@ -161,27 +152,7 @@ function useTableImpl<TApiFn extends (params: any) => Promise<any>>(
   // 响应式触发器，用于手动更新缓存统计信息
   const cacheUpdateTrigger = ref(0)
 
-  // 日志工具函数
-  const logger = {
-    log: (message: string, ...args: unknown[]) => {
-      if (enableLog) {
-        console.log(`[useTable] ${message}`, ...args)
-      }
-    },
-    warn: (message: string, ...args: unknown[]) => {
-      if (enableLog) {
-        console.warn(`[useTable] ${message}`, ...args)
-      }
-    },
-    error: (message: string, ...args: unknown[]) => {
-      if (enableLog) {
-        console.error(`[useTable] ${message}`, ...args)
-      }
-    }
-  }
-
-  // 缓存实例
-  const cache = enableCache ? new TableCache<TRecord>(cacheTime, maxCacheSize, enableLog) : null
+  const cache = enableCache ? new TableCache<TRecord>(cacheTime, maxCacheSize, false) : null
 
   // 加载状态机
   type LoadingState = 'idle' | 'loading' | 'success' | 'error'
@@ -242,33 +213,27 @@ function useTableImpl<TApiFn extends (params: any) => Promise<any>>(
   })
 
   // 错误处理函数
-  const handleError = createErrorHandler(onError, enableLog)
+  const handleError = createErrorHandler(onError)
 
   // 清理缓存，根据不同的业务场景选择性地清理缓存
-  const clearCache = (strategy: CacheInvalidationStrategy, context?: string): void => {
+  const clearCache = (strategy: CacheInvalidationStrategy, _context?: string): void => {
     if (!cache) return
-
-    let clearedCount = 0
 
     switch (strategy) {
       case CacheInvalidationStrategy.CLEAR_ALL:
         cache.clear()
-        logger.log(`清空所有缓存 - ${context || ''}`)
         break
 
       case CacheInvalidationStrategy.CLEAR_CURRENT:
-        clearedCount = cache.clearCurrentSearch(searchParams)
-        logger.log(`清空当前搜索缓存 ${clearedCount} 条 - ${context || ''}`)
+        cache.clearCurrentSearch(searchParams)
         break
 
       case CacheInvalidationStrategy.CLEAR_PAGINATION:
-        clearedCount = cache.clearPagination()
-        logger.log(`清空分页缓存 ${clearedCount} 条 - ${context || ''}`)
+        cache.clearPagination()
         break
 
       case CacheInvalidationStrategy.KEEP_ALL:
       default:
-        logger.log(`保持缓存不变 - ${context || ''}`)
         break
     }
     // 手动触发缓存状态更新
@@ -337,7 +302,6 @@ function useTableImpl<TApiFn extends (params: any) => Promise<any>>(
             onCacheHit(cachedItem.data, cachedItem.response)
           }
 
-          logger.log(`缓存命中`)
           return cachedItem.response
         }
       }
@@ -378,7 +342,6 @@ function useTableImpl<TApiFn extends (params: any) => Promise<any>>(
         cache.set(requestParams, tableData, standardResponse)
         // 手动触发缓存状态更新
         cacheUpdateTrigger.value++
-        logger.log(`数据已缓存`)
       }
 
       // 状态机：请求成功，进入 success 状态
@@ -534,7 +497,6 @@ function useTableImpl<TApiFn extends (params: any) => Promise<any>>(
 
     // 修复：如果当前页没有变化，不需要重新请求
     if (pagination.current === newCurrent) {
-      logger.log('分页页码未变化，跳过请求')
       return
     }
 
@@ -632,8 +594,6 @@ function useTableImpl<TApiFn extends (params: any) => Promise<any>>(
     cacheCleanupTimer = setInterval(() => {
       const cleanedCount = cache.cleanupExpired()
       if (cleanedCount > 0) {
-        logger.log(`自动清理 ${cleanedCount} 条过期缓存`)
-        // 手动触发缓存状态更新
         cacheUpdateTrigger.value++
       }
     }, cacheTime / 2) // 每半个缓存周期清理一次

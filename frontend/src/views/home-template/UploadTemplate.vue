@@ -1,3 +1,4 @@
+<!-- 上传首页模板压缩包。 -->
 <template>
   <ElButton :disabled="uploading" @click="visible = true">上传首页模板</ElButton>
   <ElDialog
@@ -10,7 +11,8 @@
     @closed="resetForm"
   >
     <ElAlert type="info" :closable="false" show-icon>
-      压缩包不超过 20 MB，解压后不超过 100 MB。可以包含模板清单和资源文件，或已经构建好的静态首页。上传安装后需要手动启用。
+      压缩包不超过 20 MB，解压后不超过 100
+      MB。可以包含模板清单和资源文件，或已经构建好的静态首页。上传安装后需要手动启用。
     </ElAlert>
     <ElForm
       label-width="88px"

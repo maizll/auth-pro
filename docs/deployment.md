@@ -1,6 +1,6 @@
 # 部署手册
 
-当前版本 **1.6.6**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
+当前版本 **1.6.7**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
 
 运行数据目录与进程的工作目录一致。宝塔脚本默认把它放在网站根下的 `backend/`。后端解析数据目录的顺序是：环境变量 `AUTO_PRO_DATA_DIR`，否则在当前工作目录或其子目录 `backend/` 中寻找 `install.lock`、`db.json` 或 `go.mod`，再否则用可执行文件所在目录。
 
@@ -25,7 +25,7 @@ AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY='<打印出的公钥>' ./scripts/build-releas
 go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出的公钥>" -o auth_pro .
 ```
 
-构建时若把公钥覆盖成占位符，买方会保持免费版，商店账号条显示警告；源站拒绝签发并返回明确错误。完整说明见 [商业版](commercial.md) 和 [发布包目录](../PACKAGING.md)。
+构建时若把公钥覆盖成占位符，买方会保持免费版，顶栏仍是「升级商业版」；源站拒绝签发并返回明确错误。完整说明见 [商业版](commercial.md) 和 [发布包目录](../PACKAGING.md)。
 
 ## 宝塔：全新安装
 
@@ -151,6 +151,10 @@ location / {
 ```
 
 若 Nginx 直接读网站根的静态文件，而不是整站反代到 Go，仍必须拦截上面的路径。不要给 `backend/`、插件目录或模板目录再配可执行的静态 alias。
+
+上面的反代足够让商业版认出本站域名：后端只监听本机，并看到 `Host` 和 `X-Forwarded-Proto: https`。也可以再加 `X-Forwarded-Host`。公网客户端直接带来的转发头不会被信任。请用站点自己的 https 域名打开后台；用本机、内网或 http 打开时，购买窗口只会提示换正式域名后再试，没有手填框。
+
+购买网站固定是 `https://auth.maizll.com`。后台不显示、也不能修改，也没有环境变量或配置文件可以改它。升级会删掉数据库里旧的源站地址、站点地址和信任代理。`PUT /api/store/settings` 里的 `sourceBase` 会被忽略，不会写回。
 
 生产进程从盘上的 `index.html` 提供前端。找不到盘上前端时启动失败，或对页面返回 503 并带版本号，不会静默改用编译进二进制的旧页面。只有开发或引导才设置 `AUTO_PRO_ALLOW_EMBEDDED_FRONTEND=1`。盘上前端根可用 `AUTO_PRO_FRONTEND_DIR` 指定；不设时按 `data/frontend/current` 或宝塔网站根解析。
 

@@ -1,3 +1,5 @@
+// 按用户、代理和活动计算普通授权的购买价。商业版套餐不走这条价格。
+
 package handler
 
 import (
@@ -369,21 +371,6 @@ func quoteAgentPurchase(db *sql.DB, plan purchasePlanPricing, discount float64) 
 		OriginalCents: plan.PriceCents,
 		AgentDiscount: discount,
 		Promotion:     promotion,
-	})
-}
-
-func userPurchasePrice(plan purchasePlanPricing) (purchasePriceQuote, error) {
-	return calculatePurchasePrice(purchasePricingInput{
-		BuyerType:     purchaseAudienceUser,
-		OriginalCents: plan.PriceCents,
-	})
-}
-
-func agentPurchasePrice(plan purchasePlanPricing, discount float64) (purchasePriceQuote, error) {
-	return calculatePurchasePrice(purchasePricingInput{
-		BuyerType:     purchaseAudienceAgent,
-		OriginalCents: plan.PriceCents,
-		AgentDiscount: discount,
 	})
 }
 

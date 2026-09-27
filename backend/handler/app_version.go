@@ -1,3 +1,5 @@
+// 应用版本的上传、外链和发布。改版本时按本次选择的来源重写下载地址，不沿用上一次的外链。
+
 package handler
 
 import (
@@ -449,7 +451,8 @@ func saveAppVersion(c *gin.Context, editing bool) {
 
 	packageName := old.PackageName
 	packagePath := old.PackagePath
-	downloadURL := old.DownloadURL
+	// 上传和外链两个分支都会重写下载地址。不用旧值当默认，避免改成上传后还留着上一次的外链。
+	var downloadURL string
 	fileSizeBytes := old.FileSizeBytes
 	fileMD5 := old.FileMD5
 	newPackagePath := ""
@@ -905,7 +908,8 @@ type panelVersionItem struct {
 
 // resolvePanelLicenseOwner 校验授权归属当前面板账号，返回授权所属应用 ID。
 // ownerType 为 "user" 或 "agent"，ownerID 为当前登录的面板账号 ID。
-func resolvePanelLicenseOwner(c *gin.Context, db *sql.DB, licenseID int64, ownerType string, ownerID uint) (int64, bool) {	var appID int64
+func resolvePanelLicenseOwner(c *gin.Context, db *sql.DB, licenseID int64, ownerType string, ownerID uint) (int64, bool) {
+	var appID int64
 	var status string
 	var expiredAt sql.NullTime
 	err := db.QueryRow(`

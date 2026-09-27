@@ -232,7 +232,6 @@ class VersionManager {
   async processUpgrade(): Promise<void> {
     // 跳过特定版本
     if (this.shouldSkipUpgrade()) {
-      console.debug('[Upgrade] 跳过版本升级检查')
       return
     }
 

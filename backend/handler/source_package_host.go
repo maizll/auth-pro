@@ -1,3 +1,5 @@
+// 开发者上传目录安装包，以及公开地址上的文件下载。付费包不走这条公开路径。
+
 package handler
 
 import (
@@ -132,6 +134,8 @@ func storeStationPackage(payload []byte) (string, string, error) {
 	return stationPackagePublicURL(name), fileSHA, nil
 }
 
+// SourceDeveloperPackageUpload 接收开发者上传的 ZIP，校验后存到本站公开包目录。
+// 未登录、不是 ZIP、超限或含符号链接时拒绝。成功返回可写入目录的下载地址和摘要。
 func SourceDeveloperPackageUpload(c *gin.Context) {
 	if _, err := currentSourceDeveloper(c); err != nil {
 		writeCurrentSourceDeveloperError(c, err)
@@ -196,6 +200,8 @@ func SourceDeveloperPackageUpload(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": data})
 }
 
+// PublicSourcePackageFile 按文件名下载已经公开的目录包。
+// 路径越界或文件不存在返回 404。付费包不在这个目录，不能靠猜文件名下载。
 func PublicSourcePackageFile(c *gin.Context) {
 	name, ok := stationPackageNameFromURL(stationPackagePublicPath + strings.TrimSpace(c.Param("name")))
 	if !ok {

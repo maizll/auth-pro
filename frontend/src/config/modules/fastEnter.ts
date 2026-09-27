@@ -19,30 +19,12 @@ const fastEnterConfig: FastEnterConfig = {
       routeName: 'Console'
     },
     {
-      name: '分析页',
-      description: '数据分析与可视化',
-      icon: 'ri:game-line',
-      iconColor: '#ff3b30',
-      enabled: true,
-      order: 2,
-      routeName: 'Analysis'
-    },
-    {
-      name: '礼花效果',
-      description: '动画特效展示',
-      icon: 'ri:loader-line',
-      iconColor: '#7A7FFF',
-      enabled: true,
-      order: 3,
-      routeName: 'Fireworks'
-    },
-    {
       name: '开发文档',
       description: '站内接入与开发说明',
       icon: 'ri:bill-line',
       iconColor: '#ffb100',
       enabled: true,
-      order: 5,
+      order: 2,
       routeName: 'DeveloperDoc'
     },
     {
@@ -51,17 +33,8 @@ const fastEnterConfig: FastEnterConfig = {
       icon: 'ri:question-answer-line',
       iconColor: '#ff6b6b',
       enabled: true,
-      order: 6,
+      order: 3,
       routeName: 'TicketManage'
-    },
-    {
-      name: '更新日志',
-      description: '版本更新与变更记录',
-      icon: 'ri:gamepad-line',
-      iconColor: '#38C0FC',
-      enabled: true,
-      order: 7,
-      routeName: 'ChangeLog'
     }
   ],
   // 快速链接
@@ -73,34 +46,16 @@ const fastEnterConfig: FastEnterConfig = {
       routeName: 'Login'
     },
     {
-      name: '注册',
-      enabled: true,
-      order: 2,
-      routeName: 'Register'
-    },
-    {
       name: '忘记密码',
       enabled: true,
-      order: 3,
+      order: 2,
       routeName: 'ForgetPassword'
-    },
-    {
-      name: '定价',
-      enabled: true,
-      order: 4,
-      routeName: 'Pricing'
     },
     {
       name: '个人中心',
       enabled: true,
-      order: 5,
+      order: 3,
       routeName: 'UserCenter'
-    },
-    {
-      name: '留言管理',
-      enabled: true,
-      order: 6,
-      routeName: 'ArticleComment'
     }
   ]
 }

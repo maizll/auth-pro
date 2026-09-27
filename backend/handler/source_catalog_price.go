@@ -1,3 +1,5 @@
+// 软件目录改价，以及免费改收费。可以选择老用户继续免费，或收回这类免费权益。
+
 package handler
 
 import (
@@ -482,28 +484,6 @@ func guardReleasePackage(rel sourceRelease) (sourceRelease, error) {
 		return rel, err
 	}
 	return finalizeReleasePackage(price, rel)
-}
-
-func pluginPriceContext(id string) (status, latest string, price int64, err error) {
-	item, err := currentSourceStationStore().GetPlugin(id)
-	if errors.Is(err, errSourceNotFound) {
-		return "", "", 0, nil
-	}
-	if err != nil {
-		return "", "", 0, err
-	}
-	return item.Status, item.LatestVersion, item.PriceCents, nil
-}
-
-func templatePriceContext(id string) (status, latest string, price int64, err error) {
-	item, err := currentSourceStationStore().GetTemplate(id)
-	if errors.Is(err, errSourceNotFound) {
-		return "", "", 0, nil
-	}
-	if err != nil {
-		return "", "", 0, err
-	}
-	return item.Status, item.LatestVersion, item.PriceCents, nil
 }
 
 func publicStationPackagePath(name string) (string, bool) {

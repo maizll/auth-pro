@@ -1,3 +1,5 @@
+// 打包给开发者下载的接入示例。压缩包里的文件时间用修改时间字段，避免用已废弃的接口。
+
 package handler
 
 import (
@@ -50,7 +52,7 @@ func buildDeveloperStarterZIP() ([]byte, error) {
 	now := time.Now()
 	for _, name := range names {
 		header := &zip.FileHeader{Name: path.Join("auth-pro-developer-starter", name), Method: zip.Deflate}
-		header.SetModTime(now)
+		header.Modified = now
 		entry, err := writer.CreateHeader(header)
 		if err != nil {
 			_ = writer.Close()

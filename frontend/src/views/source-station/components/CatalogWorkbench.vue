@@ -1,3 +1,4 @@
+<!-- 编辑一条软件目录：名称、价格、安装包和上下架。 -->
 <template>
   <div class="source-station-page">
     <el-alert
@@ -17,17 +18,17 @@
             style="width: 240px"
             @change="onAppChange"
           >
-            <el-option
-              v-for="app in apps"
-              :key="app.id"
-              :label="appLabel(app)"
-              :value="app.id"
-            />
+            <el-option v-for="app in apps" :key="app.id" :label="appLabel(app)" :value="app.id" />
             <el-option label="未归属（应用已删除）" :value="-1" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
-          <el-select v-model="searchForm.status" placeholder="默认（不含已弃用）" clearable style="width: 180px">
+          <el-select
+            v-model="searchForm.status"
+            placeholder="默认（不含已弃用）"
+            clearable
+            style="width: 180px"
+          >
             <el-option label="草稿" value="draft" />
             <el-option label="待审核" value="review" />
             <el-option label="已通过" value="approved" />
@@ -38,7 +39,12 @@
           </el-select>
         </el-form-item>
         <el-form-item label="分类">
-          <el-select v-model="searchForm.category" placeholder="全部" clearable style="width: 180px">
+          <el-select
+            v-model="searchForm.category"
+            placeholder="全部"
+            clearable
+            style="width: 180px"
+          >
             <el-option
               v-for="item in categories"
               :key="item.key"
@@ -80,7 +86,13 @@
 
       <el-table :data="tableData" stripe v-loading="loading" @selection-change="onSelectionChange">
         <el-table-column v-if="!narrow" type="selection" width="42" />
-        <el-table-column v-if="!narrow" prop="id" label="标识" min-width="140" show-overflow-tooltip />
+        <el-table-column
+          v-if="!narrow"
+          prop="id"
+          label="标识"
+          min-width="140"
+          show-overflow-tooltip
+        />
         <el-table-column prop="name" label="名称" min-width="140">
           <template #default="{ row }">
             <div>{{ row.name }}</div>
@@ -118,7 +130,13 @@
             <p v-if="row.originHint" class="card-hint">{{ row.originHint }}</p>
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" prop="sha256" label="校验码" min-width="160" show-overflow-tooltip />
+        <el-table-column
+          v-if="!narrow"
+          prop="sha256"
+          label="校验码"
+          min-width="160"
+          show-overflow-tooltip
+        />
         <el-table-column v-if="!narrow" prop="updatedAt" label="更新时间" width="170" />
         <el-table-column label="操作" width="168">
           <template #default="{ row }">
@@ -285,7 +303,8 @@
         <el-form-item label="售价（元）">
           <el-input v-model="editForm.priceYuan" placeholder="0" />
           <p class="card-hint">
-            填 0 表示免费。已公开的免费条目可以改为收费，保存前会确认老用户是否继续免费。改回 0 会恢复公开下载。
+            填 0 表示免费。已公开的免费条目可以改为收费，保存前会确认老用户是否继续免费。改回 0
+            会恢复公开下载。
           </p>
         </el-form-item>
         <el-form-item label="下载地址" prop="location">
@@ -594,7 +613,10 @@
     deleteCatalogCategoryConfirmMessage,
     extrasAfterDeletingCategory
   } from '@/utils/form/catalog-category'
-  import { catalogPriceSwitchAction, catalogUploadBlockReason } from '@/utils/form/catalog-package-source'
+  import {
+    catalogPriceSwitchAction,
+    catalogUploadBlockReason
+  } from '@/utils/form/catalog-package-source'
   import {
     formatCatalogPriceLabel,
     formatCatalogPriceYuan,
@@ -704,7 +726,12 @@
     category: [{ required: true, message: '请选择分类', trigger: 'change' }],
     name: [{ required: true, message: '请填写名称', trigger: 'blur' }],
     location: [{ required: true, message: '请填写外部地址', trigger: 'blur' }],
-    sha256: [optionalPaidShaRule(() => editForm.priceYuan, () => editForm.location)]
+    sha256: [
+      optionalPaidShaRule(
+        () => editForm.priceYuan,
+        () => editForm.location
+      )
+    ]
   }
 
   const registerRules: FormRules = {
@@ -714,7 +741,12 @@
     name: [{ required: true, message: '请填写名称', trigger: 'blur' }],
     version: [{ required: true, message: '请填写版本', trigger: 'blur' }],
     location: [{ required: true, message: '请填写外部地址', trigger: 'blur' }],
-    sha256: [optionalPaidShaRule(() => registerForm.priceYuan, () => registerForm.location)]
+    sha256: [
+      optionalPaidShaRule(
+        () => registerForm.priceYuan,
+        () => registerForm.location
+      )
+    ]
   }
 
   function optionalPaidShaRule(yuan: () => string, location: () => string) {
@@ -748,9 +780,7 @@
   const currentItem = ref<SourceCatalogItem | null>(null)
   const versionForm = reactive({ version: '', location: '', sha256: '', changelog: '' })
 
-  const registerIsTemplate = computed(
-    () => categoryKind(registerForm.category) === 'template'
-  )
+  const registerIsTemplate = computed(() => categoryKind(registerForm.category) === 'template')
   const editIsTemplate = computed(
     () => editingItem.value?.kind === 'template' || categoryKind(editForm.category) === 'template'
   )
@@ -833,7 +863,8 @@
     if (canAction(row.status, 'reject')) items.push({ key: 'reject', label: '拒绝' })
     if (canAction(row.status, 'shelf')) items.push({ key: 'shelf', label: '上架' })
     if (canAction(row.status, 'unshelf')) items.push({ key: 'unshelf', label: '下架' })
-    if (canAction(row.status, 'deprecate')) items.push({ key: 'deprecate', label: '弃用', danger: true })
+    if (canAction(row.status, 'deprecate'))
+      items.push({ key: 'deprecate', label: '弃用', danger: true })
     if (canAction(row.status, 'restore')) items.push({ key: 'restore', label: '恢复为草稿' })
     return items
   }
@@ -1210,7 +1241,13 @@
           ...switchField
         })
       }
-      ElMessage.success(priceSwitch === 'purchase_only' ? '已改为收费，所有人都需购买' : priceSwitch === 'grandfather' ? '已改为收费，老用户继续免费' : '已更新目录元数据')
+      ElMessage.success(
+        priceSwitch === 'purchase_only'
+          ? '已改为收费，所有人都需购买'
+          : priceSwitch === 'grandfather'
+            ? '已改为收费，老用户继续免费'
+            : '已更新目录元数据'
+      )
       editVisible.value = false
       await loadItems()
     } finally {
@@ -1429,7 +1466,10 @@
       ElMessage.warning('付费条目请上传压缩包，或填写 https 网址由本站拉取托管')
       return
     }
-    if (!isPaidHttpsImportLocation(location, cents) && !/^[a-fA-F0-9]{64}$/.test(versionForm.sha256.trim())) {
+    if (
+      !isPaidHttpsImportLocation(location, cents) &&
+      !/^[a-fA-F0-9]{64}$/.test(versionForm.sha256.trim())
+    ) {
       ElMessage.warning('请填写 64 位校验码')
       return
     }

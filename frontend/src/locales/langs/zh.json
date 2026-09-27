@@ -160,27 +160,6 @@
     "submitBtnText": "提交",
     "backBtnText": "返回"
   },
-  "register": {
-    "title": "创建账号",
-    "subTitle": "欢迎加入我们，请填写以下信息完成注册",
-    "placeholder": {
-      "username": "请输入账号",
-      "password": "请输入密码",
-      "confirmPassword": "请再次输入密码"
-    },
-    "rule": {
-      "confirmPasswordRequired": "请再次输入密码",
-      "passwordMismatch": "两次输入密码不一致!",
-      "usernameLength": "长度在 3 到 20 个字符",
-      "passwordLength": "密码长度不能小于6位",
-      "agreementRequired": "请同意隐私协议"
-    },
-    "agreeText": "我同意",
-    "privacyPolicy": "《隐私政策》",
-    "submitBtnText": "注册",
-    "hasAccount": "已有账号？",
-    "toLogin": "去登录"
-  },
   "lockScreen": {
     "pwdError": "密码错误",
     "lock": {
@@ -208,9 +187,6 @@
   "menus": {
     "login": {
       "title": "登录"
-    },
-    "register": {
-      "title": "注册"
     },
     "forgetPassword": {
       "title": "忘记密码"
@@ -248,11 +224,7 @@
       "templates": "软件目录",
       "catalog": "公开目录",
       "ads": "广告投放",
-      "settings": "源站设置",
-      "edition": "商业版设置",
-      "storeOrders": "商店订单",
-      "storeLicenses": "主授权与权益",
-      "storeRevenue": "商业版收入"
+      "settings": "源站设置"
     },
     "security": {
       "title": "安全风控",

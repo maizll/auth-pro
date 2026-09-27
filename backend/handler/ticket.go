@@ -881,7 +881,3 @@ func queueTicketMail(ticketID int64, notifyCreator bool) {
 		}
 	}()
 }
-
-// ensureTicketMenu 工单已纳入产品菜单种子（客户服务 → TicketManage）。
-// 保留空实现以免旧调用再把菜单删掉，导致后端模式下侧栏丢失工单。
-func ensureTicketMenu(db *sql.DB) {}

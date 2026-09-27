@@ -1,3 +1,5 @@
+// 管理端仍保留的商店套餐、订单、主授权和收入接口。页面已收进授权和订单菜单，接口给升级后的数据用。
+
 package handler
 
 import (
@@ -31,6 +33,7 @@ func registerStoreAdminRoutes(admin *gin.RouterGroup) {
 	revenue.POST("/revenue/:id/note", AdminStoreRevenueNote)
 }
 
+// AdminStorePlans 返回全部商业版套餐，含已下架的，供管理端编辑。读库失败返回 500。
 func AdminStorePlans(c *gin.Context) {
 	db, err := openStoreDB(c)
 	if err != nil {
@@ -56,6 +59,8 @@ func AdminStorePlans(c *gin.Context) {
 	storeData(c, gin.H{"list": list})
 }
 
+// AdminStorePlanSave 新建或更新一条商业版套餐。
+// 有路径 id 时更新，否则新建。名称空、周期不是永久或按年、价格不是正数时返回 400。写库失败返回 500。
 func AdminStorePlanSave(c *gin.Context) {
 	var req struct {
 		Name       string `json:"name"`
@@ -104,6 +109,7 @@ func AdminStorePlanSave(c *gin.Context) {
 	storeData(c, gin.H{"id": id})
 }
 
+// AdminStoreOrders 返回最近 200 笔商店订单。读库失败返回 500。
 func AdminStoreOrders(c *gin.Context) {
 	db, err := openStoreDB(c)
 	if err != nil {
@@ -136,6 +142,7 @@ func AdminStoreOrders(c *gin.Context) {
 	storeData(c, gin.H{"list": list})
 }
 
+// AdminStoreOrderRefund 按订单号退款。原因可空。订单不存在或状态不允许时返回 400。
 func AdminStoreOrderRefund(c *gin.Context) {
 	var req struct {
 		Reason string `json:"reason"`
@@ -152,6 +159,7 @@ func AdminStoreOrderRefund(c *gin.Context) {
 	storeData(c, gin.H{"ok": true})
 }
 
+// AdminStoreLicenses 列出挂在商业版产品应用上的主授权及其商业版状态。读库失败返回 500。
 func AdminStoreLicenses(c *gin.Context) {
 	db, err := openStoreDB(c)
 	if err != nil {
@@ -192,6 +200,8 @@ func AdminStoreLicenses(c *gin.Context) {
 	storeData(c, gin.H{"list": list})
 }
 
+// AdminStoreLicenseGrant 给指定授权手工开通商业版。
+// period 只能是永久或按年，空则按永久。授权编号不合法返回 400，写入失败返回 500。
 func AdminStoreLicenseGrant(c *gin.Context) {
 	var req struct {
 		Period string `json:"period"`
@@ -232,6 +242,8 @@ func AdminStoreLicenseGrant(c *gin.Context) {
 	storeData(c, gin.H{"ok": true})
 }
 
+// AdminStoreLicenseRevoke 吊销这条授权的商业版权益和绑定。
+// reason 会截断后记入审计。授权不存在或写库失败返回 500。
 func AdminStoreLicenseRevoke(c *gin.Context) {
 	var req struct {
 		Reason string `json:"reason"`
@@ -249,6 +261,8 @@ func AdminStoreLicenseRevoke(c *gin.Context) {
 	storeData(c, gin.H{"ok": true})
 }
 
+// AdminStoreLicenseTransfer 把主授权改到另一个用户或代理名下。
+// 目标账号不存在返回 400。不能转到会拆掉商业版绑定关系的归属。
 func AdminStoreLicenseTransfer(c *gin.Context) {
 	var req struct {
 		OwnerType string `json:"ownerType"`
@@ -271,6 +285,8 @@ func AdminStoreLicenseTransfer(c *gin.Context) {
 	storeData(c, gin.H{"ok": true})
 }
 
+// AdminStoreBindingRevoke 只吊销站点绑定，不删除授权记录。
+// 买家下次核对会收到 revoked，并被要求重新绑定。
 func AdminStoreBindingRevoke(c *gin.Context) {
 	db, err := openStoreDB(c)
 	if err != nil {
@@ -283,6 +299,7 @@ func AdminStoreBindingRevoke(c *gin.Context) {
 	storeData(c, gin.H{"ok": true})
 }
 
+// AdminStoreRevenue 汇总商店收入。读库失败返回 500。
 func AdminStoreRevenue(c *gin.Context) {
 	db, err := openStoreDB(c)
 	if err != nil {
@@ -313,6 +330,7 @@ func AdminStoreRevenue(c *gin.Context) {
 	storeData(c, gin.H{"list": list})
 }
 
+// AdminStoreRevenueNote 给一笔记账补备注。账目不存在返回 400。
 func AdminStoreRevenueNote(c *gin.Context) {
 	var req struct {
 		Note string `json:"note"`

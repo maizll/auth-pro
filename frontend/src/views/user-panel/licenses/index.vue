@@ -1,3 +1,4 @@
+<!-- 用户端「我的授权」，含站点绑定和更换。 -->
 <template>
   <div class="user-licenses">
     <!-- 授权列表卡片：筛选工具栏 + 表格 + 分页 -->
@@ -53,7 +54,8 @@
                 row.domain || '--'
               }}</span>
               <span v-if="row.type === 'key'" class="bound-count">
-                已绑定 {{ row.boundSites ?? 0 }}{{ Number(row.maxSites) ? ` / ${row.maxSites}` : '' }}
+                已绑定 {{ row.boundSites ?? 0
+                }}{{ Number(row.maxSites) ? ` / ${row.maxSites}` : '' }}
               </span>
               <span class="change-quota">{{ freeChangeText(row) }}</span>
             </div>
@@ -200,7 +202,12 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="siteDialog.visible" title="密钥绑定站点" width="min(680px, 92vw)" destroy-on-close>
+    <el-dialog
+      v-model="siteDialog.visible"
+      title="密钥绑定站点"
+      width="min(680px, 92vw)"
+      destroy-on-close
+    >
       <el-alert
         v-if="siteDialog.maxSites > 0"
         :title="`当前已绑定 ${siteDialog.list.length} / ${siteDialog.maxSites} 个站点，达到上限后新站点验证会被拒绝，可解绑释放名额。`"
@@ -242,8 +249,12 @@
           <template #default="{ row }">
             <div class="site-replace">
               <el-input v-model="siteReplace[row.id]" size="small" placeholder="新域名或 IP" />
-              <el-button size="small" type="primary" plain @click="replaceSite(row)">更换</el-button>
-              <el-button link type="danger" size="small" @click="handleUnbindSite(row)">解绑</el-button>
+              <el-button size="small" type="primary" plain @click="replaceSite(row)"
+                >更换</el-button
+              >
+              <el-button link type="danger" size="small" @click="handleUnbindSite(row)"
+                >解绑</el-button
+              >
             </div>
           </template>
         </el-table-column>

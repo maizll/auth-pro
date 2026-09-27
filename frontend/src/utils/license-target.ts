@@ -1,3 +1,4 @@
+// 授权域名和 IP 在提交前的整理，和后端校验用同一套空值、通配符规则。
 export function licenseTargetError(type: string, value: string): string {
   const target = (value || '').trim().toLowerCase()
   if (!target) return '请填写授权目标'
@@ -10,7 +11,13 @@ export function licenseTargetError(type: string, value: string): string {
 }
 
 function isValidSingleDomain(value: string) {
-  if (!value || value.startsWith('*.') || value.endsWith('.') || /[/:@\s]/.test(value) || isValidIP(value)) {
+  if (
+    !value ||
+    value.startsWith('*.') ||
+    value.endsWith('.') ||
+    /[/:@\s]/.test(value) ||
+    isValidIP(value)
+  ) {
     return false
   }
   const labels = value.split('.')

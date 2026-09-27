@@ -33,7 +33,9 @@
               {{ row.ownerType === 'agent' ? '代理' : '用户' }} ·
               {{ row.ownerName || `ID ${row.ownerId}` }}
             </span>
-            <span v-if="narrow && row.sourceLabel" class="domain-cell__owner">{{ row.sourceLabel }}</span>
+            <span v-if="narrow && row.sourceLabel" class="domain-cell__owner">{{
+              row.sourceLabel
+            }}</span>
           </div>
         </template>
 
@@ -246,7 +248,12 @@
       </ElTable>
     </ElDialog>
 
-    <ElDialog v-model="quotaDialog.visible" title="调整剩余更换次数" width="min(460px, 92vw)" destroy-on-close>
+    <ElDialog
+      v-model="quotaDialog.visible"
+      title="调整剩余更换次数"
+      width="min(460px, 92vw)"
+      destroy-on-close
+    >
       <p class="quota-current">当前剩余：{{ quotaDialog.currentText }}</p>
       <ElRadioGroup v-model="quotaDialog.mode">
         <ElRadio value="unlimited">设为不限</ElRadio>
@@ -263,7 +270,9 @@
       <p class="form-tip">不限次数时不能直接加减，需要先设为具体次数。</p>
       <template #footer>
         <ElButton @click="quotaDialog.visible = false">取消</ElButton>
-        <ElButton type="primary" :loading="quotaDialog.submitting" @click="submitChangeQuota">确定</ElButton>
+        <ElButton type="primary" :loading="quotaDialog.submitting" @click="submitChangeQuota"
+          >确定</ElButton
+        >
       </template>
     </ElDialog>
   </div>
@@ -770,9 +779,13 @@
 
   const handleGrantCommercial = async (row: LicenseItem) => {
     try {
-      await ElMessageBox.confirm(`确定为「${row.domain || row.id}」授予永久商业版？`, '授予商业版', {
-        type: 'warning'
-      })
+      await ElMessageBox.confirm(
+        `确定为「${row.domain || row.id}」授予永久商业版？`,
+        '授予商业版',
+        {
+          type: 'warning'
+        }
+      )
       await fetchGrantCommercialEdition(row.id)
       ElMessage.success('已授予商业版')
       refreshData()

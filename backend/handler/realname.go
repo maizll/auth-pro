@@ -1,3 +1,5 @@
+// 实名认证。拍照核验按服务商走快瞳或腾讯云，通过与否以服务商返回的结果为准。
+
 package handler
 
 import (
@@ -3143,8 +3145,8 @@ func RealnameFaceSubmit(c *gin.Context) {
 			Score:    score,
 		}
 	} else if session.Provider == realnameProviderTencent {
+		// 通过与否和失败原因都在 faceResult 里。后面的分支只读这一份，避免再抄一个 message 后两处不一致。
 		faceResult, verr = tencentRealnameVerifyWithImage(rnCfg, session.RealName, session.IDCard, req.ImageData)
-		message = faceResult.Reason
 		serialNo = faceResult.SerialNo
 		score = faceResult.Score
 	}

@@ -267,7 +267,8 @@ func sourcePublicPluginEntry(plugin sourcePlugin) map[string]any {
 		"id": plugin.ID, "category": category, "name": plugin.Name, "description": plugin.Description,
 		"icon": plugin.Icon, "version": plugin.Version, "author": plugin.Author,
 		"priceCents": plugin.PriceCents, "billing": catalogBillingLabel(plugin.Billing),
-		"forceUpdate": plugin.ForceUpdate,
+		"purchaseOnly": catalogEntryPurchaseOnly("plugin", plugin.ID, plugin.DeveloperID, plugin.PriceCents),
+		"forceUpdate":  plugin.ForceUpdate,
 	}
 	if plugin.PriceCents <= 0 && !isPrivatePackageRef(plugin.DownloadURL) && !isGitHubPackageRef(plugin.DownloadURL) {
 		entry["downloadUrl"] = plugin.DownloadURL
@@ -295,7 +296,8 @@ func sourcePublicTemplateEntry(template sourceTemplate) map[string]any {
 		"id": template.TemplateKey, "category": category, "name": template.Name, "description": template.Description,
 		"version": template.Version, "schemaVersion": schemaVersion,
 		"priceCents": template.PriceCents, "billing": catalogBillingLabel(template.Billing),
-		"forceUpdate": template.ForceUpdate,
+		"purchaseOnly": catalogEntryPurchaseOnly("template", template.TemplateKey, template.DeveloperID, template.PriceCents),
+		"forceUpdate":  template.ForceUpdate,
 	}
 	if template.PriceCents <= 0 && !isPrivatePackageRef(template.TemplateURL) && !isGitHubPackageRef(template.TemplateURL) {
 		entry["sha256"] = template.SHA256

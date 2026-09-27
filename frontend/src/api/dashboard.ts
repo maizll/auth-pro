@@ -67,12 +67,6 @@ export interface AdminDashboardOverview {
   riskAlerts?: DashboardTodoItem[]
 }
 
-export function fetchAdminDashboardOverview() {
-  return request.get<AdminDashboardOverview>({
-    url: '/api/dashboard/overview'
-  })
-}
-
 export function fetchAdminDashboardCards() {
   return request.get<DashboardCard[]>({
     url: '/api/dashboard/cards'
@@ -82,18 +76,6 @@ export function fetchAdminDashboardCards() {
 export function fetchAdminDashboardTrend() {
   return request.get<DashboardTrendItem[]>({
     url: '/api/dashboard/trend'
-  })
-}
-
-export function fetchAdminDashboardLicenseStatus() {
-  return request.get<DashboardStatusItem[]>({
-    url: '/api/dashboard/license-status'
-  })
-}
-
-export function fetchAdminDashboardPaymentMethods() {
-  return request.get<DashboardRankItem[]>({
-    url: '/api/dashboard/payment-methods'
   })
 }
 

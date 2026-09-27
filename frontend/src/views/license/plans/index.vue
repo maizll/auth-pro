@@ -20,7 +20,12 @@
       <ArtTable :loading="loading" :data="data" :columns="columns">
         <template #appName="{ row }">
           <span>{{ row.appName }}</span>
-          <ElTag v-if="row.commercialProduct" class="commercial-plan-tag" type="warning" size="small" effect="dark">
+          <ElTag
+            v-if="row.commercialProduct"
+            class="commercial-plan-tag"
+            type="primary"
+            size="small"
+          >
             商业版
           </ElTag>
         </template>
@@ -68,7 +73,12 @@
     </ElCard>
 
     <!-- 新增/编辑弹窗 -->
-    <ElDialog v-model="dialogVisible" :title="dialogTitle" width="min(560px, 92vw)" destroy-on-close>
+    <ElDialog
+      v-model="dialogVisible"
+      :title="dialogTitle"
+      width="min(560px, 92vw)"
+      destroy-on-close
+    >
       <ElForm ref="formRef" :model="formData" :rules="formRules" label-width="118px">
         <ElFormItem label="所属应用" prop="appId">
           <ElSelect

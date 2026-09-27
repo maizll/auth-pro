@@ -54,9 +54,18 @@
   import ArtButtonTable from '@/components/core/forms/art-button-table/index.vue'
   import { useTableColumns } from '@/hooks/core/useTableColumns'
   import MenuDialog from './modules/menu-dialog.vue'
-  import { fetchMenuManageList, fetchCreateMenu, fetchUpdateMenu, fetchDeleteMenu } from '@/api/system-manage'
+  import {
+    fetchMenuManageList,
+    fetchCreateMenu,
+    fetchUpdateMenu,
+    fetchDeleteMenu
+  } from '@/api/system-manage'
   import { toMenuSavePayload } from '@/utils/form/menu-form'
-  import { formatManageMenuName, resolveManageMenuTree, stripDemoMenus } from '@/utils/form/menu-title'
+  import {
+    formatManageMenuName,
+    resolveManageMenuTree,
+    stripDemoMenus
+  } from '@/utils/form/menu-title'
   import { reloadDynamicMenus } from '@/router/guards/beforeEach'
   import { ElTag, ElMessage, ElMessageBox } from 'element-plus'
   import { useRouter } from 'vue-router'

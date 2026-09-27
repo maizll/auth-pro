@@ -18,7 +18,9 @@ export function caughtErrorText(
 }
 
 export function errorAlreadyToasted(error: unknown): boolean {
-  return !!error && typeof error === 'object' && (error as { displayed?: boolean }).displayed === true
+  return (
+    !!error && typeof error === 'object' && (error as { displayed?: boolean }).displayed === true
+  )
 }
 
 export function claimErrorToast(

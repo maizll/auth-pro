@@ -1,3 +1,5 @@
+// 付费包从外链拉到本站或 GitHub。来源暂时不可用时只记健康状态，不把失败的拉取写成新版本。
+
 package handler
 
 import (
@@ -172,40 +174,6 @@ func paidOriginFetchError(err error) error {
 		}
 		return errors.New("外链不可达")
 	}
-}
-
-func storePaidPackageBytes(payload []byte) (string, string, error) {
-	if !isZipPayload(payload) {
-		return "", "", errors.New("必须上传 ZIP 压缩包")
-	}
-	name, err := newPaidPackageName()
-	if err != nil {
-		return "", "", err
-	}
-	dir := stationPaidPackageDir()
-	finalPath := filepath.Join(dir, name)
-	tmp, err := os.CreateTemp(dir, "paid-import-*.zip")
-	if err != nil {
-		return "", "", errors.New("保存付费包失败")
-	}
-	tmpName := tmp.Name()
-	_, writeErr := tmp.Write(payload)
-	closeErr := tmp.Close()
-	if writeErr != nil || closeErr != nil {
-		_ = os.Remove(tmpName)
-		return "", "", errors.New("保存付费包失败")
-	}
-	if err := os.Rename(tmpName, finalPath); err != nil {
-		_ = os.Remove(tmpName)
-		return "", "", errors.New("保存付费包失败")
-	}
-	_ = os.Chmod(finalPath, 0640)
-	ref, fileSHA, err := verifyPrivatePackage(privatePackageRef(name), "")
-	if err != nil {
-		_ = os.Remove(finalPath)
-		return "", "", err
-	}
-	return ref, fileSHA, nil
 }
 
 func removePaidPackageFile(ref string) {
@@ -518,6 +486,8 @@ func refetchPaidCatalogPackage(ctx context.Context, kind, id string) error {
 	return nil
 }
 
+// ReplacePaidItemPackage 在内存源站里换成新的付费包地址、摘要和来源健康状态。
+// 条目不存在时返回错误，不新建目录项。
 func (store *memorySourceStore) ReplacePaidItemPackage(kind, id, location, sha, version, origin, health string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -577,6 +547,8 @@ func (store *memorySourceStore) rememberPaidVersionLocked(kind, id, version, loc
 	bucket[id][version] = rel
 }
 
+// ReplacePaidItemPackage 把付费包的地址、摘要、版本和来源健康状态写回 MySQL。
+// 插件和模板分表更新。没有匹配行时返回错误。
 func (mysqlSourceStore) ReplacePaidItemPackage(kind, id, location, sha, version, origin, health string) error {
 	db, err := config.DB()
 	if err != nil {
@@ -617,6 +589,8 @@ func (mysqlSourceStore) ReplacePaidItemPackage(kind, id, location, sha, version,
 	return mysqlWriteVersion(db, kind, id, version, rel, rel.Status)
 }
 
+// SetPaidOriginHealth 只更新外链健康状态，不改下载地址。
+// 探测失败时记为不可用，已发布的包仍用上一份，避免一次超时把线上包清掉。
 func (mysqlSourceStore) SetPaidOriginHealth(kind, id, health string) error {
 	db, err := config.DB()
 	if err != nil {
@@ -634,6 +608,7 @@ func (mysqlSourceStore) SetPaidOriginHealth(kind, id, health string) error {
 	return err
 }
 
+// SetPaidOriginHealth 在内存源站里更新外链健康状态，不改下载地址。
 func (store *memorySourceStore) SetPaidOriginHealth(kind, id, health string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -748,6 +723,8 @@ func touchLocalPaidHealth(ctx context.Context, store sourceStationStore, kind, i
 	notifyAllAdmins(notificationTabNotice, "收费安装包暂时无法访问", body, "/source-station/catalog", "local_paid_unavailable", kind, id)
 }
 
+// StartPaidOriginHealthCheck 按小时间隔探测付费外链是否还能下载。
+// 进程内只启动一次。探测失败只改健康状态。
 func StartPaidOriginHealthCheck() {
 	go func() {
 		timer := time.NewTimer(time.Minute)
@@ -828,18 +805,23 @@ func pullPaidCatalogItem(c *gin.Context, kind string, asAdmin bool) {
 	c.JSON(200, gin.H{"code": 200, "msg": "已重新拉取并更新托管包", "data": view})
 }
 
+// SourceDeveloperPullPlugin 让开发者把自己的插件安装包重新拉到托管位置。
+// 不是本人的条目会拒绝。外链下载失败时返回原因，不替换已有包。
 func SourceDeveloperPullPlugin(c *gin.Context) {
 	pullPaidCatalogItem(c, sourceKindPlugin, false)
 }
 
+// SourceDeveloperPullTemplate 重新拉取开发者自己的模板包。失败时保留原包。
 func SourceDeveloperPullTemplate(c *gin.Context) {
 	pullPaidCatalogItem(c, sourceKindTemplate, false)
 }
 
+// AdminSourcePullPlugin 由管理员重新拉取任意插件的付费包。失败时保留原包。
 func AdminSourcePullPlugin(c *gin.Context) {
 	pullPaidCatalogItem(c, sourceKindPlugin, true)
 }
 
+// AdminSourcePullTemplate 由管理员重新拉取任意模板的付费包。失败时保留原包。
 func AdminSourcePullTemplate(c *gin.Context) {
 	pullPaidCatalogItem(c, sourceKindTemplate, true)
 }

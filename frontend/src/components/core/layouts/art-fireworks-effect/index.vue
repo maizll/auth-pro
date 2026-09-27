@@ -559,22 +559,6 @@
   const fireworkSystem = new FireworkSystem()
 
   /**
-   * 处理键盘快捷键
-   * 监听 Ctrl+Shift+P 或 Cmd+Shift+P 组合键触发烟花
-   * @param event 键盘事件对象
-   */
-  const handleKeyPress = (event: KeyboardEvent): void => {
-    const isFireworkShortcut =
-      (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'p') ||
-      (event.metaKey && event.shiftKey && event.key.toLowerCase() === 'p')
-
-    if (isFireworkShortcut) {
-      event.preventDefault()
-      fireworkSystem.createFirework()
-    }
-  }
-
-  /**
    * 调整Canvas画布大小
    * 响应窗口大小变化，确保画布始终覆盖整个视口
    */
@@ -617,7 +601,6 @@
     fireworkSystem.start()
 
     // 注册事件监听器
-    useEventListener(window, 'keydown', handleKeyPress) // 键盘快捷键
     useEventListener(window, 'resize', resizeCanvas) // 窗口大小变化
     mittBus.on('triggerFireworks', handleFireworkTrigger) // 外部触发事件
   })

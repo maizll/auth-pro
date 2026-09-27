@@ -1,3 +1,4 @@
+<!-- 在线更新页面：检查新版本、查看说明，并在 Linux amd64 上一键更新。 -->
 <template>
   <div class="online-update">
     <ElCard shadow="never" class="art-table-card">
@@ -51,7 +52,11 @@
         class="update-alert"
       />
       <ElAlert
-        v-if="(job?.status === 'restarting' || awaitingRestart) && !restartTimedOut && job?.status !== 'failed'"
+        v-if="
+          (job?.status === 'restarting' || awaitingRestart) &&
+          !restartTimedOut &&
+          job?.status !== 'failed'
+        "
         title="服务正在重启，页面稍后可能短暂无法访问"
         type="success"
         show-icon
@@ -277,7 +282,9 @@
   const jobSectionRef = ref<HTMLElement | null>(null)
   const restartTimedOut = ref(false)
   const awaitingRestart = ref(false)
-  const restartFailureReason = ref('在限定时间内没有确认新版本已经启动。若服务已经恢复，请刷新页面查看版本号。')
+  const restartFailureReason = ref(
+    '在限定时间内没有确认新版本已经启动。若服务已经恢复，请刷新页面查看版本号。'
+  )
   const restartRecovery = UPDATE_RESTART_RECOVERY
   let jobTimer: ReturnType<typeof setInterval> | undefined
   let redirectScheduled = false
@@ -501,7 +508,12 @@
     awaitingRestart.value = false
     restartTimedOut.value = false
     if (job.value) {
-      job.value = { ...job.value, status: 'failed', error: reason, message: '更新失败，已回滚到更新前的版本' }
+      job.value = {
+        ...job.value,
+        status: 'failed',
+        error: reason,
+        message: '更新失败，已回滚到更新前的版本'
+      }
     }
     finishRestartWait()
     stopJobPolling()

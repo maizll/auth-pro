@@ -1,12 +1,21 @@
+<!-- 已开通商业版时的授权详情卡，含到期时间和立即刷新。 -->
 <template>
-  <article v-if="account && isCommercialActive(account)" class="license-card">
+  <article
+    v-if="account && isCommercialActive(account)"
+    class="license-card"
+    :class="{ 'is-pending': account.offlineGrace }"
+  >
     <header class="license-card__head">
-      <ArtSvgIcon icon="ri:vip-crown-fill" />
+      <ArtSvgIcon :icon="account.offlineGrace ? 'ri:shield-check-line' : 'ri:shield-check-fill'" />
       <div>
-        <h3>商业版</h3>
-        <p>当前授权有效，无需再次升级。</p>
+        <h3>{{ account.offlineGrace ? '商业版 · 待校验' : '商业版' }}</h3>
+        <p>{{
+          account.offlineGrace
+            ? '源站暂时连不上，宽限期内仍可使用。'
+            : '当前授权有效，无需再次升级。'
+        }}</p>
       </div>
-      <span class="license-card__pill">{{ account.permanent ? '永久' : '有效期内' }}</span>
+      <span class="license-card__pill">{{ account.permanent ? '永久授权' : '有效期内' }}</span>
     </header>
     <dl class="license-card__grid">
       <div>
@@ -26,7 +35,9 @@
         <dd>{{ account.licenseNo }}</dd>
       </div>
     </dl>
-    <p v-if="account.offlineGrace" class="license-card__note">源站暂时连不上，商业版处于离线宽限。</p>
+    <p v-if="account.offlineGrace" class="license-card__note"
+      >源站暂时连不上，商业版处于离线宽限。</p
+    >
     <footer class="license-card__foot">
       <span>上次校验时间：{{ verifiedText }}</span>
       <ElButton size="small" :loading="refreshing" @click="refreshNow">立即刷新</ElButton>
@@ -45,7 +56,11 @@
   import { computed, ref } from 'vue'
   import { ElMessage } from 'element-plus'
   import { refreshStoreSnapshot, type StoreAccount } from '@/api/store'
-  import { commercialExpireText, isCommercialActive, rememberCommercialAccount } from '@/utils/commercial'
+  import {
+    commercialExpireText,
+    isCommercialActive,
+    rememberCommercialAccount
+  } from '@/utils/commercial'
   import { showCaughtError } from '@/utils/http/error-toast'
 
   defineOptions({ name: 'CommercialLicenseCard' })
@@ -84,10 +99,17 @@
 <style scoped>
   .license-card {
     overflow: hidden;
-    border: 1px solid #e0b45a;
+    border: 1px solid color-mix(in srgb, var(--el-color-primary) 35%, var(--el-border-color));
     border-radius: 14px;
     background:
-      radial-gradient(120% 80% at 100% 0%, rgb(243 212 138 / 45%), transparent 55%),
+      radial-gradient(120% 80% at 100% 0%, var(--el-color-primary-light-8), transparent 55%),
+      var(--el-bg-color);
+  }
+
+  .license-card.is-pending {
+    border-color: var(--el-color-warning-light-5);
+    background:
+      radial-gradient(120% 80% at 100% 0%, var(--el-color-warning-light-8), transparent 55%),
       var(--el-bg-color);
   }
 
@@ -96,7 +118,7 @@
     gap: 10px;
     align-items: center;
     padding: 16px 16px 8px;
-    color: #6b4a12;
+    color: var(--el-text-color-primary);
   }
 
   .license-card__head h3,
@@ -119,16 +141,25 @@
 
   .license-card__head :deep(.art-svg-icon) {
     font-size: 28px;
-    color: #c8962e;
+    color: var(--el-color-primary);
+  }
+
+  .license-card.is-pending .license-card__head :deep(.art-svg-icon) {
+    color: var(--el-color-warning);
   }
 
   .license-card__pill {
     margin-left: auto;
     padding: 2px 8px;
     border-radius: 999px;
-    background: linear-gradient(180deg, #fff6d4, #f3d48a);
-    color: #6b4a12;
+    background: var(--el-color-primary-light-9);
+    color: var(--el-color-primary);
     font-size: 12px;
+  }
+
+  .license-card.is-pending .license-card__pill {
+    background: var(--el-color-warning-light-9);
+    color: var(--el-color-warning-dark-2);
   }
 
   .license-card__grid {
@@ -172,22 +203,30 @@
 
   :global(html.dark) .license-card,
   :global(.dark) .license-card {
-    border-color: #c9a227;
+    border-color: rgb(96 165 250 / 45%);
     background:
-      radial-gradient(120% 80% at 100% 0%, rgb(201 162 39 / 28%), transparent 55%),
+      radial-gradient(120% 80% at 100% 0%, rgb(37 99 235 / 28%), transparent 55%),
       var(--el-bg-color);
   }
 
-  :global(html.dark) .license-card__head,
-  :global(.dark) .license-card__head,
-  :global(html.dark) .license-card__pill,
-  :global(.dark) .license-card__pill {
-    color: #ffe7a8;
+  :global(html.dark) .license-card.is-pending,
+  :global(.dark) .license-card.is-pending {
+    border-color: rgb(230 162 60 / 55%);
+    background:
+      radial-gradient(120% 80% at 100% 0%, rgb(230 162 60 / 18%), transparent 55%),
+      var(--el-bg-color);
   }
 
   :global(html.dark) .license-card__pill,
   :global(.dark) .license-card__pill {
-    background: linear-gradient(180deg, #6a4e16, #3d2c0c);
+    background: rgb(37 99 235 / 28%);
+    color: var(--el-color-primary-light-3);
+  }
+
+  :global(html.dark) .license-card.is-pending .license-card__pill,
+  :global(.dark) .license-card.is-pending .license-card__pill {
+    background: rgb(230 162 60 / 18%);
+    color: var(--el-color-warning-light-3);
   }
 
   @media (max-width: 640px) {

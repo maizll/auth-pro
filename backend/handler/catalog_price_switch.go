@@ -681,6 +681,16 @@ func grantGrandfatherLicense(db *sql.DB, kind, itemID string, licenseID int64) (
 	return true, nil
 }
 
+func catalogEntryPurchaseOnly(kind, itemID string, developerID, priceCents int64) bool {
+	if priceCents <= 0 {
+		return false
+	}
+	if developerID > 0 {
+		return true
+	}
+	return catalogItemPurchaseOnly(kind, itemID)
+}
+
 func catalogItemPurchaseOnly(kind, itemID string) bool {
 	db, err := config.DB()
 	if err != nil || db == nil {

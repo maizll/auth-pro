@@ -26,7 +26,7 @@ import {
 } from './backend-unavailable'
 import { $t } from '@/locales'
 import { BaseResponse } from '@/types'
-import { notifyCommercialRequired } from '@/utils/commercial'
+import { buyerRebindMessage, noteStoreRebind, notifyCommercialRequired } from '@/utils/commercial'
 
 /** 请求配置常量 */
 const REQUEST_TIMEOUT = 15000
@@ -92,7 +92,11 @@ function noteBackendReachable(): void {
   backendUnreachableTracker.record(false)
 }
 
-function noteBackendUnreachable(status: number | undefined, hasResponse: boolean, code?: string): void {
+function noteBackendUnreachable(
+  status: number | undefined,
+  hasResponse: boolean,
+  code?: string
+): void {
   if (code === 'ERR_CANCELED') return
   const tripped = backendUnreachableTracker.record(isBackendUnreachableFailure(status, hasResponse))
   if (!tripped || typeof window === 'undefined') return
@@ -118,9 +122,12 @@ axiosInstance.interceptors.response.use(
       notifyCommercialRequired(response.data)
       throw createHttpError(responseMessage || '该功能需要商业版', code)
     }
+    if (noteStoreRebind(response.data?.data)) {
+      throw createHttpError(responseMessage || buyerRebindMessage, code, response.data?.data)
+    }
     if (code === ApiStatus.success) return response
     if (code === ApiStatus.unauthorized) handleUnauthorizedError(responseMessage)
-    throw createHttpError(responseMessage || $t('httpMsg.requestFailed'), code)
+    throw createHttpError(responseMessage || $t('httpMsg.requestFailed'), code, response.data?.data)
   },
   (error) => {
     noteBackendUnreachable(error.response?.status, Boolean(error.response), error.code)
@@ -130,8 +137,8 @@ axiosInstance.interceptors.response.use(
 )
 
 /** 统一创建HttpError */
-function createHttpError(message: string, code: number) {
-  return new HttpError(message, code)
+function createHttpError(message: string, code: number, data?: unknown) {
+  return new HttpError(message, code, data === undefined ? undefined : { data })
 }
 
 /** 处理401错误（带防抖） */

@@ -1,12 +1,11 @@
+<!-- 本站已安装的首页模板。 -->
 <template>
   <div class="home-template-manage">
     <ElCard shadow="never" class="art-table-card">
       <div class="panel-header">
         <div>
           <h2 class="panel-title">首页模板管理</h2>
-          <p class="panel-subtitle">
-            管理登录页展示的首页模板，启用后访问地址保持不变
-          </p>
+          <p class="panel-subtitle"> 管理登录页展示的首页模板，启用后访问地址保持不变 </p>
         </div>
         <div class="panel-header-actions">
           <ElButton

@@ -1,3 +1,4 @@
+// 判断目录安装包是本地上传、外链还是已经进收费仓库。
 import { isHttpsLocation, isTemplateLocation, parseCatalogPriceYuan } from './catalog-slug'
 
 export type CatalogPackageSource = 'upload' | 'public'
@@ -10,7 +11,8 @@ export function catalogPriceSwitchAction(
   status: string,
   latestVersion: string
 ): '' | 'to-paid' | 'to-free' {
-  const visible = status === 'published' || status === 'hidden' || String(latestVersion || '').trim() !== ''
+  const visible =
+    status === 'published' || status === 'hidden' || String(latestVersion || '').trim() !== ''
   if ((currentCents || 0) <= 0 && nextCents > 0 && visible) return 'to-paid'
   if ((currentCents || 0) > 0 && nextCents <= 0) return 'to-free'
   return ''

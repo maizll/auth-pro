@@ -1,3 +1,4 @@
+<!-- 代理端购买授权。付款码用统一的支付弹窗。 -->
 <template>
   <div class="agent-purchase">
     <div class="steps-bar">
@@ -389,7 +390,12 @@
             "
           />
           <div class="success-actions">
-            <el-button v-if="!formData.userId" type="primary" class="success-btn" @click="goBindDomain">
+            <el-button
+              v-if="!formData.userId"
+              type="primary"
+              class="success-btn"
+              @click="goBindDomain"
+            >
               {{ formData.type === 'key' ? '查看授权' : '绑定域名' }}
             </el-button>
             <el-button class="success-btn" @click="resetFlow">

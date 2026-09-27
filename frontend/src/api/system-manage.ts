@@ -1,3 +1,4 @@
+// 系统管理接口：用户、角色、菜单、支付、邮件和插件。
 import request from '@/utils/http'
 import { AppRouteRecord } from '@/types/router'
 
@@ -566,6 +567,8 @@ export interface PluginInfo {
   source: string
   downloadUrl: string
   priceCents?: number
+  billing?: string
+  purchaseOnly?: boolean
   ownership?: string
 }
 
@@ -651,6 +654,11 @@ export interface HomeTemplateInfo {
   installed: boolean
   available: boolean
   updatedAt?: string
+  priceCents?: number
+  billing?: string
+  purchaseOnly?: boolean
+  ownership?: string
+  catalogItemId?: string
 }
 
 export interface HomeTemplateListData {
@@ -729,7 +737,12 @@ export function fetchRetargetPluginSource(
 }
 
 export function fetchRefreshPluginSource(id: number) {
-  return request.post<{ plugins: number; homeTemplates: number; sourceType?: string; notice?: string }>({
+  return request.post<{
+    plugins: number
+    homeTemplates: number
+    sourceType?: string
+    notice?: string
+  }>({
     url: `/api/system/plugin-sources/${id}/refresh`
   })
 }

@@ -1,3 +1,4 @@
+<!-- 开发者面板里的登记说明。 -->
 <template>
   <div class="developer-docs-page">
     <el-card shadow="never" class="docs-hero mb-4">
@@ -5,7 +6,8 @@
         <div>
           <h1 class="docs-title">源站开发章程</h1>
           <p class="docs-lead">
-            按章程准备可登记的插件包和整站模板。可以上传压缩包，由本站托管并填写地址与校验码，也可以填写外部 https 网址。启用模板后，登录页的配色和样式会跟着模板设置变化。
+            按章程准备可登记的插件包和整站模板。可以上传压缩包，由本站托管并填写地址与校验码，也可以填写外部
+            https 网址。启用模板后，登录页的配色和样式会跟着模板设置变化。
           </p>
         </div>
         <div class="header-actions">

@@ -1,3 +1,5 @@
+// 买家站访问源站的 HTTP 客户端：给请求签名、刷新快照，并把付费包装进本机插件或模板目录。
+
 package handler
 
 import (
@@ -38,18 +40,31 @@ func loadBuyerInstallID() string {
 	return id
 }
 
-func buyerSourceBase() (string, error) {
-	base := "https://auth.maizll.com"
-	if db, err := config.DB(); err == nil {
-		if value := strings.TrimSpace(configValue(db, storeConfigGroup, storeConfigSourceBase)); value != "" {
-			base = value
-		}
-	}
+func normalizeBuyerSource(base string) (string, error) {
 	parsed, err := parseHTTPSBase(base)
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
+func defaultBuyerSourceBase() (string, error) {
+	return normalizeBuyerSource(buyerSourceDefault)
+}
+
+// buyerSourceBase 在正式程序里固定为 https://auth.maizll.com。
+// 同包测试文件可以替换这个函数；发布构建不包含测试文件，也没有环境变量或配置文件入口。
+var buyerSourceBase = defaultBuyerSourceBase
+
+func defaultSourceHTTPClient() *http.Client {
+	return &http.Client{Timeout: 20 * time.Second, CheckRedirect: refuseSourceRedirect}
+}
+
+// newSourceHTTPClient 正式程序使用默认客户端。测试文件可以换成 httptest 客户端。
+var newSourceHTTPClient = defaultSourceHTTPClient
+
+func refuseSourceRedirect(*http.Request, []*http.Request) error {
+	return errStoreNoRedirect
 }
 
 func callSourceJSON(method, path string, body any, headers map[string]string, out any) error {
@@ -72,10 +87,7 @@ func callSourceJSON(method, path string, body any, headers map[string]string, ou
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
-	client := &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
-		return errStoreNoRedirect
-	}}
-	resp, err := client.Do(req)
+	resp, err := newSourceHTTPClient().Do(req)
 	if err != nil {
 		return errors.New("无法连接源站")
 	}
@@ -107,6 +119,7 @@ type sourceResponseError struct {
 	Revoked bool
 }
 
+// Error 返回源站信封里的 msg。空消息时给一句固定原因，避免页面看到空白错误。
 func (e *sourceResponseError) Error() string {
 	if e == nil || strings.TrimSpace(e.Msg) == "" {
 		return "源站拒绝了请求"
@@ -114,6 +127,8 @@ func (e *sourceResponseError) Error() string {
 	return e.Msg
 }
 
+// buyerSnapshotTerminal 判断源站是不是明确说这条绑定不能再用。
+// 以 revoked 字段和固定原因码为准，不用中文文案，避免源站改措辞后买家还留着已吊销的商业版。
 func buyerSnapshotTerminal(reason string, revoked bool) bool {
 	if revoked {
 		return true
@@ -248,7 +263,26 @@ func signedSourceJSONPath(method, signPath, requestPath string, body any, out an
 	if len(payload) > 0 {
 		send = json.RawMessage(payload)
 	}
-	return callSourceJSON(method, requestPath, send, headers, out)
+	err = callSourceJSON(method, requestPath, send, headers, out)
+	if err != nil {
+		clearBuyerBindingIfTerminal(err)
+	}
+	return err
+}
+
+// clearBuyerLocalBinding 去掉本机绑定凭据和快照，效果同退出绑定。
+// 源站地址、站点地址和信任代理仍留在系统配置里。
+func clearBuyerLocalBinding() {
+	_ = os.Remove(buyerSnapshotPath())
+	_ = os.Remove(filepath.Join(config.GetDataDir(), "store", "binding.key"))
+}
+
+func clearBuyerBindingIfTerminal(err error) {
+	var src *sourceResponseError
+	if !errors.As(err, &src) || !buyerSnapshotTerminal(src.Reason, src.Revoked) {
+		return
+	}
+	clearBuyerLocalBinding()
 }
 
 func openBuyerBindingSecret() ([]byte, string, error) {
@@ -356,6 +390,10 @@ func refreshBuyerSnapshot(ctx context.Context, domain string) error {
 	}
 	err := signedSourceJSONPath(http.MethodGet, signPath, requestPath, nil, &payload)
 	if err != nil {
+		// 授权或绑定已终止时，签名请求已经清掉快照，不要再写回一份吊销快照。
+		if buyerRefreshFailureRevoked(err) {
+			return err
+		}
 		state, ok := loadBuyerSnapshot()
 		if ok {
 			if next, save := applyBuyerRefreshFailure(state, err); save {
@@ -369,6 +407,8 @@ func refreshBuyerSnapshot(ctx context.Context, domain string) error {
 	return saveSnapshotMap(snap, true, false, "")
 }
 
+// StartStoreSnapshotRefresher 在后台定期向源站核对快照。
+// 失败后退避，最长约 6 小时，避免源站故障时打满请求。明确吊销由刷新函数清本地状态。
 func StartStoreSnapshotRefresher() {
 	storeRefreshOnce.Do(func() {
 		go func() {

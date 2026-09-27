@@ -90,7 +90,12 @@ async function mockAdminAPIs(page: Page) {
         json: {
           code: 200,
           msg: '',
-          data: { siteName: '授权管理系统', siteSubtitle: '', siteLogo: '', registrationEnabled: true }
+          data: {
+            siteName: '授权管理系统',
+            siteSubtitle: '',
+            siteLogo: '',
+            registrationEnabled: true
+          }
         }
       })
       return

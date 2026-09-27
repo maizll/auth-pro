@@ -1,5 +1,7 @@
 //go:build linux
 
+// 检查守护脚本在版本健康时不会把正在运行的程序换掉。
+
 package handler
 
 import (
@@ -190,7 +192,7 @@ func TestGuardianStartKeepsHealthyVersion(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "baota.env"), []byte(env), 0600); err != nil {
 		t.Fatal(err)
 	}
-	server := fmt.Sprintf(`#!/bin/sh
+	server := `#!/bin/sh
 exec python3 -c '
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
@@ -206,7 +208,7 @@ class H(BaseHTTPRequestHandler):
         return
 ThreadingHTTPServer(("127.0.0.1", int(os.environ["PORT"])), H).serve_forever()
 '
-`)
+`
 	if err := os.WriteFile(filepath.Join(dir, "auth_pro"), []byte(server), 0755); err != nil {
 		t.Fatal(err)
 	}

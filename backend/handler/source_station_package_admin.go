@@ -314,7 +314,7 @@ func AdminSourcePackagePublish(c *gin.Context) {
 	if githubPaid {
 		msg = "校验通过，已存入收费仓库并删除本站临时文件，校验码已自动填写"
 	} else if paidLocalFallback {
-		msg = "校验通过，安装包已暂存在本站，校验码已自动填写。" + paidLocalFallbackText
+		msg = "校验通过，校验码已自动填写。" + paidLocalFallbackText
 	} else if remoteURL != "" && hosted {
 		msg = "校验通过，已拉取外链并私有托管，校验码已自动填写"
 	} else if remoteURL != "" {
@@ -326,7 +326,7 @@ func AdminSourcePackagePublish(c *gin.Context) {
 	if shelf && githubPaid {
 		msg = "校验通过，已存入收费仓库并删除本站临时文件后上架，校验码已自动填写"
 	} else if shelf && paidLocalFallback {
-		msg = "校验通过，安装包已暂存在本站并上架，校验码已自动填写。" + paidLocalFallbackText
+		msg = "校验通过，校验码已自动填写并上架。" + paidLocalFallbackText
 	} else if shelf && remoteURL != "" && hosted {
 		msg = "校验通过，已拉取外链并私有托管后上架，校验码已自动填写"
 	} else if shelf && remoteURL != "" && !hosted {

@@ -6,14 +6,14 @@
     :width="240"
     :hide-after="0"
     :offset="10"
-    trigger="hover"
+    :trigger="narrow ? 'click' : 'hover'"
     :show-arrow="false"
     popper-class="user-menu-popover"
     popper-style="padding: 5px 16px;"
   >
     <template #reference>
       <img
-        class="size-8.5 mr-5 c-p rounded-full max-sm:w-6.5 max-sm:h-6.5 max-sm:mr-[16px]"
+        class="user-menu-avatar size-8.5 mr-5 c-p rounded-full"
         src="@imgs/user/avatar.webp"
         alt="avatar"
       />
@@ -37,6 +37,31 @@
             <ArtSvgIcon icon="ri:user-3-line" />
             <span>{{ $t('topBar.user.userCenter') }}</span>
           </li>
+          <li
+            v-if="showNarrowTools && shouldShowLanguage"
+            class="btn-item"
+            @click.stop="languageOpen = !languageOpen"
+          >
+            <ArtSvgIcon icon="ri:translate-2" />
+            <span>切换语言</span>
+          </li>
+          <li
+            v-for="item in narrowLanguageOptions"
+            :key="item.value"
+            class="btn-item lang-sub"
+            @click="pickLanguage(item.value)"
+          >
+            <span>{{ item.label }}</span>
+            <ArtSvgIcon v-if="locale === item.value" icon="ri:check-fill" class="ml-auto" />
+          </li>
+          <li v-if="showNarrowTools && shouldShowSettings" class="btn-item" @click="openSetting">
+            <ArtSvgIcon icon="ri:settings-line" />
+            <span>主题设置</span>
+          </li>
+          <li v-if="showNarrowTools && shouldShowThemeToggle" class="btn-item" @click="toggleTheme">
+            <ArtSvgIcon :icon="isDark ? 'ri:sun-fill' : 'ri:moon-line'" />
+            <span>暗色模式</span>
+          </li>
           <div class="w-full h-px my-2 bg-g-300/80"></div>
           <div class="log-out c-p" @click="loginOut">
             {{ $t('topBar.user.logout') }}
@@ -48,26 +73,65 @@
 </template>
 
 <script setup lang="ts">
+  import { computed, ref } from 'vue'
   import { useI18n } from 'vue-i18n'
   import { useRouter } from 'vue-router'
   import { ElMessageBox } from 'element-plus'
+  import { LanguageEnum } from '@/enums/appEnum'
+  import { useHeaderBar } from '@/hooks/core/useHeaderBar'
+  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
+  import { languageOptions } from '@/locales'
+  import { useSettingStore } from '@/store/modules/setting'
   import { useUserStore } from '@/store/modules/user'
+  import { mittBus } from '@/utils/sys'
+  import { themeAnimation } from '@/utils/ui/animation'
+  import { useCommon } from '@/hooks/core/useCommon'
 
   defineOptions({ name: 'ArtUserMenu' })
 
   const router = useRouter()
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const userStore = useUserStore()
+  const settingStore = useSettingStore()
+  const narrow = useNarrowScreen(767)
+  const { shouldShowLanguage, shouldShowSettings, shouldShowThemeToggle } = useHeaderBar()
+  const { isDark, showSettingGuide } = storeToRefs(settingStore)
+  const { refresh } = useCommon()
 
   const { getUserInfo: userInfo } = storeToRefs(userStore)
   const userMenuPopover = ref()
+  const languageOpen = ref(false)
+  const showNarrowTools = computed(() => narrow.value)
+  const narrowLanguageOptions = computed(() =>
+    showNarrowTools.value && shouldShowLanguage.value && languageOpen.value ? languageOptions : []
+  )
 
   /**
    * 页面跳转
    * @param {string} path - 目标路径
    */
   const goPage = (path: string): void => {
+    closeUserMenu()
     router.push(path)
+  }
+
+  const pickLanguage = (lang: LanguageEnum): void => {
+    closeUserMenu()
+    if (locale.value === lang) return
+    locale.value = lang
+    userStore.setLanguage(lang)
+    setTimeout(() => refresh(), 50)
+  }
+
+  const openSetting = (): void => {
+    closeUserMenu()
+    mittBus.emit('openSetting')
+    if (showSettingGuide.value) settingStore.hideSettingGuide()
+  }
+
+  const toggleTheme = (event: MouseEvent): void => {
+    closeUserMenu()
+    themeAnimation(event)
   }
 
   /**
@@ -114,6 +178,30 @@
       &:hover {
         background-color: var(--art-gray-200);
       }
+    }
+
+    .lang-sub {
+      min-height: 36px;
+      padding-left: 34px;
+    }
+  }
+
+  @media (max-width: 767px) {
+    .user-menu-avatar {
+      width: 36px !important;
+      height: 36px !important;
+      margin-right: 12px !important;
+    }
+
+    .btn-item,
+    .log-out {
+      min-height: 36px;
+    }
+
+    .log-out {
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
   }
 

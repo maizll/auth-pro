@@ -1,3 +1,4 @@
+<!-- 开发者登录。 -->
 <template>
   <div class="developer-login">
     <div class="theme-toggle">
@@ -37,7 +38,13 @@
             :closable="false"
             show-icon
           />
-          <el-button type="primary" size="large" class="login-btn" :loading="loading" @click="goAgentLogin">
+          <el-button
+            type="primary"
+            size="large"
+            class="login-btn"
+            :loading="loading"
+            @click="goAgentLogin"
+          >
             前往代理商登录
           </el-button>
           <div class="login-footer">

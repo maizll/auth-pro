@@ -226,12 +226,14 @@ func settleEpayCallback(db *sql.DB, params map[string]string) error {
 	if err := payConfig.validateForNotify(); err != nil {
 		return err
 	}
+	// 商户号对不上就拒绝。空 pid 留给个别渠道不回传商户号的情况，此时只靠签名。
 	if params["pid"] != "" && params["pid"] != payConfig.PID {
 		return errors.New("商户号不匹配")
 	}
 	if !verifyEpaySign(params, payConfig.Key) {
 		return errors.New("验签失败")
 	}
+	// 未成功的通知不能入账。返回错误后异步通知应答 fail，渠道会重试，同步跳转则只负责把人带回页面。
 	if strings.ToUpper(strings.TrimSpace(params["trade_status"])) != "TRADE_SUCCESS" {
 		return errors.New("交易未成功")
 	}

@@ -1,3 +1,5 @@
+// 商业版能用哪些能力、免费版卡在哪里，以及站点域名是否允许绑定。购买和启用前都问这里。
+
 package handler
 
 import (
@@ -74,10 +76,11 @@ type mainLicenseMatch struct {
 }
 
 // decideMainLicense 决定绑定域名时关联、新建，还是拒绝。
-// 只接受 domain 类型。域名属于其他账号时拒绝，不自动转移。
+// 只接受 domain 类型。域名属于其他账号的有效授权时拒绝，不自动转移。
+// 已删除、已吊销、已过期或其他非活跃记录不占用域名，可以新建绑定。
 func decideMainLicense(accountType string, accountID int64, matches []mainLicenseMatch) (action string, licenseID int64, err error) {
 	for _, item := range matches {
-		if item.Status == "revoked" || item.Status == "expired" {
+		if strings.TrimSpace(item.Status) != "active" {
 			continue
 		}
 		if item.Type != "domain" {
@@ -218,18 +221,6 @@ func parseHTTPSBase(raw string) (*url.URL, error) {
 		return nil, errors.New("源站地址必须是 https")
 	}
 	return parsed, nil
-}
-
-func sameOriginURL(base, raw string) bool {
-	baseURL, err := parseHTTPSBase(base)
-	if err != nil {
-		return false
-	}
-	next, err := parseHTTPSBase(raw)
-	if err != nil {
-		return false
-	}
-	return strings.EqualFold(baseURL.Scheme, next.Scheme) && strings.EqualFold(baseURL.Host, next.Host)
 }
 
 func ownershipForPrice(priceCents int64, commercial, purchased bool) string {

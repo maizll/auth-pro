@@ -1,3 +1,4 @@
+<!-- 商业版标记：图标加一行说明，用在限额提示和需要升级的提示里。 -->
 <template>
   <span class="commercial-mark" :class="`is-${tone}`">
     <ArtSvgIcon :icon="icon" class="commercial-mark__icon" />
@@ -12,11 +13,11 @@
     defineProps<{
       text: string
       icon?: string
-      tone?: 'crown' | 'warning' | 'ok'
+      tone?: 'primary' | 'warning' | 'ok'
     }>(),
     {
-      icon: 'ri:vip-crown-fill',
-      tone: 'crown'
+      icon: 'ri:rocket-2-line',
+      tone: 'primary'
     }
   )
 </script>
@@ -27,13 +28,13 @@
     gap: 6px;
     align-items: flex-start;
     max-width: 100%;
-    color: var(--el-color-warning-dark-2);
+    color: var(--el-color-primary);
     font-size: 13px;
     line-height: 1.5;
   }
 
   .commercial-mark.is-warning {
-    color: var(--el-color-danger);
+    color: var(--el-color-warning);
   }
 
   .commercial-mark.is-ok {

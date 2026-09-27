@@ -1,3 +1,5 @@
+// 付费包下载。先确认授权还能下，再发短期票据或 GitHub 临时链接。私有包不提供永久直链。
+
 package handler
 
 import (
@@ -12,6 +14,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// StoreDownloadTicket 给已签名的买家换一张短期下载凭证。
+// kind 和 id 标识插件或模板。授权不能下时返回 403。
+// GitHub 上的包直接返回几分钟有效的临时链接，避免安装包经过源站中转。
+// 本站私有目录里的包只发一次性票据，票据过期或路径越界时不能下载。
 func StoreDownloadTicket(c *gin.Context) {
 	if !storeTicketRate.allow(c.ClientIP(), 60, time.Minute, time.Now()) {
 		storeFail(c, 429, "换票过于频繁")
@@ -39,6 +45,7 @@ func StoreDownloadTicket(c *gin.Context) {
 	driverName, objectKey := classifyPackageRef(location)
 	switch driverName {
 	case packageStorageGitHub:
+		// 私有仓库不能把 Release 地址公开。临时链接由令牌换出，过期后买家要重新换票。
 		driver, ok := packageStorageByName(packageStorageGitHub)
 		if !ok {
 			storeFail(c, 400, "付费包不存在")
@@ -83,6 +90,8 @@ func StoreDownloadTicket(c *gin.Context) {
 	}
 }
 
+// StorePackageDownload 用票据把本站私有目录里的 ZIP 发给买家。
+// 票据过期、路径含 ..、授权已不能下载时拒绝。文件不存在返回 404。
 func StorePackageDownload(c *gin.Context) {
 	claims, err := parseStoreDownloadToken(strings.TrimSpace(c.Param("token")))
 	if err != nil {
@@ -116,6 +125,9 @@ func StorePackageDownload(c *gin.Context) {
 	c.Data(http.StatusOK, "application/zip", payload)
 }
 
+// licenseDownloadAllowed 判断这条授权现在能不能下这个付费包。
+// 授权不是 active 一律拒绝。官方条目在商业版有效期内可以直接下。
+// 开发者的条目，以及标成仅单买的条目，必须另有一条未过期的购买权益，商业版不代替购买。
 func licenseDownloadAllowed(licenseStatus string, commercialActive bool, developerID int64, entitlementActive bool) bool {
 	if licenseStatus != "active" {
 		return false

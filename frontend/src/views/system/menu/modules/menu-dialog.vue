@@ -1,3 +1,4 @@
+<!-- 新建或编辑一条菜单。父级不能选自己或自己的下级。 -->
 <template>
   <ElDialog
     :title="dialogTitle"
@@ -355,7 +356,10 @@
     try {
       await formRef.value.validate()
       if (form.parentId == null) form.parentId = 0
-      if (form.menuType === 'menu' && isInvalidMenuParent(form.id, form.parentId, props.menus || [])) {
+      if (
+        form.menuType === 'menu' &&
+        isInvalidMenuParent(form.id, form.parentId, props.menus || [])
+      ) {
         ElMessage.error('不能选择自身或下级菜单作为上级')
         return
       }

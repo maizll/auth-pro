@@ -28,10 +28,17 @@ async function login(base) {
 async function openMenu() {
   const title = page.getByText('源站运营', { exact: true }).first()
   if (!(await title.isVisible().catch(() => false))) {
-    const menuButton = page.locator('button').filter({ has: page.locator('svg, i') }).first()
-    await page.locator('.ml-3, .max-sm\\:ml-\\[7px\\]').first().click({ timeout: 5000 }).catch(async () => {
-      await menuButton.click()
-    })
+    const menuButton = page
+      .locator('button')
+      .filter({ has: page.locator('svg, i') })
+      .first()
+    await page
+      .locator('.ml-3, .max-sm\\:ml-\\[7px\\]')
+      .first()
+      .click({ timeout: 5000 })
+      .catch(async () => {
+        await menuButton.click()
+      })
     await page.waitForTimeout(400)
   }
   await title.click()
@@ -40,42 +47,51 @@ async function openMenu() {
 
 try {
   if (process.env.AUTH_PRO_E2E_RECAPTURE !== '1') {
-  console.log('buyer login')
-  await login(state.buyer)
-  await page.goto(`${state.buyer}/license/apps`, { waitUntil: 'domcontentloaded' })
-  await page.locator('#app-header').getByRole('button', { name: '升级商业版' }).click()
-  await page.getByRole('dialog', { name: '升级商业版' }).waitFor()
-  await page.getByPlaceholder('邮箱或账号').fill(state.buyerEmail)
-  await page.getByPlaceholder('仅用于本次登录，不会保存').fill(state.buyerPass)
-  await page.getByRole('button', { name: '登录并绑定' }).click()
-  await page.getByText('已绑定').first().waitFor()
-  await page.waitForFunction(() => {
-    const button = [...document.querySelectorAll('button')].find((item) => item.textContent?.includes('生成付款码'))
-    return button && !button.disabled
-  })
-  await page.getByRole('button', { name: '生成付款码' }).click()
-  await page.locator('.upgrade-qr canvas, .upgrade-qr svg').first().waitFor()
-  await page.screenshot({ path: shot('phone-buyer-pay-qr.png') })
-  await page.getByRole('dialog', { name: '升级商业版' }).waitFor({ state: 'hidden', timeout: 40000 })
-  await page.goto(`${state.buyer}/plugin-store`, { waitUntil: 'domcontentloaded' })
-  await page.getByText('商业版 · 永久').first().waitFor()
-  await page.getByText('浏览并安装插件和首页模板').waitFor()
-  await page.locator('#app-header').getByRole('button', { name: '商业版' }).waitFor()
-  if (await page.getByRole('button', { name: '升级商业版' }).count()) {
-    throw new Error('商业版仍显示升级按钮')
-  }
-  await page.screenshot({ path: shot('phone-buyer-commercial-v2.png') })
-  await page.screenshot({ path: shot('phone-buyer-commercial.png') })
-  await page.goto(`${state.buyer}/license/apps`, { waitUntil: 'domcontentloaded' })
-  await page.getByText('买家第二个应用').waitFor()
-  await page.getByText('买家主应用').waitFor()
-  await page.locator('#app-header').getByRole('button', { name: '商业版' }).waitFor()
-  if (await page.getByRole('button', { name: '升级商业版' }).count()) {
-    throw new Error('应用管理仍显示升级商业版')
-  }
-  if (await page.getByText('免费版仅支持').isVisible().catch(() => false)) {
-    throw new Error('免费版限制提示还在')
-  }
+    console.log('buyer login')
+    await login(state.buyer)
+    await page.goto(`${state.buyer}/license/apps`, { waitUntil: 'domcontentloaded' })
+    await page.locator('#app-header').getByRole('button', { name: '升级商业版' }).click()
+    await page.getByRole('dialog', { name: '升级商业版' }).waitFor()
+    await page.getByPlaceholder('邮箱或账号').fill(state.buyerEmail)
+    await page.getByPlaceholder('仅用于本次登录，不会保存').fill(state.buyerPass)
+    await page.getByRole('button', { name: '登录并绑定' }).click()
+    await page.getByText('已绑定').first().waitFor()
+    await page.waitForFunction(() => {
+      const button = [...document.querySelectorAll('button')].find((item) =>
+        item.textContent?.includes('生成付款码')
+      )
+      return button && !button.disabled
+    })
+    await page.getByRole('button', { name: '生成付款码' }).click()
+    await page.locator('.upgrade-qr canvas, .upgrade-qr svg').first().waitFor()
+    await page.screenshot({ path: shot('phone-buyer-pay-qr.png') })
+    await page
+      .getByRole('dialog', { name: '升级商业版' })
+      .waitFor({ state: 'hidden', timeout: 40000 })
+    await page.goto(`${state.buyer}/plugin-store`, { waitUntil: 'domcontentloaded' })
+    await page.locator('#app-header').getByRole('button', { name: '商业版 永久授权' }).waitFor()
+    await page.getByText('浏览并安装插件和首页模板').waitFor()
+    await page.locator('#app-header').getByRole('button', { name: '商业版' }).waitFor()
+    if (await page.getByRole('button', { name: '升级商业版' }).count()) {
+      throw new Error('商业版仍显示升级按钮')
+    }
+    await page.screenshot({ path: shot('phone-buyer-commercial-v2.png') })
+    await page.screenshot({ path: shot('phone-buyer-commercial.png') })
+    await page.goto(`${state.buyer}/license/apps`, { waitUntil: 'domcontentloaded' })
+    await page.getByText('买家第二个应用').waitFor()
+    await page.getByText('买家主应用').waitFor()
+    await page.locator('#app-header').getByRole('button', { name: '商业版' }).waitFor()
+    if (await page.getByRole('button', { name: '升级商业版' }).count()) {
+      throw new Error('应用管理仍显示升级商业版')
+    }
+    if (
+      await page
+        .getByText('免费版仅支持')
+        .isVisible()
+        .catch(() => false)
+    ) {
+      throw new Error('免费版限制提示还在')
+    }
   }
 
   console.log('source shots')
@@ -130,7 +146,12 @@ try {
   await page.getByText('广告投放', { exact: true }).waitFor()
   await page.getByText('源站设置', { exact: true }).first().waitFor()
   for (const retired of ['商业版设置', '商店订单', '主授权与权益', '商业版收入']) {
-    if (await page.getByText(retired, { exact: true }).isVisible().catch(() => false)) {
+    if (
+      await page
+        .getByText(retired, { exact: true })
+        .isVisible()
+        .catch(() => false)
+    ) {
       throw new Error(`旧菜单仍在侧栏: ${retired}`)
     }
   }

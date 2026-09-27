@@ -58,6 +58,9 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm -C frontend install --frozen-lockfile
 
+      - name: Quality gate
+        run: ./scripts/quality-check.sh
+
       - name: Restore release history
         shell: bash
         run: |

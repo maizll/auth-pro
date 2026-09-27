@@ -370,10 +370,6 @@ export function rejectSourceApplication(id: number, note?: string) {
   return request.post({ url: `${BASE}/applications/${id}/reject`, data: noteBody(note) })
 }
 
-export function freezeSourceApplication(id: number, note?: string) {
-  return request.post({ url: `${BASE}/applications/${id}/freeze`, data: noteBody(note) })
-}
-
 export function fetchSourceDevelopers() {
   return request.get<SourceListResponse<SourceDeveloper>>({ url: `${BASE}/developers` })
 }
@@ -391,11 +387,6 @@ export const SOURCE_APPLICATION_STATUS: Record<
   rejected: { label: '已拒绝', type: 'danger' },
   cancelled: { label: '已取消', type: 'info' },
   frozen: { label: '已冻结', type: 'info' }
-}
-
-/** Alias used by applications admin page (maps to freeze). */
-export function cancelSourceApplication(id: number, note?: string) {
-  return freezeSourceApplication(id, note)
 }
 
 /** Alias used by applications admin page (maps to freeze developer). */
@@ -455,16 +446,6 @@ export function rebindSourceCatalogItems(
   })
 }
 
-export function fetchSourcePlugins(status?: string, appId?: number) {
-  return request.get<SourceListResponse<SourcePlugin>>({
-    url: `${BASE}/plugins`,
-    params: {
-      ...(status ? { status } : {}),
-      ...(appId && appId > 0 ? { app_id: appId } : {})
-    }
-  })
-}
-
 export function registerSourcePlugin(payload: SourcePluginDraft) {
   return request.put<SourcePlugin>({ url: `${BASE}/plugins`, data: payload })
 }
@@ -515,16 +496,6 @@ export function setSourcePluginVersionStatus(
   return request.post({
     url: `${BASE}/plugins/${encodeURIComponent(id)}/versions/${encodeURIComponent(version)}/${action}`,
     data: noteBody(note)
-  })
-}
-
-export function fetchSourceTemplates(status?: string, appId?: number) {
-  return request.get<SourceListResponse<SourceTemplate>>({
-    url: `${BASE}/templates`,
-    params: {
-      ...(status ? { status } : {}),
-      ...(appId && appId > 0 ? { app_id: appId } : {})
-    }
   })
 }
 
@@ -603,20 +574,9 @@ export function fetchSourceAudit(limit = 100) {
   })
 }
 
-export interface SourceStoreSettings {
-  productAppKey: string
-  freePlanId: string
-  graceDays?: number
-  revokeOnPasswordChange?: boolean
-  commercialFeatures?: string[]
-}
-
-export function fetchSourceStoreSettings() {
-  return request.get<SourceStoreSettings>({ url: `${BASE}/settings/store` })
-}
-
-export function saveSourceStoreSettings(payload: SourceStoreSettings) {
-  return request.put<SourceStoreSettings>({ url: `${BASE}/settings/store`, data: payload })
+export interface GitHubPaidOwner {
+  login: string
+  kind?: string
 }
 
 export interface GitHubPaidSettings {
@@ -624,13 +584,21 @@ export interface GitHubPaidSettings {
   owner?: string
   repo?: string
   reminder?: string
+  login?: string
+  owners?: GitHubPaidOwner[]
+  private?: boolean
+  connected?: boolean
+  repoStatus?: string
+  hint?: string
+  defaultRepo?: string
+  tokenCreateUrl?: string
 }
 
 export function fetchGitHubPaidToken() {
   return request.get<GitHubPaidSettings>({ url: `${BASE}/settings/github-paid` })
 }
 
-export function saveGitHubPaidToken(payload: { token?: string; owner: string; repo: string }) {
+export function saveGitHubPaidToken(payload: { token?: string; owner?: string; repo?: string }) {
   return request.put<GitHubPaidSettings>({
     url: `${BASE}/settings/github-paid`,
     data: payload
@@ -640,6 +608,13 @@ export function saveGitHubPaidToken(payload: { token?: string; owner: string; re
 export function testGitHubPaidToken(payload: { token?: string; owner?: string; repo?: string }) {
   return request.post<GitHubPaidSettings>({
     url: `${BASE}/settings/github-paid/test`,
+    data: payload
+  })
+}
+
+export function createGitHubPaidRepo(payload: { token?: string; owner?: string; repo?: string }) {
+  return request.post<GitHubPaidSettings>({
+    url: `${BASE}/settings/github-paid/repo`,
     data: payload
   })
 }
@@ -706,10 +681,6 @@ export function testSourceReleaseSettings(payload: {
     data: payload,
     timeout: PACKAGE_TIMEOUT
   })
-}
-
-export function fetchSourcePackageSchema() {
-  return request.get<Record<string, unknown>>({ url: `${BASE}/packages/schema` })
 }
 
 export function parseSourcePackage(form: FormData) {

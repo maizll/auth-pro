@@ -1,3 +1,5 @@
+// 授权站点的绑定、更换和剩余免费次数。支付成功后才真正换域名。
+
 package handler
 
 import (
@@ -956,6 +958,9 @@ func readSiteChangeOrderStatus(c *gin.Context, ownerType string, ownerID int64) 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"status": status}})
 }
 
+// AdminLicenseSiteChangeAdjust 调整一条授权还剩几次免费换站。
+// unlimited 表示不限次数；value 直接改成这个非负整数；delta 在现有次数上加减。
+// 授权不存在返回 404。当前已是不限次数时不能再加减。结果小于 0 返回 400。
 func AdminLicenseSiteChangeAdjust(c *gin.Context) {
 	licenseID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
 	if err != nil || licenseID <= 0 {
@@ -987,7 +992,7 @@ func AdminLicenseSiteChangeAdjust(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "授权不存在"})
 		return
 	}
-	next := left
+	var next int
 	switch {
 	case req.Unlimited:
 		next = siteChangeUnlimited

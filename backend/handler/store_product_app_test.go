@@ -1,3 +1,5 @@
+// 用内存驱动代替 MySQL，检查商业版产品应用的保存校验。不连接真实数据库。
+
 package handler
 
 import (
@@ -62,7 +64,7 @@ func (driver storeProductAppDriver) Open(string) (driver.Conn, error) {
 }
 
 func (driver storeProductAppDriver) OpenConnector(string) (driver.Connector, error) {
-	return storeProductAppConnector{state: driver.state}, nil
+	return storeProductAppConnector(driver), nil
 }
 
 type storeProductAppConnector struct{ state *storeProductAppState }
@@ -72,7 +74,7 @@ func (connector storeProductAppConnector) Connect(context.Context) (driver.Conn,
 }
 
 func (connector storeProductAppConnector) Driver() driver.Driver {
-	return storeProductAppDriver{state: connector.state}
+	return storeProductAppDriver(connector)
 }
 
 func (*storeProductAppConn) Prepare(string) (driver.Stmt, error) {
@@ -227,4 +229,3 @@ func TestLookupEnabledStoreProductAppIDTrimsKey(t *testing.T) {
 		t.Fatalf("missing err=%v", err)
 	}
 }
-

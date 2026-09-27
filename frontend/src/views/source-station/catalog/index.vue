@@ -1,3 +1,4 @@
+<!-- 软件目录总览，进入某个应用的插件和模板。 -->
 <template>
   <div class="source-station-page">
     <el-card shadow="never" class="art-card mb-4">
@@ -109,7 +110,11 @@
   })
   const publicIndexUrl = computed(() => {
     const app = selectedApp.value
-    const path = app?.indexUrl || (app?.appKey ? `/software-source/${app.appKey}/index.json` : '/software-source/{app_key}/index.json')
+    const path =
+      app?.indexUrl ||
+      (app?.appKey
+        ? `/software-source/${app.appKey}/index.json`
+        : '/software-source/{app_key}/index.json')
     return `${window.location.origin}${path}`
   })
   const prettyLive = computed(() => JSON.stringify(indexData.value?.live || {}, null, 2))

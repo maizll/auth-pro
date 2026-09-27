@@ -10,7 +10,11 @@ export function restartTimedOut(startedAt: number, now: number, status: string):
   return status === 'restarting' && startedAt > 0 && now - startedAt >= UPDATE_RESTART_TIMEOUT_MS
 }
 
-export function rememberRestartStart(jobId: string, now: number, storage: Pick<Storage, 'getItem' | 'setItem'>): number {
+export function rememberRestartStart(
+  jobId: string,
+  now: number,
+  storage: Pick<Storage, 'getItem' | 'setItem'>
+): number {
   const key = clockKey(jobId)
   const existing = Number(storage.getItem(key))
   if (Number.isFinite(existing) && existing > 0) return existing

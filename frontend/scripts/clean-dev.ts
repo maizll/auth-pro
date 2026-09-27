@@ -501,90 +501,6 @@ async function cleanLanguageFiles() {
   }
 }
 
-// 清理快速入口组件
-async function cleanFastEnterComponent() {
-  const fastEnterPath = path.resolve(process.cwd(), 'src/config/fastEnter.ts')
-
-  try {
-    const cleanedFastEnter = `/**
- * 快速入口配置
- * 包含：应用列表、快速链接等配置
- */
-import type { FastEnterConfig } from '@/types/config'
-
-const fastEnterConfig: FastEnterConfig = {
-  // 显示条件（屏幕宽度）
-  minWidth: 1200,
-  // 应用列表
-  applications: [
-    {
-      name: '工作台',
-      description: '系统概览与数据统计',
-      icon: 'ri:pie-chart-line',
-      iconColor: '#377dff',
-      enabled: true,
-      order: 1,
-      routeName: 'Console'
-    },
-    {
-      name: '开发文档',
-      description: '站内接入与开发说明',
-      icon: 'ri:bill-line',
-      iconColor: '#ffb100',
-      enabled: true,
-      order: 2,
-      routeName: 'DeveloperDoc'
-    },
-    {
-      name: '工单',
-      description: '站内问题反馈',
-      icon: 'ri:question-answer-line',
-      iconColor: '#ff6b6b',
-      enabled: true,
-      order: 3,
-      routeName: 'TicketManage'
-    }
-  ],
-  // 快速链接
-  quickLinks: [
-    {
-      name: '登录',
-      enabled: true,
-      order: 1,
-      routeName: 'Login'
-    },
-    {
-      name: '注册',
-      enabled: true,
-      order: 2,
-      routeName: 'Register'
-    },
-    {
-      name: '忘记密码',
-      enabled: true,
-      order: 3,
-      routeName: 'ForgetPassword'
-    },
-    {
-      name: '个人中心',
-      enabled: true,
-      order: 4,
-      routeName: 'UserCenter'
-    }
-  ]
-}
-
-export default Object.freeze(fastEnterConfig)
-`
-
-    await fs.writeFile(fastEnterPath, cleanedFastEnter, 'utf-8')
-    console.log(`     ${icons.success} ${fmt.success('清理快速入口配置完成')}`)
-  } catch (err) {
-    console.log(`     ${icons.error} ${fmt.error('清理快速入口配置失败')}`)
-    console.log(`     ${fmt.dim('错误详情: ' + err)}`)
-  }
-}
-
 // 更新菜单接口
 async function updateMenuApi() {
   const apiPath = path.resolve(process.cwd(), 'src/api/system-manage.ts')
@@ -672,13 +588,7 @@ async function showCleanupWarning() {
       color: theme.warning
     },
     { icon: icons.map, name: '地图组件', desc: '移除art-map-chart地图组件', color: theme.error },
-    { icon: icons.chat, name: '评论组件', desc: '移除comment-widget评论组件', color: theme.orange },
-    {
-      icon: icons.bolt,
-      name: '快速入口',
-      desc: '移除分析页、礼花效果、聊天、更新日志、定价、留言管理等无效项目',
-      color: theme.purple
-    }
+    { icon: icons.chat, name: '评论组件', desc: '移除comment-widget评论组件', color: theme.orange }
   ]
 
   console.log(`  ${fmt.badge('', theme.bgRed)} ${fmt.title('将要清理的内容')}`)
@@ -811,12 +721,7 @@ async function main() {
   await cleanLanguageFiles()
   console.log()
 
-  console.log(`  ${fmt.badge('步骤 6/7', theme.bgBlue)} ${fmt.title('清理快速入口')}`)
-  console.log()
-  await cleanFastEnterComponent()
-  console.log()
-
-  console.log(`  ${fmt.badge('步骤 7/7', theme.bgBlue)} ${fmt.title('更新菜单接口')}`)
+  console.log(`  ${fmt.badge('步骤 6/6', theme.bgBlue)} ${fmt.title('更新菜单接口')}`)
   console.log()
   await updateMenuApi()
 

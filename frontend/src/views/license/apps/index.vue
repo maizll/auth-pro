@@ -4,11 +4,7 @@
 <template>
   <div class="license-apps-page art-full-height">
     <ElCard class="art-table-card no-search-card" shadow="never">
-      <!-- 表格头部 -->
-      <div v-if="showAppLimitBar" class="app-limit-bar">
-        <CommercialMark :text="multiAppText" />
-        <ElButton type="primary" @click="openCommercialUpgrade">升级商业版</ElButton>
-      </div>
+      <!-- 版本状态只在顶栏。这里只在「新增应用」旁留一行说明，超限再点新增才弹升级窗。 -->
       <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
         <template #left>
           <ElSpace wrap>
@@ -24,7 +20,7 @@
           <div class="app-name-cell">
             <span class="app-name-cell__title">{{ row.name }}</span>
             <div v-if="narrow && row.commercialProduct" class="sale-status">
-              <ElTag type="warning" size="small">商业版产品</ElTag>
+              <ElTag type="primary" size="small">商业版产品</ElTag>
               <ElTag v-if="!row.saleGaps?.length" type="success" size="small">可售</ElTag>
               <ElButton
                 v-for="gap in row.saleGaps || []"
@@ -73,7 +69,7 @@
 
         <template #sale="{ row }">
           <div v-if="row.commercialProduct" class="sale-status">
-            <ElTag type="warning" size="small">商业版产品</ElTag>
+            <ElTag type="primary" size="small">商业版产品</ElTag>
             <ElTag v-if="!row.saleGaps?.length" type="success" size="small">可售</ElTag>
             <ElButton
               v-for="gap in row.saleGaps || []"
@@ -107,10 +103,7 @@
         <!-- 操作 -->
         <template #operation="{ row }">
           <RowActions
-            :primary="[
-              { key: 'edit', label: '编辑' },
-              { key: 'versions', label: '版本' }
-            ]"
+            :primary="appPrimaryActions"
             :more="appMoreActions(row)"
             @click="(action) => onAppAction(row, action)"
           />
@@ -150,7 +143,9 @@
           <ElCollapseItem title="高级设置" name="advanced">
             <ElFormItem label="离线宽限天数">
               <ElInputNumber v-model="formData.graceDays" :min="1" :max="30" />
-              <div class="form-tip">源站暂时连不上时，买方商业版还可以继续使用的天数，默认 7 天。</div>
+              <div class="form-tip"
+                >源站暂时连不上时，买方商业版还可以继续使用的天数，默认 7 天。</div
+              >
             </ElFormItem>
             <ElFormItem label="改密撤销绑定">
               <ElSwitch v-model="formData.revokeOnPasswordChange" />
@@ -158,9 +153,7 @@
             </ElFormItem>
             <ElFormItem label="商业版功能键">
               <ElInput v-model.trim="formData.commercialFeatures" placeholder="一般不用改" />
-              <div class="form-tip">
-                商业版开放的能力。默认已填好多应用，一般不用改。
-              </div>
+              <div class="form-tip"> 商业版开放的能力。默认已填好多应用，一般不用改。 </div>
             </ElFormItem>
           </ElCollapseItem>
         </ElCollapse>
@@ -181,7 +174,9 @@
         条软件目录条目。可以迁到另一个应用再归档，也可以直接归档，条目仍挂在这个应用上。授权、套餐和版本都会保留。
       </p>
       <p v-else>
-        归档应用「{{ migrateSource?.name }}」后，授权记录和版本都会保留，只是不能再往这个应用登记新的目录条目。
+        归档应用「{{
+          migrateSource?.name
+        }}」后，授权记录和版本都会保留，只是不能再往这个应用登记新的目录条目。
       </p>
       <ElSelect
         v-if="migrateCount > 0 && migrateTargets.length"
@@ -238,7 +233,6 @@
     commercialCopy,
     isCommercialActive,
     openCommercialPrompt,
-    openCommercialUpgrade,
     rememberCommercialAccount
   } from '@/utils/commercial'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
@@ -301,7 +295,16 @@
     name: [{ required: true, message: '请输入应用名称', trigger: 'blur' }]
   }
 
-  const { columns, columnChecks, data, loading, refreshData, refreshRemove, toggleColumn } = useTable({
+  const {
+    columns,
+    columnChecks,
+    data,
+    loading,
+    refreshData,
+    refreshRemove,
+    toggleColumn,
+    updateColumn
+  } = useTable({
     // 核心配置
     core: {
       apiFn: fetchLicenseAppList,
@@ -355,6 +358,17 @@
   })
 
   const narrow = useNarrowScreen()
+  // 手机上名称和状态让出宽度，操作列固定在右侧，避免「编辑 / 更多」被裁掉。
+  const appWideColumns = [
+    { prop: 'name', updates: { minWidth: 150, width: undefined, fixed: undefined } },
+    { prop: 'enabled', updates: { width: 90, minWidth: undefined, fixed: undefined } },
+    { prop: 'operation', updates: { width: 168, minWidth: undefined, fixed: undefined } }
+  ]
+  const appNarrowColumns = [
+    { prop: 'name', updates: { minWidth: 72, width: undefined, fixed: undefined } },
+    { prop: 'enabled', updates: { width: 64, minWidth: 64, fixed: undefined } },
+    { prop: 'operation', updates: { width: 120, minWidth: 120, fixed: 'right' as const } }
+  ]
   watch(
     narrow,
     (value) => {
@@ -372,12 +386,24 @@
         ],
         !value
       )
+      updateColumn?.(value ? appNarrowColumns : appWideColumns)
     },
     { immediate: true }
   )
 
+  // 宽屏留「编辑」「版本」两个常用按钮。窄屏只留「编辑」，「版本」收进「更多」，保证整列看得见。
+  const appPrimaryActions = computed(() =>
+    narrow.value
+      ? [{ key: 'edit', label: '编辑' }]
+      : [
+          { key: 'edit', label: '编辑' },
+          { key: 'versions', label: '版本' }
+        ]
+  )
+
   function appMoreActions(row: AppRow): RowActionItem[] {
     return [
+      ...(narrow.value ? [{ key: 'versions', label: '版本' }] : []),
       { key: 'sdk', label: 'SDK 包' },
       { key: 'secret', label: '重置密钥', danger: true },
       row.archived
@@ -601,7 +627,9 @@
         redirectAppId: redirectSource.value ? redirectAppId.value : undefined
       })
       ElMessage.success(
-        redirectSource.value ? '目录条目已迁移，软件源地址已转到目标应用' : '目录条目已迁移，应用已归档'
+        redirectSource.value
+          ? '目录条目已迁移，软件源地址已转到目标应用'
+          : '目录条目已迁移，应用已归档'
       )
       migrateVisible.value = false
       refreshRemove()
@@ -708,18 +736,6 @@
 
 <style scoped lang="scss">
   .license-apps-page {
-    .app-limit-bar {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 12px;
-      padding: 10px 12px;
-      background: var(--el-color-warning-light-9);
-      border: 1px solid var(--el-color-warning-light-5);
-      border-radius: 8px;
-    }
-
     .no-search-card {
       margin-top: 0;
     }

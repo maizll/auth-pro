@@ -1,12 +1,14 @@
+// 买家本机快照和这次访问的域名。用来判断是不是商业版、目录条目归谁，以及付费插件能不能启用。
+
 package handler
 
 import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +47,8 @@ func loadBuyerSnapshot() (buyerSnapshotState, bool) {
 	return state, verifyStoreSnapshot(state.Snapshot)
 }
 
+// SnapshotOK 报告这份快照的签名是否对得上发行包公钥。
+// 签名无效时调用方应视为没有商业版，而不是沿用过期字段。
 func (s buyerSnapshotState) SnapshotOK() bool {
 	return verifyStoreSnapshot(s.Snapshot)
 }
@@ -94,29 +98,119 @@ func requestHostOnly(c *gin.Context) string {
 	return normalizeLicenseDomain(host)
 }
 
+const (
+	buyerSourceDefault    = "https://auth.maizll.com"
+	buyerSiteRetryMessage = "请用正式的 https 域名打开后台后再试。本机、内网或 http 地址不能用来绑定。"
+)
+
+type buyerConnectionIssue struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+type buyerConnectionView struct {
+	SourceBase string
+	SiteURL    string
+	TrustProxy bool
+	Issues     []buyerConnectionIssue
+}
+
 func buyerRequestDomain(c *gin.Context) string {
-	host := ""
-	if trust, _ := strconv.Atoi(buyerConfig(storeConfigTrustProxy)); trust == 1 {
-		host = strings.TrimSpace(c.GetHeader("X-Forwarded-Host"))
-	}
-	if host == "" {
-		if site := strings.TrimSpace(buyerConfig(storeConfigSiteURL)); site != "" {
-			if parsed, err := parseHTTPSBase(site); err == nil {
-				host = parsed.Hostname()
-			}
+	view := buyerConnectionForRequest(c)
+	if parsed, err := parseHTTPSBase(view.SiteURL); err == nil {
+		if host := normalizeLicenseDomain(parsed.Hostname()); host != "" && !storeDomainShapeRejected(host) {
+			return host
 		}
 	}
-	if host == "" {
-		host = c.Request.Host
+	host, _, _ := detectBuyerVisit(c)
+	return host
+}
+
+func buyerConnectionForRequest(c *gin.Context) buyerConnectionView {
+	return resolveBuyerConnection(c)
+}
+
+// resolveBuyerConnection 按本次访问自动确定本站域名，以及是否信任本机反代。
+// 不读取数据库里保存的源站根、站点地址或信任代理。
+func resolveBuyerConnection(c *gin.Context) buyerConnectionView {
+	view := buyerConnectionView{}
+	host, https, trust := detectBuyerVisit(c)
+	view.TrustProxy = trust
+	if msg := buyerVisitProblem(host, https); msg != "" {
+		view.Issues = append(view.Issues, buyerConnectionIssue{Field: "site", Message: msg})
+		return view
 	}
-	if i := strings.Index(host, ","); i >= 0 {
-		host = host[:i]
+	view.SiteURL = "https://" + host
+	return view
+}
+
+func buyerVisitProblem(host string, https bool) string {
+	if host == "" || storeDomainShapeRejected(host) || !https {
+		return buyerSiteRetryMessage
 	}
-	host = strings.TrimSpace(host)
-	if h, _, err := splitHostPortLoose(host); err == nil && h != "" {
-		host = h
+	return ""
+}
+
+// detectBuyerVisit 从这次请求判断访问域名。
+// 只有直接连到本机的反代才采用转发头。公网对端带来的 X-Forwarded-* 一律忽略。
+// 宝塔常见配置只设置 Host 和 X-Forwarded-Proto，没有 X-Forwarded-Host，同样按 https 站点识别。
+func detectBuyerVisit(c *gin.Context) (host string, https bool, trust bool) {
+	if c == nil || c.Request == nil {
+		return "", false, false
 	}
-	return normalizeLicenseDomain(host)
+	requestHost := headerHost(c, "")
+	peer := requestPeerIP(c.Request.RemoteAddr)
+	if peer == nil || !peer.IsLoopback() {
+		return requestHost, c.Request.TLS != nil, false
+	}
+	forwardedHost := headerHost(c, "X-Forwarded-Host")
+	proto := headerProto(c)
+	if forwardedHost != "" && proto != "" {
+		return forwardedHost, proto == "https", true
+	}
+	if proto == "https" || proto == "http" {
+		return requestHost, proto == "https", true
+	}
+	return requestHost, c.Request.TLS != nil, false
+}
+
+func headerHost(c *gin.Context, name string) string {
+	if c == nil || c.Request == nil {
+		return ""
+	}
+	raw := ""
+	if name == "" {
+		raw = c.Request.Host
+	} else {
+		raw = c.GetHeader(name)
+	}
+	raw = strings.TrimSpace(raw)
+	if i := strings.Index(raw, ","); i >= 0 {
+		raw = strings.TrimSpace(raw[:i])
+	}
+	if h, _, err := splitHostPortLoose(raw); err == nil && h != "" {
+		raw = h
+	}
+	return normalizeLicenseDomain(raw)
+}
+
+func headerProto(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto"))
+	if i := strings.Index(raw, ","); i >= 0 {
+		raw = strings.TrimSpace(raw[:i])
+	}
+	return strings.ToLower(raw)
+}
+
+func requestPeerIP(remoteAddr string) net.IP {
+	host := strings.TrimSpace(remoteAddr)
+	if split, _, err := net.SplitHostPort(host); err == nil {
+		host = split
+	}
+	return net.ParseIP(strings.Trim(host, "[]"))
 }
 
 func splitHostPortLoose(host string) (string, string, error) {
@@ -130,16 +224,11 @@ func splitHostPortLoose(host string) (string, string, error) {
 	return host, "", nil
 }
 
-func buyerConfig(key string) string {
-	db, err := config.DB()
-	if err != nil {
-		return ""
-	}
-	return configValue(db, storeConfigGroup, key)
-}
-
 func currentBuyerAccess(c *gin.Context) buyerAccessView {
 	view := buyerAccessView{Edition: storeEditionFree, RequestDomain: requestHostOnly(c), Features: []string{}}
+	if domain := buyerRequestDomain(c); domain != "" {
+		view.RequestDomain = domain
+	}
 	if !storeSnapshotPublicKeyConfigured() {
 		view.Reason = storeReasonSnapshotKeyUnconfigured
 		view.GraceWarning = true
@@ -161,9 +250,6 @@ func currentBuyerAccess(c *gin.Context) buyerAccessView {
 				_ = saveBuyerSnapshot(state)
 			}
 		}
-	}
-	if domain := buyerRequestDomain(c); domain != "" {
-		view.RequestDomain = domain
 	}
 	view.Bound = true
 	view.Snapshot = state.Snapshot
@@ -223,16 +309,37 @@ func buyerOwnsCatalogItem(view buyerAccessView, kind, id string) bool {
 	return false
 }
 
-func buyerItemEntitled(view buyerAccessView, kind, id string) bool {
-	if view.Edition == storeEditionCommercial && view.Snapshot.AllPaidItems {
+func catalogPurchaseOnly(kind, id string) bool {
+	if id == "" {
+		return false
+	}
+	if findPaidCatalog(kind, id).PurchaseOnly {
 		return true
 	}
-	for _, item := range view.Snapshot.Items {
-		if item.Kind == kind && item.ID == id {
-			return true
-		}
+	if catalogItemPurchaseOnly(kind, id) {
+		return true
 	}
-	return false
+	return catalogDeveloperPaid(kind, id)
+}
+
+func catalogDeveloperPaid(kind, id string) bool {
+	db, err := config.DB()
+	if err != nil || db == nil || id == "" {
+		return false
+	}
+	var developerID int64
+	var queryErr error
+	if kind == "template" {
+		queryErr = db.QueryRow(`SELECT developer_id FROM source_catalog_templates WHERE template_key = ? OR id = ? ORDER BY CASE WHEN template_key = ? THEN 0 ELSE 1 END LIMIT 1`, id, id, id).Scan(&developerID)
+	} else {
+		queryErr = db.QueryRow(`SELECT developer_id FROM source_catalog_plugins WHERE id = ?`, id).Scan(&developerID)
+	}
+	return queryErr == nil && developerID > 0
+}
+
+func buyerCatalogOwnership(view buyerAccessView, kind, id string, priceCents int64) string {
+	covered := view.Edition == storeEditionCommercial && !catalogPurchaseOnly(kind, id)
+	return ownershipForPrice(priceCents, covered, buyerOwnsCatalogItem(view, kind, id))
 }
 
 func paidEnableAllowed(priceCents int64, commercial, entitled bool) bool {
@@ -257,12 +364,18 @@ func rejectPaidPluginEnable(c *gin.Context, id string) bool {
 	}
 	item := findPaidCatalog("plugin", id)
 	view := currentBuyerAccess(c)
-	commercial := view.Edition == storeEditionCommercial && !catalogItemPurchaseOnly("plugin", id)
+	commercial := view.Edition == storeEditionCommercial && !catalogPurchaseOnly("plugin", id)
 	entitled := buyerOwnsCatalogItem(view, "plugin", id) || (commercial && view.Snapshot.AllPaidItems)
 	if paidEnableAllowed(item.PriceCents, commercial, entitled) {
 		return false
 	}
-	writeEditionRequired(c, "paid_plugin")
+	if item.Kind == "" {
+		item.Kind = "plugin"
+	}
+	if item.ID == "" {
+		item.ID = id
+	}
+	writePaidItemRequired(c, "paid_plugin", item)
 	return true
 }
 
@@ -284,12 +397,18 @@ func rejectPaidTemplateEnable(c *gin.Context, rawID string) bool {
 	if id == "" {
 		id = rawID
 	}
-	commercial := view.Edition == storeEditionCommercial && !catalogItemPurchaseOnly("template", id)
+	commercial := view.Edition == storeEditionCommercial && !catalogPurchaseOnly("template", id)
 	entitled := buyerOwnsCatalogItem(view, "template", id) || (commercial && view.Snapshot.AllPaidItems)
 	if paidEnableAllowed(item.PriceCents, commercial, entitled) {
 		return false
 	}
-	writeEditionRequired(c, "paid_template")
+	if item.Kind == "" {
+		item.Kind = "template"
+	}
+	if item.ID == "" {
+		item.ID = id
+	}
+	writePaidItemRequired(c, "paid_template", item)
 	return true
 }
 
@@ -315,15 +434,20 @@ func rememberPaidCatalogFromIndex(index *remotePluginIndex) {
 		items = append(items, item)
 	}
 	for _, plugin := range index.Plugins {
-		upsert(paidCatalogItem{Kind: "plugin", ID: plugin.ID, Name: plugin.Name, Version: plugin.Version, PriceCents: plugin.PriceCents})
+		upsert(paidCatalogItem{
+			Kind: "plugin", ID: plugin.ID, Name: plugin.Name, Version: plugin.Version,
+			PriceCents: plugin.PriceCents, Billing: plugin.Billing, PurchaseOnly: plugin.PurchaseOnly,
+		})
 	}
 	for _, raw := range index.HomeTemplates {
 		var meta struct {
-			ID          string `json:"id"`
-			TemplateKey string `json:"templateKey"`
-			Name        string `json:"name"`
-			Version     string `json:"version"`
-			PriceCents  int64  `json:"priceCents"`
+			ID           string `json:"id"`
+			TemplateKey  string `json:"templateKey"`
+			Name         string `json:"name"`
+			Version      string `json:"version"`
+			PriceCents   int64  `json:"priceCents"`
+			Billing      string `json:"billing"`
+			PurchaseOnly bool   `json:"purchaseOnly"`
 		}
 		if json.Unmarshal(raw, &meta) != nil {
 			continue
@@ -332,7 +456,10 @@ func rememberPaidCatalogFromIndex(index *remotePluginIndex) {
 		if id == "" {
 			id = meta.ID
 		}
-		upsert(paidCatalogItem{Kind: "template", ID: id, Name: meta.Name, Version: meta.Version, PriceCents: meta.PriceCents})
+		upsert(paidCatalogItem{
+			Kind: "template", ID: id, Name: meta.Name, Version: meta.Version,
+			PriceCents: meta.PriceCents, Billing: meta.Billing, PurchaseOnly: meta.PurchaseOnly,
+		})
 	}
 	savePaidCatalog(items)
 }
