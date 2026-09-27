@@ -96,7 +96,8 @@
               </ElFormItem>
             </ElForm>
             <ElButton type="primary" :loading="acting" @click="bind">登录并绑定</ElButton>
-            <p class="upgrade-tip">将使用站点域名 {{ account?.requestDomain || '（未识别）' }} 绑定，域名不可在此修改。</p>
+            <p v-if="siteIssue" class="upgrade-tip">填好本站域名并保存后，再登录绑定。</p>
+            <p v-else class="upgrade-tip">将使用站点域名 {{ account?.requestDomain || '（未识别）' }} 绑定，域名不可在此修改。</p>
           </template>
           <template v-else-if="payUrl">
             <div class="pay-panel">
@@ -165,22 +166,48 @@
           >
             解除绑定 / 重新绑定
           </ElButton>
-          <ElCollapse class="upgrade-settings">
-            <ElCollapseItem title="源站连接" name="conn">
-              <ElForm label-width="88px">
-                <ElFormItem label="源站根">
-                  <ElInput v-model.trim="connection.sourceBase" placeholder="https://auth.maizll.com" />
-                </ElFormItem>
-                <ElFormItem label="站点地址">
-                  <ElInput v-model.trim="connection.siteUrl" placeholder="https://你的域名" />
-                </ElFormItem>
-                <ElFormItem label="信任代理">
-                  <ElSwitch v-model="connection.trustProxy" />
-                </ElFormItem>
-              </ElForm>
-              <ElButton :loading="acting" @click="saveConnection">保存连接</ElButton>
-            </ElCollapseItem>
-          </ElCollapse>
+          <ElAlert
+            v-for="issue in connectionIssues"
+            :key="issue.field"
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="issue.message"
+          />
+          <template v-if="showAdvanced">
+            <section class="connection-advanced-panel">
+              <div class="connection-field">
+                <p class="connection-field__label">购买网站地址</p>
+                <p class="connection-field__help">商业版从这里下单，默认是 https://auth.maizll.com，一般不用改。</p>
+                <ElInput v-model.trim="connection.sourceBase" placeholder="https://auth.maizll.com" />
+              </div>
+              <div class="connection-field">
+                <p class="connection-field__label">本站域名</p>
+                <p class="connection-field__help">填写这个网站对外的 https 地址，用来确认是你的站点。</p>
+                <ElInput v-model.trim="connection.siteUrl" placeholder="https://你的域名" />
+              </div>
+              <div class="connection-field">
+                <p class="connection-field__label">经过宝塔/CDN 转发</p>
+                <p class="connection-field__help">前面有宝塔、Nginx 或 CDN 时打开，才能认出真实域名。</p>
+                <ElSwitch v-model="connection.trustProxy" />
+              </div>
+              <ElButton :loading="acting" @click="saveConnection">保存</ElButton>
+            </section>
+          </template>
+          <template v-else>
+            <section v-if="sourceIssue" class="connection-field">
+              <p class="connection-field__label">购买网站地址</p>
+              <p class="connection-field__help">商业版从这里下单，默认是 https://auth.maizll.com，一般不用改。</p>
+              <ElInput v-model.trim="connection.sourceBase" placeholder="https://auth.maizll.com" />
+            </section>
+            <section v-if="siteIssue" class="connection-field">
+              <p class="connection-field__label">本站域名</p>
+              <p class="connection-field__help">填写这个网站对外的 https 地址，用来确认是你的站点。</p>
+              <ElInput v-model.trim="connection.siteUrl" placeholder="https://你的域名" />
+            </section>
+            <ElButton v-if="sourceIssue || siteIssue" :loading="acting" @click="saveConnection">保存</ElButton>
+          </template>
+          <button type="button" class="connection-advanced" @click="showAdvanced = !showAdvanced">高级</button>
         </template>
       </div>
       <template v-if="upgraded" #footer>
@@ -290,6 +317,10 @@
   const successTitle = ref('已升级为商业版')
   const form = reactive({ account: '', password: '', role: 'user' })
   const connection = reactive({ sourceBase: 'https://auth.maizll.com', siteUrl: '', trustProxy: false })
+  const showAdvanced = ref(false)
+  const connectionIssues = computed(() => account.value?.connectionIssues || [])
+  const siteIssue = computed(() => connectionIssues.value.some((item) => item.field === 'site'))
+  const sourceIssue = computed(() => connectionIssues.value.some((item) => item.field === 'source'))
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let pollFailures = 0
   let pendingRefresh = false
@@ -643,7 +674,7 @@
 
   async function saveConnection() {
     if (!connection.sourceBase.startsWith('https://')) {
-      ElMessage.error('源站地址需要以 https:// 开头')
+      ElMessage.error('购买网站地址需要以 https:// 开头')
       return
     }
     acting.value = true
@@ -773,6 +804,40 @@
   .rebind-fallback {
     width: 100%;
     min-height: 36px;
+  }
+
+  .connection-advanced-panel,
+  .connection-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .connection-field__label,
+  .connection-field__help {
+    margin: 0;
+  }
+
+  .connection-field__label {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .connection-field__help {
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .connection-advanced {
+    align-self: flex-start;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+    cursor: pointer;
   }
 
   .item-offer {

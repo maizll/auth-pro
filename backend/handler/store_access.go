@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -94,29 +94,169 @@ func requestHostOnly(c *gin.Context) string {
 	return normalizeLicenseDomain(host)
 }
 
+const (
+	buyerSourceDefault       = "https://auth.maizll.com"
+	buyerSitePrivateMessage  = "识别到的是本机或内网地址，不能用来绑定。请填写对外的本站域名。"
+	buyerSiteHTTPMessage     = "当前访问不是 https，绑定需要 https。请填写本站的 https 地址。"
+	buyerSiteUnusableMessage = "识别到的是本机、内网或 http 地址，不能用来绑定。请填写对外的 https 域名。"
+	buyerSourceHTTPSMessage  = "购买网站地址需要以 https:// 开头。"
+)
+
+type buyerConnectionIssue struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+type buyerConnectionView struct {
+	SourceBase string
+	SiteURL    string
+	TrustProxy bool
+	Issues     []buyerConnectionIssue
+}
+
 func buyerRequestDomain(c *gin.Context) string {
-	host := ""
-	if trust, _ := strconv.Atoi(buyerConfig(storeConfigTrustProxy)); trust == 1 {
-		host = strings.TrimSpace(c.GetHeader("X-Forwarded-Host"))
-	}
-	if host == "" {
-		if site := strings.TrimSpace(buyerConfig(storeConfigSiteURL)); site != "" {
-			if parsed, err := parseHTTPSBase(site); err == nil {
-				host = parsed.Hostname()
-			}
+	view := buyerConnectionForRequest(c)
+	if parsed, err := parseHTTPSBase(view.SiteURL); err == nil {
+		if host := normalizeLicenseDomain(parsed.Hostname()); host != "" && !storeDomainShapeRejected(host) {
+			return host
 		}
 	}
-	if host == "" {
-		host = c.Request.Host
+	host, _, _ := detectBuyerVisit(c)
+	return host
+}
+
+func buyerConnectionForRequest(c *gin.Context) buyerConnectionView {
+	sourceBase, savedSite, savedTrust := loadBuyerConnectionSettings()
+	return resolveBuyerConnection(c, sourceBase, savedSite, savedTrust)
+}
+
+func loadBuyerConnectionSettings() (sourceBase, siteURL string, trust bool) {
+	sourceBase = buyerSourceDefault
+	db, err := config.DB()
+	if err != nil || db == nil {
+		return sourceBase, "", false
 	}
-	if i := strings.Index(host, ","); i >= 0 {
-		host = host[:i]
+	if value := strings.TrimRight(strings.TrimSpace(configValue(db, storeConfigGroup, storeConfigSourceBase)), "/"); value != "" {
+		sourceBase = value
 	}
-	host = strings.TrimSpace(host)
-	if h, _, err := splitHostPortLoose(host); err == nil && h != "" {
-		host = h
+	siteURL = strings.TrimSpace(configValue(db, storeConfigGroup, storeConfigSiteURL))
+	trust = configValue(db, storeConfigGroup, storeConfigTrustProxy) == "1"
+	return sourceBase, siteURL, trust
+}
+
+// resolveBuyerConnection 在没有手填时自动确定购买网站、本站域名和是否信任本机反代。
+// 已经保存的本站域名优先。请求来自本机反代且带有 X-Forwarded-Host、X-Forwarded-Proto 时自动信任转发。
+func resolveBuyerConnection(c *gin.Context, sourceBase, savedSite string, savedTrust bool) buyerConnectionView {
+	sourceBase = strings.TrimRight(strings.TrimSpace(sourceBase), "/")
+	if sourceBase == "" {
+		sourceBase = buyerSourceDefault
 	}
-	return normalizeLicenseDomain(host)
+	view := buyerConnectionView{SourceBase: sourceBase, SiteURL: strings.TrimSpace(savedSite), TrustProxy: savedTrust}
+	if _, err := parseHTTPSBase(view.SourceBase); err != nil {
+		view.Issues = append(view.Issues, buyerConnectionIssue{Field: "source", Message: buyerSourceHTTPSMessage})
+	}
+	if view.SiteURL != "" {
+		if msg := savedSiteProblem(view.SiteURL); msg != "" {
+			view.Issues = append(view.Issues, buyerConnectionIssue{Field: "site", Message: msg})
+		}
+		return view
+	}
+	host, https, trustAuto := detectBuyerVisit(c)
+	if savedTrust {
+		view.TrustProxy = true
+		if forwarded := headerHost(c, "X-Forwarded-Host"); forwarded != "" {
+			host = forwarded
+		}
+		if headerProto(c) == "https" {
+			https = true
+		}
+	} else {
+		view.TrustProxy = trustAuto
+	}
+	if msg := buyerVisitProblem(host, https); msg != "" {
+		view.Issues = append(view.Issues, buyerConnectionIssue{Field: "site", Message: msg})
+		return view
+	}
+	view.SiteURL = "https://" + host
+	return view
+}
+
+func savedSiteProblem(siteURL string) string {
+	parsed, err := parseHTTPSBase(siteURL)
+	if err != nil {
+		return buyerSiteHTTPMessage
+	}
+	if storeDomainShapeRejected(normalizeLicenseDomain(parsed.Hostname())) {
+		return buyerSitePrivateMessage
+	}
+	return ""
+}
+
+func buyerVisitProblem(host string, https bool) string {
+	private := host == "" || storeDomainShapeRejected(host)
+	switch {
+	case private && !https:
+		return buyerSiteUnusableMessage
+	case private:
+		return buyerSitePrivateMessage
+	case !https:
+		return buyerSiteHTTPMessage
+	default:
+		return ""
+	}
+}
+
+// detectBuyerVisit 从这次请求判断访问域名。只有来自本机反代、且同时带有转发头时才采用转发域名并打开信任代理。
+func detectBuyerVisit(c *gin.Context) (host string, https bool, trust bool) {
+	if c == nil || c.Request == nil {
+		return "", false, false
+	}
+	peer := requestPeerIP(c.Request.RemoteAddr)
+	forwardedHost := headerHost(c, "X-Forwarded-Host")
+	proto := headerProto(c)
+	if peer != nil && peer.IsLoopback() && forwardedHost != "" && proto != "" {
+		return forwardedHost, proto == "https", true
+	}
+	return headerHost(c, ""), c.Request.TLS != nil, false
+}
+
+func headerHost(c *gin.Context, name string) string {
+	if c == nil || c.Request == nil {
+		return ""
+	}
+	raw := ""
+	if name == "" {
+		raw = c.Request.Host
+	} else {
+		raw = c.GetHeader(name)
+	}
+	raw = strings.TrimSpace(raw)
+	if i := strings.Index(raw, ","); i >= 0 {
+		raw = strings.TrimSpace(raw[:i])
+	}
+	if h, _, err := splitHostPortLoose(raw); err == nil && h != "" {
+		raw = h
+	}
+	return normalizeLicenseDomain(raw)
+}
+
+func headerProto(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto"))
+	if i := strings.Index(raw, ","); i >= 0 {
+		raw = strings.TrimSpace(raw[:i])
+	}
+	return strings.ToLower(raw)
+}
+
+func requestPeerIP(remoteAddr string) net.IP {
+	host := strings.TrimSpace(remoteAddr)
+	if split, _, err := net.SplitHostPort(host); err == nil {
+		host = split
+	}
+	return net.ParseIP(strings.Trim(host, "[]"))
 }
 
 func splitHostPortLoose(host string) (string, string, error) {
@@ -140,6 +280,9 @@ func buyerConfig(key string) string {
 
 func currentBuyerAccess(c *gin.Context) buyerAccessView {
 	view := buyerAccessView{Edition: storeEditionFree, RequestDomain: requestHostOnly(c), Features: []string{}}
+	if domain := buyerRequestDomain(c); domain != "" {
+		view.RequestDomain = domain
+	}
 	if !storeSnapshotPublicKeyConfigured() {
 		view.Reason = storeReasonSnapshotKeyUnconfigured
 		view.GraceWarning = true
@@ -161,9 +304,6 @@ func currentBuyerAccess(c *gin.Context) buyerAccessView {
 				_ = saveBuyerSnapshot(state)
 			}
 		}
-	}
-	if domain := buyerRequestDomain(c); domain != "" {
-		view.RequestDomain = domain
 	}
 	view.Bound = true
 	view.Snapshot = state.Snapshot

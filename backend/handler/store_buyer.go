@@ -81,17 +81,10 @@ func BuyerStationVerify(c *gin.Context) {
 
 func BuyerStoreAccount(c *gin.Context) {
 	view := currentBuyerAccess(c)
-	db, _ := config.DB()
-	sourceBase := "https://auth.maizll.com"
-	siteURL := ""
-	trust := false
-	installID := loadBuyerInstallID()
-	if db != nil {
-		if value := configValue(db, storeConfigGroup, storeConfigSourceBase); value != "" {
-			sourceBase = value
-		}
-		siteURL = configValue(db, storeConfigGroup, storeConfigSiteURL)
-		trust = configValue(db, storeConfigGroup, storeConfigTrustProxy) == "1"
+	conn := buyerConnectionForRequest(c)
+	issues := conn.Issues
+	if issues == nil {
+		issues = []buyerConnectionIssue{}
 	}
 	storeData(c, gin.H{
 		"bound": view.Bound, "account": view.AccountName, "role": view.AccountRole, "licenseNo": view.LicenseNo,
@@ -99,7 +92,8 @@ func BuyerStoreAccount(c *gin.Context) {
 		"edition": view.Edition, "editionExpireAt": view.ExpireAt, "permanent": view.Permanent,
 		"features": view.Features, "verifiedAt": view.VerifiedAt, "graceUntil": view.GraceUntil,
 		"offlineGrace": view.OfflineGrace, "graceWarning": view.GraceWarning, "explicitRevoked": view.ExplicitRevoked,
-		"reason": view.Reason, "sourceBase": sourceBase, "siteUrl": siteURL, "trustProxy": trust, "installId": installID,
+		"reason": view.Reason, "sourceBase": conn.SourceBase, "siteUrl": conn.SiteURL, "trustProxy": conn.TrustProxy,
+		"connectionIssues": issues, "installId": loadBuyerInstallID(),
 	})
 }
 

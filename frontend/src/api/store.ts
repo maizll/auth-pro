@@ -21,6 +21,7 @@ export interface StoreAccount {
   sourceBase: string
   siteUrl: string
   trustProxy: boolean
+  connectionIssues?: { field: string; message: string }[]
   installId: string
 }
 
