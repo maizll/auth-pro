@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"auto_pro/config"
@@ -505,7 +506,88 @@ func saveSnapshotMap(raw map[string]any, refreshOK, revoked bool, accountLine st
 	return saveBuyerSnapshot(state)
 }
 
+const (
+	buyerSnapshotCacheTTL      = 45 * time.Second
+	buyerSnapshotForceInterval = 30 * time.Second
+)
+
+// buyerSnapshotNow 让测试把缓存窗口拨到指定时刻。生产路径就是当前时间。
+var buyerSnapshotNow = time.Now
+
+type buyerSnapshotFlight struct {
+	done chan struct{}
+	err  error
+}
+
+// buyerSnapshotRefreshGate 保证同一站点短时间内只打一次官网。
+// 普通刷新看 lastCall；立即刷新另看 lastForce，可以绕过普通缓存，但仍限频。
+type buyerSnapshotRefreshGate struct {
+	mu        sync.Mutex
+	lastCall  time.Time
+	lastForce time.Time
+	flight    *buyerSnapshotFlight
+	waiting   int
+}
+
+var buyerSnapshotRefresh buyerSnapshotRefreshGate
+
+func resetBuyerSnapshotRefreshGate() {
+	buyerSnapshotRefresh.mu.Lock()
+	buyerSnapshotRefresh.lastCall = time.Time{}
+	buyerSnapshotRefresh.lastForce = time.Time{}
+	buyerSnapshotRefresh.flight = nil
+	buyerSnapshotRefresh.waiting = 0
+	buyerSnapshotRefresh.mu.Unlock()
+}
+
 func refreshBuyerSnapshot(ctx context.Context, domain string) error {
+	return refreshBuyerSnapshotMode(ctx, domain, false)
+}
+
+func refreshBuyerSnapshotForced(ctx context.Context, domain string) error {
+	return refreshBuyerSnapshotMode(ctx, domain, true)
+}
+
+// refreshBuyerSnapshotMode 合并并发请求。缓存未过期或立即刷新还在限频窗口内时，直接沿用本地快照。
+func refreshBuyerSnapshotMode(ctx context.Context, domain string, force bool) error {
+	buyerSnapshotRefresh.mu.Lock()
+	if buyerSnapshotRefresh.flight != nil {
+		flight := buyerSnapshotRefresh.flight
+		buyerSnapshotRefresh.waiting++
+		buyerSnapshotRefresh.mu.Unlock()
+		<-flight.done
+		return flight.err
+	}
+	now := buyerSnapshotNow()
+	if force {
+		if !buyerSnapshotRefresh.lastForce.IsZero() && now.Sub(buyerSnapshotRefresh.lastForce) < buyerSnapshotForceInterval {
+			buyerSnapshotRefresh.mu.Unlock()
+			return nil
+		}
+	} else if !buyerSnapshotRefresh.lastCall.IsZero() && now.Sub(buyerSnapshotRefresh.lastCall) < buyerSnapshotCacheTTL {
+		buyerSnapshotRefresh.mu.Unlock()
+		return nil
+	}
+	flight := &buyerSnapshotFlight{done: make(chan struct{})}
+	buyerSnapshotRefresh.flight = flight
+	buyerSnapshotRefresh.lastCall = now
+	if force {
+		buyerSnapshotRefresh.lastForce = now
+	}
+	buyerSnapshotRefresh.mu.Unlock()
+
+	err := refreshBuyerSnapshotOnce(ctx, domain)
+	buyerSnapshotRefresh.mu.Lock()
+	if buyerSnapshotRefresh.flight == flight {
+		buyerSnapshotRefresh.flight = nil
+	}
+	buyerSnapshotRefresh.mu.Unlock()
+	flight.err = err
+	close(flight.done)
+	return err
+}
+
+func refreshBuyerSnapshotOnce(ctx context.Context, domain string) error {
 	_ = ctx
 	var payload map[string]any
 	path := "/api/v1/store/status"

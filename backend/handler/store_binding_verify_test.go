@@ -192,10 +192,12 @@ func TestBuyerAccountVerifyFollowsSourceBinding(t *testing.T) {
 		assertBindingFiles(t, dir, true)
 	})
 
-	t.Run("verify pulls latest edition", func(t *testing.T) {
+	t.Run("verify does not pull status", func(t *testing.T) {
 		dir := seedBoundBuyer(t)
+		statusHits := 0
 		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/api/v1/store/status" {
+				statusHits++
 				writeSignedStatus(t, w, storeEditionFree)
 				return
 			}
@@ -204,8 +206,11 @@ func TestBuyerAccountVerifyFollowsSourceBinding(t *testing.T) {
 		defer server.Close()
 		useBuyerSourceForTest(t, server.URL, server.Client())
 		body := callBuyerAccount(t, true)
-		if !body.Data.Bound || body.Data.BindingInvalid || body.Data.Edition != storeEditionFree {
-			t.Fatalf("吊销后打开购买窗口应刷新为免费版 %+v", body.Data)
+		if statusHits != 0 {
+			t.Fatalf("核对绑定不应请求商店状态，实际 %d 次", statusHits)
+		}
+		if !body.Data.Bound || body.Data.BindingInvalid || body.Data.Edition != storeEditionCommercial {
+			t.Fatalf("核对绑定应沿用本地商业版 %+v", body.Data)
 		}
 		assertBindingFiles(t, dir, true)
 	})

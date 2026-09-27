@@ -348,7 +348,7 @@
   import TemplateActions from '@/views/home-template/TemplateActions.vue'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
-  import { fetchStoreAccount, refreshStoreSnapshot } from '@/api/store'
+  import { fetchStoreAccount } from '@/api/store'
   import { fetchSourceCatalogApps, type SourceCatalogApp } from '@/api/source-station'
   import { fetchRestoreLicenseApp } from '@/api/license-manage'
   import {
@@ -605,13 +605,7 @@
 
   async function loadStoreCatalog() {
     try {
-      let account
-      try {
-        account = await refreshStoreSnapshot()
-      } catch {
-        account = await fetchStoreAccount()
-      }
-      rememberCommercialAccount(account)
+      rememberCommercialAccount(await fetchStoreAccount())
     } catch {
       /* 版本状态只在顶栏显示，这里读失败不改顶栏。 */
     }

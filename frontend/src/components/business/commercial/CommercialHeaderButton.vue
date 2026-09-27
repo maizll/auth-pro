@@ -79,14 +79,11 @@
     }
   )
 
-  async function load() {
+  async function load(pull: boolean) {
     try {
-      let next: StoreAccount | null = null
-      try {
-        next = await refreshStoreSnapshot()
-      } catch {
-        next = await fetchStoreAccount()
-      }
+      const next = pull
+        ? await refreshStoreSnapshot().catch(() => fetchStoreAccount())
+        : await fetchStoreAccount()
       account.value = next
       rememberCommercialAccount(next)
     } catch {
@@ -96,13 +93,17 @@
     }
   }
 
+  function onAccountRefresh() {
+    void load(false)
+  }
+
   onMounted(() => {
-    load()
-    window.addEventListener('store-account-refresh', load)
+    void load(true)
+    window.addEventListener('store-account-refresh', onAccountRefresh)
   })
 
   onBeforeUnmount(() => {
-    window.removeEventListener('store-account-refresh', load)
+    window.removeEventListener('store-account-refresh', onAccountRefresh)
   })
 </script>
 

@@ -47,6 +47,7 @@ func useBuyerSourceForTest(t *testing.T, base string, client *http.Client) {
 	prevClient := sourceHTTPClientForTest
 	buyerSourceBaseForTest = base
 	sourceHTTPClientForTest = client
+	resetBuyerSnapshotRefreshGate()
 	t.Cleanup(func() {
 		buyerSourceBaseForTest = prevBase
 		sourceHTTPClientForTest = prevClient

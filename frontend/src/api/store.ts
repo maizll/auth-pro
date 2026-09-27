@@ -148,6 +148,8 @@ export function logoutStoreAccount() {
   })
 }
 
-export function refreshStoreSnapshot() {
-  return request.post<StoreAccount>({ url: '/api/store/refresh' })
+export function refreshStoreSnapshot(force = false) {
+  return request.post<StoreAccount>({
+    url: force ? '/api/store/refresh?force=1' : '/api/store/refresh'
+  })
 }
