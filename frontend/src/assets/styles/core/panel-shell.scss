@@ -203,8 +203,15 @@
 
       .header-right {
         flex-shrink: 0;
-        gap: 6px;
+        gap: 10px;
         min-width: 0;
+      }
+
+      :deep(.developer-entry.el-button) {
+        width: 36px;
+        min-width: 36px;
+        height: 36px;
+        padding: 0;
       }
 
       .user-name,
@@ -226,4 +233,14 @@
       padding: 12px;
     }
   }
+}
+
+:global(.panel-avatar-dropdown .el-dropdown-menu__item) {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  line-height: 20px;
 }

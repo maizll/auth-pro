@@ -102,7 +102,7 @@
         </div>
         <div class="header-right">
           <ArtNotificationBell />
-          <PanelThemeToggle scope="agent" />
+          <PanelThemeToggle v-if="!isMobile" scope="agent" />
           <el-button
             v-if="developerApproved"
             type="primary"
@@ -114,12 +114,16 @@
             <span class="developer-entry-label">进入开发者端</span>
           </el-button>
           <span class="agent-name">{{ agentName }}</span>
-          <el-dropdown trigger="click">
-            <el-avatar :size="32" class="avatar-btn">
+          <el-dropdown trigger="click" popper-class="panel-avatar-dropdown">
+            <el-avatar :size="isMobile ? 36 : 32" class="avatar-btn">
               <iconify-icon icon="ri:user-3-fill" width="18" />
             </el-avatar>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item v-if="isMobile" @click="toggleTheme">
+                  <el-icon><iconify-icon icon="ri:moon-line" /></el-icon>
+                  暗色模式
+                </el-dropdown-item>
                 <el-dropdown-item @click="handleLogout">
                   <el-icon><iconify-icon icon="ri:logout-box-r-line" /></el-icon>
                   退出登录
@@ -158,6 +162,7 @@
   import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
   import ArtNotificationBell from '@/components/core/layouts/art-notification/bell.vue'
   import { usePanelMobileNav } from '@/hooks/core/usePanelMobileNav'
+  import { useScopedTheme } from '@/hooks/core/useTheme'
   import {
     enterDeveloperSessionFromAgent,
     fetchSourceDeveloperApplyStatus
@@ -177,6 +182,7 @@
     toggleNav,
     closeNav
   } = usePanelMobileNav()
+  const { toggleTheme } = useScopedTheme('agent')
   const ticketUnread = ref(0)
   const developerApproved = ref(false)
   let ticketUnreadTimer: ReturnType<typeof setInterval> | null = null

@@ -96,18 +96,25 @@
         </div>
         <div class="header-right">
           <ArtNotificationBell />
-          <PanelThemeToggle scope="user" />
-          <span class="header-balance">
+          <PanelThemeToggle v-if="!isMobile" scope="user" />
+          <span v-show="!isMobile" class="header-balance">
             <iconify-icon icon="ri:wallet-3-line" width="16" />
             ¥{{ balance.toFixed(2) }}
           </span>
           <span class="user-name">{{ nickname }}</span>
-          <el-dropdown trigger="click">
-            <el-avatar :size="32" class="avatar-btn">
+          <el-dropdown trigger="click" popper-class="panel-avatar-dropdown">
+            <el-avatar :size="isMobile ? 36 : 32" class="avatar-btn">
               <iconify-icon icon="ri:user-3-fill" width="18" />
             </el-avatar>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item v-if="isMobile" disabled>
+                  余额 ¥{{ balance.toFixed(2) }}
+                </el-dropdown-item>
+                <el-dropdown-item v-if="isMobile" @click="toggleTheme">
+                  <el-icon><iconify-icon icon="ri:moon-line" /></el-icon>
+                  暗色模式
+                </el-dropdown-item>
                 <el-dropdown-item @click="handleLogout">
                   <el-icon><iconify-icon icon="ri:logout-box-r-line" /></el-icon>
                   退出登录
@@ -148,6 +155,7 @@
   import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
   import ArtNotificationBell from '@/components/core/layouts/art-notification/bell.vue'
   import { usePanelMobileNav } from '@/hooks/core/usePanelMobileNav'
+  import { useScopedTheme } from '@/hooks/core/useTheme'
 
   const route = useRoute()
   const router = useRouter()
@@ -163,6 +171,7 @@
     toggleNav,
     closeNav
   } = usePanelMobileNav()
+  const { toggleTheme } = useScopedTheme('user')
   const balance = ref(0)
   const nickname = ref('')
   const ticketUnread = ref(0)

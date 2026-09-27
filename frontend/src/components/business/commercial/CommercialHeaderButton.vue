@@ -183,17 +183,22 @@
     font-size: 16px;
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 767px) {
     .commercial-header-entry {
       gap: 6px;
+    }
+
+    .commercial-header-entry__free {
+      display: none;
     }
 
     .commercial-header-entry__upgrade,
     .commercial-header-entry__badge,
     .commercial-header-entry__pending {
-      height: 30px;
-      padding: 0 8px;
-      font-size: 12px;
+      height: 36px;
+      min-width: 36px;
+      padding: 0 10px;
+      font-size: 13px;
     }
 
     .commercial-header-entry__full,

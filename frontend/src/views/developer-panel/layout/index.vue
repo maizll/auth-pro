@@ -68,14 +68,18 @@
         </div>
         <div class="header-right">
           <ArtNotificationBell />
-          <PanelThemeToggle scope="agent" />
+          <PanelThemeToggle v-if="!isMobile" scope="agent" />
           <span class="developer-name">{{ developerName }}</span>
-          <el-dropdown trigger="click">
-            <el-avatar :size="32" class="avatar-btn">
+          <el-dropdown trigger="click" popper-class="panel-avatar-dropdown">
+            <el-avatar :size="isMobile ? 36 : 32" class="avatar-btn">
               <iconify-icon icon="ri:code-s-slash-line" width="18" />
             </el-avatar>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item v-if="isMobile" @click="toggleTheme">
+                  <el-icon><iconify-icon icon="ri:moon-line" /></el-icon>
+                  暗色模式
+                </el-dropdown-item>
                 <el-dropdown-item @click="handleLogout">
                   <el-icon><iconify-icon icon="ri:logout-box-r-line" /></el-icon>
                   退出登录
@@ -101,6 +105,7 @@
   import PanelThemeToggle from '@/components/core/theme/PanelThemeToggle.vue'
   import ArtNotificationBell from '@/components/core/layouts/art-notification/bell.vue'
   import { usePanelMobileNav } from '@/hooks/core/usePanelMobileNav'
+  import { useScopedTheme } from '@/hooks/core/useTheme'
   import {
     DEVELOPER_INFO_KEY,
     DEVELOPER_TOKEN_KEY,
@@ -121,6 +126,7 @@
     toggleNav,
     closeNav
   } = usePanelMobileNav()
+  const { toggleTheme } = useScopedTheme('agent')
 
   const currentRoute = computed(() => route.path)
   const menuItems = [

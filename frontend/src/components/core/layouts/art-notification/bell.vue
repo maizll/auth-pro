@@ -109,6 +109,13 @@
     }
   }
 
+  @media (max-width: 767px) {
+    .bell-btn {
+      width: 36px;
+      height: 36px;
+    }
+  }
+
   :deep(.notice-badge .el-badge__content) {
     z-index: 1;
   }
