@@ -1,40 +1,43 @@
-<!-- 顶栏商业版入口。未开通是「升级商业版」，已开通是深色徽章；窄屏只留短文案。 -->
+<!-- 顶栏商业版入口。形态按宝塔首页右上角的胶囊：浅色底是未开通，实心主题蓝是已开通。 -->
 <template>
   <div class="commercial-header-entry">
-    <span v-if="ready && !commercial" class="commercial-header-entry__free">免费版</span>
     <button
       v-if="ready && pending"
       type="button"
-      class="commercial-header-entry__pending"
+      class="commercial-header-entry__hit"
       aria-label="商业版 · 待校验"
       @click="openCommercialLicense"
     >
-      <ArtSvgIcon icon="ri:shield-check-line" />
-      <span>商业版</span>
-      <span>待校验</span>
-      <i class="commercial-header-entry__dot" aria-hidden="true" />
+      <span class="commercial-header-entry__pill commercial-header-entry__pill--pending">
+        <ArtSvgIcon icon="ri:error-warning-line" />
+        <span>商业版</span>
+        <span>待校验</span>
+      </span>
     </button>
     <button
       v-else-if="ready && commercial"
       type="button"
-      class="commercial-header-entry__badge"
+      class="commercial-header-entry__hit"
       :aria-label="`商业版 ${term}`"
       @click="openCommercialLicense"
     >
-      <ArtSvgIcon icon="ri:shield-check-fill" />
-      <span>商业版</span>
+      <span class="commercial-header-entry__pill commercial-header-entry__pill--on">
+        <ArtSvgIcon icon="ri:vip-crown-2-fill" />
+        <span>商业版</span>
+      </span>
       <span class="commercial-header-entry__expire">{{ term }}</span>
     </button>
     <button
       v-else-if="ready"
       type="button"
-      class="commercial-header-entry__upgrade"
-      aria-label="升级商业版"
+      class="commercial-header-entry__hit"
+      aria-label="免费版，升级商业版"
       @click="openCommercialUpgrade"
     >
-      <ArtSvgIcon icon="ri:rocket-2-line" />
-      <span class="commercial-header-entry__full">升级商业版</span>
-      <span class="commercial-header-entry__short" aria-hidden="true">升级</span>
+      <span class="commercial-header-entry__pill commercial-header-entry__pill--free">
+        <ArtSvgIcon icon="ri:vip-diamond-line" />
+        <span>免费版</span>
+      </span>
     </button>
   </div>
 </template>
@@ -102,131 +105,96 @@
   .commercial-header-entry {
     display: inline-flex;
     flex: none;
-    gap: 8px;
     align-items: center;
   }
 
-  .commercial-header-entry__free {
+  .commercial-header-entry__hit {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    min-height: 36px;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+  }
+
+  /* 宝塔 10 首页右上角是全圆角小胶囊：高约 26px，字号 12px，图标在左。 */
+  .commercial-header-entry__pill {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    height: 26px;
+    padding: 0 10px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    border-radius: 999px;
+  }
+
+  .commercial-header-entry__pill--free {
+    color: var(--el-color-primary);
+    background: var(--el-color-primary-light-9);
+    border: 1px solid var(--el-color-primary-light-5);
+  }
+
+  .commercial-header-entry__hit:hover .commercial-header-entry__pill--free {
+    background: var(--el-color-primary-light-8);
+  }
+
+  .commercial-header-entry__pill--on {
+    color: #fff;
+    background: var(--el-color-primary);
+    border: 1px solid var(--el-color-primary);
+  }
+
+  .commercial-header-entry__hit:hover .commercial-header-entry__pill--on {
+    background: var(--el-color-primary-dark-2);
+    border-color: var(--el-color-primary-dark-2);
+  }
+
+  .commercial-header-entry__expire {
     color: var(--el-text-color-secondary);
     font-size: 12px;
     font-weight: 400;
     line-height: 1;
-    white-space: nowrap;
   }
 
-  .commercial-header-entry__upgrade,
-  .commercial-header-entry__badge,
-  .commercial-header-entry__pending {
-    display: inline-flex;
-    gap: 6px;
-    align-items: center;
-    height: 32px;
-    padding: 0 12px;
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1;
-    white-space: nowrap;
-    cursor: pointer;
-  }
-
-  .commercial-header-entry__upgrade {
-    color: var(--el-color-primary);
-    background: transparent;
-    border: 1px solid var(--el-color-primary);
-    border-radius: 8px;
-  }
-
-  .commercial-header-entry__upgrade:hover {
-    background: var(--el-color-primary-light-9);
-  }
-
-  .commercial-header-entry__badge {
-    color: #f4f7ff;
-    background: #1c2744;
-    border: 1px solid #1c2744;
-    border-radius: 999px;
-  }
-
-  .commercial-header-entry__badge:hover {
-    background: #273556;
-  }
-
-  .commercial-header-entry__expire {
-    font-size: 12px;
-    font-weight: 500;
-    opacity: 0.86;
-  }
-
-  .commercial-header-entry__pending {
+  .commercial-header-entry__pill--pending {
     color: var(--el-color-warning-dark-2);
     background: var(--el-color-warning-light-9);
     border: 1px solid var(--el-color-warning-light-5);
-    border-radius: 8px;
-  }
-
-  .commercial-header-entry__pending:hover {
-    background: var(--el-color-warning-light-8);
-  }
-
-  .commercial-header-entry__dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--el-color-warning);
-    box-shadow: 0 0 0 3px var(--el-color-warning-light-7);
-  }
-
-  .commercial-header-entry__short {
-    display: none;
   }
 
   .commercial-header-entry :deep(.art-svg-icon) {
-    font-size: 16px;
+    font-size: 14px;
   }
 
   @media (max-width: 767px) {
-    .commercial-header-entry {
-      gap: 6px;
+    .commercial-header-entry__pill {
+      height: 28px;
+      padding: 0 8px;
     }
 
-    .commercial-header-entry__free {
-      display: none;
-    }
-
-    .commercial-header-entry__upgrade,
-    .commercial-header-entry__badge,
-    .commercial-header-entry__pending {
-      height: 36px;
-      min-width: 36px;
-      padding: 0 10px;
-      font-size: 13px;
-    }
-
-    .commercial-header-entry__full,
     .commercial-header-entry__expire {
-      display: none;
-    }
-
-    .commercial-header-entry__short {
-      display: inline;
+      font-size: 11px;
     }
   }
 </style>
 
 <style>
-  html.dark .commercial-header-entry__badge {
-    color: #eef3ff;
-    background: #24345c;
-    border-color: #8eabef;
+  html.dark .commercial-header-entry__pill--free {
+    color: var(--el-color-primary-light-3);
+    background: color-mix(in srgb, var(--el-color-primary) 18%, transparent);
+    border-color: color-mix(in srgb, var(--el-color-primary) 48%, transparent);
   }
 
-  html.dark .commercial-header-entry__badge:hover {
-    background: #2d4070;
-  }
-
-  html.dark .commercial-header-entry__pending {
+  html.dark .commercial-header-entry__pill--pending {
     color: var(--el-color-warning-light-3);
-    background: rgb(230 162 60 / 16%);
-    border-color: rgb(230 162 60 / 55%);
+    background: color-mix(in srgb, var(--el-color-warning) 16%, transparent);
+    border-color: color-mix(in srgb, var(--el-color-warning) 48%, transparent);
   }
 </style>

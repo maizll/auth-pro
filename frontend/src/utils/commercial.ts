@@ -34,8 +34,8 @@ export const commercialPitch = {
 
 export const commercialCompareRows = [
   { label: '授权应用', free: '1 个', commercial: '不限' },
-  { label: '官方付费插件', free: '需单独购买', commercial: '已包含，可逐个安装' },
-  { label: '官方付费首页模板', free: '需单独购买', commercial: '已包含，可逐个安装' }
+  { label: '官方付费插件', free: '需单独购买', commercial: '全部包含' },
+  { label: '官方首页模板', free: '需单独购买', commercial: '全部包含' }
 ] as const
 
 export const commercialCompareNote =
@@ -49,6 +49,12 @@ export interface CatalogPurchaseOffer {
   priceCents: number
   period?: string
   purchaseOnly?: boolean
+  /** 开发者登记的图标。空则用名称首字。 */
+  icon?: string
+  /** 开发者登记的简介。界面最多先显示两行。 */
+  summary?: string
+  version?: string
+  author?: string
   resume?: () => Promise<boolean>
 }
 
@@ -115,6 +121,15 @@ export function openCommercialUpgrade() {
 }
 
 export function openCatalogPurchase(offer: CatalogPurchaseOffer) {
+  // 商业版已经包含的官方插件或模板不再弹出购买，直接启用。开发者条目仍要单独购买。
+  if (!offer.purchaseOnly && isCommercialActive(commercialUi.account)) {
+    if (offer.resume) {
+      void offer.resume()
+      return
+    }
+    requestCatalogResume(offer)
+    return
+  }
   commercialUi.offer = offer
   commercialUi.promptOpen = false
   commercialUi.licenseOpen = false
@@ -126,11 +141,6 @@ export function commercialYuanText(cents?: number) {
   if (!Number.isFinite(value) || value <= 0) return '¥0'
   if (value % 100 === 0) return `¥${value / 100}`
   return `¥${(value / 100).toFixed(2)}`
-}
-
-export function catalogPurchaseButton(kind: CatalogPurchaseOffer['kind'], cents?: number) {
-  const noun = kind === 'template' ? '模板' : '插件'
-  return `单独购买此${noun} ${commercialYuanText(cents)}`
 }
 
 export function catalogCardBuyLabel(cents?: number) {

@@ -228,7 +228,7 @@ func BuyerStoreBind(c *gin.Context) {
 		storeFail(c, 400, err.Error())
 		return
 	}
-	if err := persistBuyerBind(confirmed); err != nil {
+	if err := persistBuyerBind(confirmed, incoming.Account, incoming.Role); err != nil {
 		storeFail(c, 500, err.Error())
 		return
 	}
@@ -248,7 +248,7 @@ func BuyerStoreRegisterCode(c *gin.Context) {
 // BuyerStoreRegister 把注册请求原样转到源站用户端。
 func BuyerStoreRegister(c *gin.Context) { proxySourcePanel(c, "/api/user-panel/register") }
 
-func buyerStoreOrderBody(planID int64, itemKind, itemID string) (map[string]any, error) {
+func buyerStoreOrderBody(planID int64, itemKind, itemID, payMethod string) (map[string]any, error) {
 	switch itemKind {
 	case "plugin", "template":
 		itemID = strings.TrimSpace(itemID)
@@ -258,12 +258,20 @@ func buyerStoreOrderBody(planID int64, itemKind, itemID string) (map[string]any,
 			}
 			return nil, errors.New("请选择要购买的插件")
 		}
-		return map[string]any{"itemKind": itemKind, "itemId": itemID}, nil
+		body := map[string]any{"itemKind": itemKind, "itemId": itemID}
+		if strings.TrimSpace(payMethod) != "" {
+			body["payMethod"] = strings.TrimSpace(payMethod)
+		}
+		return body, nil
 	default:
 		if planID <= 0 {
 			return nil, errors.New("请选择商业版套餐")
 		}
-		return map[string]any{"itemKind": "edition", "planId": planID}, nil
+		body := map[string]any{"itemKind": "edition", "planId": planID}
+		if strings.TrimSpace(payMethod) != "" {
+			body["payMethod"] = strings.TrimSpace(payMethod)
+		}
+		return body, nil
 	}
 }
 
@@ -272,15 +280,16 @@ func buyerStoreOrderBody(planID int64, itemKind, itemID string) (map[string]any,
 // 源站明确吊销绑定时返回 400，并带 rebind，前端据此回到绑定步骤。其它失败也是 400。
 func BuyerStoreOrderCreate(c *gin.Context) {
 	var req struct {
-		PlanID   int64  `json:"planId"`
-		ItemKind string `json:"itemKind"`
-		ItemID   string `json:"itemId"`
+		PlanID    int64  `json:"planId"`
+		ItemKind  string `json:"itemKind"`
+		ItemID    string `json:"itemId"`
+		PayMethod string `json:"payMethod"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		storeFail(c, 400, "参数错误")
 		return
 	}
-	body, err := buyerStoreOrderBody(req.PlanID, req.ItemKind, req.ItemID)
+	body, err := buyerStoreOrderBody(req.PlanID, req.ItemKind, req.ItemID, req.PayMethod)
 	if err != nil {
 		storeFail(c, 400, err.Error())
 		return

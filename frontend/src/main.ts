@@ -8,6 +8,7 @@ import '@styles/index.scss'                         // 样式
 import '@utils/ui/iconify-loader'                   // 离线图标
 import { setupGlobDirectives } from './directives'
 import { setupErrorHandle } from './utils/sys/error-handle'
+import { installMobileListFit } from './utils/mobile-list-fit'
 import { useSystemConfigStore } from './store/modules/system-config'
 
 document.addEventListener(
@@ -26,6 +27,7 @@ const bootstrap = async () => {
 
   app.use(language)
   app.mount('#app')
+  installMobileListFit()
 }
 
 void bootstrap()

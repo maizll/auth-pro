@@ -5,7 +5,7 @@
 <template>
   <div class="art-table" :class="{ 'is-empty': isEmpty }" :style="containerHeight">
     <ElTable ref="elTableRef" v-loading="!!loading" v-bind="mergedTableProps">
-      <template v-for="col in columns" :key="col.prop || col.type">
+      <template v-for="col in renderColumns" :key="col.prop || col.type">
         <!-- 渲染全局序号列 -->
         <ElTableColumn v-if="col.type === 'globalIndex'" v-bind="{ ...col }">
           <template #default="{ $index }">
@@ -79,6 +79,7 @@
   import { useTableStore } from '@/store/modules/table'
   import { useCommon } from '@/hooks/core/useCommon'
   import { useTableHeight } from '@/hooks/core/useTableHeight'
+  import { layoutMobileColumns } from '@/utils/mobile-table'
   import { useResizeObserver, useWindowSize } from '@vueuse/core'
 
   defineOptions({ name: 'ArtTable' })
@@ -151,10 +152,17 @@
   const attrs = useAttrs()
 
   const LAYOUT = {
-    MOBILE: 'prev, pager, next, sizes, jumper, total',
+    MOBILE: 'prev, pager, next, total',
     IPAD: 'prev, pager, next, jumper, total',
     DESKTOP: 'total, prev, pager, next, sizes, jumper'
   }
+
+  // 手机上后台列表共用这一套：只留关键列，宽度放进屏幕，操作列不再盖住旁边。
+  const renderColumns = computed(() => {
+    const cols = props.columns || []
+    if (width.value > 767) return cols
+    return layoutMobileColumns(cols)
+  })
 
   const layout = computed(() => {
     if (width.value < 768) {
@@ -173,8 +181,8 @@
     background: true,
     layout: layout.value,
     hideOnSinglePage: false,
-    size: 'default',
-    pagerCount: width.value > 1200 ? 7 : 5
+    size: width.value <= 767 ? 'small' : 'default',
+    pagerCount: width.value <= 767 ? 5 : width.value > 1200 ? 7 : 5
   }
 
   // 合并分页配置
@@ -233,7 +241,8 @@
     // 全屏模式下占满全屏
     if (isFullScreen.value) return '100%'
     // 空数据且非加载状态时固定高度
-    if (isEmpty.value && !props.loading) return props.emptyHeight
+    // 手机上空表如果仍按百分比高度，空状态图会被压扁。留出能放下说明文字的高度。
+    if (isEmpty.value && !props.loading) return width.value <= 767 ? '160px' : props.emptyHeight
     // 使用传入的高度
     if (props.height) return props.height
     // 默认占满容器高度
@@ -286,6 +295,10 @@
     delete columnProps.headerSlotName
     delete columnProps.useSlot
     delete columnProps.slotName
+    delete columnProps.mobileHidden
+    delete columnProps.mobilePriority
+    delete columnProps.mobileLabel
+    delete columnProps.mobileWidth
     return columnProps
   }
 

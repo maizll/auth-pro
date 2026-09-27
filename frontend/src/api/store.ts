@@ -35,6 +35,14 @@ export interface StorePlan {
   priceCents: number
 }
 
+export interface StorePayOption {
+  code: string
+  label: string
+  icon?: string
+  color?: string
+  payType?: string
+}
+
 export interface StoreCatalogItem {
   kind: string
   id: string
@@ -55,7 +63,10 @@ export function fetchStoreAccount(verify = false) {
 }
 
 export function fetchStorePlans() {
-  return request.get<{ list: StorePlan[] }>({ url: '/api/store/plans', showErrorMessage: false })
+  return request.get<{ list: StorePlan[]; payOptions?: StorePayOption[] }>({
+    url: '/api/store/plans',
+    showErrorMessage: false
+  })
 }
 
 export function fetchStoreCatalog() {
@@ -69,17 +80,21 @@ export function bindStoreAccount(data: Record<string, unknown>) {
   return request.post<StoreAccount>({ url: '/api/store/bind', data })
 }
 
-export function createStoreEditionOrder(planId: number) {
+export function createStoreEditionOrder(planId: number, payMethod = '') {
   return request.post<{ orderNo: string; payUrl: string; amountCents: number; title: string }>({
     url: '/api/store/orders',
-    data: { planId }
+    data: { planId, payMethod: payMethod || undefined }
   })
 }
 
-export function createStoreItemOrder(itemKind: 'plugin' | 'template', itemId: string) {
+export function createStoreItemOrder(
+  itemKind: 'plugin' | 'template',
+  itemId: string,
+  payMethod = ''
+) {
   return request.post<{ orderNo: string; payUrl: string; amountCents: number; title: string }>({
     url: '/api/store/orders',
-    data: { itemKind, itemId }
+    data: { itemKind, itemId, payMethod: payMethod || undefined }
   })
 }
 

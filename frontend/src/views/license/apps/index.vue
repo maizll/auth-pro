@@ -19,19 +19,6 @@
         <template #name="{ row }">
           <div class="app-name-cell">
             <span class="app-name-cell__title">{{ row.name }}</span>
-            <div v-if="narrow && row.commercialProduct" class="sale-status">
-              <ElTag type="primary" size="small">商业版产品</ElTag>
-              <ElTag v-if="!row.saleGaps?.length" type="success" size="small">可售</ElTag>
-              <ElButton
-                v-for="gap in row.saleGaps || []"
-                :key="gap.code"
-                link
-                type="danger"
-                @click="handleSaleGap(row, gap)"
-              >
-                {{ gap.label }}
-              </ElButton>
-            </div>
           </div>
         </template>
         <!-- 授权方式 -->
@@ -295,48 +282,64 @@
     name: [{ required: true, message: '请输入应用名称', trigger: 'blur' }]
   }
 
-  const {
-    columns,
-    columnChecks,
-    data,
-    loading,
-    refreshData,
-    refreshRemove,
-    toggleColumn,
-    updateColumn
-  } = useTable({
+  const { columns, columnChecks, data, loading, refreshData, refreshRemove } = useTable({
     // 核心配置
     core: {
       apiFn: fetchLicenseAppList,
       apiParams: {},
       columnsFactory: () => [
-        { type: 'index', width: 60, label: '序号' }, // 序号
-        { prop: 'name', label: '应用名称', minWidth: 150, useSlot: true },
-        { prop: 'sale', label: '商业版', minWidth: 220, useSlot: true },
-        { prop: 'appKey', label: 'AppKey', minWidth: 220, showOverflowTooltip: true },
+        { type: 'index', width: 60, label: '序号', mobileHidden: true },
+        {
+          prop: 'name',
+          label: '应用名称',
+          mobileLabel: '应用',
+          minWidth: 150,
+          useSlot: true,
+          mobilePriority: 1
+        },
+        { prop: 'sale', label: '商业版', minWidth: 220, useSlot: true, mobileHidden: true },
+        {
+          prop: 'appKey',
+          label: 'AppKey',
+          minWidth: 220,
+          showOverflowTooltip: true,
+          mobileHidden: true
+        },
         {
           prop: 'purchaseLicenseTypes',
           label: '授权方式',
           minWidth: 250,
-          useSlot: true
+          useSlot: true,
+          mobileHidden: true
         },
-        { prop: 'appSecret', label: 'AppSecret', minWidth: 220, useSlot: true },
-        { prop: 'licenseCount', label: '授权数', width: 90, align: 'center' },
-        { prop: 'version', label: '版本', minWidth: 120, useSlot: true },
-        { prop: 'enabled', label: '状态', width: 90, align: 'center', useSlot: true },
+        { prop: 'appSecret', label: 'AppSecret', minWidth: 220, useSlot: true, mobileHidden: true },
+        { prop: 'licenseCount', label: '授权数', width: 90, align: 'center', mobileHidden: true },
+        { prop: 'version', label: '版本', minWidth: 120, useSlot: true, mobileHidden: true },
+        {
+          prop: 'enabled',
+          label: '状态',
+          width: 90,
+          align: 'center',
+          useSlot: true,
+          mobilePriority: 2,
+          mobileWidth: 72
+        },
         {
           prop: 'licenseRequired',
           label: '授权校验',
           width: 100,
           align: 'center',
-          useSlot: true
+          useSlot: true,
+          mobileHidden: true
         },
-        { prop: 'createdAt', label: '创建时间', width: 160 },
+        { prop: 'createdAt', label: '创建时间', width: 160, mobileHidden: true },
         {
           prop: 'operation',
           label: '操作',
           width: 168,
-          useSlot: true
+          useSlot: true,
+          mobilePriority: 3,
+          mobileWidth: 104
         }
       ]
     },
@@ -358,40 +361,8 @@
   })
 
   const narrow = useNarrowScreen()
-  // 手机上名称和状态让出宽度，操作列固定在右侧，避免「编辑 / 更多」被裁掉。
-  const appWideColumns = [
-    { prop: 'name', updates: { minWidth: 150, width: undefined, fixed: undefined } },
-    { prop: 'enabled', updates: { width: 90, minWidth: undefined, fixed: undefined } },
-    { prop: 'operation', updates: { width: 168, minWidth: undefined, fixed: undefined } }
-  ]
-  const appNarrowColumns = [
-    { prop: 'name', updates: { minWidth: 72, width: undefined, fixed: undefined } },
-    { prop: 'enabled', updates: { width: 64, minWidth: 64, fixed: undefined } },
-    { prop: 'operation', updates: { width: 120, minWidth: 120, fixed: 'right' as const } }
-  ]
-  watch(
-    narrow,
-    (value) => {
-      toggleColumn?.(
-        [
-          '__index__',
-          'sale',
-          'appKey',
-          'purchaseLicenseTypes',
-          'appSecret',
-          'licenseCount',
-          'version',
-          'licenseRequired',
-          'createdAt'
-        ],
-        !value
-      )
-      updateColumn?.(value ? appNarrowColumns : appWideColumns)
-    },
-    { immediate: true }
-  )
 
-  // 宽屏留「编辑」「版本」两个常用按钮。窄屏只留「编辑」，「版本」收进「更多」，保证整列看得见。
+  // 宽屏留「编辑」「版本」两个常用按钮。窄屏只留「编辑」，「版本」收进「更多」。
   const appPrimaryActions = computed(() =>
     narrow.value
       ? [{ key: 'edit', label: '编辑' }]

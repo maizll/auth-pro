@@ -93,7 +93,7 @@
           min-width="140"
           show-overflow-tooltip
         />
-        <el-table-column prop="name" label="名称" min-width="140">
+        <el-table-column prop="name" label="名称" :min-width="narrow ? 48 : 140">
           <template #default="{ row }">
             <div>{{ row.name }}</div>
             <p v-if="row.fulfillmentHint" class="card-hint">{{ row.fulfillmentHint }}</p>
@@ -112,7 +112,7 @@
         <el-table-column v-if="!narrow" label="售价" width="100">
           <template #default="{ row }">{{ formatCatalogPriceLabel(row.priceCents) }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="100" align="center">
+        <el-table-column label="状态" :width="narrow ? 72 : 100" align="center">
           <template #default="{ row }">
             <el-tag :type="statusMeta(row.status).type" size="small">
               {{ statusMeta(row.status).label }}
@@ -138,7 +138,7 @@
           show-overflow-tooltip
         />
         <el-table-column v-if="!narrow" prop="updatedAt" label="更新时间" width="170" />
-        <el-table-column label="操作" width="168">
+        <el-table-column label="操作" :width="narrow ? 104 : 168" :fixed="narrow ? false : 'right'">
           <template #default="{ row }">
             <RowActions
               :primary="catalogPrimary(row)"
@@ -846,12 +846,15 @@
   function catalogPrimary(row: SourceCatalogItem): RowActionItem[] {
     const items: RowActionItem[] = []
     if (canEditItem(row.status)) items.push({ key: 'edit', label: '编辑' })
-    items.push({ key: 'versions', label: '版本' })
+    if (!narrow.value) items.push({ key: 'versions', label: '版本' })
     return items
   }
 
   function catalogMore(row: SourceCatalogItem): RowActionItem[] {
-    const items: RowActionItem[] = [{ key: 'rebind', label: '切换应用' }]
+    const items: RowActionItem[] = [
+      ...(narrow.value ? [{ key: 'versions', label: '版本' }] : []),
+      { key: 'rebind', label: '切换应用' }
+    ]
     if (row.originUrl) {
       items.push({
         key: 'pull',

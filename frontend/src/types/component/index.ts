@@ -73,6 +73,14 @@ export interface ColumnOption<T = any> {
   visible?: boolean
   // 是否选中显示
   checked?: boolean
+  // 手机上隐藏这一列。和 mobilePriority 一起决定窄屏留哪些列。
+  mobileHidden?: boolean
+  // 手机上的保留顺序，数字小的优先。最多留 4 列。
+  mobilePriority?: number
+  // 手机上的表头，不填就用 label。
+  mobileLabel?: string
+  // 手机上的列宽。不填时按列的种类给一个能放进屏幕的宽度。
+  mobileWidth?: number
   // 自定义渲染函数
   formatter?: (row: T) => any
   // 插槽相关配置
