@@ -101,7 +101,7 @@ pnpm -C frontend install --frozen-lockfile
 1. `go vet ./...`（在 `backend/`）
 2. `staticcheck ./...`，配置在 `backend/staticcheck.conf`，包含未使用代码。面向用户的错误文案经常以 GitHub、Gitee、Logo、ZIP 开头，所以关闭了 ST1005，避免为了检查去改接口文案。包注释和导出名风格（ST1000、ST1003 等）保持 staticcheck 默认关闭，避免改 JSON 字段名。
 3. `vue-tsc --noEmit`
-4. `eslint . --max-warnings 0`
+4. `eslint . --max-warnings 0`。配置在启动时读取已提交的 `frontend/.auto-import.json`（自动导入的全局变量）。改了 `vite.config.ts` 里的自动导入后，要在本地跑一次 Vite 把这份文件更新并提交，否则 CI 上的 eslint 会缺全局变量或直接打不开配置。
 5. 未使用导出：`frontend/knip.json` 把页面和组件当作入口，接口文件不算入口。结果必须是 `frontend/knip-unused-baseline.json` 的子集。多出一个未使用导出，检查就失败。自动导入的函数 knip 可能看成未使用，已经写进基线；新代码请在调用处显式 import。删掉导出后，把基线里对应的行也删掉。
 
 后端测试：

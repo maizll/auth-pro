@@ -7,6 +7,6 @@ test-results
 *.local
 .cursorrules
 
-# Vite generates these declarations, but they are committed because vue-tsc runs before Vite during build.
-.auto-import.json
+# auto-imports.d.ts、components.d.ts 和 .auto-import.json 都要提交。
+# vue-tsc 和 eslint 都在 Vite 之前运行，CI 不会先生成这三份文件。
 
