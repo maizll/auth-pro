@@ -33,7 +33,7 @@
           <ul>
             <li v-for="item in group.items" :key="item.id">
               <span class="tag" :class="`tag-${item.tag}`">{{ tagLabel(item.tag) }}</span>
-              <p>{{ item.body }}</p>
+              <SiteMarkdown class="log-body" :source="item.body" />
             </li>
           </ul>
         </article>
@@ -46,6 +46,7 @@
   import axios from 'axios'
   import { computed, onMounted, ref } from 'vue'
   import PublicSiteShell from '@/components/site/PublicSiteShell.vue'
+  import SiteMarkdown from '@/components/site/SiteMarkdown.vue'
 
   defineOptions({ name: 'SiteChangelog' })
 
@@ -221,8 +222,12 @@
     background: rgb(51 65 85 / 10%);
   }
 
-  p {
+  .log-body {
+    flex: 1;
     min-width: 0;
+  }
+
+  .log-body :deep(p) {
     margin: 0;
     line-height: 1.7;
     overflow-wrap: anywhere;

@@ -53,5 +53,3 @@ https://api.github.com/repos/maizll/auth-pro/releases/latest
 ```
 
 Release 附件里要有 `latest.json`。
-
-从 1.5.5 或 1.5.6 升到 1.5.7 这一次，不要点「在线更新」，请用 1.5.7 包里的升级脚本。之后的版本才走上面的在线更新。

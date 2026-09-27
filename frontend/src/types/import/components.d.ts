@@ -142,6 +142,7 @@ declare module 'vue' {
     SettingItem: typeof import('./../../components/core/layouts/art-settings-panel/widget/SettingItem.vue')['default']
     SidebarSubmenu: typeof import('./../../components/core/layouts/art-menus/art-sidebar-menu/widget/SidebarSubmenu.vue')['default']
     SiteChangePayDialog: typeof import('./../../components/core/pay/SiteChangePayDialog.vue')['default']
+    SiteMarkdown: typeof import('./../../components/site/SiteMarkdown.vue')['default']
     ThemeSettings: typeof import('./../../components/core/layouts/art-settings-panel/widget/ThemeSettings.vue')['default']
     ThemeSvg: typeof import('./../../components/core/theme/theme-svg/index.vue')['default']
     TicketChatPanel: typeof import('./../../components/core/panels/TicketChatPanel.vue')['default']

@@ -23,15 +23,16 @@ import (
 )
 
 const (
-	sitePagesDocsMigration        = "site_pages_docs_v1"
-	sitePagesDocsRefreshMigration = "site_pages_docs_v2"
-	siteNavBuiltin                = "builtin"
-	siteNavExternal               = "external"
-	siteChangelogRelease          = "release"
-	siteChangelogManual           = "manual"
-	siteTagAdded                  = "added"
-	siteTagImproved               = "improved"
-	siteTagFixed                  = "fixed"
+	sitePagesDocsMigration         = "site_pages_docs_v1"
+	sitePagesDocsRefreshMigration  = "site_pages_docs_v2"
+	sitePagesDocsRefreshMigration3 = "site_pages_docs_v3"
+	siteNavBuiltin                 = "builtin"
+	siteNavExternal                = "external"
+	siteChangelogRelease           = "release"
+	siteChangelogManual            = "manual"
+	siteTagAdded                   = "added"
+	siteTagImproved                = "improved"
+	siteTagFixed                   = "fixed"
 	// 免费版安装包固定指向本仓库的 GitHub Releases latest，不在页面上写死某个版本号。
 	freeEditionDownloadURL = "https://github.com/maizll/auth-pro/releases/latest"
 )

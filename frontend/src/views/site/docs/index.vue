@@ -55,7 +55,7 @@
         <article v-else class="doc-detail">
           <p class="kicker">{{ current?.category || '系统文档' }}</p>
           <h1>{{ current?.title || '文档' }}</h1>
-          <div class="markdown-body" v-html="html" />
+          <SiteMarkdown class="markdown-body" :html="html" />
           <p v-if="current && !html" class="muted">这篇文档还没有正文。</p>
           <div class="neighbors">
             <RouterLink
@@ -84,6 +84,7 @@
   import { computed, ref, watch } from 'vue'
   import { useRoute } from 'vue-router'
   import PublicSiteShell from '@/components/site/PublicSiteShell.vue'
+  import SiteMarkdown from '@/components/site/SiteMarkdown.vue'
   import { renderSiteMarkdown, type SiteTocItem } from '@/utils/markdown'
 
   defineOptions({ name: 'SiteDocs' })
@@ -324,26 +325,6 @@
   .markdown-body :deep(a) {
     color: var(--remote-primary, #2f6fed);
     text-decoration: underline;
-  }
-
-  .markdown-body :deep(code) {
-    padding: 0.1em 0.35em;
-    font-size: 0.92em;
-    background: rgb(47 111 237 / 8%);
-    border-radius: 4px;
-  }
-
-  .markdown-body :deep(pre) {
-    max-width: 100%;
-    padding: 12px 14px;
-    overflow-x: auto;
-    background: #f4f7fd;
-    border-radius: 10px;
-  }
-
-  .markdown-body :deep(pre code) {
-    padding: 0;
-    background: transparent;
   }
 
   .markdown-body :deep(blockquote) {

@@ -242,6 +242,9 @@
         <ElFormItem label="Markdown">
           <ElInput v-model="docForm.body" type="textarea" :rows="12" />
         </ElFormItem>
+        <ElFormItem v-if="docForm.body.trim()" label="预览">
+          <SiteMarkdown :source="docForm.body" :page-title="docForm.title" />
+        </ElFormItem>
         <ElFormItem label="隐藏"><ElSwitch v-model="docForm.hidden" /></ElFormItem>
       </ElForm>
       <template #footer>
@@ -290,6 +293,7 @@
   import { onMounted, reactive, ref } from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
+  import SiteMarkdown from '@/components/site/SiteMarkdown.vue'
   import {
     createAdminNav,
     deleteAdminChangelog,

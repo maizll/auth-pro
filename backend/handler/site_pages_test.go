@@ -28,6 +28,7 @@ func TestSiteDocWhitelistSkipsInternalRecords(t *testing.T) {
 		"superpowers/specs/2026-09-21-client-sdk-hybrid-design.md",
 		"release-notes-1.6.8.txt",
 		"developer/SKILL.md",
+		"upgrade-history.md",
 	}
 	for _, rel := range denied {
 		if siteDocAllowed(rel) {
@@ -57,21 +58,25 @@ func TestInstallDocUsesPublishedBaotaCommands(t *testing.T) {
 			t.Fatalf("install.md missing %q", snippet)
 		}
 	}
-	if strings.Contains(body, "v1.5.7") || strings.Contains(body, "上传安装包") {
+	if strings.Contains(body, "v1.5.7") || strings.Contains(body, "1.5.5") || strings.Contains(body, "上传安装包") {
 		t.Fatal("install.md still has a stale or invented install step")
 	}
-	current, historical, ok := strings.Cut(readRepoDoc(t, "deployment.md"), "## 从 1.5.5 或 1.5.6 升级到 1.5.7")
-	if !ok {
-		t.Fatal("deployment.md lost the 1.5.7 historical upgrade section")
+	deployment := readRepoDoc(t, "deployment.md")
+	if strings.Contains(deployment, "auth_pro-full-v1.5.7.tar.gz") || strings.Contains(deployment, "从 1.5.5") || strings.Contains(deployment, "从 1.5.3") {
+		t.Fatal("public deployment guide still has a historical upgrade")
 	}
-	if strings.Contains(current, "auth_pro-full-v1.5.7.tar.gz") {
-		t.Fatal("current deployment examples still pin v1.5.7")
-	}
-	if !strings.Contains(current, "auth_pro-full-vX.Y.Z.tar.gz") {
+	if !strings.Contains(deployment, "auth_pro-full-vX.Y.Z.tar.gz") {
 		t.Fatal("current deployment examples lost the package placeholder")
 	}
-	if !strings.Contains(historical, "auth_pro-full-v1.5.7.tar.gz") {
-		t.Fatal("historical 1.5.7 upgrade command should stay pinned")
+	history := readRepoDoc(t, "upgrade-history.md")
+	if !strings.Contains(history, "auth_pro-full-v1.5.7.tar.gz") {
+		t.Fatal("maintainer upgrade history should keep the 1.5.7 command")
+	}
+	for rel := range sitePublicDocs {
+		publicBody := readRepoDoc(t, rel)
+		if strings.Contains(publicBody, "从 1.5.5") || strings.Contains(publicBody, "从 1.5.3") || strings.Contains(publicBody, "升到 1.5.7") {
+			t.Fatalf("%s still tells customers how to upgrade a specific old release", rel)
+		}
 	}
 	admin := readRepoDoc(t, "admin.md")
 	if !strings.Contains(admin, "| 官网页面 | `/system/site-pages` | 仅超管 |") {

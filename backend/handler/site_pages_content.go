@@ -92,7 +92,17 @@ func refreshSiteDocsOnce(db *sql.DB) error {
 		`ALTER TABLE site_doc_articles ADD COLUMN edited TINYINT NOT NULL DEFAULT 0`); err != nil {
 		return err
 	}
-	pending, err := sourceStationMigrationPending(db, sitePagesDocsRefreshMigration)
+	// v2 刷新安装命令，v3 去掉公开文档里的旧版本升级说明。两轮都跳过用户改过的文章。
+	for _, name := range []string{sitePagesDocsRefreshMigration, sitePagesDocsRefreshMigration3} {
+		if err := runSiteDocsRefresh(db, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runSiteDocsRefresh(db *sql.DB, name string) error {
+	pending, err := sourceStationMigrationPending(db, name)
 	if err != nil || !pending {
 		return err
 	}
@@ -103,7 +113,7 @@ func refreshSiteDocsOnce(db *sql.DB) error {
 	if err := refreshUneditedSiteDocs(db, root); err != nil {
 		return err
 	}
-	return markSourceStationMigration(db, sitePagesDocsRefreshMigration)
+	return markSourceStationMigration(db, name)
 }
 
 func refreshUneditedSiteDocs(db *sql.DB, root string) error {
