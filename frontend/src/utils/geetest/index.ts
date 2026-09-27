@@ -95,6 +95,21 @@ function createGeetestCaptcha(captchaId: string): Promise<GeetestCaptchaControll
   })
 }
 
+/** 用指定的验证 ID 弹出一次滑块。用户关掉或加载失败时不会提交。 */
+export async function verifyGeetestCaptcha(
+  captchaId: string
+): Promise<GeetestValidateResult | null> {
+  const id = captchaId.trim()
+  if (!id) return null
+  await loadGeetest4()
+  const instance = await createGeetestCaptcha(id)
+  try {
+    return await instance.verify()
+  } finally {
+    instance.destroy()
+  }
+}
+
 /**
  * 登录页共用的极验验证入口。
  * - captchaEnabled：系统配置开启且已配置验证 ID 时为 true

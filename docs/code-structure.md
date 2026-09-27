@@ -36,7 +36,7 @@
 
 买家站顶栏和购买窗口是 `frontend/src/components/business/commercial/CommercialHost.vue`。状态在 `frontend/src/utils/commercial.ts`，请求在 `frontend/src/api/store.ts`。
 
-买家站接口在 `backend/handler/store_buyer.go`（`RegisterBuyerStoreRoutes`）：账号、绑定、下单、查单、刷新、安装。打开购买窗口时用 `GET /api/v1/store/binding` 向源站核对绑定是否还在，处理函数是 `store_source.go` 的 `StoreBindingCheck`。请求源站的 HTTP 客户端在 `store_buyer_client.go`。源站根地址在正式程序里固定为 `https://auth.maizll.com`，测试只在 `store_buyer_hooks_test.go` 里替换。
+买家站接口在 `backend/handler/store_buyer.go`（`RegisterBuyerStoreRoutes`）：账号、绑定、注册、下单、查单、刷新、安装。购买窗口里的注册先请求源站 `POST /api/v1/store/register`（验证码是 `POST /api/v1/store/register/email-code`）。这两个接口和官网注册调用同一套 `UserRegister` / `UserSendRegisterEmailCode`。老源站没有这两个地址时，买家改请求 `/api/user-panel/register` 和 `/api/user-panel/register/email-code`。密码只转发给源站，不写入本机，也不打日志。打开购买窗口时用 `GET /api/v1/store/binding` 向源站核对绑定是否还在，处理函数是 `store_source.go` 的 `StoreBindingCheck`。请求源站的 HTTP 客户端在 `store_buyer_client.go`，绑定和注册共用 `newSourceHTTPClient`。源站根地址在正式程序里固定为 `https://auth.maizll.com`，测试只在 `store_buyer_hooks_test.go` 里替换。
 
 源站侧创建订单、快照和绑定在 `store_source.go`、`store_orders.go`、`store_policy.go`。买家本机快照和「是不是商业版」在 `store_access.go`。升级时删旧菜单、删旧连接配置的迁移在 `store_migrate.go` 和 `menu.go` 的 `removeRetiredStoreMenus`。这些迁移要留着，老客户升级还要走。
 

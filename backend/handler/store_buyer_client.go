@@ -67,21 +67,26 @@ func refuseSourceRedirect(*http.Request, []*http.Request) error {
 	return errStoreNoRedirect
 }
 
-func callSourceJSON(method, path string, body any, headers map[string]string, out any) error {
+// errSourcePathMissing 表示源站没有这个地址。老版本没有商店注册接口时，买家改走官网注册。
+var errSourcePathMissing = errors.New("源站还没有这个接口")
+
+// doSourceRequest 用绑定账号的同一个 HTTP 客户端访问源站。不要把请求体写进日志，注册密码会经过这里。
+func doSourceRequest(method, path string, body any, headers map[string]string) (int, []byte, error) {
 	base, err := buyerSourceBase()
 	if err != nil {
-		return err
+		return 0, nil, err
 	}
-	var payload []byte
+	var reader io.Reader
 	if body != nil {
-		payload, err = json.Marshal(body)
+		payload, err := json.Marshal(body)
 		if err != nil {
-			return err
+			return 0, nil, err
 		}
+		reader = bytes.NewReader(payload)
 	}
-	req, err := http.NewRequest(method, base+path, bytes.NewReader(payload))
+	req, err := http.NewRequest(method, base+path, reader)
 	if err != nil {
-		return err
+		return 0, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	for key, value := range headers {
@@ -89,10 +94,18 @@ func callSourceJSON(method, path string, body any, headers map[string]string, ou
 	}
 	resp, err := newSourceHTTPClient().Do(req)
 	if err != nil {
-		return errors.New("无法连接源站")
+		return 0, nil, errors.New("无法连接源站")
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+	return resp.StatusCode, raw, nil
+}
+
+func callSourceJSON(method, path string, body any, headers map[string]string, out any) error {
+	_, raw, err := doSourceRequest(method, path, body, headers)
 	if err != nil {
 		return err
 	}
@@ -109,6 +122,68 @@ func callSourceJSON(method, path string, body any, headers map[string]string, ou
 		return err
 	}
 	return nil
+}
+
+// exchangeSource 读取源站 JSON。HTTP 404 当成接口不存在，方便注册在老源站上改走官网接口。
+func exchangeSource(method, path string, body any) (map[string]any, error) {
+	status, raw, err := doSourceRequest(method, path, body, nil)
+	if err != nil {
+		return nil, err
+	}
+	if status == http.StatusNotFound {
+		return nil, errSourcePathMissing
+	}
+	var envelope map[string]any
+	if json.Unmarshal(raw, &envelope) != nil {
+		return nil, errors.New("源站响应无法解析")
+	}
+	if err := sourceErrorFromEnvelope(envelope); err != nil {
+		return envelope, err
+	}
+	return envelope, nil
+}
+
+// forwardBuyerRegister 先调商店注册接口。老源站还没有这个地址时，再调官网同一套注册接口。
+func forwardBuyerRegister(storePath, legacyPath string, body map[string]any) (map[string]any, error) {
+	envelope, err := exchangeSource(http.MethodPost, storePath, body)
+	if errors.Is(err, errSourcePathMissing) {
+		envelope, err = exchangeSource(http.MethodPost, legacyPath, body)
+	}
+	return envelope, err
+}
+
+// plainRegisterMessage 把源站或网络错误改成用户能看懂的话。secret 若出现在原文里会被抹掉，避免密码漏到提示或日志。
+func plainRegisterMessage(msg, secret string) string {
+	msg = strings.TrimSpace(msg)
+	if secret != "" {
+		msg = strings.TrimSpace(strings.ReplaceAll(msg, secret, ""))
+	}
+	switch {
+	case msg == "":
+		return "注册没有完成，请稍后再试"
+	case strings.Contains(msg, "无法连接源站"), strings.Contains(msg, "网络"):
+		return "网络不通，请稍后再试"
+	case strings.Contains(msg, "该邮箱已注册"):
+		return "这个邮箱已经注册过了"
+	case strings.Contains(msg, "该手机号"):
+		return "这个手机号已经注册过了"
+	case strings.Contains(msg, "验证码错误"):
+		return "验证码错误，请核对后再试"
+	case strings.Contains(msg, "验证码无效"), strings.Contains(msg, "已过期"):
+		return "验证码无效或已过期，请重新获取"
+	case strings.Contains(msg, "注册已关闭"):
+		return "源站暂时关闭了注册，请联系管理员"
+	case strings.Contains(msg, "参数错误"):
+		return "请检查邮箱、验证码和密码（至少 6 位）"
+	case strings.Contains(msg, "无法解析"):
+		return "注册服务器没有正常返回，请稍后再试"
+	case strings.Contains(msg, "还没有这个接口"):
+		return "源站暂时不能注册，请稍后再试"
+	case strings.Contains(msg, "邮件服务未配置"):
+		return "验证码发不出去，请联系管理员检查邮箱设置"
+	default:
+		return msg
+	}
 }
 
 // sourceResponseError 是源站业务拒绝。吊销只看 Reason / Revoked，不看中文 Msg。
@@ -487,30 +562,6 @@ func StartStoreSnapshotRefresher() {
 			}
 		}()
 	})
-}
-
-func proxySourcePanel(c *gin.Context, path string) {
-	body, _ := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
-	base, err := buyerSourceBase()
-	if err != nil {
-		storeFail(c, 400, err.Error())
-		return
-	}
-	req, err := http.NewRequest(http.MethodPost, base+path, bytes.NewReader(body))
-	if err != nil {
-		storeFail(c, 500, "转发失败")
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 20 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		storeFail(c, 400, "无法连接源站")
-		return
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	c.Data(http.StatusOK, "application/json; charset=utf-8", raw)
 }
 
 func installPaidPackage(ctx context.Context, kind, id string) error {
