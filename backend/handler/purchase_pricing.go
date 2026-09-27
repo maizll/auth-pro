@@ -372,21 +372,6 @@ func quoteAgentPurchase(db *sql.DB, plan purchasePlanPricing, discount float64) 
 	})
 }
 
-func userPurchasePrice(plan purchasePlanPricing) (purchasePriceQuote, error) {
-	return calculatePurchasePrice(purchasePricingInput{
-		BuyerType:     purchaseAudienceUser,
-		OriginalCents: plan.PriceCents,
-	})
-}
-
-func agentPurchasePrice(plan purchasePlanPricing, discount float64) (purchasePriceQuote, error) {
-	return calculatePurchasePrice(purchasePricingInput{
-		BuyerType:     purchaseAudienceAgent,
-		OriginalCents: plan.PriceCents,
-		AgentDiscount: discount,
-	})
-}
-
 func purchaseAmount(cents int64) float64 {
 	return float64(cents) / 100
 }

@@ -220,14 +220,6 @@ func splitHostPortLoose(host string) (string, string, error) {
 	return host, "", nil
 }
 
-func buyerConfig(key string) string {
-	db, err := config.DB()
-	if err != nil {
-		return ""
-	}
-	return configValue(db, storeConfigGroup, key)
-}
-
 func currentBuyerAccess(c *gin.Context) buyerAccessView {
 	view := buyerAccessView{Edition: storeEditionFree, RequestDomain: requestHostOnly(c), Features: []string{}}
 	if domain := buyerRequestDomain(c); domain != "" {
@@ -311,16 +303,6 @@ func buyerOwnsCatalogItem(view buyerAccessView, kind, id string) bool {
 		}
 	}
 	return false
-}
-
-func buyerItemEntitled(view buyerAccessView, kind, id string) bool {
-	if buyerOwnsCatalogItem(view, kind, id) {
-		return true
-	}
-	if catalogPurchaseOnly(kind, id) {
-		return false
-	}
-	return view.Edition == storeEditionCommercial && view.Snapshot.AllPaidItems
 }
 
 func catalogPurchaseOnly(kind, id string) bool {

@@ -92,8 +92,6 @@ func enforcePurchaseLimit(ctx context.Context, tx *sql.Tx, appID, planID int64, 
 	return nil
 }
 
-const purchaseOrderPendingTTL = 30 * time.Minute
-
 func cancelExpiredLicensePurchaseOrders(db *sql.DB) (int64, error) {
 	result, err := db.Exec(`
 		UPDATE license_purchase_orders

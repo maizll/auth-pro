@@ -484,28 +484,6 @@ func guardReleasePackage(rel sourceRelease) (sourceRelease, error) {
 	return finalizeReleasePackage(price, rel)
 }
 
-func pluginPriceContext(id string) (status, latest string, price int64, err error) {
-	item, err := currentSourceStationStore().GetPlugin(id)
-	if errors.Is(err, errSourceNotFound) {
-		return "", "", 0, nil
-	}
-	if err != nil {
-		return "", "", 0, err
-	}
-	return item.Status, item.LatestVersion, item.PriceCents, nil
-}
-
-func templatePriceContext(id string) (status, latest string, price int64, err error) {
-	item, err := currentSourceStationStore().GetTemplate(id)
-	if errors.Is(err, errSourceNotFound) {
-		return "", "", 0, nil
-	}
-	if err != nil {
-		return "", "", 0, err
-	}
-	return item.Status, item.LatestVersion, item.PriceCents, nil
-}
-
 func publicStationPackagePath(name string) (string, bool) {
 	name = strings.TrimSpace(name)
 	if !stationPackageNamePattern.MatchString(name) {

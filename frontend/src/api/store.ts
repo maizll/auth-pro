@@ -87,7 +87,3 @@ export function logoutStoreAccount() {
 export function refreshStoreSnapshot() {
   return request.post<StoreAccount>({ url: '/api/store/refresh' })
 }
-
-export function installStoreItem(kind: string, id: string) {
-  return request.post({ url: '/api/store/install', data: { kind, id } })
-}

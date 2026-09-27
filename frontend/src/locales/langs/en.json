@@ -160,27 +160,6 @@
     "submitBtnText": "Submit",
     "backBtnText": "Back"
   },
-  "register": {
-    "title": "Create account",
-    "subTitle": "Welcome to join us, please fill in the following information to complete the registration",
-    "placeholder": {
-      "username": "Please enter your account",
-      "password": "Please enter your password",
-      "confirmPassword": "Please enter your password again"
-    },
-    "rule": {
-      "confirmPasswordRequired": "Please enter your password again",
-      "passwordMismatch": "The two passwords are inconsistent!",
-      "usernameLength": "The length is 3 to 20 characters",
-      "passwordLength": "The password length cannot be less than 6 digits",
-      "agreementRequired": "Please agree to the privacy policy"
-    },
-    "agreeText": "I agree",
-    "privacyPolicy": "Privacy policy",
-    "submitBtnText": "Register",
-    "hasAccount": "Already have an account?",
-    "toLogin": "To login"
-  },
   "lockScreen": {
     "pwdError": "Password error",
     "lock": {
@@ -208,9 +187,6 @@
   "menus": {
     "login": {
       "title": "Login"
-    },
-    "register": {
-      "title": "Register"
     },
     "forgetPassword": {
       "title": "Forget Password"
@@ -248,11 +224,7 @@
       "templates": "Catalog",
       "catalog": "Public Index",
       "ads": "Ads",
-      "settings": "Settings",
-      "edition": "Commercial edition",
-      "storeOrders": "Store orders",
-      "storeLicenses": "Main licenses",
-      "storeRevenue": "Store revenue"
+      "settings": "Settings"
     },
     "security": {
       "title": "Security",

@@ -138,12 +138,6 @@ func advertisementPublicData(payload advertisementPayload) gin.H {
 	return gin.H{"records": payload.records, "placeholder": payload.placeholder}
 }
 
-// advertisementsForPosition 永远返回可渲染的结果：上游异常时退回旧缓存，再不行就是空列表。
-// 广告不是业务功能，不该因为第三方抖动把错误抛给后台界面。
-func advertisementsForPosition(ctx context.Context, position string) []advertisementRecord {
-	return advertisementsPayloadForPosition(ctx, position).records
-}
-
 func advertisementsPayloadForPosition(ctx context.Context, position string) advertisementPayload {
 	lock := advertisementLocks[position]
 	lock.Lock()
@@ -395,11 +389,6 @@ func prepareAdvertisementForStore(record *advertisementRecord) []string {
 	record.Positions = slots
 	record.Position = encodeAdvertisementPosition(slots)
 	return slots
-}
-
-// localAdvertisements 是本站自托管投放。未配置远程广告源时读本站广告表，不访问外网。
-func localAdvertisements(position string) []advertisementRecord {
-	return localAdvertisementPayload(position).records
 }
 
 func localAdvertisementPayload(position string) advertisementPayload {

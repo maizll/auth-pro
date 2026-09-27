@@ -158,11 +158,6 @@ func validGitHubAssetRef(ref gitHubAssetRef) bool {
 	return true
 }
 
-func looksLikeGitHubReleaseAssetURL(raw string) bool {
-	_, err := parseGitHubReleaseAssetURL(raw)
-	return err == nil
-}
-
 func parseGitHubReleaseAssetURL(raw string) (gitHubAssetRef, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed.Scheme != "https" || !strings.EqualFold(parsed.Hostname(), "github.com") {
@@ -497,41 +492,6 @@ func AdminGitHubPaidRepoCreate(c *gin.Context) {
 	}
 	data := githubPaidConnectData(identity, owner, repo, githubPaidRepoPrivate, true)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": githubPaidConnectedText(owner, repo), "data": data})
-}
-
-func probeGitHubPaidRepo(ctx context.Context, token, owner, repo string) error {
-	if strings.TrimSpace(owner) == "" || strings.TrimSpace(repo) == "" {
-		return errors.New("请填写私有仓库的所有者和仓库名")
-	}
-	rawURL := strings.TrimRight(sourceGitHubAPIBase, "/") + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo)
-	status, _, err := githubPaidJSON(ctx, http.MethodGet, rawURL, token, nil)
-	if err != nil {
-		return errors.New("无法连接 GitHub，请稍后再试")
-	}
-	if status == http.StatusUnauthorized {
-		return errGitHubPaidTokenInvalid
-	}
-	if status == http.StatusNotFound || status == http.StatusForbidden {
-		return errors.New("找不到该私有仓库，或令牌没有访问权限")
-	}
-	if status < 200 || status >= 300 {
-		return errors.New("GitHub 令牌无法使用，请确认 Contents 为读写")
-	}
-	return nil
-}
-
-func probeGitHubPaidToken(ctx context.Context, token string) error {
-	status, _, err := githubPaidJSON(ctx, http.MethodGet, strings.TrimRight(sourceGitHubAPIBase, "/")+"/rate_limit", token, nil)
-	if err != nil {
-		return errors.New("无法连接 GitHub，请稍后再试")
-	}
-	if status == http.StatusUnauthorized {
-		return errGitHubPaidTokenInvalid
-	}
-	if status < 200 || status >= 300 {
-		return errors.New("GitHub 令牌无法使用，请确认 Contents 为读写")
-	}
-	return nil
 }
 
 func githubPaidJSON(ctx context.Context, method, rawURL, token string, body any) (int, []byte, error) {

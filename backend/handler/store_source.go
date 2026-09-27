@@ -878,17 +878,6 @@ func StorePayCompletePage(c *gin.Context) {
 	c.String(http.StatusOK, "<!doctype html><meta charset=utf-8><title>支付完成</title><p>支付完成，请回到后台。本页不会跳转到其他网站。</p>")
 }
 
-func configValue(db *sql.DB, group, key string) string {
-	var value string
-	_ = db.QueryRow("SELECT value FROM system_configs WHERE `group` = ? AND `key` = ?", group, key).Scan(&value)
-	return strings.TrimSpace(value)
-}
-
-func upsertConfigValue(db *sql.DB, group, key, value, description string) error {
-	_, err := db.Exec("INSERT INTO system_configs (`group`, `key`, value, description) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)", group, key, value, description)
-	return err
-}
-
 func paidCatalogPath() string {
 	return filepath.Join(config.GetDataDir(), "store", "paid-catalog.json")
 }

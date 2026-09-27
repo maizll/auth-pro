@@ -174,40 +174,6 @@ func paidOriginFetchError(err error) error {
 	}
 }
 
-func storePaidPackageBytes(payload []byte) (string, string, error) {
-	if !isZipPayload(payload) {
-		return "", "", errors.New("必须上传 ZIP 压缩包")
-	}
-	name, err := newPaidPackageName()
-	if err != nil {
-		return "", "", err
-	}
-	dir := stationPaidPackageDir()
-	finalPath := filepath.Join(dir, name)
-	tmp, err := os.CreateTemp(dir, "paid-import-*.zip")
-	if err != nil {
-		return "", "", errors.New("保存付费包失败")
-	}
-	tmpName := tmp.Name()
-	_, writeErr := tmp.Write(payload)
-	closeErr := tmp.Close()
-	if writeErr != nil || closeErr != nil {
-		_ = os.Remove(tmpName)
-		return "", "", errors.New("保存付费包失败")
-	}
-	if err := os.Rename(tmpName, finalPath); err != nil {
-		_ = os.Remove(tmpName)
-		return "", "", errors.New("保存付费包失败")
-	}
-	_ = os.Chmod(finalPath, 0640)
-	ref, fileSHA, err := verifyPrivatePackage(privatePackageRef(name), "")
-	if err != nil {
-		_ = os.Remove(finalPath)
-		return "", "", err
-	}
-	return ref, fileSHA, nil
-}
-
 func removePaidPackageFile(ref string) {
 	name, ok := privatePackageName(ref)
 	if !ok {

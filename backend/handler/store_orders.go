@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -382,39 +380,4 @@ func refundStoreOrder(db *sql.DB, orderNo, reason string) error {
 	}
 	_, _ = tx.Exec(`UPDATE store_revenue_ledger SET status = 'refunded' WHERE order_id = ?`, id)
 	return tx.Commit()
-}
-
-func fmtStoreCents(cents int64) string {
-	return fmt.Sprintf("%d.%02d", cents/100, cents%100)
-}
-
-func writeStoreList(c *gin.Context, rows *sql.Rows, columns []string) {
-	list := make([]map[string]any, 0)
-	for rows.Next() {
-		values := make([]any, len(columns))
-		ptrs := make([]any, len(columns))
-		for i := range values {
-			ptrs[i] = &values[i]
-		}
-		if err := rows.Scan(ptrs...); err != nil {
-			continue
-		}
-		item := map[string]any{}
-		for i, name := range columns {
-			switch v := values[i].(type) {
-			case []byte:
-				item[name] = string(v)
-			default:
-				item[name] = v
-			}
-		}
-		list = append(list, item)
-	}
-	storeData(c, gin.H{"list": list})
-}
-
-func storeHTTPError(w http.ResponseWriter, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(fmt.Sprintf(`{"code":%d,"msg":%q}`, code, msg)))
 }

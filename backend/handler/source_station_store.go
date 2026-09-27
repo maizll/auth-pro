@@ -1,9 +1,7 @@
 package handler
 
 import (
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -340,11 +338,6 @@ func currentSourceStationStore() sourceStationStore {
 		return override
 	}
 	return mysqlSourceStore{}
-}
-
-func sourceContentSHA256(payload []byte) string {
-	sum := sha256.Sum256(payload)
-	return hex.EncodeToString(sum[:])
 }
 
 func sourceItemReady(sha256Value, location string) bool {
@@ -3259,10 +3252,6 @@ func (mysqlSourceStore) SetCatalogAppID(kind, id string, appID int64) error {
 		return errSourceNotFound
 	}
 	return nil
-}
-
-func sourceCatalogJSON() ([]byte, ginHCatalog, error) {
-	return sourceCatalogJSONForApp(sourceCatalogApp{})
 }
 
 type ginHCatalog struct {

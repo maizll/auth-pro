@@ -221,18 +221,6 @@ func parseHTTPSBase(raw string) (*url.URL, error) {
 	return parsed, nil
 }
 
-func sameOriginURL(base, raw string) bool {
-	baseURL, err := parseHTTPSBase(base)
-	if err != nil {
-		return false
-	}
-	next, err := parseHTTPSBase(raw)
-	if err != nil {
-		return false
-	}
-	return strings.EqualFold(baseURL.Scheme, next.Scheme) && strings.EqualFold(baseURL.Host, next.Host)
-}
-
 func ownershipForPrice(priceCents int64, commercial, purchased bool) string {
 	if priceCents <= 0 {
 		return "free"
