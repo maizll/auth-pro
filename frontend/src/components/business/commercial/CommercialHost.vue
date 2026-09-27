@@ -1,7 +1,7 @@
 <template>
   <div>
     <ElDialog v-model="commercialUi.promptOpen" title="需要商业版" width="460px" append-to-body>
-      <CommercialMark :text="commercialUi.promptText" icon="ri:vip-crown-fill" />
+      <CommercialMark :text="commercialUi.promptText" icon="ri:rocket-2-line" />
       <template #footer>
         <ElButton @click="commercialUi.promptOpen = false">知道了</ElButton>
         <ElButton type="primary" @click="goUpgrade">{{ promptActionLabel }}</ElButton>
@@ -18,7 +18,7 @@
     >
       <template #header>
         <div v-if="showBrandBanner" class="edition-banner">
-          <ArtSvgIcon icon="ri:vip-diamond-fill" class="edition-banner__icon" />
+          <ArtSvgIcon icon="ri:rocket-2-fill" class="edition-banner__icon" />
           <div>
             <h3>{{ action === 'renew' ? '续费商业版，继续使用全部能力' : commercialPitch.title }}</h3>
             <p>{{ commercialPitch.subtitle }}</p>
@@ -33,7 +33,7 @@
             <span v-for="n in 10" :key="n" class="celebrate__spark" :style="{ '--i': n }" />
           </div>
           <div class="celebrate-copy">
-            <ArtSvgIcon icon="ri:vip-crown-fill" class="celebrate-copy__icon" />
+            <ArtSvgIcon icon="ri:shield-check-fill" class="celebrate-copy__icon" />
             <h3>{{ successTitle }}</h3>
             <p>授权已经生效。关闭此窗口后，顶栏和页面上的限制提示会马上更新。</p>
             <p v-if="account">到期时间：{{ commercialExpireText(account) }}</p>
@@ -492,8 +492,8 @@
     align-items: flex-start;
     margin: -16px calc(-16px - var(--el-dialog-padding-primary, 16px) - var(--el-message-close-size, 16px)) 0 -16px;
     padding: 18px 56px 18px 18px;
-    color: #fff8e8;
-    background: linear-gradient(135deg, #3a2a12 0%, #8a6232 48%, #e8c56b 100%);
+    color: #f7faff;
+    background: linear-gradient(135deg, #0b1f4d 0%, #1d4ed8 58%, #38bdf8 100%);
   }
 
   .edition-banner h3,
@@ -515,7 +515,7 @@
 
   .edition-banner p {
     margin-top: 4px;
-    color: rgb(255 248 232 / 88%);
+    color: rgb(247 250 255 / 88%);
     font-size: 13px;
     line-height: 1.5;
   }
@@ -571,7 +571,7 @@
   }
 
   .compare__paid {
-    color: #8a6232;
+    color: var(--el-color-primary);
     font-weight: 600;
   }
 
@@ -583,7 +583,7 @@
   :global(.dark) .pay-panel__count,
   :global(html.dark) .celebrate-copy__icon,
   :global(.dark) .celebrate-copy__icon {
-    color: #f3d48a;
+    color: var(--el-color-primary-light-3);
   }
 
   .section-title {
@@ -617,8 +617,8 @@
   }
 
   .plan-card.is-selected {
-    border-color: #c8962e;
-    box-shadow: 0 0 0 2px rgb(200 150 46 / 35%);
+    border-color: var(--el-color-primary);
+    box-shadow: 0 0 0 2px var(--el-color-primary-light-7);
   }
 
   .plan-card__ribbon {
@@ -626,9 +626,9 @@
     top: 8px;
     right: -28px;
     padding: 2px 32px;
-    color: #6b4a12;
+    color: #fff;
     font-size: 12px;
-    background: linear-gradient(180deg, #fff3cc, #f3d48a);
+    background: linear-gradient(180deg, var(--el-color-primary-light-3), var(--el-color-primary));
     transform: rotate(35deg);
   }
 
@@ -638,7 +638,7 @@
   }
 
   .plan-card__price {
-    color: #8a6232;
+    color: var(--el-color-primary);
     font-size: 28px;
     font-weight: 700;
     line-height: 1;
@@ -675,7 +675,7 @@
 
   .pay-panel__count {
     margin-top: 6px;
-    color: #8a6232;
+    color: var(--el-color-primary);
     font-size: 20px;
     font-variant-numeric: tabular-nums;
   }
@@ -702,7 +702,7 @@
     left: 50%;
     width: 8px;
     height: 8px;
-    background: #e8c56b;
+    background: var(--el-color-primary-light-3);
     border-radius: 50%;
     animation: spark-out 900ms ease-out both;
     animation-delay: calc(var(--i) * 40ms);
@@ -719,7 +719,7 @@
 
   .celebrate-copy__icon {
     font-size: 36px;
-    color: #c8962e;
+    color: var(--el-color-primary);
     animation: crown-pop 500ms ease-out both;
   }
 

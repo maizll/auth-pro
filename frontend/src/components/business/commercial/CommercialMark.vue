@@ -15,7 +15,7 @@
       tone?: 'crown' | 'warning' | 'ok'
     }>(),
     {
-      icon: 'ri:vip-crown-fill',
+      icon: 'ri:rocket-2-line',
       tone: 'crown'
     }
   )
@@ -27,13 +27,13 @@
     gap: 6px;
     align-items: flex-start;
     max-width: 100%;
-    color: var(--el-color-warning-dark-2);
+    color: var(--el-color-primary);
     font-size: 13px;
     line-height: 1.5;
   }
 
   .commercial-mark.is-warning {
-    color: var(--el-color-danger);
+    color: var(--el-color-warning);
   }
 
   .commercial-mark.is-ok {

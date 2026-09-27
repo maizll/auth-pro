@@ -1,22 +1,38 @@
 <template>
   <div class="commercial-header-entry">
     <button
-      v-if="ready && commercial"
+      v-if="ready && pending"
       type="button"
-      class="commercial-header-entry__badge"
+      class="commercial-header-entry__pending"
+      aria-label="商业版 · 待校验"
       @click="openCommercialLicense"
     >
-      <ArtSvgIcon icon="ri:vip-crown-fill" />
-      <span>商业版</span>
+      <ArtSvgIcon icon="ri:shield-check-line" />
+      <span class="commercial-header-entry__full">商业版 · 待校验</span>
+      <span class="commercial-header-entry__short" aria-hidden="true">待校验</span>
+      <i class="commercial-header-entry__dot" aria-hidden="true" />
+    </button>
+    <button
+      v-else-if="ready && commercial"
+      type="button"
+      class="commercial-header-entry__badge"
+      aria-label="商业版 · 已激活"
+      @click="openCommercialLicense"
+    >
+      <ArtSvgIcon icon="ri:shield-check-fill" />
+      <span class="commercial-header-entry__full">商业版 · 已激活</span>
+      <span class="commercial-header-entry__short" aria-hidden="true">已激活</span>
     </button>
     <button
       v-else-if="ready"
       type="button"
       class="commercial-header-entry__upgrade"
+      aria-label="升级商业版"
       @click="openCommercialUpgrade"
     >
-      <ArtSvgIcon icon="ri:vip-crown-fill" />
-      <span>升级商业版</span>
+      <ArtSvgIcon icon="ri:rocket-2-line" />
+      <span class="commercial-header-entry__full">升级商业版</span>
+      <span class="commercial-header-entry__short" aria-hidden="true">升级</span>
     </button>
   </div>
 </template>
@@ -37,6 +53,7 @@
   const account = ref<StoreAccount | null>(commercialUi.account)
   const ready = ref(!!commercialUi.account)
   const commercial = computed(() => isCommercialActive(account.value))
+  const pending = computed(() => commercial.value && !!account.value?.offlineGrace)
 
   watch(
     () => commercialUi.account,
@@ -76,46 +93,63 @@
   }
 
   .commercial-header-entry__upgrade,
-  .commercial-header-entry__badge {
+  .commercial-header-entry__badge,
+  .commercial-header-entry__pending {
     display: inline-flex;
-    gap: 4px;
+    gap: 6px;
     align-items: center;
     height: 32px;
-    padding: 0 10px;
-    border-radius: 6px;
+    padding: 0 12px;
     font-size: 13px;
+    font-weight: 600;
     line-height: 1;
     white-space: nowrap;
     cursor: pointer;
   }
 
   .commercial-header-entry__upgrade {
-    color: var(--el-color-warning-dark-2);
-    background: var(--el-color-warning-light-9);
-    border: 1px solid var(--el-color-warning-light-5);
+    color: var(--el-color-primary);
+    background: transparent;
+    border: 1px solid var(--el-color-primary);
+    border-radius: 8px;
   }
 
   .commercial-header-entry__upgrade:hover {
-    background: var(--el-color-warning-light-8);
+    background: var(--el-color-primary-light-9);
   }
 
   .commercial-header-entry__badge {
-    color: #6b4a12;
-    background: linear-gradient(180deg, #fff8e4 0%, #f3d48a 100%);
-    border: 1px solid #e0b45a;
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 70%);
+    color: #f4f7ff;
+    background: #1c2744;
+    border: 1px solid #1c2744;
+    border-radius: 999px;
   }
 
   .commercial-header-entry__badge:hover {
-    background: linear-gradient(180deg, #fff3cc 0%, #e8c56b 100%);
+    background: #273556;
   }
 
-  :global(html.dark) .commercial-header-entry__badge,
-  :global(.dark) .commercial-header-entry__badge {
-    color: #ffe7a8;
-    background: linear-gradient(180deg, #6a4e16 0%, #3d2c0c 100%);
-    border-color: #c9a227;
-    box-shadow: inset 0 1px 0 rgb(255 236 190 / 25%);
+  .commercial-header-entry__pending {
+    color: var(--el-color-warning-dark-2);
+    background: var(--el-color-warning-light-9);
+    border: 1px solid var(--el-color-warning-light-5);
+    border-radius: 8px;
+  }
+
+  .commercial-header-entry__pending:hover {
+    background: var(--el-color-warning-light-8);
+  }
+
+  .commercial-header-entry__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--el-color-warning);
+    box-shadow: 0 0 0 3px var(--el-color-warning-light-7);
+  }
+
+  .commercial-header-entry__short {
+    display: none;
   }
 
   .commercial-header-entry :deep(.art-svg-icon) {
@@ -124,10 +158,37 @@
 
   @media (max-width: 640px) {
     .commercial-header-entry__upgrade,
-    .commercial-header-entry__badge {
+    .commercial-header-entry__badge,
+    .commercial-header-entry__pending {
       height: 30px;
       padding: 0 8px;
       font-size: 12px;
     }
+
+    .commercial-header-entry__full {
+      display: none;
+    }
+
+    .commercial-header-entry__short {
+      display: inline;
+    }
+  }
+</style>
+
+<style>
+  html.dark .commercial-header-entry__badge {
+    color: #eef3ff;
+    background: #24345c;
+    border-color: #8eabef;
+  }
+
+  html.dark .commercial-header-entry__badge:hover {
+    background: #2d4070;
+  }
+
+  html.dark .commercial-header-entry__pending {
+    color: var(--el-color-warning-light-3);
+    background: rgb(230 162 60 / 16%);
+    border-color: rgb(230 162 60 / 55%);
   }
 </style>

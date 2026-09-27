@@ -1,7 +1,7 @@
 <template>
   <div class="plugin-store">
     <ElCard shadow="never" class="art-table-card">
-      <div class="store-account-bar">
+      <div class="store-account-bar" :class="{ 'is-warning': accountWarning }">
         <CommercialMark :icon="accountIcon" :text="accountText" :tone="accountTone" />
       </div>
       <div class="store-header">
@@ -584,13 +584,17 @@
     if (!account) return '正在读取版本信息'
     if (accountUnconfigured.value) return '发行包未配置商店验签公钥，快照一律无效，当前按免费版使用'
     if (account.domainMismatch) return `授权域名与当前域名不一致（${account.domain || '未绑定'}）`
-    if (account.offlineGrace) return '源站暂时不可达，商业版处于离线宽限'
+    if (account.offlineGrace) return '源站暂时不可达，商业版 · 待校验'
     if (account.edition === 'commercial') {
       return account.permanent ? '商业版 · 永久' : `商业版 · ${formatExpire(account.editionExpireAt)} 到期`
     }
     return '免费版'
   })
-  const accountIcon = computed(() => (accountWarning.value ? 'ri:error-warning-fill' : 'ri:vip-crown-fill'))
+  const accountIcon = computed(() => {
+    if (accountWarning.value) return 'ri:error-warning-fill'
+    if (storeAccount.value?.edition === 'commercial') return 'ri:shield-check-fill'
+    return 'ri:rocket-2-line'
+  })
   const accountTone = computed(() =>
     accountWarning.value ? 'warning' : storeAccount.value?.edition === 'commercial' ? 'ok' : 'crown'
   )
@@ -603,9 +607,9 @@
   function badgeFor(ownership?: string, price?: number) {
     if (!price || price <= 0) return null
     if (ownership === 'included' || ownership === 'purchased') {
-      return { text: '已包含', icon: 'ri:vip-crown-fill', tone: 'ok' as const }
+      return { text: '已包含', icon: 'ri:shield-check-fill', tone: 'ok' as const }
     }
-    return { text: '商业版免费', icon: 'ri:vip-crown-fill', tone: 'crown' as const }
+    return { text: '商业版免费', icon: 'ri:rocket-2-line', tone: 'crown' as const }
   }
 
   function pluginBadge(plugin: PluginInfo) {
@@ -839,8 +843,13 @@
       justify-content: space-between;
       margin-bottom: 16px;
       padding: 10px 12px;
-      background: var(--el-color-warning-light-9);
-      border: 1px solid var(--el-color-warning-light-5);
+      background: var(--el-fill-color-light);
+      border: 1px solid var(--el-border-color-lighter);
+
+      &.is-warning {
+        background: var(--el-color-warning-light-9);
+        border-color: var(--el-color-warning-light-5);
+      }
       border-radius: 8px;
     }
 

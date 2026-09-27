@@ -119,7 +119,7 @@ export function notifyCommercialRequired(payload?: { msg?: string; data?: unknow
     title: '需要商业版',
     duration: 8000,
     message: h('div', { class: 'commercial-toast' }, [
-      h(CommercialMark, { text, icon: 'ri:vip-crown-fill' }),
+      h(CommercialMark, { text, icon: 'ri:rocket-2-line' }),
       h(
         ElButton,
         {

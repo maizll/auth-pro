@@ -24,7 +24,7 @@
           <div class="app-name-cell">
             <span class="app-name-cell__title">{{ row.name }}</span>
             <div v-if="narrow && row.commercialProduct" class="sale-status">
-              <ElTag type="warning" size="small">商业版产品</ElTag>
+              <ElTag type="primary" size="small">商业版产品</ElTag>
               <ElTag v-if="!row.saleGaps?.length" type="success" size="small">可售</ElTag>
               <ElButton
                 v-for="gap in row.saleGaps || []"
@@ -73,7 +73,7 @@
 
         <template #sale="{ row }">
           <div v-if="row.commercialProduct" class="sale-status">
-            <ElTag type="warning" size="small">商业版产品</ElTag>
+            <ElTag type="primary" size="small">商业版产品</ElTag>
             <ElTag v-if="!row.saleGaps?.length" type="success" size="small">可售</ElTag>
             <ElButton
               v-for="gap in row.saleGaps || []"
@@ -715,8 +715,8 @@
       justify-content: space-between;
       margin-bottom: 12px;
       padding: 10px 12px;
-      background: var(--el-color-warning-light-9);
-      border: 1px solid var(--el-color-warning-light-5);
+      background: var(--el-color-primary-light-9);
+      border: 1px solid var(--el-color-primary-light-5);
       border-radius: 8px;
     }
 
