@@ -573,14 +573,26 @@ func installPaidPackage(ctx context.Context, kind, id string) error {
 	if err := signedSourceJSON(http.MethodPost, "/api/v1/store/download-ticket", map[string]any{"kind": kind, "id": id}, &ticket); err != nil {
 		return err
 	}
-	if ticket.Data.URL == "" || !strings.HasPrefix(ticket.Data.URL, "https://") {
-		return errors.New("下载地址无效")
+	if ticket.Data.URL == "" || !strings.HasPrefix(ticket.Data.URL, "https://") || catalogRepoHostBlocked(ticket.Data.URL) {
+		return errPackageHostBlocked
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ticket.Data.URL, nil)
 	if err != nil {
 		return err
 	}
-	resp, err := (&http.Client{Timeout: 2 * time.Minute}).Do(req)
+	client := &http.Client{
+		Timeout: 2 * time.Minute,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 || req == nil || req.URL == nil || catalogRepoHostBlocked(req.URL.String()) {
+				return errPackageHostBlocked
+			}
+			return nil
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil && errors.Is(err, errPackageHostBlocked) {
+		return errPackageHostBlocked
+	}
 	if err != nil {
 		return errors.New("下载付费包失败")
 	}
@@ -595,7 +607,7 @@ func installPaidPackage(ctx context.Context, kind, id string) error {
 			Msg  string `json:"msg"`
 		}
 		if json.Unmarshal(payload, &envelope) == nil && envelope.Code != 0 && envelope.Code != 200 {
-			if strings.TrimSpace(envelope.Msg) == "" {
+			if strings.TrimSpace(envelope.Msg) == "" || strings.Contains(strings.ToLower(envelope.Msg), "github") {
 				return errors.New("下载付费包失败")
 			}
 			return errors.New(envelope.Msg)

@@ -566,6 +566,7 @@ export interface PluginInfo {
   remote: boolean
   source: string
   downloadUrl: string
+  updateAvailable?: boolean
   priceCents?: number
   billing?: string
   purchaseOnly?: boolean

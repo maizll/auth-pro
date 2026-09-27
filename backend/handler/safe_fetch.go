@@ -39,14 +39,15 @@ var safePolicyErrors = []error{
 }
 
 type safeFetchOptions struct {
-	AllowPrivate bool
-	RequireHTTPS bool
-	MaxBytes     int64
-	Timeout      time.Duration
-	MaxRedirects int
-	UserAgent    string
-	Accept       string
-	BaseClient   *http.Client
+	AllowPrivate    bool
+	RequireHTTPS    bool
+	MaxBytes        int64
+	Timeout         time.Duration
+	MaxRedirects    int
+	UserAgent       string
+	Accept          string
+	BaseClient      *http.Client
+	RejectRepoHosts bool
 }
 
 type safeFetchHooks struct {
@@ -262,6 +263,9 @@ func safeHTTPGet(ctx context.Context, rawURL string, opts safeFetchOptions) ([]b
 	if err := validateSafeFetchURL(parsed, opts, ""); err != nil {
 		return nil, err
 	}
+	if opts.RejectRepoHosts && catalogRepoHostBlocked(parsed.String()) {
+		return nil, errPackageHostBlocked
+	}
 	reqCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 	if err := assertSafeFetchHost(reqCtx, parsed.Hostname(), opts.AllowPrivate); err != nil {
@@ -346,6 +350,9 @@ func newSafeHTTPClient(opts safeFetchOptions) *http.Client {
 			}
 			if err := validateSafeFetchURL(req.URL, opts, previous); err != nil {
 				return err
+			}
+			if opts.RejectRepoHosts && catalogRepoHostBlocked(req.URL.String()) {
+				return errPackageHostBlocked
 			}
 			return assertSafeFetchHost(req.Context(), req.URL.Hostname(), opts.AllowPrivate)
 		},

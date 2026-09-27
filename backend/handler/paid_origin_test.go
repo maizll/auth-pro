@@ -307,7 +307,7 @@ func TestPaidOriginHealthDoesNotUnpublish(t *testing.T) {
 	if !strings.Contains(index.Body.String(), "付费插件") || strings.Contains(index.Body.String(), "127.0.0.1") || strings.Contains(index.Body.String(), "originUrl") {
 		t.Fatalf("buyer index=%s", index.Body.String())
 	}
-	if !strings.Contains(index.Body.String(), "https://cdn.example.com/free.zip") {
+	if !strings.Contains(index.Body.String(), catalogBuyerPackageURL("template", "free-home")) || strings.Contains(index.Body.String(), "cdn.example.com") {
 		t.Fatalf("free external url removed: %s", index.Body.String())
 	}
 	view := sourcePluginView(item)

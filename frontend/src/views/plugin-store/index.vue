@@ -176,10 +176,12 @@
                     <ElText type="info" size="small">来源：{{ plugin.source }}</ElText>
                   </template>
                   <template v-else-if="!pluginHasRuntime(plugin)">
-                    <ElTag type="success" size="small" effect="plain">已安装</ElTag>
+                    <ElTag v-if="plugin.updateAvailable" type="warning" size="small">待更新</ElTag>
+                    <ElTag v-else type="success" size="small" effect="plain">已安装</ElTag>
                     <ElText type="info" size="small">资源包已解压</ElText>
                   </template>
                   <template v-else>
+                    <ElTag v-if="plugin.updateAvailable" type="warning" size="small">待更新</ElTag>
                     <ElTag v-if="plugin.enabled" type="success" size="small" effect="light"
                       >已启用</ElTag
                     >
@@ -212,6 +214,15 @@
                     </ElButton>
                   </template>
                   <template v-else>
+                    <ElButton
+                      v-if="plugin.updateAvailable"
+                      type="primary"
+                      size="small"
+                      :loading="downloadingId === plugin.id"
+                      @click="handleDownload(plugin)"
+                    >
+                      更新
+                    </ElButton>
                     <ElButton
                       v-if="configTarget(plugin)"
                       size="small"
@@ -253,17 +264,12 @@
 
     <ElDialog v-model="sourceDialogVisible" title="软件源管理" width="640px">
       <div class="source-add">
-        <ElInput v-model="newSourceUrl" placeholder="JSON 清单或 Git 仓库地址" />
+        <ElInput v-model="newSourceUrl" placeholder="官网 JSON 目录地址" />
         <ElInput
           v-model="newSourceName"
           placeholder="名称（可选，留空自动获取）"
           class="source-name-input"
         />
-        <ElSelect v-model="newSourceType" class="source-type-select">
-          <ElOption label="自动识别" value="auto" />
-          <ElOption label="JSON 目录" value="json" />
-          <ElOption label="Git 仓库" value="git" />
-        </ElSelect>
         <ElButton type="primary" :loading="addingSource" @click="handleAddSource">添加</ElButton>
       </div>
       <ElTable :data="sources" size="small" class="source-table">
@@ -388,7 +394,6 @@
   const addingSource = ref(false)
   const newSourceUrl = ref('')
   const newSourceName = ref('')
-  const newSourceType = ref<'auto' | 'json' | 'git'>('auto')
 
   const sourceTypeLabel = (sourceType?: string) => (sourceType === 'git' ? 'Git 仓库' : 'JSON 目录')
   const sourceAppGone = (source: PluginSource) =>
@@ -707,10 +712,9 @@
     }
     addingSource.value = true
     try {
-      await fetchAddPluginSource(newSourceName.value.trim(), url, newSourceType.value)
+      await fetchAddPluginSource(newSourceName.value.trim(), url, 'json')
       newSourceUrl.value = ''
       newSourceName.value = ''
-      newSourceType.value = 'auto'
       await loadPlugins()
     } catch (e: any) {
       showCaughtError(e, '软件源添加失败，请检查清单地址')

@@ -7,6 +7,7 @@
 - 官网分发接口默认从私有仓库 `maizll/auth-pro-client` 的 Release 取包，用源站已经保存的令牌访问。服务器上可以设置 `AUTO_PRO_UPDATE_REPOSITORY=owner/repo` 改成别的仓库。维护说明见 `docs/update-distribution.md`。1.7.1 只发给客户交付仓库，不进入官网仓库。
 - 官网更新日志和授权购买的下载按钮改为源站安装包地址。系统文档里的在线更新说明一起改掉。没改过的文章启动时刷新；改过的不覆盖。更新日志里没改过、又提到代码托管站的旧条目会删掉后按新说明重新导入。
 - 安装包的 SHA256、签名、备份、重启和失败回滚保持原样。客户站不再直连代码托管站核对摘要。
+- 插件和首页模板的下载也改走官网。公开软件目录里的下载地址一律是 `https://auth.maizll.com/api/v1/catalog/package/{plugin|template}/{id}`。官网按目录里保存的位置取包并核对 sha256，收费包的下载票同样只给官网地址。客户端发现目录里的版本比本地新，才提示更新。代码托管站的地址不会出现在目录和下载响应里。
 - 根目录 `VERSION` / `AppVersion` / `VITE_VERSION` 默认 `1.7.1`。发布说明见 `docs/release-notes-1.7.1.txt`。商店公钥仍是 `pwAizm/sOyWCu+qi8+Dl/xJr0Upuamh5u7vL3wGT14A=`。
 
 ## [v1.7.0] 2026-09-27 — 官网公开页、可管理导航和企业蓝模板

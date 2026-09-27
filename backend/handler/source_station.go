@@ -61,6 +61,7 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 	}
 
 	api.GET("/v1/public/source-packages/:name", PublicSourcePackageFile)
+	api.GET("/v1/catalog/package/:kind/:id", CatalogPackageDownload)
 
 	admin := api.Group("/v1/source/admin")
 	admin.Use(middleware.JWTAuth(), middleware.RequireAdmin())

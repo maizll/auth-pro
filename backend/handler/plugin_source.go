@@ -223,6 +223,9 @@ func resolvePluginSource(ctx context.Context, rawURL, requestedType string) (*re
 		return nil, err
 	}
 	rawURL = normalized
+	if catalogRepoHostBlocked(rawURL) {
+		return nil, errPackageHostBlocked
+	}
 	requested, err := normalizePluginSourceType(requestedType)
 	if err != nil {
 		return nil, err
@@ -400,7 +403,7 @@ func pluginSourceFailureMessage(prefix string, err error) string {
 	if err == nil {
 		return prefix
 	}
-	if err.Error() == errPluginSourceNotGitRepo || err.Error() == softwareSourceAppGoneMessage || strings.HasPrefix(err.Error(), pluginSourceJSONFetchFailed) || err.Error() == pluginSourceJSONInvalid {
+	if errors.Is(err, errPackageHostBlocked) || err.Error() == errPluginSourceNotGitRepo || err.Error() == softwareSourceAppGoneMessage || strings.HasPrefix(err.Error(), pluginSourceJSONFetchFailed) || err.Error() == pluginSourceJSONInvalid {
 		return err.Error()
 	}
 	return prefix + err.Error()
@@ -591,16 +594,21 @@ func AdminPluginList(c *gin.Context) {
 				if icon == "" {
 					icon = "ri:puzzle-line"
 				}
+				downloadURL := item.DownloadURL
+				if catalogRepoHostBlocked(downloadURL) {
+					downloadURL = ""
+				}
 				remote = append(remote, pluginInfo{
 					ID: item.ID, Category: displayPluginCategory(item.Category), Name: item.Name,
 					Description: item.Description, Icon: icon, Version: item.Version, PriceCents: item.PriceCents,
 					Billing: item.Billing, PurchaseOnly: item.PurchaseOnly,
-					Author: item.Author, Local: false, Remote: true, Source: sourceName, DownloadURL: item.DownloadURL,
+					Author: item.Author, Local: false, Remote: true, Source: sourceName, DownloadURL: downloadURL,
 				})
 			}
 			rememberPaidCatalogFromIndex(index)
 		}
 	}
+	applyCatalogPluginUpdates(local, indexes)
 	groups := buildPluginStoreGroups(local, remote, indexes, keyword)
 	view := currentBuyerAccess(c)
 	for i := range groups {
@@ -694,8 +702,18 @@ func AdminPluginSourceAdd(c *gin.Context) {
 }
 
 func pluginSourceStateView(source pluginSourceRecord, state, lastError string) gin.H {
+	shownURL := source.URL
+	if catalogRepoHostBlocked(shownURL) {
+		shownURL = ""
+		if strings.TrimSpace(lastError) == "" {
+			lastError = catalogPackageHostText
+		}
+		if state == "ok" || state == "unknown" {
+			state = "error"
+		}
+	}
 	view := gin.H{
-		"id": source.ID, "name": source.Name, "url": source.URL, "sourceType": source.SourceType,
+		"id": source.ID, "name": source.Name, "url": shownURL, "sourceType": source.SourceType,
 		"state": state, "lastError": lastError, "restoreAppId": 0,
 	}
 	if lastError != softwareSourceAppGoneMessage {
@@ -827,14 +845,22 @@ func AdminPluginDownload(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化插件存储失败"})
 		return
 	}
-	localIDs, err := loadLocalPluginIDs()
+	localPlugins, err := loadLocalPlugins()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取本地插件失败"})
 		return
 	}
-	if localIDs[pluginID] {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "插件已安装，无需重复下载"})
+	if pluginHasCompiledRuntime(pluginID) {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "不能覆盖内置插件"})
 		return
+	}
+	installedVersion := ""
+	installed := false
+	for _, item := range localPlugins {
+		if item.ID == pluginID {
+			installed = true
+			installedVersion = item.Version
+		}
 	}
 	sources, err := listPluginSources(db)
 	if err != nil {
@@ -844,6 +870,7 @@ func AdminPluginDownload(c *gin.Context) {
 	downloadURL := ""
 	sourceURL := ""
 	expectedSHA := ""
+	remoteVersion := ""
 	var metadata pluginInfo
 	for _, source := range sources {
 		index, _, _ := loadPluginSourceIndex(c.Request.Context(), db, source, false)
@@ -854,6 +881,7 @@ func AdminPluginDownload(c *gin.Context) {
 			if plugin.ID == pluginID {
 				downloadURL = strings.TrimSpace(plugin.DownloadURL)
 				expectedSHA = plugin.SHA256
+				remoteVersion = plugin.Version
 				sourceURL = source.URL
 				metadata = pluginInfo{ID: plugin.ID, Category: plugin.Category, Name: plugin.Name,
 					Description: plugin.Description, Icon: plugin.Icon, Version: plugin.Version,
@@ -870,6 +898,14 @@ func AdminPluginDownload(c *gin.Context) {
 	}
 	if downloadURL == "" {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "未在任何软件源中找到该插件或插件未提供下载地址"})
+		return
+	}
+	if catalogRepoHostBlocked(downloadURL) {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": catalogPackageHostText})
+		return
+	}
+	if installed && compareVersions(remoteVersion, installedVersion) <= 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "插件已安装，无需重复下载"})
 		return
 	}
 	if err := downloadAndInstallPluginPackage(c.Request.Context(), downloadURL, expectedSHA, pluginSourceAllowsPrivate(sourceURL), metadata); err != nil {
@@ -916,6 +952,39 @@ func AdminPluginSourceRefresh(c *gin.Context) {
 	}})
 }
 
+// applyCatalogPluginUpdates 用官网目录里的最新版本标记本地插件是否可更新。
+// 目录地址若指向代码托管站，不写进返回给客户端的下载字段。
+func applyCatalogPluginUpdates(local []pluginInfo, indexes []*remotePluginIndex) {
+	latest := map[string]remotePluginEntry{}
+	for _, index := range indexes {
+		if index == nil {
+			continue
+		}
+		for _, item := range index.Plugins {
+			if item.ID == "" || item.PriceCents > 0 || strings.TrimSpace(item.Version) == "" {
+				continue
+			}
+			if prev, ok := latest[item.ID]; ok && compareVersions(item.Version, prev.Version) <= 0 {
+				continue
+			}
+			latest[item.ID] = item
+		}
+	}
+	for i := range local {
+		remote, ok := latest[local[i].ID]
+		if !ok || pluginHasCompiledRuntime(local[i].ID) {
+			continue
+		}
+		if compareVersions(remote.Version, local[i].Version) <= 0 {
+			continue
+		}
+		local[i].UpdateAvailable = true
+		if !catalogRepoHostBlocked(remote.DownloadURL) {
+			local[i].DownloadURL = remote.DownloadURL
+		}
+	}
+}
+
 func downloadAndInstallPluginPackage(ctx context.Context, rawURL, expectedSHA string, allowPrivate bool, plugin pluginInfo) error {
 	payload, err := downloadPluginPackage(ctx, rawURL, expectedSHA, allowPrivate)
 	if err != nil {
@@ -925,7 +994,7 @@ func downloadAndInstallPluginPackage(ctx context.Context, rawURL, expectedSHA st
 }
 
 func isPluginPackageReject(err error) bool {
-	return errors.Is(err, errPluginSHAMissing) || errors.Is(err, errPluginSHAMismatch) || errors.Is(err, errSafeTooLarge) || isSafeFetchPolicyError(err)
+	return errors.Is(err, errPluginSHAMissing) || errors.Is(err, errPluginSHAMismatch) || errors.Is(err, errSafeTooLarge) || errors.Is(err, errPackageHostBlocked) || isSafeFetchPolicyError(err)
 }
 
 func downloadPluginPackage(ctx context.Context, rawURL, expectedSHA string, allowPrivate bool) ([]byte, error) {
@@ -937,11 +1006,12 @@ func downloadPluginPackage(ctx context.Context, rawURL, expectedSHA string, allo
 		return nil, err
 	}
 	payload, err := safeHTTPGet(ctx, rawURL, safeFetchOptions{
-		AllowPrivate: allowPrivate,
-		RequireHTTPS: !allowPrivate,
-		MaxBytes:     pluginPackageMaxSize,
-		Timeout:      30 * time.Second,
-		MaxRedirects: defaultSafeRedirects,
+		AllowPrivate:    allowPrivate,
+		RequireHTTPS:    !allowPrivate,
+		MaxBytes:        pluginPackageMaxSize,
+		Timeout:         30 * time.Second,
+		MaxRedirects:    defaultSafeRedirects,
+		RejectRepoHosts: true,
 	})
 	if err != nil {
 		return nil, wrapPluginNetError(err)
@@ -971,7 +1041,7 @@ func fetchPluginHTTP(ctx context.Context, rawURL string, maxBytes int64, timeout
 }
 
 func wrapPluginNetError(err error) error {
-	if err == nil || isPluginPackageReject(err) {
+	if err == nil || isPluginPackageReject(err) || errors.Is(err, errPackageHostBlocked) {
 		return err
 	}
 	var status *safeStatusError

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"auto_pro/config"
 )
@@ -302,33 +301,11 @@ func releasePaidLocationToPublic(location, sha string) (string, string, error) {
 	if !isGitHubPackageRef(location) {
 		return location, sha, nil
 	}
-	driver, ok := packageStorageByName(packageStorageGitHub)
-	if !ok {
-		return "", "", errors.New("收费仓库未配置，无法把安装包放回公开地址")
-	}
-	tempURL, err := driver.SignedURL(context.Background(), classifyGitHubKey(location), 5*time.Minute)
-	if err != nil || strings.TrimSpace(tempURL) == "" {
-		return "", "", errors.New("收费仓库暂时无法读取安装包，不能改回免费")
-	}
-	payload, err := safeHTTPGet(context.Background(), tempURL, safeFetchOptions{
-		AllowPrivate: false,
-		RequireHTTPS: true,
-		MaxBytes:     pluginPackageMaxSize,
-		Timeout:      paidOriginFetchTimeout,
-		MaxRedirects: defaultSafeRedirects,
-		UserAgent:    "auth-pro-paid-import",
-		Accept:       "application/zip,*/*",
-		BaseClient:   externalPackageClient,
-	})
+	payload, err := fetchGitHubPackageBytes(context.Background(), location)
 	if err != nil || !isZipPayload(payload) {
 		return "", "", errors.New("收费仓库暂时无法读取安装包，不能改回免费")
 	}
 	return storeStationPackage(payload)
-}
-
-func classifyGitHubKey(location string) string {
-	_, key := classifyPackageRef(location)
-	return key
 }
 
 func applyPluginSwitchState(item, patch sourcePlugin) sourcePlugin {

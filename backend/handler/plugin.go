@@ -23,27 +23,28 @@ import (
 // 实名认证同一 category 同时只允许一个插件启用；支付渠道插件允许并存。
 
 type pluginInfo struct {
-	ID           string         `json:"id"`
-	Category     string         `json:"category"`
-	Name         string         `json:"name"`
-	Description  string         `json:"description"`
-	Homepage     string         `json:"homepage"`
-	Icon         string         `json:"icon"`
-	Version      string         `json:"version"`
-	Official     bool           `json:"official"`
-	Author       templateAuthor `json:"author"`
-	Enabled      bool           `json:"enabled"`
-	Configured   bool           `json:"configured"`
-	CanEnable    bool           `json:"canEnable"`   // 当前服务是否包含该插件的运行实现
-	Local        bool           `json:"local"`       // 本地已有（内置或已安装）
-	Source       string         `json:"source"`      // 内置: builtin；远程插件: 来源仓库名
-	Remote       bool           `json:"remote"`      // 仅存在于远程仓库、本地未安装
-	DownloadURL  string         `json:"downloadUrl"` // 远程插件包地址（未安装时用于下载）
-	Hidden       bool           `json:"-"`           // 暂时从应用商店隐藏，底层能力与历史状态保留
-	PriceCents   int64          `json:"priceCents,omitempty"`
-	Billing      string         `json:"billing,omitempty"`
-	PurchaseOnly bool           `json:"purchaseOnly,omitempty"`
-	Ownership    string         `json:"ownership,omitempty"`
+	ID              string         `json:"id"`
+	Category        string         `json:"category"`
+	Name            string         `json:"name"`
+	Description     string         `json:"description"`
+	Homepage        string         `json:"homepage"`
+	Icon            string         `json:"icon"`
+	Version         string         `json:"version"`
+	Official        bool           `json:"official"`
+	Author          templateAuthor `json:"author"`
+	Enabled         bool           `json:"enabled"`
+	Configured      bool           `json:"configured"`
+	CanEnable       bool           `json:"canEnable"`   // 当前服务是否包含该插件的运行实现
+	Local           bool           `json:"local"`       // 本地已有（内置或已安装）
+	Source          string         `json:"source"`      // 内置: builtin；远程插件: 来源仓库名
+	Remote          bool           `json:"remote"`      // 仅存在于远程仓库、本地未安装
+	DownloadURL     string         `json:"downloadUrl"` // 远程插件包地址。已安装时仅在官网目录有更新时填写
+	UpdateAvailable bool           `json:"updateAvailable,omitempty"`
+	Hidden          bool           `json:"-"` // 暂时从应用商店隐藏，底层能力与历史状态保留
+	PriceCents      int64          `json:"priceCents,omitempty"`
+	Billing         string         `json:"billing,omitempty"`
+	PurchaseOnly    bool           `json:"purchaseOnly,omitempty"`
+	Ownership       string         `json:"ownership,omitempty"`
 }
 
 // pluginCatalog 内置插件清单（代码注册，数据库只持久化启用状态）。
@@ -402,6 +403,9 @@ func validatePluginSourceURL(raw string) (string, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
 		return "", errors.New("仓库地址格式不正确")
+	}
+	if catalogRepoHostBlocked(raw) {
+		return "", errors.New(catalogPackageHostText)
 	}
 	return raw, nil
 }

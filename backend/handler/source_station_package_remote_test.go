@@ -123,7 +123,7 @@ func TestSourcePackagePublishRemoteURLFreeAndPaid(t *testing.T) {
 		t.Fatalf("free item=%#v", plugin)
 	}
 	index := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
-	if !strings.Contains(index.Body.String(), wantSHA) || !strings.Contains(index.Body.String(), rawURL) {
+	if !strings.Contains(index.Body.String(), wantSHA) || !strings.Contains(index.Body.String(), catalogBuyerPackageURL("plugin", "demo-plugin")) || strings.Contains(index.Body.String(), rawURL) {
 		t.Fatalf("free index: %s", index.Body.String())
 	}
 
@@ -215,7 +215,7 @@ func TestSourcePackageGitHubReleaseExternalURL(t *testing.T) {
 		t.Fatalf("stored redirect target: %s", plugin.DownloadURL)
 	}
 	index := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
-	if !strings.Contains(index.Body.String(), freeSHA) || !strings.Contains(index.Body.String(), githubAlipayReleaseURL) {
+	if !strings.Contains(index.Body.String(), freeSHA) || !strings.Contains(index.Body.String(), catalogBuyerPackageURL("plugin", "alipay-f2f")) || strings.Contains(index.Body.String(), "github.com") {
 		t.Fatalf("free github index: %s", index.Body.String())
 	}
 
