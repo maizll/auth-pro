@@ -66,7 +66,8 @@
           <div>
             <span class="card-title">收费仓库</span>
             <p class="card-hint">
-              站长和开发者的收费安装包都放在这一个私有 GitHub 仓库。只需粘贴令牌，点「测试令牌」就会识别所有者，也可以改选所属组织。仓库默认是
+              站长和开发者的收费安装包都放在这一个私有 GitHub
+              仓库。只需粘贴令牌，点「测试令牌」就会识别所有者，也可以改选所属组织。仓库默认是
               auth-pro-paid，不存在时可以自动创建私有仓库。令牌加密保存，页面不回显明文。
               <a
                 class="token-link"
@@ -129,7 +130,9 @@
         <el-form-item label="仓库">
           <div class="repo-row">
             <el-input v-model.trim="githubRepo" placeholder="auth-pro-paid" />
-            <el-button :loading="githubCreating" @click="handleGitHubCreate">自动创建私有仓库</el-button>
+            <el-button :loading="githubCreating" @click="handleGitHubCreate"
+              >自动创建私有仓库</el-button
+            >
           </div>
         </el-form-item>
         <el-form-item label="读写令牌">
@@ -155,7 +158,9 @@
             </p>
           </div>
           <div class="table-actions">
-            <el-button type="primary" :loading="aliasSaving" @click="handleAliasSave">保存映射</el-button>
+            <el-button type="primary" :loading="aliasSaving" @click="handleAliasSave"
+              >保存映射</el-button
+            >
           </div>
         </div>
       </template>
@@ -164,7 +169,11 @@
           <el-input v-model.trim="aliasForm.oldAppKey" placeholder="例如 app_f93896d80066_5811" />
         </el-form-item>
         <el-form-item label="转到应用">
-          <el-select v-model="aliasForm.targetAppId" placeholder="选择还在使用的应用" class="product-app-select">
+          <el-select
+            v-model="aliasForm.targetAppId"
+            placeholder="选择还在使用的应用"
+            class="product-app-select"
+          >
             <el-option
               v-for="app in liveAliasApps"
               :key="app.id"
@@ -182,7 +191,12 @@
             {{ row.targetName || '应用' }}（{{ row.targetAppKey || row.targetAppId }}）
           </template>
         </el-table-column>
-        <el-table-column prop="indexUrl" label="仍可用的地址" min-width="220" show-overflow-tooltip />
+        <el-table-column
+          prop="indexUrl"
+          label="仍可用的地址"
+          min-width="220"
+          show-overflow-tooltip
+        />
       </el-table>
     </el-card>
   </div>

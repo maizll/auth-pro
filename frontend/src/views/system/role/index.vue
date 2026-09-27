@@ -41,7 +41,6 @@
       :role-data="currentRoleData"
       @success="refreshData"
     />
-
   </div>
 </template>
 
@@ -233,5 +232,4 @@
         ElMessage.info('已取消删除')
       })
   }
-
 </script>

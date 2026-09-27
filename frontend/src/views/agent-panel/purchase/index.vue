@@ -389,7 +389,12 @@
             "
           />
           <div class="success-actions">
-            <el-button v-if="!formData.userId" type="primary" class="success-btn" @click="goBindDomain">
+            <el-button
+              v-if="!formData.userId"
+              type="primary"
+              class="success-btn"
+              @click="goBindDomain"
+            >
               {{ formData.type === 'key' ? '查看授权' : '绑定域名' }}
             </el-button>
             <el-button class="success-btn" @click="resetFlow">

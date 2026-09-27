@@ -266,7 +266,9 @@ test.describe('developer-panel catalog dialogs on phone', () => {
     await expect(formDrawer.locator('input[placeholder="上传压缩包后自动填写"]')).toHaveValue(
       `/api/v1/public/source-packages/${sha}.zip`
     )
-    await expect(formDrawer.locator('input[placeholder="64 位十六进制，可稍后补"]')).toHaveValue(sha)
+    await expect(formDrawer.locator('input[placeholder="64 位十六进制，可稍后补"]')).toHaveValue(
+      sha
+    )
     await expect(formDrawer.locator('input[placeholder="上传压缩包后自动填写"]')).toBeDisabled()
   })
 

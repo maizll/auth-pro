@@ -736,7 +736,12 @@ export function fetchRetargetPluginSource(
 }
 
 export function fetchRefreshPluginSource(id: number) {
-  return request.post<{ plugins: number; homeTemplates: number; sourceType?: string; notice?: string }>({
+  return request.post<{
+    plugins: number
+    homeTemplates: number
+    sourceType?: string
+    notice?: string
+  }>({
     url: `/api/system/plugin-sources/${id}/refresh`
   })
 }

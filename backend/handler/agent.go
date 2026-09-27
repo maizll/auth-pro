@@ -272,12 +272,12 @@ func AgentUpdate(c *gin.Context) {
 	_ = db.QueryRow("SELECT level FROM agents WHERE id = ?", id).Scan(&oldLevel)
 
 	if strings.TrimSpace(req.Password) != "" {
-		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-		if err != nil {
+		hash, hashErr := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if hashErr != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "密码加密失败"})
 			return
 		}
-		if err := middleware.EnsurePasswordChangedAtColumn(db, "agents"); err != nil {
+		if err = middleware.EnsurePasswordChangedAtColumn(db, "agents"); err != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更新失败"})
 			return
 		}

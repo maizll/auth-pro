@@ -9,6 +9,7 @@
 - 源站删除或吊销绑定后，买家下单、查单、刷新、安装或下载会清掉本机绑定凭据和快照，并提示「之前的绑定已在源站删除，请重新绑定账号后继续购买」。购买窗口回到绑定步骤，绑定成功后回到刚才的套餐或单品。打开窗口时如果快照已是明确吊销，也会直接要求重新绑定。窗口里可以「解除绑定 / 重新绑定」。同域名上已删除或已吊销的旧授权不再提示「域名已绑定」，可以新建绑定。
 - 购买窗口不再提供「源站连接」或「高级」手填。购买网站在正式程序里固定为 `https://auth.maizll.com`，没有环境变量、配置文件或页面入口。升级会删除数据库里旧的 `store_source_base`、`store_site_url`、`store_trust_proxy`。`PUT /api/store/settings` 忽略 `sourceBase`，不会写回。测试要换源站时只在 `_test.go` 里改包内变量。本站域名和是否信任本机反代自动识别；宝塔只转发 `Host` 和 `X-Forwarded-Proto: https` 时也能识别。识别到本机、内网或 http 时，只提示用正式 https 域名打开后台后再试，没有填写框。
 - 根目录 `VERSION` / `AppVersion` / `VITE_VERSION` 默认 `1.6.7`。发布说明见 `docs/release-notes-1.6.7.txt`。商店公钥仍是 `pwAizm/sOyWCu+qi8+Dl/xJr0Upuamh5u7vL3wGT14A=`。
+- 合并和发版前增加质量检查：`go vet`、`staticcheck`、`vue-tsc`、`eslint`，以及未使用导出不能比基线更多。失败则 CI 和打标签发版都会停住。说明见 `docs/code-structure.md`。超过 800 行的文件拆分留到 1.6.8，本版不搬动购买和授权代码。
 
 ## [v1.6.6] 2026-09-26 — 删除授权后刷新立刻取消商业版
 

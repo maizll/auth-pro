@@ -39,7 +39,12 @@
         class="placeholder-form"
       >
         <el-form-item label="标题">
-          <el-input v-model="placeholder.title" maxlength="120" show-word-limit placeholder="广告位出租" />
+          <el-input
+            v-model="placeholder.title"
+            maxlength="120"
+            show-word-limit
+            placeholder="广告位出租"
+          />
         </el-form-item>
         <el-form-item label="简介">
           <el-input
@@ -70,7 +75,13 @@
               通过后会用申请字段创建一条广告投放。拒绝不会写入投放表。公开客户端接口不变。
             </p>
           </div>
-          <el-select v-model="appStatus" clearable placeholder="全部状态" style="width: 140px" @change="loadApplications">
+          <el-select
+            v-model="appStatus"
+            clearable
+            placeholder="全部状态"
+            style="width: 140px"
+            @change="loadApplications"
+          >
             <el-option label="待审核" value="pending" />
             <el-option label="已通过" value="approved" />
             <el-option label="已拒绝" value="rejected" />
@@ -196,10 +207,7 @@
             >
               <el-button :loading="uploadingImage">上传图片</el-button>
             </el-upload>
-            <el-input
-              v-model="form.imageUrl"
-              placeholder="或粘贴 https:// / 本站图片地址"
-            />
+            <el-input v-model="form.imageUrl" placeholder="或粘贴 https:// / 本站图片地址" />
             <img v-if="form.imageUrl" :src="form.imageUrl" alt="" class="image-preview" />
           </div>
         </el-form-item>

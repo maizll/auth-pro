@@ -72,7 +72,12 @@ export function sampleFromVersionHTTP(
   if (networkError || isUnreachableUpdateResponse(status, contentType, bodyText)) {
     return { reachable: false }
   }
-  let parsed: { code?: number; data?: UpdateVersionPayload; version?: string; update?: UpdateVersionHint }
+  let parsed: {
+    code?: number
+    data?: UpdateVersionPayload
+    version?: string
+    update?: UpdateVersionHint
+  }
   try {
     parsed = JSON.parse(bodyText) as typeof parsed
   } catch {
@@ -118,7 +123,11 @@ export function interpretUpdatePoll(
     return { action: 'rollback', reason, restartingSince: 0 }
   }
   if (clock.startedAt > 0 && now - clock.startedAt >= UPDATE_OVERALL_TIMEOUT_MS) {
-    return { action: 'timeout', reason: UPDATE_OVERALL_TIMEOUT_REASON, restartingSince: clock.restartingSince }
+    return {
+      action: 'timeout',
+      reason: UPDATE_OVERALL_TIMEOUT_REASON,
+      restartingSince: clock.restartingSince
+    }
   }
   if (clock.restartingSince > 0 && now - clock.restartingSince >= UPDATE_RESTART_TIMEOUT_MS) {
     return {
@@ -127,7 +136,11 @@ export function interpretUpdatePoll(
       restartingSince: clock.restartingSince
     }
   }
-  return { action: 'wait', restarting: clock.restartingSince > 0, restartingSince: clock.restartingSince }
+  return {
+    action: 'wait',
+    restarting: clock.restartingSince > 0,
+    restartingSince: clock.restartingSince
+  }
 }
 
 export function versionPollURL(now: number): string {
@@ -158,10 +171,7 @@ export function rememberRestartingSince(
   return now
 }
 
-export function clearUpdateWait(
-  jobId: string,
-  storage: Pick<Storage, 'removeItem'>
-): void {
+export function clearUpdateWait(jobId: string, storage: Pick<Storage, 'removeItem'>): void {
   storage.removeItem(waitKey(jobId))
   storage.removeItem(restartKey(jobId))
   storage.removeItem(reloadKey(jobId))

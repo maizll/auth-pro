@@ -4,9 +4,7 @@
       <div class="store-header">
         <div>
           <h2 class="store-title">应用商店</h2>
-          <p class="store-subtitle">
-            浏览并安装插件和首页模板
-          </p>
+          <p class="store-subtitle"> 浏览并安装插件和首页模板 </p>
         </div>
         <div class="store-header-actions">
           <ElButton :icon="FolderAdd" @click="sourceDialogVisible = true">软件源管理</ElButton>
@@ -17,12 +15,7 @@
       <div class="store-toolbar">
         <ElTabs v-model="activeTab" class="store-tabs" @tab-change="loadPlugins">
           <ElTabPane label="全部插件" name="all" />
-          <ElTabPane
-            v-for="tab in storeTabs"
-            :key="tab.name"
-            :label="tab.label"
-            :name="tab.name"
-          />
+          <ElTabPane v-for="tab in storeTabs" :key="tab.name" :label="tab.label" :name="tab.name" />
         </ElTabs>
         <ElInput
           v-model="searchText"
@@ -212,7 +205,9 @@
                       :loading="downloadingId === plugin.id"
                       @click="handleDownload(plugin)"
                     >
-                      {{ unpaidPlugin(plugin) ? catalogCardBuyLabel(plugin.priceCents) : '下载并安装' }}
+                      {{
+                        unpaidPlugin(plugin) ? catalogCardBuyLabel(plugin.priceCents) : '下载并安装'
+                      }}
                     </ElButton>
                   </template>
                   <template v-else>
@@ -231,7 +226,13 @@
                       :loading="togglingId === plugin.id"
                       @click="handleToggle(plugin)"
                     >
-                      {{ plugin.enabled ? '停用' : unpaidPlugin(plugin) ? catalogCardBuyLabel(plugin.priceCents) : '启用' }}
+                      {{
+                        plugin.enabled
+                          ? '停用'
+                          : unpaidPlugin(plugin)
+                            ? catalogCardBuyLabel(plugin.priceCents)
+                            : '启用'
+                      }}
                     </ElButton>
                     <ElText
                       v-else
@@ -295,13 +296,17 @@
       </ElTable>
 
       <div class="source-tip">
-        可以填写 JSON 目录，或填写 Git 仓库地址。以 .json 结尾或内容是 JSON 的地址会按 JSON 目录保存；类型选错会在添加时自动改正并提示。本站请为每个应用单独添加一条公开清单，避免不同应用的目录混在一起。Git 仓库的根目录需要有软件清单。
+        可以填写 JSON 目录，或填写 Git 仓库地址。以 .json 结尾或内容是 JSON 的地址会按 JSON
+        目录保存；类型选错会在添加时自动改正并提示。本站请为每个应用单独添加一条公开清单，避免不同应用的目录混在一起。Git
+        仓库的根目录需要有软件清单。
       </div>
     </ElDialog>
 
     <ElDialog v-model="retargetVisible" title="更换源地址" width="480px">
       <p>
-        旧标识「{{ retargetSource?.goneAppKey || '未知' }}」对应的应用已经删除或归档。可以转到本站另一个应用，旧地址会继续打开目标目录；也可以直接改成新的软件源地址。
+        旧标识「{{
+          retargetSource?.goneAppKey || '未知'
+        }}」对应的应用已经删除或归档。可以转到本站另一个应用，旧地址会继续打开目标目录；也可以直接改成新的软件源地址。
       </p>
       <ElSelect
         v-model="retargetAppId"
@@ -316,11 +321,7 @@
           :value="app.id"
         />
       </ElSelect>
-      <ElInput
-        v-model="retargetUrl"
-        placeholder="或填写新的软件源地址"
-        style="margin-top: 12px"
-      />
+      <ElInput v-model="retargetUrl" placeholder="或填写新的软件源地址" style="margin-top: 12px" />
       <template #footer>
         <ElButton @click="retargetVisible = false">取消</ElButton>
         <ElButton type="primary" :loading="retargetSaving" @click="confirmRetarget">保存</ElButton>
@@ -588,7 +589,9 @@
 
   function templateBadge(template: HomeTemplateInfo) {
     const key = template.catalogId || template.templateId
-    const item = catalog.value.find((row) => row.kind === 'template' && (row.id === key || row.id === String(template.id)))
+    const item = catalog.value.find(
+      (row) => row.kind === 'template' && (row.id === key || row.id === String(template.id))
+    )
     return badgeFor(item?.ownership, item?.priceCents)
   }
 
@@ -683,7 +686,9 @@
   function onCatalogResume(event: Event) {
     const offer = (event as CustomEvent<CatalogPurchaseOffer>).detail
     if (!offer || offer.kind !== 'plugin') return
-    const plugin = categories.value.flatMap((group) => group.plugins).find((item) => item.id === offer.id)
+    const plugin = categories.value
+      .flatMap((group) => group.plugins)
+      .find((item) => item.id === offer.id)
     if (!plugin) return
     if (plugin.remote) void installPlugin(plugin)
     else void enablePlugin(plugin, true)
@@ -712,11 +717,11 @@
   const handleRestoreSourceApp = async (source: PluginSource) => {
     if (!source.restoreAppId) return
     try {
-      await ElMessageBox.confirm(
-        '恢复后，这条软件源地址会重新打开该应用自己的目录。',
-        '恢复应用',
-        { type: 'warning', confirmButtonText: '恢复', cancelButtonText: '取消' }
-      )
+      await ElMessageBox.confirm('恢复后，这条软件源地址会重新打开该应用自己的目录。', '恢复应用', {
+        type: 'warning',
+        confirmButtonText: '恢复',
+        cancelButtonText: '取消'
+      })
     } catch {
       return
     }

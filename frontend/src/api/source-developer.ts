@@ -86,7 +86,11 @@ export interface SourceDeveloperItems {
 
 export const DEVELOPER_APPLY_STATUS: Record<
   string,
-  { label: string; type: 'primary' | 'success' | 'warning' | 'info' | 'danger'; description: string }
+  {
+    label: string
+    type: 'primary' | 'success' | 'warning' | 'info' | 'danger'
+    description: string
+  }
 > = {
   pending: {
     label: '审核中',
@@ -346,7 +350,10 @@ export function fetchSourceDeveloperPluginVersions(id: string) {
   }>(`${BASE}/plugins/${encodeURIComponent(id)}/versions`, developerConfig())
 }
 
-export function upsertSourceDeveloperPluginVersion(id: string, payload: SourceDeveloperVersionDraft) {
+export function upsertSourceDeveloperPluginVersion(
+  id: string,
+  payload: SourceDeveloperVersionDraft
+) {
   return axios.post<{ code: number; msg: string; data: SourceDeveloperVersion }>(
     `${BASE}/plugins/${encodeURIComponent(id)}/versions`,
     payload,

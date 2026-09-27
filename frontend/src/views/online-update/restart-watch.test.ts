@@ -19,7 +19,10 @@ const clock = { startedAt: started, restartingSince: 0 }
 assert.equal(isUnreachableUpdateResponse(undefined, '', ''), true)
 assert.equal(isUnreachableUpdateResponse(502, 'text/html', '<html>502</html>'), true)
 assert.equal(isUnreachableUpdateResponse(504, 'text/html', 'gateway'), true)
-assert.equal(isUnreachableUpdateResponse(200, 'text/html; charset=utf-8', '<html>nginx</html>'), true)
+assert.equal(
+  isUnreachableUpdateResponse(200, 'text/html; charset=utf-8', '<html>nginx</html>'),
+  true
+)
 assert.equal(isUnreachableUpdateResponse(200, 'application/json', '{"code":200}'), false)
 
 const down = sampleFromVersionHTTP(502, 'text/html', '<html>bad gateway</html>')
@@ -78,7 +81,12 @@ if (rollback.action === 'rollback') {
   assert.match(rollback.reason, /已回滚/)
 }
 
-const overall = interpretUpdatePoll(oldDuringDownload, '1.6.0', clock, started + UPDATE_OVERALL_TIMEOUT_MS)
+const overall = interpretUpdatePoll(
+  oldDuringDownload,
+  '1.6.0',
+  clock,
+  started + UPDATE_OVERALL_TIMEOUT_MS
+)
 assert.equal(overall.action, 'timeout')
 
 assert.equal(versionPollURL(42), '/api/system/version?_=42')

@@ -1785,7 +1785,7 @@ func extractOnlineUpdatePackage(jobID string, packagePath string) (string, error
 			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
 				return "", err
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg, 0: // 0 是旧 tar 的普通文件，仍要能解压
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return "", err
 			}

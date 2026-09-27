@@ -239,5 +239,4 @@
 
     isSelectAll.value = checkedKeys.length === allKeys.length && allKeys.length > 0
   }
-
 </script>

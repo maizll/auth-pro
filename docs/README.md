@@ -13,6 +13,7 @@
 | [发布包目录](../PACKAGING.md) | `auth_pro-full-*.tar.gz` 解压后的文件布局 |
 | [更新日志](../CHANGELOG.md) | 本产品各版本变更 |
 | [发布说明](release-notes-1.6.7.txt) | 当前版本写入在线更新 `notes` 的文本；历史版本为同目录 `release-notes-*.txt` |
+| [代码结构与维护指南](code-structure.md) | 目录、授权 / 商业版购买 / 付费包 / 在线更新的入口文件、本地测试和发版 |
 
 ## 给接入方和模板作者
 

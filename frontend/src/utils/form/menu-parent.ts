@@ -11,7 +11,10 @@ export interface MenuParentOption {
   children?: MenuParentOption[]
 }
 
-export function findMenuNode(nodes: MenuTreeNode[] | undefined, id: number): MenuTreeNode | undefined {
+export function findMenuNode(
+  nodes: MenuTreeNode[] | undefined,
+  id: number
+): MenuTreeNode | undefined {
   if (!nodes?.length || !id) return undefined
   for (const node of nodes) {
     if (node.id === id) return node

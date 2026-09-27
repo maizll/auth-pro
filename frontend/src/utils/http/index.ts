@@ -92,7 +92,11 @@ function noteBackendReachable(): void {
   backendUnreachableTracker.record(false)
 }
 
-function noteBackendUnreachable(status: number | undefined, hasResponse: boolean, code?: string): void {
+function noteBackendUnreachable(
+  status: number | undefined,
+  hasResponse: boolean,
+  code?: string
+): void {
   if (code === 'ERR_CANCELED') return
   const tripped = backendUnreachableTracker.record(isBackendUnreachableFailure(status, hasResponse))
   if (!tripped || typeof window === 'undefined') return

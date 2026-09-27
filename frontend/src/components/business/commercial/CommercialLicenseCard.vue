@@ -8,7 +8,11 @@
       <ArtSvgIcon :icon="account.offlineGrace ? 'ri:shield-check-line' : 'ri:shield-check-fill'" />
       <div>
         <h3>{{ account.offlineGrace ? '商业版 · 待校验' : '商业版' }}</h3>
-        <p>{{ account.offlineGrace ? '源站暂时连不上，宽限期内仍可使用。' : '当前授权有效，无需再次升级。' }}</p>
+        <p>{{
+          account.offlineGrace
+            ? '源站暂时连不上，宽限期内仍可使用。'
+            : '当前授权有效，无需再次升级。'
+        }}</p>
       </div>
       <span class="license-card__pill">{{ account.permanent ? '永久授权' : '有效期内' }}</span>
     </header>
@@ -30,7 +34,9 @@
         <dd>{{ account.licenseNo }}</dd>
       </div>
     </dl>
-    <p v-if="account.offlineGrace" class="license-card__note">源站暂时连不上，商业版处于离线宽限。</p>
+    <p v-if="account.offlineGrace" class="license-card__note"
+      >源站暂时连不上，商业版处于离线宽限。</p
+    >
     <footer class="license-card__foot">
       <span>上次校验时间：{{ verifiedText }}</span>
       <ElButton size="small" :loading="refreshing" @click="refreshNow">立即刷新</ElButton>
@@ -49,7 +55,11 @@
   import { computed, ref } from 'vue'
   import { ElMessage } from 'element-plus'
   import { refreshStoreSnapshot, type StoreAccount } from '@/api/store'
-  import { commercialExpireText, isCommercialActive, rememberCommercialAccount } from '@/utils/commercial'
+  import {
+    commercialExpireText,
+    isCommercialActive,
+    rememberCommercialAccount
+  } from '@/utils/commercial'
   import { showCaughtError } from '@/utils/http/error-toast'
 
   defineOptions({ name: 'CommercialLicenseCard' })

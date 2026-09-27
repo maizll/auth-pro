@@ -200,7 +200,12 @@ function getPanelAuthConfig(path: string): { tokenKey: string; loginPath: string
     const hasAgent = Boolean(localStorage.getItem('agent_panel_token'))
     const hasDeveloper = Boolean(localStorage.getItem('developer_panel_token'))
     return {
-      tokenKey: hasAgent || hasDeveloper ? (hasAgent ? 'agent_panel_token' : 'developer_panel_token') : 'developer_panel_token',
+      tokenKey:
+        hasAgent || hasDeveloper
+          ? hasAgent
+            ? 'agent_panel_token'
+            : 'developer_panel_token'
+          : 'developer_panel_token',
       loginPath: '/developer-panel/login'
     }
   }

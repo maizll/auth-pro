@@ -17,7 +17,8 @@ export const commercialCopy: Record<string, string> = {
  */
 export const commercialPitch = {
   title: '升级商业版，解锁全部能力',
-  subtitle: '免费版只能新建 1 个授权应用。商业版不限数量，官方付费插件和首页模板在有效期内可直接安装。'
+  subtitle:
+    '免费版只能新建 1 个授权应用。商业版不限数量，官方付费插件和首页模板在有效期内可直接安装。'
 }
 
 export const commercialCompareRows = [
@@ -90,7 +91,12 @@ export function rememberCommercialAccount(account: StoreAccount | null) {
 
 /** 商业版仍有效：已是商业版，且没有域名不符或明确吊销。 */
 export function isCommercialActive(account?: StoreAccount | null) {
-  return !!account && account.edition === 'commercial' && !account.domainMismatch && !account.explicitRevoked
+  return (
+    !!account &&
+    account.edition === 'commercial' &&
+    !account.domainMismatch &&
+    !account.explicitRevoked
+  )
 }
 
 export function commercialCta(account?: StoreAccount | null): CommercialCta {
@@ -184,15 +190,17 @@ export function openCommercialPrompt(text: string, feature = '') {
 }
 
 export function notifyCommercialRequired(payload?: { msg?: string; data?: unknown }) {
-  const data = payload?.data as {
-    feature?: string
-    kind?: string
-    id?: string
-    name?: string
-    priceCents?: number
-    period?: string
-    purchaseOnly?: boolean
-  } | undefined
+  const data = payload?.data as
+    | {
+        feature?: string
+        kind?: string
+        id?: string
+        name?: string
+        priceCents?: number
+        period?: string
+        purchaseOnly?: boolean
+      }
+    | undefined
   const feature = data?.feature || ''
   if ((feature === 'paid_plugin' || feature === 'paid_template') && data?.id) {
     const kind = data.kind === 'template' || feature === 'paid_template' ? 'template' : 'plugin'
@@ -207,8 +215,7 @@ export function notifyCommercialRequired(payload?: { msg?: string; data?: unknow
     return
   }
   const text = commercialText(feature, payload?.msg)
-  let note: { close: () => void } | undefined
-  note = ElNotification({
+  const note = ElNotification({
     title: '需要商业版',
     duration: 8000,
     message: h('div', { class: 'commercial-toast' }, [
@@ -220,7 +227,7 @@ export function notifyCommercialRequired(payload?: { msg?: string; data?: unknow
           size: 'small',
           style: 'margin-top:8px',
           onClick: () => {
-            note?.close()
+            note.close()
             openCommercialUpgrade()
           }
         },

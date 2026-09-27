@@ -10,7 +10,13 @@ export function licenseTargetError(type: string, value: string): string {
 }
 
 function isValidSingleDomain(value: string) {
-  if (!value || value.startsWith('*.') || value.endsWith('.') || /[/:@\s]/.test(value) || isValidIP(value)) {
+  if (
+    !value ||
+    value.startsWith('*.') ||
+    value.endsWith('.') ||
+    /[/:@\s]/.test(value) ||
+    isValidIP(value)
+  ) {
     return false
   }
   const labels = value.split('.')

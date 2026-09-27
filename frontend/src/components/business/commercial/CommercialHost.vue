@@ -20,7 +20,9 @@
         <div v-if="showBrandBanner" class="edition-banner">
           <ArtSvgIcon icon="ri:rocket-2-fill" class="edition-banner__icon" />
           <div>
-            <h3>{{ action === 'renew' ? '续费商业版，继续使用全部能力' : commercialPitch.title }}</h3>
+            <h3>{{
+              action === 'renew' ? '续费商业版，继续使用全部能力' : commercialPitch.title
+            }}</h3>
             <p>{{ commercialPitch.subtitle }}</p>
           </div>
         </div>
@@ -28,13 +30,21 @@
       </template>
       <div v-loading="loading" class="upgrade-body">
         <ElAlert v-if="loadError" type="error" :closable="false" show-icon :title="loadError" />
-        <ElAlert v-else-if="siteProblem" type="warning" :closable="false" show-icon :title="siteProblem" />
+        <ElAlert
+          v-else-if="siteProblem"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="siteProblem"
+        />
         <template v-else-if="upgraded && buyingItem && !itemContinued">
           <div class="celebrate-copy">
             <ArtSvgIcon icon="ri:shield-check-fill" class="celebrate-copy__icon" />
             <h3>已购买</h3>
             <p>权益已刷新。可以立即启用。</p>
-            <ElButton type="primary" :loading="acting" @click="resumeItem">已购买，立即启用</ElButton>
+            <ElButton type="primary" :loading="acting" @click="resumeItem"
+              >已购买，立即启用</ElButton
+            >
           </div>
         </template>
         <template v-else-if="upgraded">
@@ -93,11 +103,21 @@
                 <ElInput v-model.trim="form.account" placeholder="邮箱或账号" />
               </ElFormItem>
               <ElFormItem label="密码">
-                <ElInput v-model="form.password" type="password" show-password placeholder="仅用于本次登录，不会保存" />
+                <ElInput
+                  v-model="form.password"
+                  type="password"
+                  show-password
+                  placeholder="仅用于本次登录，不会保存"
+                />
               </ElFormItem>
             </ElForm>
-            <ElButton type="primary" :loading="acting" :disabled="!!siteProblem" @click="bind">登录并绑定</ElButton>
-            <p v-if="!siteProblem" class="upgrade-tip">将使用站点域名 {{ account?.requestDomain || '（未识别）' }} 绑定，域名不可在此修改。</p>
+            <ElButton type="primary" :loading="acting" :disabled="!!siteProblem" @click="bind"
+              >登录并绑定</ElButton
+            >
+            <p v-if="!siteProblem" class="upgrade-tip"
+              >将使用站点域名
+              {{ account?.requestDomain || '（未识别）' }} 绑定，域名不可在此修改。</p
+            >
           </template>
           <template v-else-if="payUrl">
             <div class="pay-panel">
@@ -108,12 +128,16 @@
                 <p class="pay-panel__title">{{ orderTitle }}</p>
                 <p class="pay-panel__count">剩余 {{ countdownText }}</p>
                 <p v-if="payStatus" class="upgrade-status">{{ payStatus }}</p>
-                <p class="upgrade-tip">安全支付：二维码由本站生成。也可以打开付款页，本站不保存支付密码。</p>
+                <p class="upgrade-tip"
+                  >安全支付：二维码由本站生成。也可以打开付款页，本站不保存支付密码。</p
+                >
                 <ElButton @click="openPayPage">打开付款页</ElButton>
               </div>
             </div>
             <ElAlert v-if="payFailed" type="error" :closable="false" show-icon :title="payFailed" />
-            <ElButton v-if="payFailed" @click="resetPay">{{ buyingItem ? '返回' : '重新选择套餐' }}</ElButton>
+            <ElButton v-if="payFailed" @click="resetPay">{{
+              buyingItem ? '返回' : '重新选择套餐'
+            }}</ElButton>
           </template>
           <template v-else-if="buyingItem && commercialUi.offer">
             <section class="item-offer">
@@ -122,10 +146,14 @@
                 {{ commercialYuanText(commercialUi.offer.priceCents) }}
                 <span v-if="offerPeriod"> · {{ offerPeriod }}</span>
               </p>
-              <p v-if="commercialUi.offer.purchaseOnly" class="item-offer__note">商业版不包含此项</p>
+              <p v-if="commercialUi.offer.purchaseOnly" class="item-offer__note"
+                >商业版不包含此项</p
+              >
               <div class="item-offer__actions">
                 <ElButton type="primary" :loading="acting" @click="buyItem">
-                  {{ catalogPurchaseButton(commercialUi.offer.kind, commercialUi.offer.priceCents) }}
+                  {{
+                    catalogPurchaseButton(commercialUi.offer.kind, commercialUi.offer.priceCents)
+                  }}
                 </ElButton>
                 <ElButton v-if="!commercialUi.offer.purchaseOnly" @click="chooseEdition">
                   升级商业版（包含全部付费插件和模板）
@@ -147,13 +175,20 @@
                 <span v-if="index === 0" class="plan-card__ribbon">推荐</span>
                 <span class="plan-card__name">{{ plan.name }}</span>
                 <span class="plan-card__price">
-                  <small>¥</small>{{ yuanWhole(plan.priceCents) }}<small>.{{ yuanFrac(plan.priceCents) }}</small>
+                  <small>¥</small>{{ yuanWhole(plan.priceCents)
+                  }}<small>.{{ yuanFrac(plan.priceCents) }}</small>
                 </span>
-                <span class="plan-card__period">{{ commercialPeriodText(plan.period) || '按约定时长' }}</span>
+                <span class="plan-card__period">{{
+                  commercialPeriodText(plan.period) || '按约定时长'
+                }}</span>
               </button>
             </div>
-            <ElButton type="primary" :loading="acting" :disabled="!planId" @click="pay">生成付款码</ElButton>
-            <ElButton v-if="commercialUi.offer" link type="primary" @click="choosingEdition = false">返回单独购买</ElButton>
+            <ElButton type="primary" :loading="acting" :disabled="!planId" @click="pay"
+              >生成付款码</ElButton
+            >
+            <ElButton v-if="commercialUi.offer" link type="primary" @click="choosingEdition = false"
+              >返回单独购买</ElButton
+            >
             <p v-if="!plans.length" class="upgrade-tip">源站尚未配置可购买的套餐。</p>
           </template>
           <ElButton
@@ -235,7 +270,9 @@
   const needsBind = computed(
     () => !account.value?.bound || !!account.value?.explicitRevoked || commercialUi.rebindRequired
   )
-  const showRebindNotice = computed(() => commercialUi.rebindRequired || !!account.value?.explicitRevoked)
+  const showRebindNotice = computed(
+    () => commercialUi.rebindRequired || !!account.value?.explicitRevoked
+  )
   const pendingItem = computed(() => !!commercialUi.offer && !choosingEdition.value)
   const buyingItem = computed(() => pendingItem.value && !needsBind.value)
   const offerPeriod = computed(() => commercialPeriodText(commercialUi.offer?.period))
@@ -267,9 +304,13 @@
   const orderTitle = ref('')
   const payStatus = ref('')
   const payFailed = ref('')
-  const showBrandBanner = computed(() => !upgraded.value && action.value !== 'view' && !pendingItem.value)
+  const showBrandBanner = computed(
+    () => !upgraded.value && action.value !== 'view' && !pendingItem.value
+  )
   const purchaseModalClass = computed(() =>
-    showBrandBanner.value ? 'commercial-purchase-modal is-brand' : 'commercial-purchase-modal is-plain'
+    showBrandBanner.value
+      ? 'commercial-purchase-modal is-brand'
+      : 'commercial-purchase-modal is-plain'
   )
   const successTitle = ref('已升级为商业版')
   const form = reactive({ account: '', password: '', role: 'user' })
@@ -361,7 +402,9 @@
         planId.value = undefined
       }
     } catch (error: unknown) {
-      loadError.value = caughtErrorText(error, '读取商业版信息失败', errorAlreadyToasted(error)) || '读取商业版信息失败'
+      loadError.value =
+        caughtErrorText(error, '读取商业版信息失败', errorAlreadyToasted(error)) ||
+        '读取商业版信息失败'
       showCaughtError(error, '读取商业版信息失败')
     } finally {
       loading.value = false
@@ -375,7 +418,8 @@
       const next = await fetchStoreAccount()
       applyAccount(next)
     } catch (error: unknown) {
-      loadError.value = caughtErrorText(error, '读取授权信息失败', errorAlreadyToasted(error)) || '读取授权信息失败'
+      loadError.value =
+        caughtErrorText(error, '读取授权信息失败', errorAlreadyToasted(error)) || '读取授权信息失败'
       showCaughtError(error, '读取授权信息失败')
     } finally {
       loading.value = false
@@ -398,7 +442,9 @@
       if (!commercialUi.offer || choosingEdition.value) {
         const data = await fetchStorePlans()
         plans.value = data.list || []
-        planId.value = plans.value.some((item) => item.id === keptPlan) ? keptPlan : plans.value[0]?.id
+        planId.value = plans.value.some((item) => item.id === keptPlan)
+          ? keptPlan
+          : plans.value[0]?.id
         if (!plans.value.length) {
           ElMessage.warning('源站尚未配置可购买的套餐')
         }
@@ -503,7 +549,9 @@
         if (order.status === 'refunded') {
           stopPoll()
           payStatus.value = ''
-          payFailed.value = buyingItem.value ? '这笔订单已退款，购买没有生效。' : '这笔订单已退款，商业版没有生效。'
+          payFailed.value = buyingItem.value
+            ? '这笔订单已退款，购买没有生效。'
+            : '这笔订单已退款，商业版没有生效。'
           ElMessage.error(payFailed.value)
           return
         }
@@ -527,8 +575,11 @@
           stopPoll()
           payStatus.value = ''
           payFailed.value =
-            caughtErrorText(error, '无法确认支付结果，请检查网络后重试', errorAlreadyToasted(error)) ||
-            '无法确认支付结果，请检查网络后重试'
+            caughtErrorText(
+              error,
+              '无法确认支付结果，请检查网络后重试',
+              errorAlreadyToasted(error)
+            ) || '无法确认支付结果，请检查网络后重试'
           showCaughtError(error, '无法确认支付结果，请检查网络后重试')
         }
       }
@@ -641,7 +692,9 @@
     display: flex;
     gap: 12px;
     align-items: flex-start;
-    margin: -16px calc(-16px - var(--el-dialog-padding-primary, 16px) - var(--el-message-close-size, 16px)) 0 -16px;
+    margin: -16px
+      calc(-16px - var(--el-dialog-padding-primary, 16px) - var(--el-message-close-size, 16px))
+      0 -16px;
     padding: 18px 56px 18px 18px;
     color: #f7faff;
     background: linear-gradient(135deg, #0b1f4d 0%, #1d4ed8 58%, #38bdf8 100%);

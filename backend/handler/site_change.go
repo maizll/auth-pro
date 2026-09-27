@@ -987,7 +987,7 @@ func AdminLicenseSiteChangeAdjust(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "授权不存在"})
 		return
 	}
-	next := left
+	var next int
 	switch {
 	case req.Unlimited:
 		next = siteChangeUnlimited

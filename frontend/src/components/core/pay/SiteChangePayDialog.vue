@@ -6,7 +6,9 @@
     destroy-on-close
     @close="emit('close')"
   >
-    <p class="pay-lead">免费更换次数已用完。支付 ¥{{ Number(price || 0).toFixed(2) }} 后自动完成这次更换。</p>
+    <p class="pay-lead"
+      >免费更换次数已用完。支付 ¥{{ Number(price || 0).toFixed(2) }} 后自动完成这次更换。</p
+    >
     <el-radio-group v-model="payMethod" class="pay-methods">
       <el-radio-button v-for="item in options" :key="item.code" :label="item.code">
         {{ item.label }}
@@ -16,7 +18,12 @@
     <p v-if="errorText" class="pay-error">{{ errorText }}</p>
     <template #footer>
       <el-button @click="emit('close')">取消</el-button>
-      <el-button type="primary" :loading="submitting" :disabled="options.length === 0" @click="submit">
+      <el-button
+        type="primary"
+        :loading="submitting"
+        :disabled="options.length === 0"
+        @click="submit"
+      >
         去支付
       </el-button>
     </template>
@@ -76,7 +83,10 @@
     })
     const list = Array.isArray(data.data) ? data.data : data.data?.options || data.data?.list || []
     options.value = list
-      .map((item: any) => ({ code: item.code || item.payType, label: item.label || item.name || item.code }))
+      .map((item: any) => ({
+        code: item.code || item.payType,
+        label: item.label || item.name || item.code
+      }))
       .filter((item: { code: string }) => item.code)
     if (!options.value.some((item) => item.code === 'balance')) {
       options.value.unshift({ code: 'balance', label: '余额支付' })
@@ -148,9 +158,10 @@
   watch(
     () => props.visible,
     (open) => {
-      if (open) loadOptions().catch(() => {
-        errorText.value = '读取支付方式失败'
-      })
+      if (open)
+        loadOptions().catch(() => {
+          errorText.value = '读取支付方式失败'
+        })
       else stopPoll()
     }
   )

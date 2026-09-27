@@ -338,5 +338,5 @@ func randomP4Suffix(t *testing.T) string {
 	if _, err := rand.Read(raw); err != nil {
 		t.Fatal(err)
 	}
-	return fmt.Sprintf("%s", hex.EncodeToString(raw))
+	return hex.EncodeToString(raw)
 }

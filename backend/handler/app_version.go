@@ -449,7 +449,7 @@ func saveAppVersion(c *gin.Context, editing bool) {
 
 	packageName := old.PackageName
 	packagePath := old.PackagePath
-	downloadURL := old.DownloadURL
+	var downloadURL string
 	fileSizeBytes := old.FileSizeBytes
 	fileMD5 := old.FileMD5
 	newPackagePath := ""
@@ -905,7 +905,8 @@ type panelVersionItem struct {
 
 // resolvePanelLicenseOwner 校验授权归属当前面板账号，返回授权所属应用 ID。
 // ownerType 为 "user" 或 "agent"，ownerID 为当前登录的面板账号 ID。
-func resolvePanelLicenseOwner(c *gin.Context, db *sql.DB, licenseID int64, ownerType string, ownerID uint) (int64, bool) {	var appID int64
+func resolvePanelLicenseOwner(c *gin.Context, db *sql.DB, licenseID int64, ownerType string, ownerID uint) (int64, bool) {
+	var appID int64
 	var status string
 	var expiredAt sql.NullTime
 	err := db.QueryRow(`

@@ -8,14 +8,9 @@
       @click="download"
       >下载</ElButton
     >
-    <ElButton
-      v-if="unpaid"
-      type="primary"
-      size="small"
-      :disabled="!!busy"
-      @click="buy"
-      >{{ buyLabel }}</ElButton
-    >
+    <ElButton v-if="unpaid" type="primary" size="small" :disabled="!!busy" @click="buy">{{
+      buyLabel
+    }}</ElButton>
     <ElButton
       v-if="
         !unpaid &&

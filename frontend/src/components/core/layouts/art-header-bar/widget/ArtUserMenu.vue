@@ -37,7 +37,11 @@
             <ArtSvgIcon icon="ri:user-3-line" />
             <span>{{ $t('topBar.user.userCenter') }}</span>
           </li>
-          <li v-if="showNarrowTools && shouldShowLanguage" class="btn-item" @click.stop="languageOpen = !languageOpen">
+          <li
+            v-if="showNarrowTools && shouldShowLanguage"
+            class="btn-item"
+            @click.stop="languageOpen = !languageOpen"
+          >
             <ArtSvgIcon icon="ri:translate-2" />
             <span>切换语言</span>
           </li>

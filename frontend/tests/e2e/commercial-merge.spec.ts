@@ -41,13 +41,21 @@ const menus = [
     path: '/customer-service',
     component: '/index/index',
     redirect: '/order-list',
-    meta: { title: 'menus.customerService.title', icon: 'ri:customer-service-2-line', roles: ['R_SUPER'] },
+    meta: {
+      title: 'menus.customerService.title',
+      icon: 'ri:customer-service-2-line',
+      roles: ['R_SUPER']
+    },
     children: [
       {
         name: 'OrderList',
         path: '/order-list',
         component: '/system/payment-orders',
-        meta: { title: 'menus.customerService.orders', icon: 'ri:file-list-3-line', keepAlive: true }
+        meta: {
+          title: 'menus.customerService.orders',
+          icon: 'ri:file-list-3-line',
+          keepAlive: true
+        }
       }
     ]
   },
@@ -97,8 +105,7 @@ const appRow = {
 async function mockAdmin(page: Page) {
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route: Route) => {
     const { pathname } = new URL(route.request().url())
-    const ok = (data: unknown) =>
-      route.fulfill({ status: 200, json: { code: 200, msg: '', data } })
+    const ok = (data: unknown) => route.fulfill({ status: 200, json: { code: 200, msg: '', data } })
     if (pathname === '/api/install/status') {
       await route.fulfill({ status: 200, json: { installed: true } })
       return
@@ -265,7 +272,9 @@ test('套餐管理展示永久价格', async ({ page }, testInfo) => {
   await expect(page.getByRole('button', { name: '新增套餐' })).toBeVisible()
   await expect(page.getByText('永久商业版')).toBeVisible()
   await expect(page.getByText('永久').first()).toBeVisible()
-  await page.locator('.license-plans-page').screenshot({ path: testInfo.outputPath('license-plans.png') })
+  await page
+    .locator('.license-plans-page')
+    .screenshot({ path: testInfo.outputPath('license-plans.png') })
 })
 
 test('授权列表可以按商店来源筛选', async ({ page }, testInfo) => {
@@ -273,7 +282,9 @@ test('授权列表可以按商店来源筛选', async ({ page }, testInfo) => {
   await signIn(page)
   await page.goto('/license/list')
   await expect(page.getByText('商店绑定')).toBeVisible()
-  await page.locator('.license-list-page').screenshot({ path: testInfo.outputPath('license-source.png') })
+  await page
+    .locator('.license-list-page')
+    .screenshot({ path: testInfo.outputPath('license-source.png') })
 })
 
 test('订单列表展示商业版订单和合计', async ({ page }, testInfo) => {
@@ -282,5 +293,7 @@ test('订单列表展示商业版订单和合计', async ({ page }, testInfo) =>
   await page.goto('/order-list')
   await expect(page.getByText('商业版').first()).toBeVisible()
   await expect(page.getByText('商业版已支付合计 ¥199.00')).toBeVisible()
-  await page.locator('.payment-orders-page').screenshot({ path: testInfo.outputPath('payment-orders.png') })
+  await page
+    .locator('.payment-orders-page')
+    .screenshot({ path: testInfo.outputPath('payment-orders.png') })
 })

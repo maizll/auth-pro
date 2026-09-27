@@ -1,0 +1,23 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/main.ts",
+    "src/views/**/*.vue",
+    "src/components/**/*.vue",
+    "src/router/**/*.ts",
+    "src/**/*.test.ts",
+    "scripts/**/*.{mjs,ts}",
+    "index.html"
+  ],
+  "project": ["src/**/*.{ts,vue}", "scripts/**/*.{mjs,ts}"],
+  "ignoreDependencies": ["@vue/reactivity", "tailwindcss", "vue-demi"],
+  "paths": {
+    "@/*": ["src/*"],
+    "@views/*": ["src/views/*"],
+    "@imgs/*": ["src/assets/images/*"],
+    "@icons/*": ["src/assets/icons/*"],
+    "@utils/*": ["src/utils/*"],
+    "@stores/*": ["src/store/*"],
+    "@styles/*": ["src/assets/styles/*"]
+  }
+}

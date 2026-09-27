@@ -5,8 +5,8 @@
         <div>
           <h2>SDK 接入包</h2>
           <p>
-            先选应用，再选一种语言，下载该语言的接入文件夹。解压后整份放进项目，从核心文件
-            require / import 即可。换应用只改
+            先选应用，再选一种语言，下载该语言的接入文件夹。解压后整份放进项目，从核心文件 require /
+            import 即可。换应用只改
             <code>config.json</code>
             ；浏览器包不含 appSecret。
           </p>
@@ -51,13 +51,15 @@
           </ElCheckboxGroup>
         </ElFormItem>
         <ElFormItem label="授权站地址">
-          <ElInput
-            v-model="packForm.baseUrl"
-            placeholder="默认当前站点 origin，可改为对外域名"
-          />
+          <ElInput v-model="packForm.baseUrl" placeholder="默认当前站点 origin，可改为对外域名" />
         </ElFormItem>
         <ElFormItem>
-          <ElButton type="primary" :loading="generating" :disabled="!packForm.language" @click="generatePack">
+          <ElButton
+            type="primary"
+            :loading="generating"
+            :disabled="!packForm.language"
+            @click="generatePack"
+          >
             {{ downloadButtonText }}
           </ElButton>
         </ElFormItem>
@@ -69,7 +71,8 @@
         <div>
           <h2>SDK 接入示例</h2>
           <p>
-            下列为协议级片段，便于核对签名字段。生产接入请优先使用「SDK 接入」页按语言下载的接入包（单语言文件夹 +
+            下列为协议级片段，便于核对签名字段。生产接入请优先使用「SDK
+            接入」页按语言下载的接入包（单语言文件夹 +
             <code>config.json</code>，统一 boot / verify / checkUpdate / ads / pluginSourceUrl）。
           </p>
         </div>
@@ -129,7 +132,11 @@
   import { computed, onMounted, reactive, ref } from 'vue'
   import { useRoute } from 'vue-router'
   import { ElMessage } from 'element-plus'
-  import { fetchDownloadSDKPack, fetchLicenseAppList, type LicenseAppItem } from '@/api/license-manage'
+  import {
+    fetchDownloadSDKPack,
+    fetchLicenseAppList,
+    type LicenseAppItem
+  } from '@/api/license-manage'
 
   defineOptions({ name: 'SdkExamples' })
 

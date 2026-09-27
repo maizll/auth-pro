@@ -3,7 +3,9 @@
     <div class="art-card p-6 mb-5 welcome-card">
       <div class="welcome-content">
         <div>
-          <h2 class="welcome-title">欢迎回来，{{ profile.displayName || profile.username || '开发者' }}</h2>
+          <h2 class="welcome-title"
+            >欢迎回来，{{ profile.displayName || profile.username || '开发者' }}</h2
+          >
           <p class="welcome-desc">
             在侧栏提交插件、首页模板或广告申请。目录按应用隔离。免费条目登记公开地址；收费条目上传压缩包或填写公开地址，安装包由本站保管。
           </p>
@@ -11,14 +13,20 @@
             <el-button type="primary" @click="router.push('/developer-panel/plugins?create=1')">
               登记插件
             </el-button>
-            <el-button @click="router.push('/developer-panel/templates?create=1')">登记模板</el-button>
+            <el-button @click="router.push('/developer-panel/templates?create=1')"
+              >登记模板</el-button
+            >
             <el-button @click="router.push('/developer-panel/ads')">申请广告</el-button>
             <el-button text type="primary" @click="router.push('/developer-panel/guide')">
               开发文档
             </el-button>
           </div>
         </div>
-        <iconify-icon icon="ri:code-s-slash-line" width="56" color="var(--el-color-primary-light-5)" />
+        <iconify-icon
+          icon="ri:code-s-slash-line"
+          width="56"
+          color="var(--el-color-primary-light-5)"
+        />
       </div>
     </div>
 
@@ -70,7 +78,10 @@
           </el-button>
         </div>
       </template>
-      <el-empty v-if="!plugins.length" description="暂无插件草稿。审核通过后，可在此查看已提交的目录项。" />
+      <el-empty
+        v-if="!plugins.length"
+        description="暂无插件草稿。审核通过后，可在此查看已提交的目录项。"
+      />
       <el-table v-else :data="plugins" stripe>
         <el-table-column prop="id" label="标识" min-width="140" show-overflow-tooltip />
         <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
@@ -98,7 +109,10 @@
           </el-button>
         </div>
       </template>
-      <el-empty v-if="!templates.length" description="暂无模板草稿。审核通过后，可在此查看已提交的目录项。" />
+      <el-empty
+        v-if="!templates.length"
+        description="暂无模板草稿。审核通过后，可在此查看已提交的目录项。"
+      />
       <el-table v-else :data="templates" stripe>
         <el-table-column prop="id" label="标识" min-width="140" show-overflow-tooltip />
         <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
@@ -240,8 +254,7 @@
 <style scoped lang="scss">
   .welcome-card {
     background:
-      radial-gradient(circle at 92% 12%, rgb(64 158 255 / 12%), transparent 26%),
-      var(--el-bg-color);
+      radial-gradient(circle at 92% 12%, rgb(64 158 255 / 12%), transparent 26%), var(--el-bg-color);
   }
 
   .welcome-content {

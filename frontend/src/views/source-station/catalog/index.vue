@@ -109,7 +109,11 @@
   })
   const publicIndexUrl = computed(() => {
     const app = selectedApp.value
-    const path = app?.indexUrl || (app?.appKey ? `/software-source/${app.appKey}/index.json` : '/software-source/{app_key}/index.json')
+    const path =
+      app?.indexUrl ||
+      (app?.appKey
+        ? `/software-source/${app.appKey}/index.json`
+        : '/software-source/{app_key}/index.json')
     return `${window.location.origin}${path}`
   })
   const prettyLive = computed(() => JSON.stringify(indexData.value?.live || {}, null, 2))

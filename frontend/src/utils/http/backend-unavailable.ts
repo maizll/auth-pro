@@ -8,7 +8,10 @@ const unreachableStatuses = new Set([502, 503, 504])
 
 let redirectPaused = false
 
-export function isBackendUnreachableFailure(status: number | undefined, hasResponse: boolean): boolean {
+export function isBackendUnreachableFailure(
+  status: number | undefined,
+  hasResponse: boolean
+): boolean {
   if (!hasResponse) return true
   return status != null && unreachableStatuses.has(status)
 }

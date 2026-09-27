@@ -50,7 +50,7 @@ func buildDeveloperStarterZIP() ([]byte, error) {
 	now := time.Now()
 	for _, name := range names {
 		header := &zip.FileHeader{Name: path.Join("auth-pro-developer-starter", name), Method: zip.Deflate}
-		header.SetModTime(now)
+		header.Modified = now
 		entry, err := writer.CreateHeader(header)
 		if err != nil {
 			_ = writer.Close()

@@ -25,7 +25,9 @@ export function extrasAfterDeletingCategory(
   categories: CatalogCategoryInput[],
   key: string
 ): Array<{ key: string; label: string; kind: CatalogCategoryKind }> {
-  const target = String(key || '').trim().toLowerCase()
+  const target = String(key || '')
+    .trim()
+    .toLowerCase()
   return categories
     .filter((item) => item.builtin !== true && item.key !== target)
     .map((item) => ({
@@ -39,7 +41,9 @@ export function catalogCategoryUsageCount(
   items: Array<{ category?: string }>,
   key: string
 ): number {
-  const target = String(key || '').trim().toLowerCase()
+  const target = String(key || '')
+    .trim()
+    .toLowerCase()
   return items.filter((item) => String(item.category || '').toLowerCase() === target).length
 }
 

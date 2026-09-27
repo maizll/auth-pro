@@ -3144,7 +3144,6 @@ func RealnameFaceSubmit(c *gin.Context) {
 		}
 	} else if session.Provider == realnameProviderTencent {
 		faceResult, verr = tencentRealnameVerifyWithImage(rnCfg, session.RealName, session.IDCard, req.ImageData)
-		message = faceResult.Reason
 		serialNo = faceResult.SerialNo
 		score = faceResult.Score
 	}

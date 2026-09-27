@@ -58,9 +58,9 @@ export function formatManageMenuName(row: { title?: string | null; name?: string
 }
 
 /** 把管理树的 title 写成可读中文，编辑回填和表格默认单元格都能直接用。 */
-export function resolveManageMenuTree<
-  T extends { title?: string; name?: string; children?: T[] }
->(items: T[]): T[] {
+export function resolveManageMenuTree<T extends { title?: string; name?: string; children?: T[] }>(
+  items: T[]
+): T[] {
   return items.map((item) => ({
     ...item,
     title: formatManageMenuName(item),

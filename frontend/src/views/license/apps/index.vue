@@ -150,7 +150,9 @@
           <ElCollapseItem title="高级设置" name="advanced">
             <ElFormItem label="离线宽限天数">
               <ElInputNumber v-model="formData.graceDays" :min="1" :max="30" />
-              <div class="form-tip">源站暂时连不上时，买方商业版还可以继续使用的天数，默认 7 天。</div>
+              <div class="form-tip"
+                >源站暂时连不上时，买方商业版还可以继续使用的天数，默认 7 天。</div
+              >
             </ElFormItem>
             <ElFormItem label="改密撤销绑定">
               <ElSwitch v-model="formData.revokeOnPasswordChange" />
@@ -158,9 +160,7 @@
             </ElFormItem>
             <ElFormItem label="商业版功能键">
               <ElInput v-model.trim="formData.commercialFeatures" placeholder="一般不用改" />
-              <div class="form-tip">
-                商业版开放的能力。默认已填好多应用，一般不用改。
-              </div>
+              <div class="form-tip"> 商业版开放的能力。默认已填好多应用，一般不用改。 </div>
             </ElFormItem>
           </ElCollapseItem>
         </ElCollapse>
@@ -181,7 +181,9 @@
         条软件目录条目。可以迁到另一个应用再归档，也可以直接归档，条目仍挂在这个应用上。授权、套餐和版本都会保留。
       </p>
       <p v-else>
-        归档应用「{{ migrateSource?.name }}」后，授权记录和版本都会保留，只是不能再往这个应用登记新的目录条目。
+        归档应用「{{
+          migrateSource?.name
+        }}」后，授权记录和版本都会保留，只是不能再往这个应用登记新的目录条目。
       </p>
       <ElSelect
         v-if="migrateCount > 0 && migrateTargets.length"
@@ -301,58 +303,59 @@
     name: [{ required: true, message: '请输入应用名称', trigger: 'blur' }]
   }
 
-  const { columns, columnChecks, data, loading, refreshData, refreshRemove, toggleColumn } = useTable({
-    // 核心配置
-    core: {
-      apiFn: fetchLicenseAppList,
-      apiParams: {},
-      columnsFactory: () => [
-        { type: 'index', width: 60, label: '序号' }, // 序号
-        { prop: 'name', label: '应用名称', minWidth: 150, useSlot: true },
-        { prop: 'sale', label: '商业版', minWidth: 220, useSlot: true },
-        { prop: 'appKey', label: 'AppKey', minWidth: 220, showOverflowTooltip: true },
-        {
-          prop: 'purchaseLicenseTypes',
-          label: '授权方式',
-          minWidth: 250,
-          useSlot: true
-        },
-        { prop: 'appSecret', label: 'AppSecret', minWidth: 220, useSlot: true },
-        { prop: 'licenseCount', label: '授权数', width: 90, align: 'center' },
-        { prop: 'version', label: '版本', minWidth: 120, useSlot: true },
-        { prop: 'enabled', label: '状态', width: 90, align: 'center', useSlot: true },
-        {
-          prop: 'licenseRequired',
-          label: '授权校验',
-          width: 100,
-          align: 'center',
-          useSlot: true
-        },
-        { prop: 'createdAt', label: '创建时间', width: 160 },
-        {
-          prop: 'operation',
-          label: '操作',
-          width: 168,
-          useSlot: true
+  const { columns, columnChecks, data, loading, refreshData, refreshRemove, toggleColumn } =
+    useTable({
+      // 核心配置
+      core: {
+        apiFn: fetchLicenseAppList,
+        apiParams: {},
+        columnsFactory: () => [
+          { type: 'index', width: 60, label: '序号' }, // 序号
+          { prop: 'name', label: '应用名称', minWidth: 150, useSlot: true },
+          { prop: 'sale', label: '商业版', minWidth: 220, useSlot: true },
+          { prop: 'appKey', label: 'AppKey', minWidth: 220, showOverflowTooltip: true },
+          {
+            prop: 'purchaseLicenseTypes',
+            label: '授权方式',
+            minWidth: 250,
+            useSlot: true
+          },
+          { prop: 'appSecret', label: 'AppSecret', minWidth: 220, useSlot: true },
+          { prop: 'licenseCount', label: '授权数', width: 90, align: 'center' },
+          { prop: 'version', label: '版本', minWidth: 120, useSlot: true },
+          { prop: 'enabled', label: '状态', width: 90, align: 'center', useSlot: true },
+          {
+            prop: 'licenseRequired',
+            label: '授权校验',
+            width: 100,
+            align: 'center',
+            useSlot: true
+          },
+          { prop: 'createdAt', label: '创建时间', width: 160 },
+          {
+            prop: 'operation',
+            label: '操作',
+            width: 168,
+            useSlot: true
+          }
+        ]
+      },
+      // 数据处理
+      transform: {
+        dataTransformer: (records) => {
+          if (!Array.isArray(records)) {
+            return []
+          }
+          // 附加行级本地状态：密钥可见性、授权校验切换中
+          const normalized = (records as unknown as LicenseAppItem[]).map((item) => ({
+            ...item,
+            licenseRequired: item.licenseRequired !== false,
+            licenseRequiredChanging: false
+          }))
+          return normalized as unknown as typeof records
         }
-      ]
-    },
-    // 数据处理
-    transform: {
-      dataTransformer: (records) => {
-        if (!Array.isArray(records)) {
-          return []
-        }
-        // 附加行级本地状态：密钥可见性、授权校验切换中
-        const normalized = (records as unknown as LicenseAppItem[]).map((item) => ({
-          ...item,
-          licenseRequired: item.licenseRequired !== false,
-          licenseRequiredChanging: false
-        }))
-        return normalized as unknown as typeof records
       }
-    }
-  })
+    })
 
   const narrow = useNarrowScreen()
   watch(
@@ -601,7 +604,9 @@
         redirectAppId: redirectSource.value ? redirectAppId.value : undefined
       })
       ElMessage.success(
-        redirectSource.value ? '目录条目已迁移，软件源地址已转到目标应用' : '目录条目已迁移，应用已归档'
+        redirectSource.value
+          ? '目录条目已迁移，软件源地址已转到目标应用'
+          : '目录条目已迁移，应用已归档'
       )
       migrateVisible.value = false
       refreshRemove()

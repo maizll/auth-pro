@@ -37,7 +37,10 @@ assert.deepEqual(
   ['Sdk', 'System']
 )
 
-assert.equal(formatManageMenuName({ title: 'menus.integration.store', name: 'PluginStore' }), '应用商店')
+assert.equal(
+  formatManageMenuName({ title: 'menus.integration.store', name: 'PluginStore' }),
+  '应用商店'
+)
 assert.equal(formatManageMenuName({ title: '', name: 'PluginStore' }), 'PluginStore')
 assert.equal(formatManageMenuName({ title: '在线更新', name: 'OnlineUpdate' }), '在线更新')
 
@@ -53,7 +56,11 @@ assert.equal(resolved[0].children?.[0].title, '应用商店')
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
 
-function collectFiles(dir: string, predicate: (file: string) => boolean, out: string[] = []): string[] {
+function collectFiles(
+  dir: string,
+  predicate: (file: string) => boolean,
+  out: string[] = []
+): string[] {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
     if (statSync(full).isDirectory()) {
@@ -89,7 +96,12 @@ for (const file of sources) {
     seen.add(key)
     const title = resolveMenuTitle(key)
     const leaf = key.split('.').pop() || key
-    if (!isChineseMenuTitle(title) || title === key || title === leaf || title === MISSING_MENU_TITLE_ZH) {
+    if (
+      !isChineseMenuTitle(title) ||
+      title === key ||
+      title === leaf ||
+      title === MISSING_MENU_TITLE_ZH
+    ) {
       missing.push(`${key} => ${title} (${path.relative(repoRoot, file)})`)
     }
   }
