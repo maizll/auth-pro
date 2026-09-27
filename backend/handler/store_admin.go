@@ -252,7 +252,7 @@ func AdminStoreLicenseGrant(c *gin.Context) {
 	storeData(c, gin.H{"ok": true})
 }
 
-// AdminStoreLicenseRevoke 吊销这条授权的商业版权益和绑定。
+// AdminStoreLicenseRevoke 吊销这条授权的商业版权益。绑定保持有效，客户站刷新后变为免费版。
 // reason 会截断后记入审计。授权不存在或写库失败返回 500。
 func AdminStoreLicenseRevoke(c *gin.Context) {
 	var req struct {

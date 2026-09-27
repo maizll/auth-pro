@@ -790,9 +790,10 @@ func StoreAuthRotate(c *gin.Context) {
 }
 
 // StoreStatus 按当前签名重新计算商业版快照。
-// 同一绑定一分钟只允许一次，超出返回 429。授权已删除或绑定已吊销时返回 400，并带 revoked，不进入离线宽限。
+// 权益按绑定账号名下、仍覆盖该域名的授权实时计算，不限于绑定时的那一条。
+// 同一绑定一分钟最多 6 次，超出返回 429。授权已删除或绑定已吊销时返回 400，并带 revoked，不进入离线宽限。
 func StoreStatus(c *gin.Context) {
-	if !storeStatusRate.allow(c.GetHeader("X-Store-Binding"), 1, time.Minute, time.Now()) {
+	if !storeStatusRate.allow(c.GetHeader("X-Store-Binding"), 6, time.Minute, time.Now()) {
 		storeFail(c, 429, "刷新过于频繁")
 		return
 	}
@@ -881,7 +882,7 @@ func buildStoreSnapshot(db *sql.DB, bindingID string, licenseID int64, licenseNo
 	if err := db.QueryRow(`SELECT status, expired_at FROM licenses WHERE id = ?`, licenseID).Scan(&status, &expired); err != nil {
 		return storeSnapshot{}, err
 	}
-	edition, period, editionExp, active := loadCommercialEdition(db, licenseID)
+	edition, period, editionExp, active := loadSnapshotCommercialEdition(db, licenseID, domain)
 	features := []string{}
 	if active {
 		features = append(features, settings.CommercialFeatures...)
@@ -908,6 +909,73 @@ func buildStoreSnapshot(db *sql.DB, bindingID string, licenseID int64, licenseNo
 		snapshot.Items = []storeSnapshotItem{}
 	}
 	return signStoreSnapshot(snapshot)
+}
+
+// loadSnapshotCommercialEdition 给刷新快照用。
+// 先看绑定账号在同一产品应用下、仍覆盖该域名的全部有效授权，取未过期商业版里到期最晚的一条。
+// 绑定时那条授权没有权益、后台后来另开的授权有权益时，刷新即为商业版。全部吊销或改回免费后即为免费版。
+func loadSnapshotCommercialEdition(db *sql.DB, licenseID int64, domain string) (edition, period string, expire *int64, active bool) {
+	var ownerType string
+	var ownerID, appID int64
+	err := db.QueryRow(`SELECT owner_type, owner_id, app_id FROM licenses WHERE id = ?`, licenseID).Scan(&ownerType, &ownerID, &appID)
+	if err != nil || strings.TrimSpace(domain) == "" {
+		return loadCommercialEdition(db, licenseID)
+	}
+	edition, period, expire, active = loadAccountCommercialEdition(db, ownerType, ownerID, appID, domain)
+	if active {
+		return edition, period, expire, active
+	}
+	return loadCommercialEdition(db, licenseID)
+}
+
+// loadAccountCommercialEdition 在账号的有效授权里挑选商业版。
+// 永久权益优先；否则取得到期时间更晚的一条。没有覆盖该域名的商业版时返回免费版。
+func loadAccountCommercialEdition(db *sql.DB, ownerType string, ownerID, appID int64, domain string) (edition, period string, expire *int64, active bool) {
+	domain = normalizeLicenseDomain(domain)
+	if db == nil || ownerType == "" || ownerID <= 0 || appID <= 0 || domain == "" {
+		return storeEditionFree, "", nil, false
+	}
+	rows, err := db.Query(`SELECT id FROM licenses WHERE owner_type = ? AND owner_id = ? AND app_id = ? AND status = 'active'`, ownerType, ownerID, appID)
+	if err != nil {
+		return storeEditionFree, "", nil, false
+	}
+	defer rows.Close()
+	found := false
+	var bestPeriod string
+	var bestExpire *int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			continue
+		}
+		if !boundLicenseCoversDomain(db, id, appID, domain) {
+			continue
+		}
+		_, itemPeriod, itemExpire, itemActive := loadCommercialEdition(db, id)
+		if !itemActive {
+			continue
+		}
+		if !found || commercialEditionPreferred(itemExpire, bestExpire) {
+			found = true
+			bestPeriod = itemPeriod
+			bestExpire = itemExpire
+		}
+	}
+	if err := rows.Err(); err != nil || !found {
+		return storeEditionFree, "", nil, false
+	}
+	return storeEditionCommercial, bestPeriod, bestExpire, true
+}
+
+// commercialEditionPreferred 判断候选权益是否比当前选择更长。空到期表示永久。
+func commercialEditionPreferred(candidate, current *int64) bool {
+	if candidate == nil {
+		return true
+	}
+	if current == nil {
+		return false
+	}
+	return *candidate > *current
 }
 
 func loadCommercialEdition(db *sql.DB, licenseID int64) (edition, period string, expire *int64, active bool) {
