@@ -1,5 +1,7 @@
 //go:build unix
 
+// Unix 上让更新子进程脱离当前服务，避免一键更新在重启时把正在跑的进程一起停掉。
+
 package handler
 
 import (

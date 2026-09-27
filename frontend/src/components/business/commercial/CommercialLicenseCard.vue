@@ -1,3 +1,4 @@
+<!-- 已开通商业版时的授权详情卡，含到期时间和立即刷新。 -->
 <template>
   <article
     v-if="account && isCommercialActive(account)"

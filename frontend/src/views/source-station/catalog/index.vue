@@ -1,3 +1,4 @@
+<!-- 软件目录总览，进入某个应用的插件和模板。 -->
 <template>
   <div class="source-station-page">
     <el-card shadow="never" class="art-card mb-4">

@@ -1,3 +1,4 @@
+<!-- 开发者工作台：自己的插件、模板和审核状态。 -->
 <template>
   <div v-loading="loading" class="developer-dashboard">
     <div class="art-card p-6 mb-5 welcome-card">

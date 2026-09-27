@@ -1,3 +1,4 @@
+<!-- 开发者面板里的登记说明。 -->
 <template>
   <div class="developer-docs-page">
     <el-card shadow="never" class="docs-hero mb-4">

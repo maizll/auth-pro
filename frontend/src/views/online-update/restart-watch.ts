@@ -1,3 +1,4 @@
+// 轮询更新是否完成。超时、版本没变和回滚都在这里决定下一步提示。
 import { UPDATE_RESTART_TIMEOUT_MS } from './restart-timeout'
 
 /** 从点击更新到必须停下来的上限，避免下载或重启阶段无限转圈。 */

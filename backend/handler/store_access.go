@@ -1,3 +1,5 @@
+// 买家本机快照和这次访问的域名。用来判断是不是商业版、目录条目归谁，以及付费插件能不能启用。
+
 package handler
 
 import (
@@ -45,6 +47,8 @@ func loadBuyerSnapshot() (buyerSnapshotState, bool) {
 	return state, verifyStoreSnapshot(state.Snapshot)
 }
 
+// SnapshotOK 报告这份快照的签名是否对得上发行包公钥。
+// 签名无效时调用方应视为没有商业版，而不是沿用过期字段。
 func (s buyerSnapshotState) SnapshotOK() bool {
 	return verifyStoreSnapshot(s.Snapshot)
 }

@@ -1,3 +1,4 @@
+// 买家站商业版接口：账号、绑定、套餐、下单、查单和安装。
 import request from '@/utils/http'
 
 export interface StoreAccount {

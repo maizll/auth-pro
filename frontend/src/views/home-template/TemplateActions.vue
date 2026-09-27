@@ -1,3 +1,4 @@
+<!-- 一条首页模板的安装、启用、停用和卸载。 -->
 <template>
   <div class="template-actions">
     <ElButton

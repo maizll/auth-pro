@@ -162,6 +162,10 @@ func ensureAppLicenseRequiredColumn(db *sql.DB) error {
 }
 
 // LicenseVerify 公开授权校验接口，供业务系统 SDK 调用。
+// LicenseVerify 处理 POST /api/license/verify。
+// 请求要有 appKey、签名、时间戳和域名或机器标识。签名不对时和「应用不存在」用同一种响应，避免探测出应用是否存在。
+// 时间戳超出 10 分钟返回 403。应用关闭授权开关时直接通过，并记一笔日志。
+// 授权被拉黑、吊销、过期或域名不匹配时返回对应 reason。只有完全找不到授权才记盗版，过期客户不算盗版。
 func LicenseVerify(c *gin.Context) {
 	var req licenseVerifyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -207,6 +211,7 @@ func LicenseVerify(c *gin.Context) {
 	}
 
 	signVersion, signValid := licenseVerifySignValid(req, appSecret, rawDomain, rawServerIP, rawLicenseKey)
+	// 签名失败和未知应用返回同一类响应，不告诉调用方应用存不存在。
 	if !signValid {
 		writeVerifyLog(db, sql.NullInt64{}, appID, req.Domain, req.ServerIP, c.ClientIP(), "fail", "invalid_sign", c.GetHeader("User-Agent"))
 		licenseVerifyUnsignedFailure(c)
@@ -261,6 +266,7 @@ func LicenseVerify(c *gin.Context) {
 			licenseID = sql.NullInt64{Int64: license.ID, Valid: true}
 		}
 		writeVerifyLog(db, licenseID, appID, req.Domain, req.ServerIP, c.ClientIP(), logResult, reason, c.GetHeader("User-Agent"))
+		// 过期、吊销、域名不符都不是盗版。只有库里没有这条授权才记一次命中。
 		if reason == "license_not_found" && isPiracyDetectionEnabled() {
 			recordPiracyHit(db, appID, req.Domain, req.ServerIP)
 		}

@@ -1,3 +1,5 @@
+// 用 GitHub 令牌识别所有者，确认仓库是私有的；仓库不存在时创建私有仓库，已经公开则拒绝。
+
 package handler
 
 import (

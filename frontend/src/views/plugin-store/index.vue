@@ -1,3 +1,4 @@
+<!-- 应用商店。这里不显示免费版或商业版横幅，状态只看顶栏。 -->
 <template>
   <div class="plugin-store">
     <ElCard shadow="never" class="art-table-card">

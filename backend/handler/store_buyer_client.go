@@ -1,3 +1,5 @@
+// 买家站访问源站的 HTTP 客户端：给请求签名、刷新快照，并把付费包装进本机插件或模板目录。
+
 package handler
 
 import (
@@ -117,6 +119,7 @@ type sourceResponseError struct {
 	Revoked bool
 }
 
+// Error 返回源站信封里的 msg。空消息时给一句固定原因，避免页面看到空白错误。
 func (e *sourceResponseError) Error() string {
 	if e == nil || strings.TrimSpace(e.Msg) == "" {
 		return "源站拒绝了请求"
@@ -124,6 +127,8 @@ func (e *sourceResponseError) Error() string {
 	return e.Msg
 }
 
+// buyerSnapshotTerminal 判断源站是不是明确说这条绑定不能再用。
+// 以 revoked 字段和固定原因码为准，不用中文文案，避免源站改措辞后买家还留着已吊销的商业版。
 func buyerSnapshotTerminal(reason string, revoked bool) bool {
 	if revoked {
 		return true
@@ -402,6 +407,8 @@ func refreshBuyerSnapshot(ctx context.Context, domain string) error {
 	return saveSnapshotMap(snap, true, false, "")
 }
 
+// StartStoreSnapshotRefresher 在后台定期向源站核对快照。
+// 失败后退避，最长约 6 小时，避免源站故障时打满请求。明确吊销由刷新函数清本地状态。
 func StartStoreSnapshotRefresher() {
 	storeRefreshOnce.Do(func() {
 		go func() {

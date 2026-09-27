@@ -1,3 +1,4 @@
+<!-- 勾选这个角色能看见的菜单。 -->
 <template>
   <ElDialog
     v-model="visible"

@@ -1,3 +1,4 @@
+<!-- 商业版标记：图标加一行说明，用在限额提示和需要升级的提示里。 -->
 <template>
   <span class="commercial-mark" :class="`is-${tone}`">
     <ArtSvgIcon :icon="icon" class="commercial-mark__icon" />

@@ -1,3 +1,4 @@
+<!-- 免费改收费前的确认。可以选择老用户继续免费，或所有人都要购买。 -->
 <template>
   <el-dialog
     :model-value="modelValue"

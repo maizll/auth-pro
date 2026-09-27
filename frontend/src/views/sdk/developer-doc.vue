@@ -1,3 +1,4 @@
+<!-- 授权校验和版本检查的接入说明。 -->
 <template>
   <div class="developer-doc-page">
     <ElCard shadow="never" class="doc-card">

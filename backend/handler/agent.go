@@ -1,3 +1,5 @@
+// 代理商的列表、创建、修改、启停和手工充值。改密码时的数据库错误必须返回给调用方。
+
 package handler
 
 import (
@@ -233,7 +235,8 @@ func AgentCreate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "创建成功", "data": gin.H{"id": id}})
 }
 
-// AgentUpdate 编辑代理商
+// AgentUpdate 修改代理商资料。密码留空则不改密码。
+// 等级变化会通知代理。密码加密失败或写库失败返回 500，不会假装保存成功。
 func AgentUpdate(c *gin.Context) {
 	id := c.Param("id")
 	var req struct {
@@ -272,6 +275,7 @@ func AgentUpdate(c *gin.Context) {
 	_ = db.QueryRow("SELECT level FROM agents WHERE id = ?", id).Scan(&oldLevel)
 
 	if strings.TrimSpace(req.Password) != "" {
+		// 更新语句的错误要落在外层 err 上。这里再用 := 会把失败吃掉，接口仍返回成功。
 		hash, hashErr := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if hashErr != nil {
 			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "密码加密失败"})

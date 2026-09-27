@@ -1,3 +1,5 @@
+// 应用删除后，把目录条目改挂到还在使用的应用。旧的公开地址继续返回新应用的目录。
+
 package handler
 
 import (
@@ -26,6 +28,7 @@ type appCatalogMigrateRequiredError struct {
 	Count int
 }
 
+// Error 说明要先把目录从旧结构迁过来，才能按应用归并条目。
 func (err appCatalogMigrateRequiredError) Error() string {
 	return fmt.Sprintf("该应用下还有 %d 条软件目录条目，请选择要迁移到的其他应用后再归档，或直接归档并保留绑定", err.Count)
 }
@@ -93,6 +96,8 @@ func catalogItemsOnApp(appID int64) (plugins []sourcePlugin, templates []sourceT
 	return plugins, templates, nil
 }
 
+// AdminCatalogAppUsage 统计某个应用下还有多少插件和模板。
+// 没选应用返回 400。读库失败返回 500。
 func AdminCatalogAppUsage(c *gin.Context) {
 	appID, err := requestSourceCatalogAppID(c)
 	if err != nil || appID <= 0 {
@@ -111,6 +116,8 @@ func AdminCatalogAppUsage(c *gin.Context) {
 	}})
 }
 
+// AdminRebindCatalogItems 把选中的目录条目改挂到目标应用。
+// 目标应用不存在、条目种类不对或条目已属于该应用时返回 400。
 func AdminRebindCatalogItems(c *gin.Context) {
 	var req catalogRebindRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -126,6 +133,8 @@ func AdminRebindCatalogItems(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已切换绑定应用", "data": gin.H{"count": count}})
 }
 
+// SourceDeveloperRebindCatalogItems 允许开发者把自己的条目改挂到自己的另一个应用。
+// 别人的条目返回 403。
 func SourceDeveloperRebindCatalogItems(c *gin.Context) {
 	developer, err := currentSourceDeveloper(c)
 	if err != nil {

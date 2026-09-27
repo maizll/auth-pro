@@ -1,3 +1,5 @@
+// 源站侧的商业版和单品订单。支付渠道验签通过后，由这里按订单号决定入账到升级、商店、换站还是普通购买。
+
 package handler
 
 import (
@@ -13,6 +15,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// dispatchVerifiedOnlinePayment 在支付渠道已经验签、金额也核对过后入账。
+// orderNo 决定去向：代理升级、商店购买、换站，其余才是充值或普通授权购买。
+// 商店订单必须先于充值匹配。订单号前缀撞车时，充值入账会把商店订单当成不存在而失败，权益就丢了。
+// 金额与订单不一致、订单已关闭时返回错误，调用方应让渠道重试或展示失败。
 func dispatchVerifiedOnlinePayment(db *sql.DB, orderNo string, paidCents int64, channel, payMethod, tradeNo, payload string) error {
 	switch onlineSettlementRoute(orderNo) {
 	case "upgrade":
@@ -91,6 +97,8 @@ func settleStorePurchaseOrder(db *sql.DB, orderNo string, paidCents int64, chann
 	return tx.Commit()
 }
 
+// StoreEditionPlans 列出源站正在出售的商业版套餐。
+// 数据库读失败返回 500。不返回已下架套餐。
 func StoreEditionPlans(c *gin.Context) {
 	db, err := openStoreDB(c)
 	if err != nil {
@@ -104,6 +112,9 @@ func StoreEditionPlans(c *gin.Context) {
 	storeData(c, gin.H{"list": list})
 }
 
+// StoreOrderCreate 为已签名的买家创建商业版或单品订单。
+// 请求必须带绑定签名。超过频率、域名不合法、套餐不存在或条目未上架时返回 400。
+// 绑定已吊销时返回 400，并带 revoked 和 rebind，不能只靠中文判断。
 func StoreOrderCreate(c *gin.Context) {
 	if !storeOrderRate.allow(c.ClientIP(), 30, time.Minute, time.Now()) {
 		storeFail(c, 429, "下单过于频繁")
@@ -251,6 +262,8 @@ func catalogSalePeriod(billing string) string {
 	}
 }
 
+// StoreOrderQuery 按订单号返回支付状态。已支付且属于当前绑定时附带新快照。
+// 订单不属于这个买家返回 404。绑定已终止时同样要求重新绑定。
 func StoreOrderQuery(c *gin.Context) {
 	_, row, ok := readSignedStoreBody(c)
 	if !ok {

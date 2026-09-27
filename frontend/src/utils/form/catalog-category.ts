@@ -1,3 +1,4 @@
+// 软件目录分类：能不能删，以及删除后条目上的分类怎么清掉。
 export type CatalogCategoryKind = 'plugin' | 'template'
 
 export const BUILTIN_CATALOG_CATEGORY_KEYS = [

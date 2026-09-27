@@ -1,3 +1,4 @@
+// 主题设置项。依赖顶栏开关的项，在对应功能关掉时不出现。
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ContainerWidthEnum } from '@/enums/appEnum'

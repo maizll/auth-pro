@@ -1,3 +1,5 @@
+// 用内存驱动代替 MySQL，检查商业版产品应用的保存校验。不连接真实数据库。
+
 package handler
 
 import (

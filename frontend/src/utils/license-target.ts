@@ -1,3 +1,4 @@
+// 授权域名和 IP 在提交前的整理，和后端校验用同一套空值、通配符规则。
 export function licenseTargetError(type: string, value: string): string {
   const target = (value || '').trim().toLowerCase()
   if (!target) return '请填写授权目标'

@@ -1,3 +1,4 @@
+<!-- 本站已安装的首页模板。 -->
 <template>
   <div class="home-template-manage">
     <ElCard shadow="never" class="art-table-card">

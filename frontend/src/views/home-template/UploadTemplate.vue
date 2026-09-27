@@ -1,3 +1,4 @@
+<!-- 上传首页模板压缩包。 -->
 <template>
   <ElButton :disabled="uploading" @click="visible = true">上传首页模板</ElButton>
   <ElDialog

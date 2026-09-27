@@ -1,3 +1,5 @@
+// 软件源添加和刷新的集成测试，覆盖 JSON 目录和 Git 仓库两种地址。
+
 package handler
 
 import (

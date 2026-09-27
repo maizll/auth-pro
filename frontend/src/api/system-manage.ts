@@ -1,3 +1,4 @@
+// 系统管理接口：用户、角色、菜单、支付、邮件和插件。
 import request from '@/utils/http'
 import { AppRouteRecord } from '@/types/router'
 

@@ -1,3 +1,4 @@
+<!-- 购买商业版和单独购买插件或模板的窗口。付款区是这一步里的二维码和倒计时，不另做一套支付弹窗。 -->
 <template>
   <div>
     <ElDialog v-model="commercialUi.promptOpen" title="需要商业版" width="460px" append-to-body>
@@ -267,6 +268,7 @@
   const upgraded = ref(false)
   const choosingEdition = ref(false)
   const itemContinued = ref(false)
+  // 未绑定、快照已是明确吊销，或这次请求被源站要求重绑，都回到绑定步骤。不能只看本地还记着账号。
   const needsBind = computed(
     () => !account.value?.bound || !!account.value?.explicitRevoked || commercialUi.rebindRequired
   )

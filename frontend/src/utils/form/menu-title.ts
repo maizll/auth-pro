@@ -1,3 +1,4 @@
+// 菜单标题的中文。后台返回的标题键在这里换成界面上的字。
 import zhMessages from '../../locales/langs/zh.json'
 
 type MenuNode = string | { [key: string]: MenuNode }

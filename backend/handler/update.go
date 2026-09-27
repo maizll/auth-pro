@@ -1,3 +1,5 @@
+// 在线更新：读取清单、校验安装包、解压并交给守护脚本重启。更新地址只接受受信任的 GitHub 或 Gitee 发布。
+
 package handler
 
 import (
@@ -284,6 +286,7 @@ func AdminOnlineUpdateHistory(c *gin.Context) {
 
 // AdminOnlineUpdateApply 创建一键整包更新任务。
 func AdminOnlineUpdateApply(c *gin.Context) {
+	// 发布包和守护脚本只做了 Linux amd64。其它系统在这里停下，避免解压一半后无法重启。
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "一键整包更新仅支持 Linux amd64 宝塔部署环境"})
 		return
@@ -1529,6 +1532,8 @@ type onlineUpdateDownloadWriter struct {
 	lastPercent int
 }
 
+// Write 把更新包写入目标，并按已写字节更新任务进度。
+// 总大小未知时只转发写入，不计算百分比。底层写入失败时原样返回错误。
 func (writer *onlineUpdateDownloadWriter) Write(data []byte) (int, error) {
 	count, err := writer.destination.Write(data)
 	writer.written += int64(count)
@@ -1785,7 +1790,8 @@ func extractOnlineUpdatePackage(jobID string, packagePath string) (string, error
 			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
 				return "", err
 			}
-		case tar.TypeReg, 0: // 0 是旧 tar 的普通文件，仍要能解压
+		case tar.TypeReg, 0: // 0 是旧 tar 的普通文件，仍要能解压历史更新包
+			// 不接受符号链接和设备文件，避免包内链接指向安装目录外面。
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return "", err
 			}

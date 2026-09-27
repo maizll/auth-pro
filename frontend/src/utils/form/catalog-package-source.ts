@@ -1,3 +1,4 @@
+// 判断目录安装包是本地上传、外链还是已经进收费仓库。
 import { isHttpsLocation, isTemplateLocation, parseCatalogPriceYuan } from './catalog-slug'
 
 export type CatalogPackageSource = 'upload' | 'public'

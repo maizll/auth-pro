@@ -1,3 +1,4 @@
+// 开发者面板提交插件、模板、版本和广告申请。
 import axios, { type AxiosRequestConfig } from 'axios'
 
 const BASE = '/api/v1/source/developer'

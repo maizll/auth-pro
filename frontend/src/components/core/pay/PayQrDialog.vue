@@ -1,3 +1,4 @@
+<!-- 授权购买、代理开通、财务充值和换绑共用的付款码弹窗。 -->
 <template>
   <ElDialog
     :model-value="visible"

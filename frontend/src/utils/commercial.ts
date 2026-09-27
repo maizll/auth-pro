@@ -1,3 +1,4 @@
+// 顶栏和购买窗口共用的商业版状态：要不要升级、打开购买、以及源站要求重新绑定时怎么提示。
 import { h, reactive } from 'vue'
 import { ElButton, ElNotification } from 'element-plus'
 import type { StoreAccount } from '@/api/store'

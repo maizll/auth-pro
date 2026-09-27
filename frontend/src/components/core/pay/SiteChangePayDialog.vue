@@ -1,3 +1,4 @@
+<!-- 更换授权站点时的付款窗口，二维码仍走统一的支付组件。 -->
 <template>
   <el-dialog
     :model-value="visible"

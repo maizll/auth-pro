@@ -1,3 +1,5 @@
+// 应用版本的上传、外链和发布。改版本时按本次选择的来源重写下载地址，不沿用上一次的外链。
+
 package handler
 
 import (
@@ -449,6 +451,7 @@ func saveAppVersion(c *gin.Context, editing bool) {
 
 	packageName := old.PackageName
 	packagePath := old.PackagePath
+	// 上传和外链两个分支都会重写下载地址。不用旧值当默认，避免改成上传后还留着上一次的外链。
 	var downloadURL string
 	fileSizeBytes := old.FileSizeBytes
 	fileMD5 := old.FileMD5

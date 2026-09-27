@@ -1,3 +1,4 @@
+<!-- 按语言下载接入包。 -->
 <template>
   <div class="sdk-page">
     <ElCard shadow="never" class="intro-card">

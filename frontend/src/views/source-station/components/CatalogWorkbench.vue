@@ -1,3 +1,4 @@
+<!-- 编辑一条软件目录：名称、价格、安装包和上下架。 -->
 <template>
   <div class="source-station-page">
     <el-alert

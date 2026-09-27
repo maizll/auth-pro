@@ -1,5 +1,7 @@
 //go:build linux
 
+// 检查守护脚本在版本健康时不会把正在运行的程序换掉。
+
 package handler
 
 import (

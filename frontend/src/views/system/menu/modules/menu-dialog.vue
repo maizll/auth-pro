@@ -1,3 +1,4 @@
+<!-- 新建或编辑一条菜单。父级不能选自己或自己的下级。 -->
 <template>
   <ElDialog
     :title="dialogTitle"

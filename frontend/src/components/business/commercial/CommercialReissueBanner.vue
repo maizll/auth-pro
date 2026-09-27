@@ -1,3 +1,4 @@
+<!-- 有已支付但还没开通的商业版订单时，提示管理员补发。 -->
 <template>
   <ElAlert v-if="count > 0" class="commercial-reissue" type="warning" :closable="false" show-icon>
     <template #title>

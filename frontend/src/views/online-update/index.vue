@@ -1,3 +1,4 @@
+<!-- 在线更新页面：检查新版本、查看说明，并在 Linux amd64 上一键更新。 -->
 <template>
   <div class="online-update">
     <ElCard shadow="never" class="art-table-card">

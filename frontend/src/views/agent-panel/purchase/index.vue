@@ -1,3 +1,4 @@
+<!-- 代理端购买授权。付款码用统一的支付弹窗。 -->
 <template>
   <div class="agent-purchase">
     <div class="steps-bar">

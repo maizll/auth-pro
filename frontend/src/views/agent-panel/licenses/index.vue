@@ -1,3 +1,4 @@
+<!-- 代理名下的授权。 -->
 <template>
   <div class="panel-licenses">
     <!-- 授权列表卡片：筛选工具栏 + 表格 + 分页 -->

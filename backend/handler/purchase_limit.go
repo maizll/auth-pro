@@ -1,3 +1,5 @@
+// 活动里的购买次数和库存限制。只有真的超限才返回给下单接口，其它数据库错误照常上抛。
+
 package handler
 
 import (
@@ -14,6 +16,7 @@ import (
 // purchaseLimitViolation is returned only when an active limit blocks a purchase.
 type purchaseLimitViolation struct{ message string }
 
+// Error 返回这条购买限制拦住下单时要展示的原因。没有超限不会构造这个错误。
 func (e *purchaseLimitViolation) Error() string { return e.message }
 
 // purchaseLimitViolationMessage maps the domain limit error to a client-safe message.

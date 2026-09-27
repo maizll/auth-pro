@@ -1,3 +1,4 @@
+// 菜单父级选项。不能把一条菜单挂到自己或自己的下级下面。
 export interface MenuTreeNode {
   id: number
   title?: string

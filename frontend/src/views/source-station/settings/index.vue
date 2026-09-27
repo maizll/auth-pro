@@ -1,3 +1,4 @@
+<!-- 源站设置。收费仓库在这里粘贴令牌、测试并创建私有仓库。 -->
 <template>
   <div class="source-station-page">
     <el-card v-loading="loading" shadow="never" class="art-card">

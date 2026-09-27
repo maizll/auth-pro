@@ -1,3 +1,4 @@
+<!-- 代理申请成为开发者。 -->
 <template>
   <div class="developer-apply">
     <header class="page-hero">

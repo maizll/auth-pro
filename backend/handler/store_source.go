@@ -1,3 +1,5 @@
+// 源站侧的商店登录、域名挑战和绑定确认。买家的下单、查单和下载都要带签名进来。
+
 package handler
 
 import (
@@ -248,6 +250,8 @@ type storeLoginBody struct {
 	geetestValidateParams
 }
 
+// StoreAuthCaptcha 告诉买家登录前要不要做极验。
+// 未启用时 enabled 为 false。读配置失败由 openStoreDB 写 500。
 func StoreAuthCaptcha(c *gin.Context) {
 	db, err := openStoreDB(c)
 	if err != nil {
@@ -257,6 +261,9 @@ func StoreAuthCaptcha(c *gin.Context) {
 	storeData(c, gin.H{"enabled": cfg.Enabled, "captchaId": cfg.CaptchaID})
 }
 
+// StoreAuthLogin 校验账号密码和域名，成功后发一条短时挑战，还不创建绑定。
+// 账号、密码或身份缺失，域名不合法，或登录锁定中，返回 400 或 429。
+// 密码正确但域名已有其它有效绑定时返回 400，已删除或已吊销的旧记录不算占用。
 func StoreAuthLogin(c *gin.Context) {
 	var req storeLoginBody
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -327,6 +334,8 @@ func StoreAuthLogin(c *gin.Context) {
 	})
 }
 
+// StoreAuthConfirm 核对买家站回执后创建绑定，并返回签名过的快照和绑定密钥。
+// challengeId 空、过期或回执对不上返回 400。签发快照失败返回 500，不留下半截绑定。
 func StoreAuthConfirm(c *gin.Context) {
 	var req struct {
 		ChallengeID string `json:"challengeId"`
@@ -688,6 +697,8 @@ func readSignedStoreBody(c *gin.Context) ([]byte, storeBindingRecord, bool) {
 	return body, row, true
 }
 
+// StoreAuthLogout 吊销当前签名对应的绑定。签名无效时 readSignedStoreBody 已写错误。
+// 写库失败返回 500。买家收到 revoked 后应清本地快照。
 func StoreAuthLogout(c *gin.Context) {
 	_, row, ok := readSignedStoreBody(c)
 	if !ok {
@@ -701,6 +712,8 @@ func StoreAuthLogout(c *gin.Context) {
 	storeData(c, gin.H{"revoked": true})
 }
 
+// StoreAuthRotate 更换绑定密钥。旧密钥立即失效，调用方必须保存响应里的新密钥。
+// 签名无效或绑定已吊销时拒绝。
 func StoreAuthRotate(c *gin.Context) {
 	_, row, ok := readSignedStoreBody(c)
 	if !ok {
@@ -725,6 +738,8 @@ func StoreAuthRotate(c *gin.Context) {
 	storeData(c, gin.H{"bindingId": row.BindingID, "bindingSecret": hex.EncodeToString(secret)})
 }
 
+// StoreStatus 按当前签名重新计算商业版快照。
+// 同一绑定一分钟只允许一次，超出返回 429。授权已删除或绑定已吊销时返回 400，并带 revoked，不进入离线宽限。
 func StoreStatus(c *gin.Context) {
 	if !storeStatusRate.allow(c.GetHeader("X-Store-Binding"), 1, time.Minute, time.Now()) {
 		storeFail(c, 429, "刷新过于频繁")
@@ -873,6 +888,8 @@ func trimStoreText(value string, n int) string {
 	return value[:n]
 }
 
+// StorePayCompletePage 是支付完成后的静态页。
+// 不根据参数跳转，避免回调里的地址把用户带到站外。
 func StorePayCompletePage(c *gin.Context) {
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(http.StatusOK, "<!doctype html><meta charset=utf-8><title>支付完成</title><p>支付完成，请回到后台。本页不会跳转到其他网站。</p>")

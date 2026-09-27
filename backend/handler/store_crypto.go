@@ -1,3 +1,5 @@
+// 商业版快照的签名和验签，以及买家请求签名、下载票。公钥打进发行包，私钥只留在源站数据目录。
+
 package handler
 
 import (
@@ -115,6 +117,7 @@ func loadStoreSnapshotPrivateKey() (ed25519.PrivateKey, error) {
 		return nil, errors.New("商店签名私钥格式不正确")
 	}
 	key := ed25519.PrivateKey(raw)
+	// 私钥和发行包公钥必须是一对。对不上就拒绝签发，避免用错钥匙把别的站的快照签成有效。
 	if !bytes.Equal(key.Public().(ed25519.PublicKey), pub) {
 		return nil, errors.New("商店签名私钥与发行包公钥不匹配")
 	}
@@ -243,6 +246,8 @@ type storeSnapshot struct {
 	Signature       string              `json:"signature,omitempty"`
 }
 
+// signStoreSnapshot 用源站私钥给快照签名。签名前先清掉旧签名，避免把签名自己签进去。
+// 私钥缺失、格式不对或和发行包公钥不是一对时返回错误，调用方不能发未签名快照。
 func signStoreSnapshot(snapshot storeSnapshot) (storeSnapshot, error) {
 	key, err := loadStoreSnapshotPrivateKey()
 	if err != nil {
@@ -258,6 +263,8 @@ func signStoreSnapshot(snapshot storeSnapshot) (storeSnapshot, error) {
 	return snapshot, nil
 }
 
+// verifyStoreSnapshot 用发行包里的公钥验证快照。
+// 没有 ed25519 前缀、公钥没配置或验签失败都返回 false。买方遇到 false 保持免费版，不当成已购买。
 func verifyStoreSnapshot(snapshot storeSnapshot) bool {
 	sig := strings.TrimPrefix(snapshot.Signature, "ed25519:")
 	if sig == snapshot.Signature || sig == "" {

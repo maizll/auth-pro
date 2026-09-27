@@ -1,3 +1,4 @@
+<!-- 顶栏商业版入口。未开通是「升级商业版」，已开通是深色徽章；窄屏只留短文案。 -->
 <template>
   <div class="commercial-header-entry">
     <span v-if="ready && !commercial" class="commercial-header-entry__free">免费版</span>
