@@ -34,8 +34,8 @@ export const commercialPitch = {
 
 export const commercialCompareRows = [
   { label: '授权应用', free: '1 个', commercial: '不限' },
-  { label: '官方付费插件', free: '需单独购买', commercial: '已包含，可逐个安装' },
-  { label: '官方付费首页模板', free: '需单独购买', commercial: '已包含，可逐个安装' }
+  { label: '官方付费插件', free: '需单独购买', commercial: '全部包含' },
+  { label: '官方首页模板', free: '需单独购买', commercial: '全部包含' }
 ] as const
 
 export const commercialCompareNote =
@@ -49,6 +49,12 @@ export interface CatalogPurchaseOffer {
   priceCents: number
   period?: string
   purchaseOnly?: boolean
+  /** 开发者登记的图标。空则用名称首字。 */
+  icon?: string
+  /** 开发者登记的简介。界面最多先显示两行。 */
+  summary?: string
+  version?: string
+  author?: string
   resume?: () => Promise<boolean>
 }
 
@@ -130,7 +136,7 @@ export function openCatalogPurchase(offer: CatalogPurchaseOffer) {
   commercialUi.upgradeOpen = true
 }
 
-function commercialYuanText(cents?: number) {
+export function commercialYuanText(cents?: number) {
   const value = cents || 0
   if (!Number.isFinite(value) || value <= 0) return '¥0'
   if (value % 100 === 0) return `¥${value / 100}`

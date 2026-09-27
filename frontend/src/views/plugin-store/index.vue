@@ -623,6 +623,10 @@
       priceCents: plugin.priceCents || 0,
       period: plugin.billing || 'permanent',
       purchaseOnly: !!plugin.purchaseOnly,
+      icon: plugin.icon,
+      summary: plugin.description,
+      version: plugin.version,
+      author: plugin.author?.name,
       resume
     }
   }
