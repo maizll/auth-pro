@@ -335,6 +335,7 @@ CREATE TABLE `licenses` (
   UNIQUE KEY `uk_license_no` (`license_no`),
   KEY `idx_app` (`app_id`),
   KEY `idx_owner` (`owner_type`, `owner_id`),
+  KEY `idx_license_owner_app_status` (`owner_type`, `owner_id`, `app_id`, `status`),
   KEY `idx_status_expired` (`status`, `expired_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权表';
 

@@ -48,6 +48,7 @@ func ensureSourceStationMigrations(db *sql.DB) error {
 		{storeMigrationBindings, migrateStoreBindings},
 		{storeMigrationLoginHandoff, migrateStoreLoginHandoff},
 		{storeMigrationEditions, migrateStoreEditions},
+		{storeMigrationStatusIndex, migrateStoreStatusIndexes},
 		{storeMigrationOrders, migrateStorePurchaseOrders},
 		{storeMigrationEntitlements, migratePluginEntitlements},
 		{storeMigrationRevenue, migrateStoreRevenueLedger},

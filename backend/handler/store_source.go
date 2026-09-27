@@ -791,7 +791,8 @@ func StoreAuthRotate(c *gin.Context) {
 
 // StoreStatus 按当前签名重新计算商业版快照。
 // 权益按绑定账号名下、仍覆盖该域名的授权实时计算，不限于绑定时的那一条。
-// 同一绑定一分钟最多 6 次，超出返回 429。授权已删除或绑定已吊销时返回 400，并带 revoked，不进入离线宽限。
+// 同一绑定一分钟最多 6 次，超出返回 429。账号授权走 idx_license_owner_app_status，权益走 idx_main_license_edition_lookup。
+// 授权已删除或绑定已吊销时返回 400，并带 revoked，不进入离线宽限。
 func StoreStatus(c *gin.Context) {
 	if !storeStatusRate.allow(c.GetHeader("X-Store-Binding"), 6, time.Minute, time.Now()) {
 		storeFail(c, 429, "刷新过于频繁")

@@ -10,6 +10,7 @@ import (
 const (
 	storeMigrationBindings              = "store_bindings_v1"
 	storeMigrationEditions              = "store_editions_v1"
+	storeMigrationStatusIndex           = "store_status_index_v1"
 	storeMigrationOrders                = "store_purchase_orders_v1"
 	storeMigrationEntitlements          = "plugin_entitlements_v1"
 	storeMigrationRevenue               = "store_revenue_ledger_v1"
@@ -126,6 +127,33 @@ func migrateStoreEditions(db *sql.DB) error {
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
 			return fmt.Errorf("store editions: %w", err)
+		}
+	}
+	return nil
+}
+
+// migrateStoreStatusIndexes 给 /api/v1/store/status 的两处查询补索引。
+// 账号下的有效授权按持有者和产品应用过滤；商业版权益按授权和版本取最新一条。
+// 表还不存在时跳过，避免半截库上的探测把迁移记成失败。
+func migrateStoreStatusIndexes(db *sql.DB) error {
+	ok, err := catalogTableExists(db, "licenses")
+	if err != nil {
+		return err
+	}
+	if ok {
+		if err := ensureSourceStationIndex(db, "licenses", "idx_license_owner_app_status",
+			"ALTER TABLE licenses ADD KEY idx_license_owner_app_status (owner_type, owner_id, app_id, status)"); err != nil {
+			return err
+		}
+	}
+	ok, err = catalogTableExists(db, "main_license_editions")
+	if err != nil {
+		return err
+	}
+	if ok {
+		if err := ensureSourceStationIndex(db, "main_license_editions", "idx_main_license_edition_lookup",
+			"ALTER TABLE main_license_editions ADD KEY idx_main_license_edition_lookup (license_id, edition, id)"); err != nil {
+			return err
 		}
 	}
 	return nil

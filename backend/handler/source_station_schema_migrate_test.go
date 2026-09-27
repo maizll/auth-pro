@@ -173,6 +173,45 @@ func TestEnsureSourceStationSchemaReturnsMigrationExecError(t *testing.T) {
 	}
 }
 
+func TestStoreStatusIndexMigrationAddsLookupKeys(t *testing.T) {
+	state := newLegacySourceSchemaState()
+	state.columns["licenses"] = map[string]bool{"id": true}
+	state.columns["main_license_editions"] = map[string]bool{"id": true}
+	db := openSourceSchemaMigrateDB(t, state)
+
+	if err := migrateStoreStatusIndexes(db); err != nil {
+		t.Fatal(err)
+	}
+	if !state.indexes["licenses"]["idx_license_owner_app_status"] {
+		t.Fatal("缺少授权账号索引")
+	}
+	if !state.indexes["main_license_editions"]["idx_main_license_edition_lookup"] {
+		t.Fatal("缺少商业版权益索引")
+	}
+	before := state.execCount()
+	if err := migrateStoreStatusIndexes(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range state.execsAfter(before) {
+		if strings.Contains(strings.ToUpper(query), "ADD KEY") {
+			t.Fatalf("索引被重复添加: %s", query)
+		}
+	}
+}
+
+func TestStoreStatusIndexMigrationSkipsMissingTables(t *testing.T) {
+	state := newLegacySourceSchemaState()
+	db := openSourceSchemaMigrateDB(t, state)
+	if err := migrateStoreStatusIndexes(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range state.allExecs() {
+		if strings.Contains(query, "idx_license_owner_app_status") || strings.Contains(query, "idx_main_license_edition_lookup") {
+			t.Fatalf("缺表时不应改索引: %s", query)
+		}
+	}
+}
+
 var sourceStationMigrationNames = []string{
 	"source_catalog_additive_v1",
 	"source_catalog_plugin_file_path_v1",
@@ -188,6 +227,7 @@ var sourceStationMigrationNames = []string{
 	"store_bindings_v1",
 	"store_login_handoff_v1",
 	"store_editions_v1",
+	"store_status_index_v1",
 	"store_purchase_orders_v1",
 	"plugin_entitlements_v1",
 	"store_revenue_ledger_v1",
