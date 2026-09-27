@@ -20,7 +20,7 @@
       <ArtTable :loading="loading" :data="data" :columns="columns">
         <template #appName="{ row }">
           <span>{{ row.appName }}</span>
-          <ElTag v-if="row.commercialProduct" class="commercial-plan-tag" type="warning" size="small" effect="dark">
+          <ElTag v-if="row.commercialProduct" class="commercial-plan-tag" type="primary" size="small">
             商业版
           </ElTag>
         </template>

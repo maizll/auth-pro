@@ -12,11 +12,11 @@
     defineProps<{
       text: string
       icon?: string
-      tone?: 'crown' | 'warning' | 'ok'
+      tone?: 'primary' | 'warning' | 'ok'
     }>(),
     {
       icon: 'ri:rocket-2-line',
-      tone: 'crown'
+      tone: 'primary'
     }
   )
 </script>

@@ -1,8 +1,8 @@
 <template>
   <div class="plugin-store">
     <ElCard shadow="never" class="art-table-card">
-      <div class="store-account-bar" :class="{ 'is-warning': accountWarning }">
-        <CommercialMark :icon="accountIcon" :text="accountText" :tone="accountTone" />
+      <div v-if="showAccountNotice" class="store-account-bar">
+        <CommercialMark icon="ri:error-warning-line" :text="accountText" tone="warning" />
       </div>
       <div class="store-header">
         <div>
@@ -576,40 +576,26 @@
   const storeAccount = ref<StoreAccount | null>(null)
   const catalog = ref<StoreCatalogItem[]>([])
   const accountUnconfigured = computed(() => storeAccount.value?.reason === 'snapshot_key_unconfigured')
-  const accountWarning = computed(
-    () => !!storeAccount.value && (storeAccount.value.graceWarning || accountUnconfigured.value)
-  )
+  const showAccountNotice = computed(() => {
+    const account = storeAccount.value
+    if (!account) return false
+    return accountUnconfigured.value || account.domainMismatch || account.offlineGrace || account.graceWarning
+  })
   const accountText = computed(() => {
     const account = storeAccount.value
-    if (!account) return '正在读取版本信息'
+    if (!account) return ''
     if (accountUnconfigured.value) return '发行包未配置商店验签公钥，快照一律无效，当前按免费版使用'
     if (account.domainMismatch) return `授权域名与当前域名不一致（${account.domain || '未绑定'}）`
-    if (account.offlineGrace) return '源站暂时不可达，商业版 · 待校验'
-    if (account.edition === 'commercial') {
-      return account.permanent ? '商业版 · 永久' : `商业版 · ${formatExpire(account.editionExpireAt)} 到期`
-    }
-    return '免费版'
+    if (account.offlineGrace || account.graceWarning) return '源站暂时不可达，商业版仍在待校验'
+    return ''
   })
-  const accountIcon = computed(() => {
-    if (accountWarning.value) return 'ri:error-warning-fill'
-    if (storeAccount.value?.edition === 'commercial') return 'ri:shield-check-fill'
-    return 'ri:rocket-2-line'
-  })
-  const accountTone = computed(() =>
-    accountWarning.value ? 'warning' : storeAccount.value?.edition === 'commercial' ? 'ok' : 'crown'
-  )
-
-  function formatExpire(value?: number | null) {
-    if (!value) return '未设置到期时间'
-    return new Date(value * 1000).toLocaleDateString()
-  }
 
   function badgeFor(ownership?: string, price?: number) {
     if (!price || price <= 0) return null
     if (ownership === 'included' || ownership === 'purchased') {
       return { text: '已包含', icon: 'ri:shield-check-fill', tone: 'ok' as const }
     }
-    return { text: '商业版免费', icon: 'ri:rocket-2-line', tone: 'crown' as const }
+    return { text: '商业版免费', icon: 'ri:rocket-2-line', tone: 'primary' as const }
   }
 
   function pluginBadge(plugin: PluginInfo) {
@@ -838,18 +824,11 @@
 
     .store-account-bar {
       display: flex;
-      gap: 12px;
       align-items: center;
-      justify-content: space-between;
-      margin-bottom: 16px;
-      padding: 10px 12px;
+      margin-bottom: 12px;
+      padding: 8px 12px;
       background: var(--el-fill-color-light);
       border: 1px solid var(--el-border-color-lighter);
-
-      &.is-warning {
-        background: var(--el-color-warning-light-9);
-        border-color: var(--el-color-warning-light-5);
-      }
       border-radius: 8px;
     }
 
@@ -1096,7 +1075,22 @@
       color: var(--art-gray-600);
     }
 
-    @media (max-width: 768px) {
+    @media (max-width: 767px) {
+      .store-header {
+        flex-direction: column;
+        gap: 10px;
+
+        .store-subtitle {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .store-header-actions {
+          justify-content: flex-start;
+        }
+      }
+
       .store-toolbar {
         flex-direction: column;
         align-items: stretch;

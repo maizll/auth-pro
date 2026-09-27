@@ -720,7 +720,7 @@
   .celebrate-copy__icon {
     font-size: 36px;
     color: var(--el-color-primary);
-    animation: crown-pop 500ms ease-out both;
+    animation: mark-pop 500ms ease-out both;
   }
 
   .celebrate-copy h3 {
@@ -745,7 +745,7 @@
     }
   }
 
-  @keyframes crown-pop {
+  @keyframes mark-pop {
     from {
       transform: scale(0.6);
     }
@@ -797,7 +797,7 @@
   }
 
   .commercial-purchase-modal.is-brand .el-dialog__headerbtn .el-dialog__close {
-    color: #fff8e8;
+    color: #f7faff;
   }
 
   @media (max-width: 640px) {
