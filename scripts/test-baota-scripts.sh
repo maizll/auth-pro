@@ -76,8 +76,10 @@ ok "--help 与拒绝直接执行 lib"
 grep -q 'baota-install.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制安装脚本"
 grep -q 'baota-upgrade.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制升级脚本"
 grep -q 'baota-lib.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制共用脚本"
+grep -F -q 'baota-lib.sh install.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制一条命令安装脚本"
 grep -q 'baota-install.sh' "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未复制安装脚本"
 grep -q 'baota-upgrade.sh' "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未复制升级脚本"
+grep -F -q "'install.sh'" "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未复制一条命令安装脚本"
 ok "发布脚本会带上宝塔脚本"
 
 if "$INSTALL" --yes --dry-run --site-root /tmp >/dev/null 2>"$WORKDIR/deny.err"; then
@@ -129,6 +131,36 @@ grep -q 'pending-restart/handoff.sh' "$SITE/backend/start.sh" || fail "start.sh 
 grep -q 'auth-pro-guardian-start' "$SITE/backend/start.sh" || fail "start.sh 不是进程守护交接版本"
 grep -q 'error_page 502 503 504 /backend-unavailable.html' "$SITE/backend/baota-nginx.snippet.conf" || fail "Nginx 片段没有后端不可达页面"
 ok "全新安装：权限、环境文件、Nginx 片段、守护说明"
+
+NEW_SITE="$WORKDIR/auto-site"
+[[ ! -e "$NEW_SITE" ]] || fail "自动创建用的目录不应预先存在"
+"$INSTALL" --yes --no-start \
+  --site-root "$NEW_SITE" \
+  --package "$WORKDIR/v1.tar.gz" \
+  --port "$PORT" >"$WORKDIR/autocreate.out"
+[[ -d "$NEW_SITE/backend" ]] || fail "没有创建网站目录"
+[[ -x "$NEW_SITE/backend/start.sh" ]] || fail "自动创建后没有 start.sh"
+grep -q '已创建网站目录' "$WORKDIR/autocreate.out" || fail "没有说明已创建目录"
+grep -q '请用浏览器打开站点域名' "$WORKDIR/autocreate.out" || fail "没有提示打开网址"
+ok "网站目录不存在时自动创建"
+
+DRY_NEW="$WORKDIR/dry-auto-site"
+"$INSTALL" --yes --dry-run --no-start \
+  --site-root "$DRY_NEW" \
+  --package "$WORKDIR/v1.tar.gz" \
+  --port "$PORT" >"$WORKDIR/dry-auto.out"
+[[ ! -e "$DRY_NEW" ]] || fail "预演创建了网站目录"
+grep -q '将创建网站目录' "$WORKDIR/dry-auto.out" || fail "预演没有说明将创建目录"
+ok "预演不创建网站目录"
+
+if "$UPGRADE" --yes --no-start --skip-mysql \
+  --site-root "$WORKDIR/no-such-upgrade-site" \
+  --source "$PKG_V1" >"$WORKDIR/up-missing.out" 2>"$WORKDIR/up-missing.err"; then
+  fail "升级不应创建缺失的网站目录"
+fi
+grep -q '不存在' "$WORKDIR/up-missing.err" || fail "升级缺少目录时没有说明"
+[[ ! -e "$WORKDIR/no-such-upgrade-site" ]] || fail "升级创建了网站目录"
+ok "升级不会创建缺失目录"
 
 if "$INSTALL" --yes --no-start --site-root "$SITE" --source "$PKG_V1" >"$WORKDIR/reinstall.out" 2>"$WORKDIR/reinstall.err"; then
   :
@@ -552,5 +584,120 @@ AUTH_PRO_NGINX_BIN="$WORKDIR/nginx-bad" AUTH_PRO_NGINX_VHOST_DIR="$NGINX_ROOT" \
 cmp -s "$NGINX_ROOT/site.conf" "$WORKDIR/nginx-before-ok.conf" || fail "nginx -t 失败后没有还原配置"
 grep -q -- '-s reload' "$NGINX_LOG" && fail "nginx -t 失败后仍然 reload"
 ok "nginx -t 失败时还原配置并且不 reload"
+
+REMOTE="$ROOT/scripts/install.sh"
+bash -n "$REMOTE"
+"$REMOTE" --help | grep -q 'auth.maizll.com/install.sh' || fail "安装入口 --help 没有官网地址"
+if grep -E -q 'github\.com|githubusercontent' "$REMOTE"; then
+  fail "一条命令安装脚本露出了仓库地址"
+fi
+ok "一条命令安装脚本语法与帮助"
+
+REMOTE_SRC="$WORKDIR/remote-src"
+make_payload "$REMOTE_SRC" "remote"
+cp "$ROOT/scripts/install.sh" "$REMOTE_SRC/install.sh"
+cp "$ROOT/backend/handler/guardian_start.sh" "$REMOTE_SRC/guardian-start.sh"
+chmod 755 "$REMOTE_SRC/install.sh" "$REMOTE_SRC/guardian-start.sh"
+tar -czf "$WORKDIR/remote.tar.gz" -C "$REMOTE_SRC" .
+REMOTE_PORT="$(free_port)"
+REMOTE_SITE="$WORKDIR/remote-site"
+cat > "$WORKDIR/fake-update-server.py" <<'PY'
+import hashlib, json, os, sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+pkg_path, install_path, port, mode = sys.argv[1:5]
+pkg = open(pkg_path, "rb").read()
+digest = hashlib.sha256(pkg).hexdigest()
+install = open(install_path, "rb").read()
+version = "1.7.4"
+base = "http://127.0.0.1:%s" % port
+sha = digest
+signature = "sha256:" + digest
+if mode == "bad-hash":
+    sha = "ab" * 32
+    signature = "sha256:" + sha
+manifest = {
+    "version": version,
+    "sha256": sha,
+    "size": len(pkg),
+    "url": "%s/api/v1/update/package/%s" % (base, version),
+    "package": {
+        "fileName": "auth_pro-full-v%s.tar.gz" % version,
+        "url": "%s/api/v1/update/package/%s" % (base, version),
+        "sha256": sha,
+        "size": len(pkg),
+        "signature": signature,
+    },
+}
+body = json.dumps(manifest).encode()
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        path = self.path.split("?", 1)[0]
+        if path == "/install.sh":
+            data, ctype = install, "text/x-shellscript; charset=utf-8"
+        elif path == "/api/v1/update/latest.json":
+            data, ctype = body, "application/json"
+        elif path == "/api/v1/update/package/%s" % version:
+            data, ctype = pkg, "application/gzip"
+        else:
+            self.send_response(404)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, fmt, *args):
+        return
+
+ThreadingHTTPServer(("127.0.0.1", int(port)), Handler).serve_forever()
+PY
+python3 "$WORKDIR/fake-update-server.py" "$WORKDIR/remote.tar.gz" "$REMOTE" "$REMOTE_PORT" ok >"$WORKDIR/fake-update.log" 2>&1 &
+PIDS+=("$!")
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -fsS "http://127.0.0.1:${REMOTE_PORT}/install.sh" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.1
+done
+AUTH_PRO_UPDATE_BASE="http://127.0.0.1:${REMOTE_PORT}" \
+  bash "$REMOTE" demo.example --site-root "$REMOTE_SITE" --port "$PORT" >"$WORKDIR/remote-install.out"
+[[ -x "$REMOTE_SITE/backend/start.sh" ]] || fail "一条命令安装没有生成 start.sh"
+grep -q 'http://demo.example' "$WORKDIR/remote-install.out" || fail "没有打印要打开的网址"
+grep -q '还要在宝塔面板里完成' "$WORKDIR/remote-install.out" || fail "没有打印剩余手工步骤"
+grep -q 'remote' "$REMOTE_SITE/index.html" || fail "一条命令安装没有放入页面"
+ok "一条命令安装：下载、核对、创建目录"
+
+SUM_BEFORE="$(sha256sum "$REMOTE_SITE/index.html" | awk '{print $1}')"
+printf 'installed\n' > "$REMOTE_SITE/backend/install.lock"
+if AUTH_PRO_UPDATE_BASE="http://127.0.0.1:${REMOTE_PORT}" \
+  bash "$REMOTE" demo.example --site-root "$REMOTE_SITE" --port "$PORT" >"$WORKDIR/remote-locked.out" 2>"$WORKDIR/remote-locked.err"; then
+  fail "已安装站点仍继续一条命令安装"
+fi
+grep -q '在线更新' "$WORKDIR/remote-locked.err" || fail "已安装时没有提示改用升级"
+SUM_AFTER="$(sha256sum "$REMOTE_SITE/index.html" | awk '{print $1}')"
+[[ "$SUM_BEFORE" == "$SUM_AFTER" ]] || fail "已安装时覆盖了站点文件"
+ok "已安装站点拒绝一条命令安装"
+
+BAD_PORT="$(free_port)"
+python3 "$WORKDIR/fake-update-server.py" "$WORKDIR/remote.tar.gz" "$REMOTE" "$BAD_PORT" bad-hash >"$WORKDIR/fake-bad.log" 2>&1 &
+PIDS+=("$!")
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -fsS "http://127.0.0.1:${BAD_PORT}/api/v1/update/latest.json" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.1
+done
+BAD_SITE="$WORKDIR/bad-hash-site"
+if AUTH_PRO_UPDATE_BASE="http://127.0.0.1:${BAD_PORT}" \
+  bash "$REMOTE" bad.example --site-root "$BAD_SITE" --port "$PORT" >"$WORKDIR/bad-hash.out" 2>"$WORKDIR/bad-hash.err"; then
+  fail "SHA256 不一致时不应安装"
+fi
+grep -q 'SHA256 不一致' "$WORKDIR/bad-hash.err" || fail "SHA256 不一致时没有拒绝"
+[[ ! -e "$BAD_SITE/backend/auth_pro" ]] || fail "校验失败后仍写入了站点"
+ok "安装包 SHA256 不一致时停止"
 
 printf '\n自检完成。宝塔进程守护拉起和真实 Nginx reload 仍需要在面板或本机 nginx 上再确认。\n'

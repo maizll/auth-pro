@@ -186,11 +186,32 @@ baota_resolve_site_root() {
   fi
   BAOTA_SITE_ROOT="${BAOTA_SITE_ROOT%/}"
   [[ -n "$BAOTA_SITE_ROOT" ]] || baota_die "网站根目录不能为空"
+  baota_assert_safe_dir "$BAOTA_SITE_ROOT" "网站根目录"
+  baota_reject_dotdot "$BAOTA_SITE_ROOT" "网站根目录"
   if [[ ! -d "$BAOTA_SITE_ROOT" ]]; then
-    baota_die "网站根目录不存在：$BAOTA_SITE_ROOT 。请先在宝塔创建网站。"
+    if [[ "$BAOTA_ACTION" != "install" ]]; then
+      baota_die "网站根目录不存在：$BAOTA_SITE_ROOT 。请先在宝塔创建网站。"
+    fi
+    if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
+      baota_info "将创建网站目录：$BAOTA_SITE_ROOT"
+      return 0
+    fi
+    mkdir -p -- "$BAOTA_SITE_ROOT" || baota_die "无法创建网站目录：$BAOTA_SITE_ROOT"
+    baota_info "已创建网站目录：$BAOTA_SITE_ROOT"
   fi
   BAOTA_SITE_ROOT="$(cd "$BAOTA_SITE_ROOT" && pwd -P)"
   baota_assert_safe_dir "$BAOTA_SITE_ROOT" "网站根目录"
+}
+
+baota_reject_dotdot() {
+  local path="$1" label="$2" part
+  local -a parts=()
+  IFS='/' read -r -a parts <<< "$path"
+  for part in "${parts[@]}"; do
+    if [[ "$part" == ".." ]]; then
+      baota_die "${label}不能包含 .. ：$path"
+    fi
+  done
 }
 
 baota_data_dir() {
@@ -1315,15 +1336,26 @@ baota_start_backend() {
 }
 
 baota_print_manual_steps() {
-  local data port
+  local data port host
   data="$(baota_data_dir)"
   port="$(baota_effective_port)"
+  host="${AUTH_PRO_PUBLIC_HOST:-}"
+  if [[ -n "$host" ]]; then
+    cat <<EOF
+
+请用浏览器打开：
+  http://${host}
+配好 HTTPS 证书后改用 https://${host} 。还没有安装锁时会进入安装向导。
+EOF
+  else
+    printf '\n请用浏览器打开站点域名。还没有安装锁时会进入安装向导。\n'
+  fi
   cat <<EOF
 
-仍需在宝塔面板手工完成（脚本不改面板数据库）：
-  1. 创建网站，根目录为 ${BAOTA_SITE_ROOT}
-  2. 创建空 MySQL 库和用户。全新安装在网页向导里填写，不要在脚本里写数据库口令
-  3. 站点 Nginx 反代到 127.0.0.1:${port}，并把 ${data}/baota-nginx.snippet.conf 中的 location 放进 server，避免直接下载 /backend、db.json、install.lock。502/503/504 使用同文件里的 error_page，返回网站根 backend-unavailable.html
+还要在宝塔面板里完成这几步（脚本不会改面板里的网站、数据库、反向代理和证书）：
+  1. 创建网站，根目录设为 ${BAOTA_SITE_ROOT}
+  2. 创建空 MySQL 库和用户。数据库密码在网页安装向导里填写，不要写进命令
+  3. 站点反向代理到 127.0.0.1:${port}，并把 ${data}/baota-nginx.snippet.conf 中的 location 放进 server，避免直接下载 /backend、db.json、install.lock。502/503/504 使用同文件里的 error_page，返回网站根 backend-unavailable.html
   4. 需要 HTTPS 时在面板申请证书
   5. 进程守护：启动命令 ${data}/start.sh ，运行目录 ${data} 。说明见 ${data}/baota-guardian.txt
      在线更新会自己退出并交给守护拉起。手工停进程或 --no-start 升级前，先在守护里停止，否则进程会被立刻拉起

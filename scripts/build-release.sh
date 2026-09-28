@@ -59,7 +59,7 @@ mkdir -p "$PACKAGE_DIR/backend" "$PACKAGES_DIR" "$BACKEND_DIR/static"
 rm -rf "$BACKEND_DIR/static"/*
 cp -R "$FRONTEND_DIR/dist"/. "$PACKAGE_DIR"/
 cp -R "$FRONTEND_DIR/dist"/. "$BACKEND_DIR/static"/
-for baota_script in baota-install.sh baota-upgrade.sh baota-lib.sh; do
+for baota_script in baota-install.sh baota-upgrade.sh baota-lib.sh install.sh; do
   cp "$ROOT_DIR/scripts/$baota_script" "$PACKAGE_DIR/$baota_script"
   chmod 755 "$PACKAGE_DIR/$baota_script"
 done
