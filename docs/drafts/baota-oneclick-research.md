@@ -95,4 +95,64 @@ baota_prepare_backup_dir() {
 
 若 Docker 起不来，则只下载面板压缩包做静态分析，并标明哪些调用没有实测。
 
-2026-09-28 实测：宿主机只装了 `docker.io` 并用手动 `dockerd` 拉起（本机没有 systemd）。容器 `baota-lab` 使用 `ubuntu:22.04`、`--privileged`、默认 bridge 网络，没有 `--network host`。容器内可以访问 `https://download.bt.cn`。官方 `install_panel.sh -y --ssl-disable -P 8888` 只在该容器里执行。
+2026-09-28 实测：宿主机只装了 `docker.io` 并用手动 `dockerd` 拉起（本机没有 systemd）。容器 `baota-lab` 使用 `ubuntu:22.04`、`--privileged`、默认 bridge 网络，没有 `--network host`。官方安装脚本只在容器内执行，面板装完。
+
+容器内面板版本是 **Linux 面板 13.1.0**（`/www/server/panel/class/common.py` 的 `g.version`），`btpython` 是 Python 3.13.14（`/usr/bin/btpython` → `/www/server/panel/pyenv/bin/python3.13`）。端口文件 `/www/server/panel/data/port.pl` 为 8888。安装脚本在容器里跑 ufw 时把 INPUT 设成 DROP，但 ufw-init 报错，Docker 内置 DNS 的回包被丢掉。这只发生在容器网络里。处理是在容器内把 INPUT 改回 ACCEPT，没有动宿主机防火墙。
+
+## 4. 面板 13.1.0 内部调用（源码已在容器里核对，成功调用见后文）
+
+工作目录必须是 `/www/server/panel`，并把 `class/` 放进 `sys.path`。参数对象是 `public.dict_obj()`，用属性赋值。这些方法走 `public.M()` 读写面板 sqlite，不需要面板 HTTP 会话。`AddSite` 会在站点端口不是 80 时调用 `firewalls().AddAcceptPort`，80 则只检查 80 是否放行。
+
+### 建站 `panelSite.panelSite.AddSite`
+
+先要求 Nginx、Apache 或 OpenLiteSpeed 的二进制已经存在，否则返回「未安装任意 Web 服务」。关键参数：
+
+- `webname`：JSON 字符串，形如 `{"domain":"example.com","domainlist":[],"count":0}`
+- `path`：网站根，例如 `/www/wwwroot/example.com`。目录不存在会创建并 chown 给 `www`
+- `type_id`：`0`
+- `type`：`PHP`
+- `version`：`00` 表示纯静态，且必须出现在 `GetPHPVersion` 的结果里
+- `port`：`80`
+- `ps`：备注
+- `ftp`：`false`（不要顺手建 FTP）
+- `sql`：`false`（数据库单独建，避免和下面的用户策略缠在一起）
+- `ftp_username`、`ftp_password`、`datauser`、`datapassword`：sql/ftp 为 false 时仍要有空字符串，方法会读这些属性
+
+同名站点：代码在 `sites.name` 已存在时把名字改成 `域名_端口` 再插入，不是直接拒绝。一条命令安装不能依赖这个行为。脚本应先查 `public.M('sites').where('name=?', (domain,)).count()`，已存在就停并打印手工说明，不调用 `AddSite`，避免面板再造一个 `域名_80`。
+
+### 建库 `database.database.AddDatabase`
+
+- `name`：库名，小写，`^[\w\.-]+$`，不能是 root/mysql/test/sys/panel_logs
+- `db_user`：用户名，最长 32 字节；5.7/8.0/8.4/9.0/9.7 以外的版本限制 16
+- `password`：不能含中文和一批标点；空则面板自己生成
+- `address`：`127.0.0.1`。空字符串会被当成「指定 IP 但没填」
+- `codeing`：`utf8mb4`（拼写就是 codeing）
+- `ps`：备注
+- `sid`：`0` 表示本机 MySQL
+
+已存在则拒绝：sqlite 里同一 sid 已有该用户名，或 MySQL 里已有该库名（大小写都查）。返回 `status: false`，不会 DROP 重建。调用前再查一次，失败就整步退出，不删已有库。
+
+### 反向代理 `panelSite.panelSite.CreateProxy`
+
+- `sitename`：上面创建的站点名
+- `proxyname`：3 到 40 字节，例如 `auth-pro`
+- `proxydir`：`/` 表示整站
+- `proxysite`：`http://127.0.0.1:<端口>`，必须带协议，且不能含 `?=&` 等字符（所以不要在 URL 里写路径参数）
+- `todomain`：`$host`
+- `type`：`1`（启用）
+- `cache`：`0`
+- `cachetime`：`1`（整数字符串，不能空）
+- `subfilter`：`[]`
+- `advanced`：`0`
+
+同名代理或同一站点已有全局/目录代理时拒绝。`proxydir=/` 时会把 PHP 设成纯静态。生成的配置在 `/www/server/panel/vhost/nginx/proxy/<站点>/`。自定义片段（拦截 `/backend/`、`db.json`、`install.lock` 和 502 页面）不要塞进 `proxysite`。在 `CreateProxy` 成功后用 `nginx -t` 通过再写入站点 server 里的标记块；`nginx -t` 失败就删掉刚加的标记，保留代理本身并打印手工合并说明。
+
+### 证书 `acme_v2.acme_v2.apply_cert_api`
+
+参数：`id`（站点 id）、`auth_type`（`http` 或 `tls` 或 `dns`）、`auth_to`（http 验证时用站点根目录）、`domains`（列表的 JSON 或面板约定的字段）。没有公网解析的域名会在下单或验证阶段返回 `status: false` 和错误文本。本环境没有真实域名，只调用并记录失败返回，不重试，不改已有证书文件。
+
+### 进程守护
+
+面板自带类里没有进程守护管理器。图标是插件 `supervisor`（软件商店「进程守护管理器」）。安装入口是 `panelPlugin.panelPlugin().install_plugin`，参数 `sName=supervisor`，并带商店里的 `version` / `min_version`。插件安装要联网下载。若容器里装不上，降级为 systemd 单元，且只给本站点的 `start.sh`，不改其他服务。systemd 在本容器里不是 PID 1，降级路径只验证单元文件内容，不在容器里 systemctl。
+
+Nginx 使用面板极速安装：`bash install_soft.sh 1 install nginx 1.26`（下载对应系统的预编译包，不是源码编译）。MySQL 同样走 `install_soft.sh 1`。这两步的实测结果追加在下面。
