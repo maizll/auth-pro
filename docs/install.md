@@ -9,7 +9,7 @@ curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com
 网站目录默认是 `/www/wwwroot/example.com`。不写 `--port` 时从 `19127` 起自动找空闲端口。要指定端口或目录：
 
 ```bash
-curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com --port 19128 --site-root /www/wwwroot/example.com
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com --port 19127 --site-root /www/wwwroot/example.com
 ```
 
 命令会创建纯静态站点、只允许本机访问的数据库、反向代理和进程守护，然后在本机完成安装向导。结束时打印网址、管理员账号 `admin`、随机密码、后端端口和数据库信息，并写到一个仅所有者可读的文件，终端里会给出这个文件的路径。
@@ -28,7 +28,24 @@ curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com --no-star
 
 发布包只提供 Linux amd64，文件名是 `auth_pro-full-vX.Y.Z.tar.gz`。包里带有 `baota-install.sh` 和 `baota-upgrade.sh`。
 
-在面板里执行时，同样会自动建站和完成安装向导：
+在面板里执行时，同样会自动建站和完成安装向导。包已经放到网站目录时：
+
+```bash
+cd /www/wwwroot/example.com
+tar -xzf auth_pro-full-vX.Y.Z.tar.gz
+bash baota-install.sh
+```
+
+包放在 `/tmp`、只放文件不启动时：
+
+```bash
+AUTH_PRO_YES=1 AUTH_PRO_START=0 \
+bash baota-install.sh \
+  --site-root /www/wwwroot/example.com \
+  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz
+```
+
+要同时启动并完成向导：
 
 ```bash
 bash baota-install.sh \
