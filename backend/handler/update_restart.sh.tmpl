@@ -39,10 +39,124 @@ finish_job() {
   mv -f "$JOB_RESULT.tmp" "$JOB_RESULT"
 }
 
+# AUTH_PRO_BACKUP_FUNCS_BEGIN
+# 备份放到 /www/backup/auth-pro/<站点>/ 下。没有 /www 或建目录失败时返回非 0，调用方仍用网站旁边的旧路径。
+auth_pro_backup_log() {
+  if [ -n "${LOG_FILE:-}" ]; then
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG_FILE" 2>/dev/null || true
+  fi
+}
+
+auth_pro_backup_root() {
+  if [ ! -d /www ]; then
+    return 1
+  fi
+  site_name=$(basename "$FRONTEND_CURRENT")
+  case "$site_name" in
+    ""|.|..) return 1 ;;
+  esac
+  root="/www/backup/auth-pro/$site_name"
+  if ! mkdir -p "$root" 2>/dev/null; then
+    auth_pro_backup_log "无法创建 $root ，备份仍放在网站目录旁边，更新继续"
+    return 1
+  fi
+  printf '%s\n' "$root"
+}
+
+auth_pro_move_backup() {
+  src="$1"
+  dest_dir="$2"
+  if [ ! -e "$src" ]; then
+    return 0
+  fi
+  base=$(basename "$src")
+  if ! mkdir -p "$dest_dir" 2>/dev/null; then
+    auth_pro_backup_log "无法创建 $dest_dir ，已保留 $src"
+    return 1
+  fi
+  if ! mv "$src" "$dest_dir/$base"; then
+    auth_pro_backup_log "旧备份移动失败，未删除：$src"
+    return 1
+  fi
+  auth_pro_backup_log "已迁移旧备份 $src -> $dest_dir/$base"
+}
+
+# 只迁移本站点严格匹配的旧目录。其它站点的备份不动。移动失败不删除。
+auth_pro_migrate_old_backups() {
+  root=$(auth_pro_backup_root) || return 0
+  site_name=$(basename "$FRONTEND_CURRENT")
+  parent=$(dirname "$FRONTEND_CURRENT")
+  mkdir -p "$root/overlay" "$root/rename" "$root/upgrade" 2>/dev/null || {
+    auth_pro_backup_log "无法创建备份子目录，跳过旧备份迁移，更新继续"
+    return 0
+  }
+  digits="[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]"
+  for old in "$parent/$site_name.overlay-backup."$digits; do
+    if [ -e "$old" ]; then
+      auth_pro_move_backup "$old" "$root/overlay" || true
+    fi
+  done
+  for old in "$parent/$site_name.backup."$digits; do
+    if [ -e "$old" ]; then
+      auth_pro_move_backup "$old" "$root/rename" || true
+    fi
+  done
+  data_backups="$DATA_DIR/updates/backups"
+  if [ -d "$data_backups" ]; then
+    for old in "$data_backups"/baota-upgrade-*; do
+      if [ -d "$old" ]; then
+        auth_pro_move_backup "$old" "$root/upgrade" || true
+      fi
+    done
+  fi
+  return 0
+}
+
+auth_pro_prune_paths() {
+  ls -1dt "$@" 2>/dev/null | awk 'NR>3' | while read -r old; do
+    if [ -n "$old" ] && [ -e "$old" ]; then
+      rm -rf "$old"
+    fi
+  done
+  return 0
+}
+
+# 只在更新已经健康成功之后调用。每类只留最近 3 份。
+auth_pro_prune_backups() {
+  site_name=$(basename "$FRONTEND_CURRENT")
+  parent=$(dirname "$FRONTEND_CURRENT")
+  if root=$(auth_pro_backup_root); then
+    auth_pro_prune_paths "$root/overlay"/* || true
+    auth_pro_prune_paths "$root/rename"/* || true
+    auth_pro_prune_paths "$root/upgrade"/* || true
+  fi
+  auth_pro_prune_paths "$parent/$site_name".overlay-backup.* || true
+  auth_pro_prune_paths "$parent/$site_name".backup.* || true
+  if [ -d "$DATA_DIR/updates/backups" ]; then
+    auth_pro_prune_paths "$DATA_DIR/updates/backups"/baota-upgrade-* || true
+  fi
+  return 0
+}
+
+auth_pro_frontend_backup() {
+  kind="$1"
+  suffix="$2"
+  if root=$(auth_pro_backup_root); then
+    if mkdir -p "$root/$kind" 2>/dev/null; then
+      printf '%s\n' "$root/$kind/$(basename "$FRONTEND_CURRENT").$suffix.$TS"
+      return 0
+    fi
+    auth_pro_backup_log "无法创建 $root/$kind ，备份仍放在网站目录旁边"
+  fi
+  printf '%s\n' "$FRONTEND_CURRENT.$suffix.$TS"
+}
+# AUTH_PRO_BACKUP_FUNCS_END
+
 if [ "$FRONTEND_ONLY" != "1" ]; then
   sleep 2
 fi
 TS=$(date '+%Y%m%d%H%M%S')
+auth_pro_migrate_old_backups || true
 
 FRONTEND_MODE=""
 PREV_FRONTEND_TARGET=""
@@ -79,7 +193,7 @@ if [ "$OVERLAY" = "1" ]; then
   # 宝塔网站根同时放着页面和 backend/。不能把整个网站根改名，否则运行中的程序和数据目录会一起被搬走。
   FRONTEND_MODE="overlay"
   STAGING="${FRONTEND_CURRENT}.staging.$TS"
-  FRONTEND_BACKUP="${FRONTEND_CURRENT}.overlay-backup.$TS"
+  FRONTEND_BACKUP=$(auth_pro_frontend_backup overlay overlay-backup)
   rm -rf "$STAGING"
   cp -a "$FRONTEND_SOURCE" "$STAGING" || {
     rm -rf "$STAGING"
@@ -147,7 +261,7 @@ elif [ -L "$FRONTEND_CURRENT" ] || [ "$(basename "$FRONTEND_CURRENT")" = "curren
 else
   FRONTEND_MODE="rename"
   STAGING="${FRONTEND_CURRENT}.staging.$TS"
-  FRONTEND_BACKUP="${FRONTEND_CURRENT}.backup.$TS"
+  FRONTEND_BACKUP=$(auth_pro_frontend_backup rename backup)
   rm -rf "$STAGING"
   cp -a "$FRONTEND_SOURCE" "$STAGING" || {
     rm -rf "$STAGING"
@@ -180,6 +294,7 @@ fi
 if [ "$FRONTEND_ONLY" = "1" ]; then
   log "frontend switch completed"
   finish_job success
+  auth_pro_prune_backups || true
   exit 0
 fi
 
@@ -564,6 +679,7 @@ write_pending_handoff() {
     printf 'OVERLAY_PLACED=%s\n' "$(sq "$OVERLAY_PLACED")"
     printf 'TS=%s\n' "$(sq "$TS")"
   } > "$pending/handoff.sh" || return 1
+  sed -n '/^# AUTH_PRO_BACKUP_FUNCS_BEGIN$/,/^# AUTH_PRO_BACKUP_FUNCS_END$/p' "$0" >> "$pending/handoff.sh" || return 1
   cat >> "$pending/handoff.sh" <<'HANDOFF_FUNCS'
 log_handoff() {
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG_FILE"
@@ -672,6 +788,7 @@ handoff_mark_success() {
   ls -1t "$APP_BIN".backup.* 2>/dev/null | awk 'NR>3' | while read -r old; do
     rm -f "$old"
   done || true
+  auth_pro_prune_backups || true
   rm -rf "$PENDING_DIR"
 }
 
@@ -859,6 +976,7 @@ fi
 if health_version "$VERSION"; then
   log "update to $VERSION succeeded"
   finish_job success
+  auth_pro_prune_backups || true
   exit 0
 fi
 rollback_failed_update

@@ -54,7 +54,7 @@ make_payload() {
   printf 'asset-%s\n' "$marker" > "$dir/assets/app.js"
   printf 'binary-%s\n' "$marker" > "$dir/backend/auth_pro"
   chmod 644 "$dir/backend/auth_pro"
-  cp "$INSTALL" "$UPGRADE" "$LIB" "$dir/"
+  cp "$INSTALL" "$UPGRADE" "$LIB" "$ROOT/scripts/baota-panel.py" "$dir/"
 }
 
 pack_payload() {
@@ -95,6 +95,7 @@ grep -q 'baota-install.sh' "$ROOT/scripts/build-release.sh" || fail "build-relea
 grep -q 'baota-upgrade.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制升级脚本"
 grep -q 'baota-lib.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制共用脚本"
 grep -F -q 'baota-lib.sh install.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制一条命令安装脚本"
+grep -F -q 'baota-panel.py' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制面板辅助脚本"
 grep -q 'baota-install.sh' "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未复制安装脚本"
 grep -q 'baota-upgrade.sh' "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未复制升级脚本"
 grep -F -q "'install.sh'" "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未复制一条命令安装脚本"
@@ -692,13 +693,16 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   fi
   sleep 0.1
 done
-bash "$GOOD_COPY" demo.example --site-root "$REMOTE_SITE" --port "$PORT" >"$WORKDIR/remote-install.out"
-[[ -x "$REMOTE_SITE/backend/start.sh" ]] || fail "一条命令安装没有生成 start.sh"
-grep -q 'http://demo.example' "$WORKDIR/remote-install.out" || fail "没有打印要打开的网址"
-grep -q '还要在宝塔面板里完成' "$WORKDIR/remote-install.out" || fail "没有打印剩余手工步骤"
-grep -q 'remote' "$REMOTE_SITE/index.html" || fail "一条命令安装没有放入页面"
-ok "一条命令安装：下载、核对、创建目录"
+if bash "$GOOD_COPY" demo.example --site-root "$REMOTE_SITE" --port "$PORT" >"$WORKDIR/remote-install.out" 2>"$WORKDIR/remote-install.err"; then
+  fail "没有宝塔面板时一条命令安装不应继续建站"
+fi
+grep -q '正在核对 SHA256' "$WORKDIR/remote-install.out" || fail "没有在拒绝前核对安装包"
+grep -q '软件商店' "$WORKDIR/remote-install.err" || fail "没有面板时没有提示先在软件商店安装 Nginx 和 MySQL"
+[[ ! -e "$REMOTE_SITE/backend/auth_pro" ]] || fail "没有面板时仍写入了站点"
+ok "一条命令安装：核对后因没有面板而停止"
 
+mkdir -p "$REMOTE_SITE/backend"
+printf 'keep-page\n' > "$REMOTE_SITE/index.html"
 SUM_BEFORE="$(sha256sum "$REMOTE_SITE/index.html" | awk '{print $1}')"
 printf 'installed\n' > "$REMOTE_SITE/backend/install.lock"
 if bash "$GOOD_COPY" demo.example --site-root "$REMOTE_SITE" --port "$PORT" >"$WORKDIR/remote-locked.out" 2>"$WORKDIR/remote-locked.err"; then
@@ -727,5 +731,49 @@ fi
 grep -q 'SHA256 不一致' "$WORKDIR/bad-hash.err" || fail "SHA256 不一致时没有拒绝"
 [[ ! -e "$BAD_SITE/backend/auth_pro" ]] || fail "校验失败后仍写入了站点"
 ok "安装包 SHA256 不一致时停止"
+
+# 备份迁移只认本站点的严格文件名。移动失败不能靠删除交差，这里用不可写目标验证源还在。
+bash -c '
+set -euo pipefail
+SCRIPT_DIR="$1"
+source "$SCRIPT_DIR/baota-lib.sh"
+tmp=$(mktemp -d)
+site="$tmp/wwwroot/demo.example"
+mkdir -p "$site/backend/updates/backups/baota-upgrade-old"
+mkdir -p "$site/backend/updates/backups/baota-install-keep"
+mkdir -p "$tmp/wwwroot/demo.example.backup.20260101120000"
+mkdir -p "$tmp/wwwroot/demo.example.overlay-backup.20260101120001"
+mkdir -p "$tmp/wwwroot/demo.example.backup.notes"
+mkdir -p "$tmp/wwwroot/other.example.backup.20260101120002"
+printf kept > "$tmp/wwwroot/demo.example.backup.20260101120000/marker"
+dest="$tmp/central"
+baota_migrate_matching_backups "$site" "$dest"
+[[ -d "$dest/rename/demo.example.backup.20260101120000" ]]
+[[ -f "$dest/rename/demo.example.backup.20260101120000/marker" ]]
+[[ -d "$dest/overlay/demo.example.overlay-backup.20260101120001" ]]
+[[ -d "$dest/upgrade/baota-upgrade-old" ]]
+[[ -d "$tmp/wwwroot/demo.example.backup.notes" ]]
+[[ -d "$tmp/wwwroot/other.example.backup.20260101120002" ]]
+[[ -d "$site/backend/updates/backups/baota-install-keep" ]]
+[[ ! -d "$tmp/wwwroot/demo.example.backup.20260101120000" ]]
+mkdir -p "$dest/upgrade/a" "$dest/upgrade/b" "$dest/upgrade/c" "$dest/upgrade/d"
+touch -d "2026-01-01 00:00:01" "$dest/upgrade/a"
+touch -d "2026-01-01 00:00:02" "$dest/upgrade/b"
+touch -d "2026-01-01 00:00:03" "$dest/upgrade/c"
+touch -d "2026-01-01 00:00:04" "$dest/upgrade/d"
+baota_prune_backup_dir "$dest/upgrade" 3
+count=$(find "$dest/upgrade" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d " ")
+[[ "$count" == "3" ]]
+[[ ! -d "$dest/upgrade/a" ]]
+[[ -d "$dest/upgrade/d" ]]
+printf x > "$tmp/notdir"
+if baota_move_backup "$tmp/wwwroot/other.example.backup.20260101120002" "$tmp/notdir/nope"; then
+  echo "目标父路径不是目录时移动不应该成功" >&2
+  exit 1
+fi
+[[ -d "$tmp/wwwroot/other.example.backup.20260101120002" ]]
+rm -rf "$tmp"
+' bash "$ROOT/scripts"
+ok "旧备份只迁移本站点，失败时不删除，每类可只留 3 份"
 
 printf '\n自检完成。宝塔进程守护拉起和真实 Nginx reload 仍需要在面板或本机 nginx 上再确认。\n'

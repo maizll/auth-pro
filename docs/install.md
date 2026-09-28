@@ -1,53 +1,49 @@
 # 安装部署
 
-在宝塔终端粘贴下面这一条即可安装。把 `example.com` 换成站点域名。脚本从官网下载已发布的安装包，核对 SHA256 和签名后再安装。下载不需要登录，也不需要令牌。
+在已经安装宝塔面板，并且软件商店里已经安装 Nginx 和 MySQL 的服务器上，把下面这一条粘贴到宝塔终端。把 `example.com` 换成站点域名。脚本从官网下载已发布的安装包，核对 SHA256 和签名后再安装。下载不需要登录，也不需要令牌。脚本不会替你安装 MySQL。
 
 ```bash
 curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com
 ```
 
-网站目录默认是 `/www/wwwroot/example.com`。目录不存在时会自动创建。要指定端口或目录：
+网站目录默认是 `/www/wwwroot/example.com`。不写 `--port` 时从 `19127` 起自动找空闲端口。要指定端口或目录：
 
 ```bash
-curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com --port 19127 --site-root /www/wwwroot/example.com
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com --port 19128 --site-root /www/wwwroot/example.com
 ```
 
-已经有 `backend/install.lock` 时，命令会停下来并提示改用升级，不会覆盖现有站点。
+命令会创建纯静态站点、只允许本机访问的数据库、反向代理和进程守护，然后在本机完成安装向导。结束时打印网址、管理员账号 `admin`、随机密码、后端端口和数据库信息，并写到一个仅所有者可读的文件，终端里会给出这个文件的路径。
 
-宝塔的 `bt` 命令是面板菜单，没有稳定的建站参数。面板 API 默认关闭，还要单独打开密钥和 IP 白名单；建站、空库、反向代理和证书在不同面板版本上也不一样。脚本因此不调用这些接口。装完后请在面板里完成：
+已经有同名站点、非空网站目录或同名数据库时，命令会停下来，不会覆盖或删除原有内容。已经有 `backend/install.lock` 时同样停下来，请改用升级。
 
-1. 创建网站，根目录与上面的网站目录相同
-2. 创建一个空的 MySQL 数据库。数据库密码在浏览器安装向导里填写，不要写进命令
-3. 站点反向代理到 `127.0.0.1:19127`（改过端口就用那个端口），并把 `backend/baota-nginx.snippet.conf` 里的 location 放进站点配置
-4. 需要 HTTPS 时在面板申请证书
-5. 进程守护的启动命令是网站根下的 `backend/start.sh`，运行目录是 `backend/`。说明在 `backend/baota-guardian.txt`
+证书申请失败时站点保持 HTTP，终端会提示之后在面板里申请。进程守护没有装上时，终端会打印只包含本站点的 systemd 单元。
 
-然后用浏览器打开站点域名。还没有安装锁时会进入安装向导：填写事先建好的空 MySQL，初始化数据表，创建超级管理员。
+只要放文件、先不启动、也不创建管理员：
+
+```bash
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com --no-start
+```
 
 ## 已经拿到发布包
 
 发布包只提供 Linux amd64，文件名是 `auth_pro-full-vX.Y.Z.tar.gz`。包里带有 `baota-install.sh` 和 `baota-upgrade.sh`。
 
-```bash
-cd /www/wwwroot/example.com
-tar -xzf auth_pro-full-vX.Y.Z.tar.gz
-bash baota-install.sh
-```
-
-不想中途确认、安装包留在 `/tmp`、装完先不启动，可以这样：
+在面板里执行时，同样会自动建站和完成安装向导：
 
 ```bash
-AUTH_PRO_YES=1 AUTH_PRO_START=0 \
 bash baota-install.sh \
+  --yes \
   --site-root /www/wwwroot/example.com \
   --package /tmp/auth_pro-full-vX.Y.Z.tar.gz
 ```
+
+没有宝塔面板时，这个脚本只把文件放到网站目录，并说明还要在面板里做的步骤。
 
 网站目录里已经有 `backend/install.lock` 时，安装脚本会拒绝执行，请改用下面的升级。
 
 ## 升级
 
-不要把新压缩包直接解压覆盖正在运行的站点。把包留在 `/tmp`，运行新版本包里的 `baota-upgrade.sh`，不要用站点上旧的脚本。
+不要把新压缩包直接解压覆盖正在运行的站点。把包留在 `/tmp`，运行新版本包里的 `baota-upgrade.sh`，不要用站点上旧的脚本。升级会沿用原来的端口，不会重新找端口。
 
 ```bash
 bash baota-upgrade.sh \
@@ -58,7 +54,7 @@ bash baota-upgrade.sh \
 
 进程已经由宝塔进程守护或 systemd 托管时，把上面的 `--no-start` 换成 `--start`。脚本不会去停守护，而是替换文件后只结束本站进程，由守护按 `start.sh` 拉起。守护还开着时，`--no-start` 会拒绝执行，请先在面板里停止守护。
 
-守护的启动命令是网站根下的 `backend/start.sh`，运行目录是 `backend/`。
+新的升级备份写到 `/www/backup/auth-pro/example.com/upgrade/`。健康检查通过后，每一类备份只保留最近 3 份。机器上没有 `/www` 时，备份仍放在原来的数据目录里。
 
 ## 在线更新
 
@@ -72,4 +68,4 @@ https://auth.maizll.com/api/v1/update/latest.json
 
 后台不显示仓库地址，也不能手填更新地址。
 
-安装包会核对 SHA256 和签名。更新失败时会尝试把页面和程序换回备份。
+安装包会核对 SHA256 和签名。更新失败时会尝试把页面和程序换回备份。健康检查成功之后，才删除超出 3 份的旧备份。

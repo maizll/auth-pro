@@ -286,9 +286,17 @@ baota_tar_entry_safe() {
 
 baota_assert_tar_safe() {
   local pkg="$1" name
+  # 用 Python 读成员名。tar 在非 UTF-8 语言环境下会把中文文件名转义成带反斜杠的八进制，
+  # 误伤正常的前端资源。拒绝规则仍是绝对路径、.. 和反斜杠。
   while IFS= read -r name; do
     baota_tar_entry_safe "$name"
-  done < <(tar -tzf "$pkg")
+  done < <(python3 -c '
+import sys
+import tarfile
+with tarfile.open(sys.argv[1], "r:gz") as tar:
+    for name in tar.getnames():
+        sys.stdout.write(name.replace("\r", "") + "\n")
+' "$pkg")
 }
 
 baota_assert_payload() {
@@ -641,11 +649,247 @@ baota_ensure_port_available() {
   baota_stop_and_reclaim "$1" "$2"
 }
 
+# 面板自带解释器。系统 python 没有面板的类路径，不能拿来建站。
+baota_panel_python() {
+  if [[ -x /www/server/panel/pyenv/bin/python3 ]]; then
+    printf '%s\n' /www/server/panel/pyenv/bin/python3
+    return 0
+  fi
+  if command -v btpython >/dev/null 2>&1; then
+    command -v btpython
+    return 0
+  fi
+  return 1
+}
+
+baota_panel_script() {
+  if [[ -n "${BAOTA_PAYLOAD:-}" && -f "$BAOTA_PAYLOAD/baota-panel.py" ]]; then
+    printf '%s\n' "$BAOTA_PAYLOAD/baota-panel.py"
+    return 0
+  fi
+  if [[ -f "$SCRIPT_DIR/baota-panel.py" ]]; then
+    printf '%s\n' "$SCRIPT_DIR/baota-panel.py"
+    return 0
+  fi
+  return 1
+}
+
+# 面板目录、解释器和辅助脚本都在时才走自动建站。缺一则由调用方决定是退出还是只放文件。
+baota_panel_available() {
+  [[ -d /www/server/panel ]] || return 1
+  baota_panel_python >/dev/null || return 1
+  baota_panel_script >/dev/null || return 1
+}
+
+# 标准输出只有 AUTH_PRO_* 键值。中文说明由辅助脚本写到标准错误，会直接显示给操作者。
+# 非 0 表示这一步失败，调用方负责撤掉本次新建的资源。
+baota_panel_run() {
+  local py script
+  py="$(baota_panel_python)" || baota_die "找不到宝塔面板的 Python（btpython）。请确认面板已安装。"
+  script="$(baota_panel_script)" || baota_die "缺少 baota-panel.py。请使用当前版本的安装包。"
+  "$py" "$script" "$@"
+}
+
+baota_site_domain() {
+  local name="${AUTH_PRO_PUBLIC_HOST:-}"
+  if [[ -z "$name" ]]; then
+    name="$(basename "$BAOTA_SITE_ROOT")"
+  fi
+  printf '%s' "$name" | tr '[:upper:]' '[:lower:]'
+}
+
+# 其它 auth-pro 站点写在 baota.env 里的端口。没有 /www/wwwroot 时不输出，也不报错。
+baota_reserved_ports() {
+  local envfile port
+  [[ -d /www/wwwroot ]] || return 0
+  while IFS= read -r envfile; do
+    [[ -f "$envfile" ]] || continue
+    port="$(sed -n 's/^PORT=//p' "$envfile" | head -n 1)"
+    if [[ "$port" =~ ^[0-9]+$ ]]; then
+      printf '%s\n' "$port"
+    fi
+  done < <(find /www/wwwroot -path '*/backend/baota.env' -type f 2>/dev/null)
+}
+
+baota_port_reserved() {
+  local port="$1" known
+  known="$(baota_reserved_ports)"
+  [[ -n "$known" ]] || return 1
+  printf '%s\n' "$known" | grep -qx "$port"
+}
+
+# 全新安装选端口。显式 --port 被占用就退出，不结束占用进程。
+# 未指定时从 19127 找到 19227，跳过正在监听的端口和已有 auth-pro 配置里的端口。
+# 结果写到 BAOTA_SELECTED_PORT。不要用命令替换接这个函数：查找过程的提示也在标准输出。
+baota_select_install_port() {
+  local data port candidate
+  data="$(baota_data_dir)"
+  if [[ "$BAOTA_PORT_SET" == "1" ]]; then
+    port="$BAOTA_PORT"
+    baota_assert_port_number "$port"
+    if baota_port_is_open "$port" || baota_port_reserved "$port"; then
+      baota_die "端口 ${port} 已被占用，或已写在其它 auth-pro 的配置里。已停止。请换一个端口。本次没有新建站点或数据库。"
+    fi
+    BAOTA_SELECTED_PORT="$port"
+    return 0
+  fi
+  if [[ -f "$data/baota.env" ]]; then
+    port="$(sed -n 's/^PORT=//p' "$data/baota.env" | head -n 1)"
+    if [[ -n "$port" ]]; then
+      baota_assert_port_number "$port"
+      BAOTA_SELECTED_PORT="$port"
+      return 0
+    fi
+  fi
+  for candidate in $(seq 19127 19227); do
+    if baota_port_is_open "$candidate" || baota_port_reserved "$candidate"; then
+      baota_info "端口 ${candidate} 不可用，继续查找"
+      continue
+    fi
+    BAOTA_PORT="$candidate"
+    BAOTA_PORT_SET=1
+    BAOTA_SELECTED_PORT="$candidate"
+    return 0
+  done
+  baota_die "从 19127 到 19227 没有空闲端口。已停止。本次没有新建站点或数据库。"
+}
+
+# kind=lower 只生成小写，给数据库名用；kind=mixed 给密码用。长度含第一个字符。
+baota_random_alnum() {
+  python3 - "$1" "$2" <<'PY'
+import secrets
+import string
+import sys
+length = int(sys.argv[1])
+kind = sys.argv[2]
+if kind == "lower":
+    alphabet = string.ascii_lowercase + string.digits
+    first = string.ascii_lowercase
+else:
+    alphabet = string.ascii_letters + string.digits
+    first = string.ascii_letters
+sys.stdout.write(secrets.choice(first) + "".join(secrets.choice(alphabet) for _ in range(length - 1)))
+PY
+}
+
+# 中央备份目录。没有 /www，或目录建不出来时返回非 0，调用方改回原来的路径，更新不能因此中断。
+baota_central_backup_root() {
+  local name root
+  [[ -d /www ]] || return 1
+  name="$(basename "$BAOTA_SITE_ROOT")"
+  [[ -n "$name" && "$name" != "." && "$name" != ".." ]] || return 1
+  root="/www/backup/auth-pro/${name}"
+  if ! mkdir -p "$root" 2>/dev/null; then
+    baota_warn "无法创建 ${root}，备份仍放在原来的位置，更新继续"
+    return 1
+  fi
+  printf '%s\n' "$root"
+}
+
+# 把一个旧备份移到目标目录。失败只打印说明，不删除源目录。
+baota_move_backup() {
+  local src="$1" dest_dir="$2" base
+  [[ -e "$src" ]] || return 0
+  base="$(basename "$src")"
+  if ! mkdir -p "$dest_dir" 2>/dev/null; then
+    baota_warn "无法创建 ${dest_dir}，已保留 ${src}"
+    return 1
+  fi
+  if ! mv "$src" "$dest_dir/$base"; then
+    baota_warn "旧备份移动失败，未删除：${src}"
+    return 1
+  fi
+  baota_info "已迁移旧备份：${src} -> ${dest_dir}/${base}"
+}
+
+# 只迁移名字严格匹配本站点的旧备份。其它站点的目录原样留下。
+# 匹配：<父目录>/<站点>.backup.<14位时间>、<站点>.overlay-backup.<14位时间>，
+# 以及本站 backend/updates/backups/baota-upgrade-*。
+baota_migrate_matching_backups() {
+  local site_root="$1" dest_root="$2" site_name parent old digits
+  site_name="$(basename "$site_root")"
+  parent="$(dirname "$site_root")"
+  digits='[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
+  shopt -s nullglob
+  for old in "$parent/${site_name}.overlay-backup."$digits; do
+    baota_move_backup "$old" "$dest_root/overlay" || true
+  done
+  for old in "$parent/${site_name}.backup."$digits; do
+    baota_move_backup "$old" "$dest_root/rename" || true
+  done
+  if [[ -d "$site_root/backend/updates/backups" ]]; then
+    for old in "$site_root/backend/updates/backups"/baota-upgrade-*; do
+      [[ -d "$old" ]] || continue
+      baota_move_backup "$old" "$dest_root/upgrade" || true
+    done
+  fi
+  shopt -u nullglob
+}
+
+baota_migrate_old_backups() {
+  local root
+  root="$(baota_central_backup_root)" || return 0
+  baota_migrate_matching_backups "$BAOTA_SITE_ROOT" "$root" || true
+}
+
+# 目录里按修改时间只留最近 keep 份，多出来的删掉。目录不存在就跳过。
+baota_prune_backup_dir() {
+  local dir="$1" keep="${2:-3}" path i=0
+  [[ -d "$dir" ]] || return 0
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    i=$((i + 1))
+    if [[ "$i" -gt "$keep" ]]; then
+      rm -rf "$path"
+    fi
+  done < <(ls -1dt "$dir"/* 2>/dev/null || true)
+}
+
+# 健康检查已经成功才调用。失败的更新要留着刚做的那份备份。
+baota_prune_after_health() {
+  local root data
+  if root="$(baota_central_backup_root)"; then
+    baota_prune_backup_dir "$root/overlay"
+    baota_prune_backup_dir "$root/rename"
+    baota_prune_backup_dir "$root/upgrade"
+    baota_prune_backup_dir "$root/install"
+  fi
+  data="$(baota_data_dir)/updates/backups"
+  [[ -d "$data" ]] || return 0
+  baota_prune_backup_dir_glob "$data/baota-upgrade-"*
+  baota_prune_backup_dir_glob "$data/baota-install-"*
+}
+
+baota_prune_backup_dir_glob() {
+  local keep=3 path i=0
+  while IFS= read -r path; do
+    [[ -n "$path" && -e "$path" ]] || continue
+    i=$((i + 1))
+    if [[ "$i" -gt "$keep" ]]; then
+      rm -rf "$path"
+    fi
+  done < <(ls -1dt "$@" 2>/dev/null || true)
+}
+
 baota_prepare_backup_dir() {
-  local data ts
+  local data ts root kind
   data="$(baota_data_dir)"
   ts="$(date '+%Y%m%d%H%M%S')"
-  BAOTA_BACKUP_DIR="${data}/updates/backups/baota-${BAOTA_ACTION}-${ts}-$$"
+  BAOTA_BACKUP_DIR=""
+  if [[ "$BAOTA_DRY_RUN" != "1" ]] && root="$(baota_central_backup_root)"; then
+    case "$BAOTA_ACTION" in
+      upgrade) kind="upgrade" ;;
+      *) kind="install" ;;
+    esac
+    if mkdir -p "$root/$kind" 2>/dev/null; then
+      BAOTA_BACKUP_DIR="${root}/${kind}/baota-${BAOTA_ACTION}-${ts}-$$"
+    else
+      baota_warn "无法创建 ${root}/${kind}，备份仍放在数据目录"
+    fi
+  fi
+  if [[ -z "$BAOTA_BACKUP_DIR" ]]; then
+    BAOTA_BACKUP_DIR="${data}/updates/backups/baota-${BAOTA_ACTION}-${ts}-$$"
+  fi
   if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
     baota_info "将创建备份：$BAOTA_BACKUP_DIR"
     return 0
@@ -696,6 +940,8 @@ baota_backup_program_file() {
     baota_info "将备份程序文件：$src"
     return 0
   fi
+  # 面板刚建好的默认页会在放文件时被换掉。没有备份目录时直接替换，避免 mkdir 空路径。
+  [[ -n "$BAOTA_BACKUP_DIR" ]] || return 0
   mkdir -p "$BAOTA_BACKUP_DIR"
   cp -a "$src" "$BAOTA_BACKUP_DIR/$name"
 }
@@ -821,9 +1067,13 @@ baota_replace_assets() {
   rm -rf "$BAOTA_STAGING_ASSETS"
   cp -a "$src" "$BAOTA_STAGING_ASSETS"
   if [[ -d "$dest" ]]; then
-    mkdir -p "$BAOTA_BACKUP_DIR"
-    rm -rf "$BAOTA_BACKUP_DIR/assets"
-    mv "$dest" "$BAOTA_BACKUP_DIR/assets"
+    if [[ -n "$BAOTA_BACKUP_DIR" ]]; then
+      mkdir -p "$BAOTA_BACKUP_DIR"
+      rm -rf "$BAOTA_BACKUP_DIR/assets"
+      mv "$dest" "$BAOTA_BACKUP_DIR/assets"
+    else
+      rm -rf "$dest"
+    fi
   fi
   if ! mv "$BAOTA_STAGING_ASSETS" "$dest"; then
     if [[ -d "$BAOTA_BACKUP_DIR/assets" && ! -e "$dest" ]]; then
@@ -847,7 +1097,7 @@ baota_install_binary() {
     return 0
   fi
   mkdir -p "$BAOTA_SITE_ROOT/backend"
-  if [[ -f "$dest" ]]; then
+  if [[ -f "$dest" && -n "$BAOTA_BACKUP_DIR" ]]; then
     mkdir -p "$BAOTA_BACKUP_DIR"
     cp -a "$dest" "$BAOTA_BACKUP_DIR/auth_pro.prev"
   fi
@@ -1093,7 +1343,8 @@ baota_configure_nginx_error_page() {
     [[ -d "$dir" ]] || continue
     while IFS= read -r conf; do
       [[ -f "$conf" ]] || continue
-      if ! grep -Fq "$site" "$conf" && ! grep -Fq "127.0.0.1:${port}" "$conf" && ! grep -Fq "localhost:${port}" "$conf"; then
+      # 只改引用本站目录的配置。不能按端口去改，否则同机其它站点反代到同一端口时会被写到。
+      if ! grep -Fq "$site" "$conf"; then
         continue
       fi
       found=1
@@ -1217,7 +1468,10 @@ baota_apply_payload() {
   baota_write_start_script
   baota_write_nginx_snippet
   baota_write_guardian_note
-  baota_configure_nginx_error_page
+  # 面板自动安装会在反代之后写入同一份片段。这里再改一次会和反代的 location 重复，nginx -t 会失败。
+  if [[ "${BAOTA_PANEL_INSTALL:-}" != "1" ]]; then
+    baota_configure_nginx_error_page
+  fi
 }
 
 baota_tighten_secrets() {
@@ -1340,6 +1594,15 @@ baota_print_manual_steps() {
   data="$(baota_data_dir)"
   port="$(baota_effective_port)"
   host="${AUTH_PRO_PUBLIC_HOST:-}"
+  if [[ -f "$data/install.lock" ]]; then
+    cat <<EOF
+
+升级已完成。站点仍使用原来的网站、数据库和反向代理。
+后端端口：${port}
+运行数据目录：${data}
+EOF
+    return 0
+  fi
   if [[ -n "$host" ]]; then
     cat <<EOF
 
@@ -1365,8 +1628,287 @@ EOF
 EOF
 }
 
+# 只撤本次新建的站点和库。没有标记的目录不会删。失败时打印手工步骤。
+baota_oneclick_rollback() {
+  local domain="$1"
+  [[ -n "$domain" ]] || return 0
+  if [[ "$BAOTA_CREATED_SITE" != "1" && "$BAOTA_CREATED_DB" != "1" ]]; then
+    return 0
+  fi
+  baota_warn "正在撤掉本次新建的站点或数据库，不会动其它站点"
+  local args=(rollback --domain "$domain" --path "$BAOTA_SITE_ROOT")
+  if [[ "$BAOTA_CREATED_SITE" == "1" ]]; then
+    args+=(--remove-site)
+  fi
+  if [[ "$BAOTA_CREATED_DB" == "1" && -n "$BAOTA_DB_NAME" ]]; then
+    args+=(--remove-db --db-name "$BAOTA_DB_NAME")
+  fi
+  BAOTA_CREATED_SITE=0
+  BAOTA_CREATED_DB=0
+  baota_panel_run "${args[@]}" || baota_warn "自动回滚没有全部完成。请按上面的手工说明处理，不要删除其它站点或数据库。"
+}
+
+baota_oneclick_exit() {
+  local code=$?
+  if [[ "$code" -ne 0 && "${BAOTA_ONECLICK_ROLLBACK:-}" == "1" ]]; then
+    BAOTA_ONECLICK_ROLLBACK=0
+    baota_oneclick_rollback "${BAOTA_ONECLICK_DOMAIN:-}" || true
+  fi
+  baota_cleanup
+}
+
+# 向导接口不带 Origin。返回 0 表示 code=200，2 表示已有数据被拒绝，1 表示其它失败。
+baota_post_install() {
+  local port="$1" path="$2" body="$3" tmp http code
+  tmp="$(mktemp)"
+  http="$(curl -sS --max-time 90 -o "$tmp" -w '%{http_code}' \
+    -H 'Content-Type: application/json' \
+    --data-binary "$body" \
+    "http://127.0.0.1:${port}${path}" || true)"
+  code="$(python3 -c 'import json,sys
+try:
+    print(json.load(open(sys.argv[1], encoding="utf-8")).get("code", ""))
+except Exception:
+    print("")
+' "$tmp")"
+  baota_info "接口 ${path} 返回 HTTP ${http} code ${code}"
+  if [[ "$code" == "403" || "$http" == "403" ]]; then
+    rm -f "$tmp"
+    return 2
+  fi
+  if [[ "$code" != "200" ]]; then
+    cat "$tmp" >&2 || true
+    rm -f "$tmp"
+    return 1
+  fi
+  rm -f "$tmp"
+  return 0
+}
+
+baota_wizard_body() {
+  DB_NAME="$1" DB_USER="$2" DB_PASS="$3" ADMIN_USER="${4:-}" ADMIN_PASS="${5:-}" python3 - <<'PY'
+import json
+import os
+body = {
+    "host": "127.0.0.1",
+    "port": "3306",
+    "database": os.environ["DB_NAME"],
+    "username": os.environ["DB_USER"],
+    "password": os.environ["DB_PASS"],
+}
+if os.environ.get("ADMIN_USER"):
+    body["adminUsername"] = os.environ["ADMIN_USER"]
+    body["adminPassword"] = os.environ["ADMIN_PASS"]
+print(json.dumps(body, ensure_ascii=False))
+PY
+}
+
+# 后端已经健康才调用。有锁或库里已有业务数据就跳过，不覆盖管理员。
+# 成功时打印网址、账号和数据库，并写到仅 root 可读的文件。
+baota_run_wizard() {
+  local domain="$1" port="$2" db_name="$3" db_user="$4" db_pass="$5" scheme="${6:-http}"
+  local data body admin_pass dest status
+  data="$(baota_data_dir)"
+  if [[ -f "$data/install.lock" ]]; then
+    baota_info "已有 install.lock，跳过安装向导，不覆盖管理员和业务数据。"
+    return 0
+  fi
+  status="$(baota_health_body "http://127.0.0.1:${port}/api/install/status")"
+  if printf '%s' "$status" | grep -q '"installed":true'; then
+    baota_info "站点已经安装，跳过安装向导，不覆盖。"
+    return 0
+  fi
+  body="$(baota_wizard_body "$db_name" "$db_user" "$db_pass")"
+  baota_post_install "$port" "/api/install/test-db" "$body" || {
+    baota_warn "数据库连接测试没有通过。站点已保留。请用浏览器打开 http://${domain}/ ，在安装向导里填写下面的数据库信息。"
+    baota_print_db_hint "$domain" "$port" "$db_name" "$db_user" "$db_pass"
+    return 0
+  }
+  set +e
+  baota_post_install "$port" "/api/install/init-tables" "$body"
+  local init_code=$?
+  set -e
+  if [[ "$init_code" -ne 0 ]]; then
+    if [[ "$init_code" -eq 2 ]]; then
+      baota_warn "数据库已有业务数据，已跳过建表和管理员创建，没有覆盖。"
+    else
+      baota_warn "初始化数据表没有成功。请用浏览器打开 http://${domain}/ 继续安装向导。数据库信息如下。"
+    fi
+    baota_print_db_hint "$domain" "$port" "$db_name" "$db_user" "$db_pass"
+    return 0
+  fi
+  admin_pass="$(baota_random_alnum 24 mixed)"
+  body="$(baota_wizard_body "$db_name" "$db_user" "$db_pass" "admin" "$admin_pass")"
+  set +e
+  baota_post_install "$port" "/api/install/create-admin" "$body"
+  local admin_code=$?
+  set -e
+  if [[ "$admin_code" -ne 0 ]]; then
+    if [[ "$admin_code" -eq 2 ]]; then
+      baota_warn "已有管理员或业务数据，没有覆盖管理员密码。"
+    else
+      baota_warn "创建管理员没有成功。请用浏览器打开 http://${domain}/ 在安装向导里创建管理员。数据库信息如下。"
+    fi
+    baota_print_db_hint "$domain" "$port" "$db_name" "$db_user" "$db_pass"
+    return 0
+  fi
+  scheme="http"
+  dest="$(baota_write_credentials "$domain" "$port" "$db_name" "$db_user" "$db_pass" "$admin_pass" "$scheme")"
+  BAOTA_CREDENTIALS_FILE="$dest"
+  BAOTA_ADMIN_PASS="$admin_pass"
+  baota_print_credentials "$domain" "$port" "$db_name" "$db_user" "$db_pass" "$admin_pass" "$scheme" "$dest"
+}
+
+baota_print_db_hint() {
+  local domain="$1" port="$2" db_name="$3" db_user="$4" db_pass="$5"
+  cat <<EOF
+网址: http://${domain}/
+后端端口: ${port}
+数据库主机: 127.0.0.1
+数据库端口: 3306
+数据库名: ${db_name}
+数据库用户: ${db_user}
+数据库密码: ${db_pass}
+EOF
+}
+
+baota_write_credentials() {
+  local domain="$1" port="$2" db_name="$3" db_user="$4" db_pass="$5" admin_pass="$6" scheme="$7"
+  local dest data
+  data="$(baota_data_dir)"
+  dest="/root/auth-pro-${domain}.txt"
+  if [[ ! -d /root || ! -w /root ]]; then
+    dest="${data}/install-credentials.txt"
+  fi
+  umask 077
+  cat > "$dest" <<EOF
+网址: ${scheme}://${domain}/
+管理员账号: admin
+管理员密码: ${admin_pass}
+后端端口: ${port}
+数据库主机: 127.0.0.1
+数据库端口: 3306
+数据库名: ${db_name}
+数据库用户: ${db_user}
+数据库密码: ${db_pass}
+EOF
+  chmod 600 "$dest" || baota_warn "无法把 ${dest} 收紧为仅所有者可读"
+  printf '%s\n' "$dest"
+}
+
+baota_print_credentials() {
+  local domain="$1" port="$2" db_name="$3" db_user="$4" db_pass="$5" admin_pass="$6" scheme="$7" dest="$8"
+  cat <<EOF
+
+安装完成。
+网址: ${scheme}://${domain}/
+管理员账号: admin
+管理员密码: ${admin_pass}
+后端端口: ${port}
+数据库主机: 127.0.0.1
+数据库端口: 3306
+数据库名: ${db_name}
+数据库用户: ${db_user}
+数据库密码: ${db_pass}
+凭据文件: ${dest}
+EOF
+}
+
+# 面板已安装时的全新安装：建站、建库、反代、守护、向导。任一步失败只撤本次新建的对象。
+baota_oneclick_install() {
+  local domain port data db_name db_user db_pass snippet scheme cert_out
+  domain="$(baota_site_domain)"
+  [[ "$domain" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$ ]] || baota_die "域名不正确：${domain}"
+  BAOTA_ONECLICK_DOMAIN="$domain"
+  BAOTA_CREATED_SITE=0
+  BAOTA_CREATED_DB=0
+  BAOTA_ONECLICK_ROLLBACK=1
+  trap baota_oneclick_exit EXIT
+  baota_panel_run preflight
+  baota_select_install_port
+  port="$BAOTA_SELECTED_PORT"
+  baota_info "使用后端端口 ${port}"
+  baota_panel_run check-site --domain "$domain" --path "$BAOTA_SITE_ROOT"
+  db_name="ap$(baota_random_alnum 8 lower)"
+  db_user="$db_name"
+  db_pass="$(baota_random_alnum 20 mixed)"
+  BAOTA_DB_NAME="$db_name"
+  baota_panel_run check-database --name "$db_name" --user "$db_user"
+  baota_resolve_start_flag
+  baota_confirm "全新安装到 ${BAOTA_SITE_ROOT} ，域名 ${domain} ，端口 ${port}"
+  # 先记上标记。AddSite 若创建了站点再失败，退出钩子会按站点名撤掉，没有标记文件的目录不会删。
+  BAOTA_CREATED_SITE=1
+  baota_panel_run add-site --domain "$domain" --path "$BAOTA_SITE_ROOT"
+  BAOTA_CREATED_DB=1
+  baota_panel_run add-database --name "$db_name" --user "$db_user" --password "$db_pass"
+  BAOTA_SITE_ROOT="$(cd "$BAOTA_SITE_ROOT" && pwd -P)"
+  BAOTA_DATA_DIR_RESOLVED=""
+  baota_assert_safe_dir "$BAOTA_SITE_ROOT" "网站根目录"
+  baota_prepare_payload
+  if [[ -e "$BAOTA_SITE_ROOT/index.html" || -d "$BAOTA_SITE_ROOT/assets" || -e "$BAOTA_SITE_ROOT/backend/auth_pro" ]]; then
+    baota_prepare_backup_dir
+  fi
+  BAOTA_PANEL_INSTALL=1
+  baota_apply_payload
+  baota_tighten_secrets
+  if id www >/dev/null 2>&1; then
+    # 宝塔给 .user.ini 加不可变属性。先去掉，交给 www 后再加回去，避免整次 chown 被这一份文件打断。
+    if [[ -f "$BAOTA_SITE_ROOT/.user.ini" ]]; then
+      chattr -i "$BAOTA_SITE_ROOT/.user.ini" 2>/dev/null || true
+    fi
+    if ! chown -R www:www "$BAOTA_SITE_ROOT"; then
+      baota_warn "无法把网站目录交给 www。进程守护若以 www 运行，请手工修正目录所有者。"
+    fi
+    if [[ -f "$BAOTA_SITE_ROOT/.user.ini" ]]; then
+      chattr +i "$BAOTA_SITE_ROOT/.user.ini" 2>/dev/null || true
+    fi
+    baota_tighten_secrets
+  fi
+  snippet="$(baota_data_dir)/baota-nginx.snippet.conf"
+  baota_panel_run proxy --domain "$domain" --port "$port" --snippet "$snippet"
+  baota_panel_run supervisor --domain "$domain" --command "$(baota_data_dir)/start.sh" --workdir "$(baota_data_dir)" || baota_warn "进程守护步骤没有完成。若上面没有打印 systemd 单元，请按 backend/baota-guardian.txt 手工添加，只添加本站点。"
+  if [[ "$BAOTA_START" == "1" ]]; then
+    if ! baota_port_is_open "$port"; then
+      baota_start_backend
+    fi
+    baota_wait_listening_health || baota_die "后端健康检查未通过。已尝试撤掉本次新建的站点和数据库。请查看 $(baota_data_dir)/logs/auto_pro.log"
+  else
+    baota_warn "已指定不启动。站点、数据库和反代已就绪，但没有创建管理员。请启动 backend/start.sh 后用浏览器打开站点完成安装向导。"
+  fi
+  scheme="http"
+  cert_out="$(baota_panel_run cert --domain "$domain" --webroot "$BAOTA_SITE_ROOT" || true)"
+  if printf '%s\n' "$cert_out" | grep -q '^AUTH_PRO_RESULT=https$'; then
+    scheme="https"
+    baota_info "证书已申请，请使用 https://${domain}/"
+  else
+    baota_info "证书未签发，站点保持 HTTP。"
+  fi
+  if [[ "$BAOTA_START" == "1" ]]; then
+    baota_run_wizard "$domain" "$port" "$db_name" "$db_user" "$db_pass" "$scheme"
+  else
+    baota_print_db_hint "$domain" "$port" "$db_name" "$db_user" "$db_pass"
+  fi
+  BAOTA_ONECLICK_ROLLBACK=0
+  baota_info "一条命令安装结束。"
+}
+
 baota_cmd_install() {
   baota_parse_args "$@"
+  if [[ -z "$BAOTA_SITE_ROOT" ]]; then
+    baota_resolve_site_root
+  else
+    BAOTA_SITE_ROOT="${BAOTA_SITE_ROOT%/}"
+    [[ -n "$BAOTA_SITE_ROOT" ]] || baota_die "网站根目录不能为空"
+    baota_assert_safe_dir "$BAOTA_SITE_ROOT" "网站根目录"
+    baota_reject_dotdot "$BAOTA_SITE_ROOT" "网站根目录"
+  fi
+  if [[ "$BAOTA_DRY_RUN" != "1" ]] && baota_panel_available; then
+    baota_oneclick_install
+    return
+  fi
+  if [[ "${AUTH_PRO_ONECLICK:-}" == "1" ]]; then
+    baota_die "未检测到宝塔面板，或安装包里没有面板辅助脚本。请先安装宝塔面板，并在软件商店安装 Nginx 和 MySQL 后再执行。脚本不会替你安装 MySQL。"
+  fi
   baota_resolve_site_root
   baota_resolve_start_flag
   local data port
@@ -1476,6 +2018,7 @@ baota_upgrade_under_guardian() {
   baota_tighten_secrets
   baota_signal_pid "$pid"
   if baota_wait_listening_health; then
+    baota_prune_after_health || true
     baota_info "升级完成。备份在 ${BAOTA_BACKUP_DIR}"
     baota_print_manual_steps
     return 0
@@ -1507,6 +2050,9 @@ baota_cmd_upgrade() {
   fi
   baota_prepare_payload
   baota_confirm "升级 ${BAOTA_SITE_ROOT} ，保留 ${data} 中的运行数据，端口 ${port}"
+  if [[ "$BAOTA_DRY_RUN" != "1" ]]; then
+    baota_migrate_old_backups || true
+  fi
   local guardian_pid=""
   if [[ "$BAOTA_DRY_RUN" != "1" ]] && baota_port_is_open "$port"; then
     guardian_pid="$(baota_find_guardian_owned_pid "$port" "$BAOTA_SITE_ROOT" || true)"
@@ -1533,6 +2079,9 @@ baota_cmd_upgrade() {
   baota_verify_manifest "$manifest"
   baota_tighten_secrets
   baota_start_backend
+  if [[ "$BAOTA_START" == "1" ]]; then
+    baota_prune_after_health || true
+  fi
   baota_info "升级完成。备份在 ${BAOTA_BACKUP_DIR}"
   baota_print_manual_steps
 }
