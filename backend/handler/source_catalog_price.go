@@ -74,15 +74,12 @@ func normalizeCatalogPrice(cents int64, billing, delivery string) (int64, string
 	default:
 		return 0, "", "", errors.New("计费方式不合法")
 	}
-	if billing == sourceBillingYearly {
-		return 0, "", "", errSourcePaidYearly
-	}
 	if cents == 0 {
 		billing = sourceBillingFree
 	} else if billing == "" || billing == sourceBillingOneTime {
 		billing = sourceBillingOneTime
-	} else {
-		return 0, "", "", errors.New("付费条目计费方式须为买断")
+	} else if billing != sourceBillingYearly {
+		return 0, "", "", errors.New("付费条目计费方式须为买断或按年")
 	}
 	delivery = strings.ToLower(strings.TrimSpace(delivery))
 	if delivery == "" {

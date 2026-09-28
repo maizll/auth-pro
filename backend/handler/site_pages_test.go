@@ -122,6 +122,18 @@ func TestSplitAndClassifyReleaseNotes(t *testing.T) {
 	}
 }
 
+func TestReleaseNotes172Shape(t *testing.T) {
+	notes := splitReleaseNoteParagraphs(readRepoDoc(t, "release-notes-1.7.2.txt"))
+	if len(notes) < 6 || len(notes) > 8 {
+		t.Fatalf("1.7.2 notes=%d %q", len(notes), notes)
+	}
+	for _, note := range notes {
+		if strings.Contains(note, "\n") || len([]rune(note)) > 90 {
+			t.Fatalf("note is not one short sentence: %s", note)
+		}
+	}
+}
+
 func TestReleaseNotes171ReplacesStaleParagraphs(t *testing.T) {
 	notes := splitReleaseNoteParagraphs(readRepoDoc(t, "release-notes-1.7.1.txt"))
 	if len(notes) < 6 || len(notes) > 8 {

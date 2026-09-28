@@ -81,7 +81,7 @@
     <ElDialog
       v-model="dialogVisible"
       :title="editingId ? '编辑版本' : '发布版本'"
-      width="760px"
+      :width="narrow ? '92%' : '760px'"
       destroy-on-close
       class="version-dialog"
       @closed="resetForm"
@@ -127,6 +127,30 @@
           />
         </ElFormItem>
 
+        <ElRow v-if="stagingId && form.sourceType === 'upload'" :gutter="16">
+          <ElCol :xs="24" :md="8">
+            <ElFormItem label="文件大小（MB）">
+              <ElInputNumber
+                v-model="form.fileSizeMb"
+                :min="0.001"
+                :max="512"
+                :precision="3"
+                :step="1"
+                controls-position="right"
+              />
+            </ElFormItem>
+          </ElCol>
+          <ElCol :xs="24" :md="16">
+            <ElFormItem label="文件 MD5">
+              <ElInput v-model.trim="form.fileMd5" maxlength="32" class="mono-input" />
+            </ElFormItem>
+          </ElCol>
+        </ElRow>
+
+        <ElFormItem label="从仓库导入">
+          <ReleaseRepoImport api-base="/api/release-import" purpose="app" @filled="applyImport" />
+        </ElFormItem>
+
         <ElFormItem label="更新包来源">
           <ElSegmented
             v-model="form.sourceType"
@@ -164,11 +188,15 @@
         <ElRow v-else :gutter="16" class="package-source-panel">
           <ElCol :xs="24">
             <ElFormItem label="下载地址" prop="downloadUrl">
-              <ElInput
-                v-model.trim="form.downloadUrl"
-                maxlength="2048"
-                placeholder="https://example.com/releases/app-1.2.0.zip"
-              />
+              <div class="url-probe">
+                <ElInput
+                  v-model.trim="form.downloadUrl"
+                  maxlength="2048"
+                  placeholder="https://example.com/releases/app-1.2.0.zip"
+                  @input="stagingId = ''"
+                />
+                <ElButton :loading="probing" @click="probeDownload">计算大小和校验</ElButton>
+              </div>
             </ElFormItem>
           </ElCol>
           <ElCol :xs="24" :md="8">
@@ -289,6 +317,9 @@
   import { ElMessage, ElMessageBox, genFileId } from 'element-plus'
   import ArtSvgIcon from '@/components/core/base/art-svg-icon/index.vue'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
+  import ReleaseRepoImport from '@/components/business/release-import/ReleaseRepoImport.vue'
+  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
+  import { probeReleaseUrl, type ReleaseImportResult } from '@/api/release-import'
   import { useTable } from '@/hooks/core/useTable'
   import { defaultResponseAdapter } from '@/utils/table/tableUtils'
   import {
@@ -321,7 +352,10 @@
   const router = useRouter()
   const appId = Number(route.params.id)
   const submitting = ref(false)
+  const probing = ref(false)
+  const stagingId = ref('')
   const appInfo = ref<AppVersionApp>()
+  const narrow = useNarrowScreen()
   const dialogVisible = ref(false)
   const detailVisible = ref(false)
   const detailVersion = ref<AppVersionItem>()
@@ -497,6 +531,7 @@
   }
 
   function resetForm() {
+    stagingId.value = ''
     editingId.value = 0
     editingRevision.value = 0
     currentPackageName.value = ''
@@ -570,13 +605,50 @@
       payload.append('fileSizeMb', String(form.fileSizeMb))
       payload.append('fileMd5', form.fileMd5.trim().toLowerCase())
     }
+    if (stagingId.value) payload.append('stagingId', stagingId.value)
     return payload
+  }
+
+  function applyImport(result: ReleaseImportResult) {
+    stagingId.value = result.stagingId
+    form.sourceType = 'upload'
+    form.version = result.version || form.version
+    form.title = result.title || form.title
+    form.changelog = result.changelog || form.changelog
+    form.fileMd5 = result.fileMd5
+    form.fileSizeMb = Math.max(Number((result.fileSizeBytes / 1024 / 1024).toFixed(3)), 0.001)
+    selectedFile.value = undefined
+    fileList.value = []
+    reusableUploadedPackage.value = true
+    currentPackageName.value = result.fileName
+  }
+
+  async function probeDownload() {
+    if (!/^https:\/\//i.test(form.downloadUrl.trim())) {
+      ElMessage.info('请先填写 https 下载地址')
+      return
+    }
+    probing.value = true
+    try {
+      const result = await probeReleaseUrl('/api/release-import', form.downloadUrl.trim())
+      stagingId.value = result.stagingId
+      form.fileMd5 = result.fileMd5
+      form.fileSizeMb = Math.max(Number((result.fileSizeBytes / 1024 / 1024).toFixed(3)), 0.001)
+      ElMessage.success('已填入文件大小和 MD5，保存前仍可修改')
+    } finally {
+      probing.value = false
+    }
   }
 
   async function submitVersion() {
     const valid = await formRef.value?.validate().catch(() => false)
     if (!valid) return
-    if (form.sourceType === 'upload' && !selectedFile.value && !reusableUploadedPackage.value) {
+    if (
+      form.sourceType === 'upload' &&
+      !selectedFile.value &&
+      !reusableUploadedPackage.value &&
+      !stagingId.value
+    ) {
       ElMessage.info('请选择更新包')
       return
     }
@@ -802,6 +874,16 @@
     font-size: 14px;
     font-weight: 600;
     color: var(--art-gray-900);
+  }
+
+  .url-probe {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .url-probe .el-input {
+    flex: 1;
   }
 
   .upload-tip {

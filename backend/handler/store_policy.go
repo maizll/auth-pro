@@ -17,6 +17,7 @@ const (
 	storeEditionCommercial             = "commercial"
 	storePeriodPermanent               = "permanent"
 	storePeriodYearly                  = "yearly"
+	storePeriodMonthly                 = "monthly"
 	storeOrderPrefix                   = "PP"
 	storeGraceDefaultDays              = 7
 	storeBindChallengeTTL              = 2 * time.Minute
@@ -135,6 +136,13 @@ func nextEditionExpiry(period string, current *time.Time, now time.Time) *time.T
 	switch period {
 	case storePeriodYearly:
 		days = 365
+	case storePeriodMonthly:
+		base := now
+		if current != nil && current.After(now) {
+			base = *current
+		}
+		next := base.AddDate(0, 1, 0)
+		return &next
 	case storePeriodPermanent, "":
 		return nil
 	default:

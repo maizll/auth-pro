@@ -15,12 +15,18 @@
             : '当前授权有效，无需再次升级。'
         }}</p>
       </div>
-      <span class="license-card__pill">{{ account.permanent ? '永久授权' : '有效期内' }}</span>
+      <span class="license-card__pill">{{
+        account.permanent || !account.editionExpireAt ? '永久' : '有效期内'
+      }}</span>
     </header>
     <dl class="license-card__grid">
       <div>
         <dt>到期时间</dt>
         <dd>{{ commercialExpireText(account) }}</dd>
+      </div>
+      <div v-if="account.editionSource">
+        <dt>来源</dt>
+        <dd>{{ account.editionSource }}</dd>
       </div>
       <div v-if="account.account">
         <dt>绑定账号</dt>
@@ -107,9 +113,9 @@
   }
 
   .license-card.is-pending {
-    border-color: var(--el-color-warning-light-5);
+    border-color: var(--el-color-primary-light-5);
     background:
-      radial-gradient(120% 80% at 100% 0%, var(--el-color-warning-light-8), transparent 55%),
+      radial-gradient(120% 80% at 100% 0%, var(--el-color-primary-light-8), transparent 55%),
       var(--el-bg-color);
   }
 
@@ -145,7 +151,7 @@
   }
 
   .license-card.is-pending .license-card__head :deep(.art-svg-icon) {
-    color: var(--el-color-warning);
+    color: var(--el-color-primary);
   }
 
   .license-card__pill {
@@ -158,8 +164,8 @@
   }
 
   .license-card.is-pending .license-card__pill {
-    background: var(--el-color-warning-light-9);
-    color: var(--el-color-warning-dark-2);
+    background: var(--el-color-primary-light-9);
+    color: var(--el-color-primary);
   }
 
   .license-card__grid {

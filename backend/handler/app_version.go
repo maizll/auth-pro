@@ -101,6 +101,7 @@ func EnsureAppVersionsTable(db *sql.DB) error {
 			download_url VARCHAR(2048) NOT NULL DEFAULT '' COMMENT '外部更新包下载URL',
 			file_size_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '文件大小(字节)',
 			file_md5 CHAR(32) NOT NULL DEFAULT '' COMMENT '文件MD5',
+			file_sha256 CHAR(64) NOT NULL DEFAULT '' COMMENT '文件SHA256，客户站更新清单用它核对安装包',
 			force_update TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否强制更新',
 			min_version VARCHAR(50) NOT NULL DEFAULT '' COMMENT '低于该版本时强制更新',
 			revision BIGINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '并发编辑修订号',
@@ -125,6 +126,7 @@ func EnsureAppVersionsTable(db *sql.DB) error {
 		{name: "from_version_norm", ddl: "ALTER TABLE app_versions ADD COLUMN from_version_norm VARCHAR(100) DEFAULT NULL COMMENT '兼容旧数据，已停用' AFTER from_version"},
 		{name: "version_norm", ddl: "ALTER TABLE app_versions ADD COLUMN version_norm VARCHAR(100) NOT NULL DEFAULT '' COMMENT '规范化版本号' AFTER version"},
 		{name: "revision", ddl: "ALTER TABLE app_versions ADD COLUMN revision BIGINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '并发编辑修订号' AFTER min_version"},
+		{name: "file_sha256", ddl: "ALTER TABLE app_versions ADD COLUMN file_sha256 CHAR(64) NOT NULL DEFAULT '' COMMENT '文件SHA256，客户站更新清单用它核对安装包' AFTER file_md5"},
 	}
 	for _, column := range columns {
 		exists, checkErr := appVersionColumnExists(db, column.name)
@@ -455,12 +457,32 @@ func saveAppVersion(c *gin.Context, editing bool) {
 	var downloadURL string
 	fileSizeBytes := old.FileSizeBytes
 	fileMD5 := old.FileMD5
+	fileSHA256 := ""
 	newPackagePath := ""
+	stagingID := strings.TrimSpace(c.PostForm("stagingId"))
 
-	if sourceType == "upload" {
+	if stagingID != "" {
+		// 从仓库导入或按地址拉取后，文件已经在暂存目录。这里搬进应用发布目录，并记下真实哈希。
+		packageName, newPackagePath, fileSizeBytes, fileMD5, fileSHA256, err = consumeReleaseStage(appID, stagingID)
+		if err != nil {
+			apiError(c, 400, err.Error())
+			return
+		}
+		packagePath = newPackagePath
+		if sourceType == "url" {
+			downloadURL = strings.TrimSpace(c.PostForm("downloadUrl"))
+			if err := validateDownloadURL(downloadURL); err != nil {
+				apiError(c, 400, err.Error())
+				return
+			}
+		}
+		if posted := strings.ToLower(strings.TrimSpace(c.PostForm("fileMd5"))); md5Pattern.MatchString(posted) {
+			fileMD5 = posted
+		}
+	} else if sourceType == "upload" {
 		downloadURL = ""
 		if packageHeader != nil {
-			packageName, newPackagePath, fileSizeBytes, fileMD5, err = saveReleasePackage(appID, packageHeader)
+			packageName, newPackagePath, fileSizeBytes, fileMD5, fileSHA256, err = saveReleasePackage(appID, packageHeader)
 			if err != nil {
 				apiError(c, 400, err.Error())
 				return
@@ -539,11 +561,13 @@ func saveAppVersion(c *gin.Context, editing bool) {
 			UPDATE app_versions
 			SET from_version = '', from_version_norm = NULL, version = ?, version_norm = ?,
 			    title = ?, changelog = ?, update_sql = ?, package_name = ?, package_path = ?,
-			    download_url = ?, file_size_bytes = ?, file_md5 = ?, force_update = ?, min_version = ?,
+			    download_url = ?, file_size_bytes = ?, file_md5 = ?,
+			    file_sha256 = CASE WHEN ? = '' THEN file_sha256 ELSE ? END,
+			    force_update = ?, min_version = ?,
 			    revision = revision + 1
 			WHERE id = ? AND app_id = ? AND revision = ?
 		`, version, versionNorm, title, changelog, updateSQL, packageName, packagePath, downloadURL,
-			fileSizeBytes, fileMD5, forceUpdate, minVersion, versionID, appID, expectedRevision)
+			fileSizeBytes, fileMD5, fileSHA256, fileSHA256, forceUpdate, minVersion, versionID, appID, expectedRevision)
 		if execErr != nil {
 			if isDuplicateEntry(execErr) {
 				apiError(c, 400, "该版本已经发布")
@@ -565,6 +589,7 @@ func saveAppVersion(c *gin.Context, editing bool) {
 			_ = removeReleasePackage(old.PackagePath)
 		}
 		newPackagePath = ""
+		invalidateProductUpdateCache()
 		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本更新成功"})
 		return
 	}
@@ -573,11 +598,11 @@ func saveAppVersion(c *gin.Context, editing bool) {
 		INSERT INTO app_versions (
 			app_id, from_version, from_version_norm, version, version_norm,
 			title, changelog, update_sql, package_name, package_path,
-			download_url, file_size_bytes, file_md5, force_update, min_version
-		) VALUES (?, '', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			download_url, file_size_bytes, file_md5, file_sha256, force_update, min_version
+		) VALUES (?, '', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, appID, version, versionNorm,
 		title, changelog, updateSQL, packageName, packagePath,
-		downloadURL, fileSizeBytes, fileMD5, forceUpdate, minVersion)
+		downloadURL, fileSizeBytes, fileMD5, fileSHA256, forceUpdate, minVersion)
 	if err != nil {
 		if isDuplicateEntry(err) {
 			apiError(c, 400, "该版本已经发布")
@@ -592,6 +617,7 @@ func saveAppVersion(c *gin.Context, editing bool) {
 		return
 	}
 	newPackagePath = ""
+	invalidateProductUpdateCache()
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "版本发布成功", "data": gin.H{"id": versionID}})
 }
 
@@ -1485,20 +1511,20 @@ func packageNameFromURL(rawURL string) string {
 	return sanitizePackageName(name)
 }
 
-func saveReleasePackage(appID int64, header *multipart.FileHeader) (string, string, int64, string, error) {
+func saveReleasePackage(appID int64, header *multipart.FileHeader) (string, string, int64, string, string, error) {
 	if header == nil {
-		return "", "", 0, "", errors.New("请上传更新包")
+		return "", "", 0, "", "", errors.New("请上传更新包")
 	}
 	if header.Size <= 0 {
-		return "", "", 0, "", errors.New("更新包不能为空")
+		return "", "", 0, "", "", errors.New("更新包不能为空")
 	}
 	if header.Size > appReleaseMaxBytes {
-		return "", "", 0, "", errors.New("更新包超过512MB")
+		return "", "", 0, "", "", errors.New("更新包超过512MB")
 	}
 
 	source, err := header.Open()
 	if err != nil {
-		return "", "", 0, "", errors.New("打开更新包失败")
+		return "", "", 0, "", "", errors.New("打开更新包失败")
 	}
 	defer source.Close()
 
@@ -1506,12 +1532,12 @@ func saveReleasePackage(appID int64, header *multipart.FileHeader) (string, stri
 	appDirName := fmt.Sprintf("app-%d", appID)
 	appDir := filepath.Join(config.GetAppReleaseDir(), appDirName)
 	if err := os.MkdirAll(appDir, 0755); err != nil {
-		return "", "", 0, "", errors.New("创建更新包目录失败")
+		return "", "", 0, "", "", errors.New("创建更新包目录失败")
 	}
 
 	target, err := os.CreateTemp(appDir, "release-*")
 	if err != nil {
-		return "", "", 0, "", errors.New("创建更新包文件失败")
+		return "", "", 0, "", "", errors.New("创建更新包文件失败")
 	}
 	targetPath := target.Name()
 	succeeded := false
@@ -1522,30 +1548,31 @@ func saveReleasePackage(appID int64, header *multipart.FileHeader) (string, stri
 		}
 	}()
 
-	hash := md5.New()
-	written, err := io.Copy(io.MultiWriter(target, hash), io.LimitReader(source, appReleaseMaxBytes+1))
+	md5Hash := md5.New()
+	shaHash := sha256.New()
+	written, err := io.Copy(io.MultiWriter(target, md5Hash, shaHash), io.LimitReader(source, appReleaseMaxBytes+1))
 	if err != nil {
-		return "", "", 0, "", errors.New("保存更新包失败")
+		return "", "", 0, "", "", errors.New("保存更新包失败")
 	}
 	if written > appReleaseMaxBytes {
-		return "", "", 0, "", errors.New("更新包超过512MB")
+		return "", "", 0, "", "", errors.New("更新包超过512MB")
 	}
 	if written == 0 {
-		return "", "", 0, "", errors.New("更新包不能为空")
+		return "", "", 0, "", "", errors.New("更新包不能为空")
 	}
 	if err := target.Sync(); err != nil {
-		return "", "", 0, "", errors.New("写入更新包失败")
+		return "", "", 0, "", "", errors.New("写入更新包失败")
 	}
 	if err := target.Close(); err != nil {
-		return "", "", 0, "", errors.New("关闭更新包失败")
+		return "", "", 0, "", "", errors.New("关闭更新包失败")
 	}
 
 	relativePath, err := filepath.Rel(config.GetAppReleaseDir(), targetPath)
 	if err != nil {
-		return "", "", 0, "", errors.New("生成更新包路径失败")
+		return "", "", 0, "", "", errors.New("生成更新包路径失败")
 	}
 	succeeded = true
-	return packageName, filepath.ToSlash(relativePath), written, hex.EncodeToString(hash.Sum(nil)), nil
+	return packageName, filepath.ToSlash(relativePath), written, hex.EncodeToString(md5Hash.Sum(nil)), hex.EncodeToString(shaHash.Sum(nil)), nil
 }
 
 func sanitizePackageName(name string) string {

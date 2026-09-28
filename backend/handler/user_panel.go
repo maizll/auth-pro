@@ -361,28 +361,27 @@ func UserLicenseList(c *gin.Context) {
 	defer rows.Close()
 
 	typeLabels := map[string]string{"domain": "单域名", "wildcard": "泛域名", "ip": "IP", "key": "密钥"}
-	sourceLabels := map[string]string{"admin": "管理员开通", "agent": "代理开通", "user_purchase": "自助购买", "card": "卡密兑换"}
 
 	type licenseItem struct {
-		ID              int64    `json:"id"`
-		LicenseNo       string   `json:"licenseNo"`
-		AppID           int64    `json:"appId"`
-		AppName         string   `json:"appName"`
-		Type            string   `json:"type"`
-		TypeLabel       string   `json:"typeLabel"`
-		Status          string   `json:"status"`
-		StatusLabel     string   `json:"statusLabel"`
-		Source          string   `json:"source"`
-		Amount          *float64 `json:"amount"`
-		Domain          string   `json:"domain"`
-		BindingPending  bool     `json:"bindingPending"`
-		BoundSites      int64    `json:"boundSites"`
-		MaxSites        int      `json:"maxSites"`
-		FreeSiteChanges int      `json:"freeSiteChanges"`
-		SiteChangePrice *float64 `json:"siteChangePrice"`
-		ExpireAt        string   `json:"expireAt"`
-		CreatedAt       string   `json:"createdAt"`
-		CommercialActive bool    `json:"commercialActive"`
+		ID               int64    `json:"id"`
+		LicenseNo        string   `json:"licenseNo"`
+		AppID            int64    `json:"appId"`
+		AppName          string   `json:"appName"`
+		Type             string   `json:"type"`
+		TypeLabel        string   `json:"typeLabel"`
+		Status           string   `json:"status"`
+		StatusLabel      string   `json:"statusLabel"`
+		Source           string   `json:"source"`
+		Amount           *float64 `json:"amount"`
+		Domain           string   `json:"domain"`
+		BindingPending   bool     `json:"bindingPending"`
+		BoundSites       int64    `json:"boundSites"`
+		MaxSites         int      `json:"maxSites"`
+		FreeSiteChanges  int      `json:"freeSiteChanges"`
+		SiteChangePrice  *float64 `json:"siteChangePrice"`
+		ExpireAt         string   `json:"expireAt"`
+		CreatedAt        string   `json:"createdAt"`
+		CommercialActive bool     `json:"commercialActive"`
 	}
 
 	var list []licenseItem
@@ -403,10 +402,10 @@ func UserLicenseList(c *gin.Context) {
 		}
 
 		item.TypeLabel = typeLabels[item.Type]
-		item.Source = sourceLabels[source]
-		if item.Source == "" {
-			item.Source = source
+		if item.TypeLabel == "" {
+			item.TypeLabel = "其他"
 		}
+		item.Source = licenseSourceLabel(source)
 		if originalPrice.Valid {
 			amount := originalPrice.Float64
 			item.Amount = &amount
@@ -442,6 +441,10 @@ func UserLicenseList(c *gin.Context) {
 			item.StatusLabel = "已过期"
 		} else if item.Status == "revoked" {
 			item.StatusLabel = "已吊销"
+		} else if item.Status == "disabled" {
+			item.StatusLabel = "已禁用"
+		} else if item.StatusLabel == "" {
+			item.StatusLabel = "其他"
 		}
 
 		list = append(list, item)

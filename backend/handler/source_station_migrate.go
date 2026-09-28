@@ -58,6 +58,7 @@ func ensureSourceStationMigrations(db *sql.DB) error {
 		{storeMigrationDomainChanges, migrateLicenseDomainChanges},
 		{storeMigrationDropBuyerConnection, migrateDropBuyerConnectionSettings},
 		{storeMigrationDropGitHubUpdateURL, migrateDropGitHubUpdateURL},
+		{storeMigrationLicenseOps, migrateLicenseOperationLogs},
 	}
 	for _, step := range steps {
 		if err := runSourceStationMigration(db, step.name, step.run); err != nil {

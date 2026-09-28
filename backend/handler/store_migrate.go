@@ -18,8 +18,9 @@ const (
 	storeMigrationLicenseSourcePurchase = "licenses_source_store_purchase_v1"
 	storeMigrationDomainChanges         = "license_domain_changes_v1"
 	storeMigrationDropBuyerConnection   = "store_drop_buyer_connection_settings_v1"
-	storeMigrationDropGitHubUpdateURL   = "drop_github_update_url_v1"
-	storeMigrationLoginHandoff          = "store_login_handoff_v1"
+	// license_operation_logs 的常量在 license_entitlement_admin.go，避免两处各写一个名字。
+	storeMigrationDropGitHubUpdateURL = "drop_github_update_url_v1"
+	storeMigrationLoginHandoff        = "store_login_handoff_v1"
 )
 
 func migrateStoreBindings(db *sql.DB) error {
