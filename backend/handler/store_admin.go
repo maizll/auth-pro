@@ -29,6 +29,7 @@ func registerStoreAdminRoutes(admin *gin.RouterGroup) {
 	licenses.POST("/licenses/:id/grant", AdminStoreLicenseGrant)
 	licenses.POST("/licenses/:id/revoke", AdminStoreLicenseRevoke)
 	licenses.POST("/licenses/:id/transfer", AdminStoreLicenseTransfer)
+	registerLicenseEntitlementRoutes(licenses)
 	licenses.POST("/bindings/:bindingId/revoke", AdminStoreBindingRevoke)
 	read.GET("/revenue", AdminStoreRevenue)
 	revenue.POST("/revenue/:id/note", AdminStoreRevenueNote)
@@ -75,7 +76,7 @@ func AdminStorePlanSave(c *gin.Context) {
 		return
 	}
 	req.Period = strings.TrimSpace(req.Period)
-	if req.Period != storePeriodPermanent && req.Period != storePeriodYearly {
+	if !validEditionPeriod(req.Period) {
 		storeFail(c, 400, "计费周期不合法")
 		return
 	}
@@ -202,7 +203,7 @@ func AdminStoreLicenses(c *gin.Context) {
 }
 
 // AdminStoreLicenseGrant 给指定授权手工开通商业版。
-// period 只能是永久或按年，空则按永久。授权编号不合法返回 400，写入失败返回 500。
+// period 为 permanent、yearly 或 monthly，空则按永久。授权编号不合法返回 400，写入失败返回 500。
 func AdminStoreLicenseGrant(c *gin.Context) {
 	var req struct {
 		Period string `json:"period"`
@@ -211,7 +212,7 @@ func AdminStoreLicenseGrant(c *gin.Context) {
 	if req.Period == "" {
 		req.Period = storePeriodPermanent
 	}
-	if req.Period != storePeriodPermanent && req.Period != storePeriodYearly {
+	if !validEditionPeriod(req.Period) {
 		storeFail(c, 400, "计费周期不合法")
 		return
 	}
@@ -249,6 +250,7 @@ func AdminStoreLicenseGrant(c *gin.Context) {
 		storeFail(c, 500, "授予失败")
 		return
 	}
+	writeLicenseOperation(db, licenseID, "grant_edition", req.Period, editionPeriodLabel(req.Period), c.GetString("username"))
 	storeData(c, gin.H{"ok": true})
 }
 
@@ -267,6 +269,9 @@ func AdminStoreLicenseRevoke(c *gin.Context) {
 	if err := revokeCommercialRightsForLicense(db, licenseID, trimStoreText(req.Reason, 200)); err != nil {
 		storeFail(c, 500, "吊销失败")
 		return
+	}
+	if id, err := strconv.ParseInt(licenseID, 10, 64); err == nil {
+		writeLicenseOperation(db, id, "revoke_edition", "", trimStoreText(req.Reason, 200), c.GetString("username"))
 	}
 	storeData(c, gin.H{"ok": true})
 }
@@ -291,7 +296,13 @@ func AdminStoreLicenseTransfer(c *gin.Context) {
 		storeFail(c, 500, "转移失败")
 		return
 	}
-	_, _ = db.Exec(`UPDATE store_bindings SET status = 'revoked', revoked_at = NOW(), revoke_reason = 'transfer' WHERE license_id = ? AND status = 'active'`, licenseID)
+	// 商业版记在授权上，已购插件记在权益表。归属改了以后两边都要跟着走。
+	// 不吊销站点绑定：客户站靠这条绑定刷新，拆掉绑定就会要求重新登录。
+	_, _ = db.Exec(`UPDATE plugin_entitlements SET owner_type = ?, owner_id = ? WHERE license_id = ? AND status = 'active'`, req.OwnerType, req.OwnerID, licenseID)
+	_, _ = db.Exec(`UPDATE store_bindings SET owner_type = ?, owner_id = ? WHERE license_id = ? AND status = 'active'`, req.OwnerType, req.OwnerID, licenseID)
+	if id, err := strconv.ParseInt(licenseID, 10, 64); err == nil {
+		writeLicenseOperation(db, id, "transfer", req.OwnerType, "权益已随授权转移到新账号", c.GetString("username"))
+	}
 	storeData(c, gin.H{"ok": true})
 }
 

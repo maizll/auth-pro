@@ -30,9 +30,11 @@ https://auth.maizll.com/api/v1/update/package/<版本号>
 
 ## 分发给客户
 
-分发接口默认仓库仍是 `maizll/auth-pro-client`，用环境变量 `AUTO_PRO_UPDATE_REPOSITORY` 修改，格式同样是 `owner/repo`。这个变量不要拿去改官网自己的更新来源，两边是分开的。
+1.7.2 起，上面三个地址只读官网应用「授权系统」（`app_f93896d80066_5811`）的发布版本。不再在对外接口里连接代码托管站。下载地址一律写成 `https://auth.maizll.com/api/v1/update/package/<版本号>`，清单里的 SHA256 和大小按磁盘上的安装包计算，`signature` 仍是 `sha256:` 加上同一个哈希。文件名仍是 `auth_pro-full-v<版本>.tar.gz`。说明里如果带有托管站地址，会在返回前删掉。
 
-接口把清单里的下载地址改写成上面的源站地址，SHA256、大小和 `sha256:` 签名原样保留。安装包按版本缓存在数据目录 `update-cache/<版本>/`。`latest.json` 和 `releases.json` 缓存大约 3 分钟。同一 IP 每分钟最多 30 次清单请求、6 次安装包下载。
+`latest.json` 和 `releases.json` 缓存大约 3 分钟，保存发布版本后清掉。同一 IP 每分钟最多 30 次清单请求、6 次安装包下载。
+
+后台「发布版本」里的「从仓库导入」才连接私有仓库。默认是 `maizll/auth-pro-client`，可用 `AUTO_PRO_UPDATE_REPOSITORY` 改成别的 `owner/repo`。这个变量不改变客户站请求的地址，也不拿去改官网自己的更新来源。
 
 ## 老客户怎么升上来
 

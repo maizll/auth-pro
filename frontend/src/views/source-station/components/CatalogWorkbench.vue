@@ -625,16 +625,34 @@
       <el-dialog
         v-model="versionFormVisible"
         title="登记新版本"
-        width="480px"
+        :width="narrow ? '92%' : '520px'"
         append-to-body
         destroy-on-close
       >
         <el-form :model="versionForm" label-width="110px">
+          <el-form-item label="从仓库导入">
+            <ReleaseRepoImport
+              api-base="/api/v1/source/admin/release-import"
+              :purpose="currentItem && isTemplateItem(currentItem) ? 'template' : 'plugin'"
+              @filled="applyVersionImport"
+            />
+            <p v-if="versionDigest" class="card-hint">{{ versionDigest }}</p>
+          </el-form-item>
           <el-form-item label="版本" required>
             <el-input v-model="versionForm.version" placeholder="1.0.1" />
           </el-form-item>
           <el-form-item label="下载地址" required>
-            <el-input v-model="versionForm.location" placeholder="https://..." />
+            <div class="url-probe">
+              <el-input
+                :model-value="versionForm.location"
+                placeholder="https://..."
+                @update:model-value="onCatalogLocationInput"
+              />
+              <el-button :loading="versionProbing" @click="probeCatalogVersionUrl"
+                >计算大小和校验</el-button
+              >
+            </div>
+            <p v-if="versionDigest" class="card-hint">{{ versionDigest }}</p>
           </el-form-item>
           <el-form-item label="校验码">
             <el-input v-model="versionForm.sha256" placeholder="付费外链可留空，由本站拉取后计算" />
@@ -678,6 +696,12 @@
   import type { FormInstance, FormRules, UploadFile } from 'element-plus'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
+  import ReleaseRepoImport from '@/components/business/release-import/ReleaseRepoImport.vue'
+  import {
+    materializeRelease,
+    probeReleaseUrl,
+    type ReleaseImportResult
+  } from '@/api/release-import'
   import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import CatalogPriceSwitchDialog from './CatalogPriceSwitchDialog.vue'
   import {
@@ -967,6 +991,9 @@
   const versions = ref<SourceVersion[]>([])
   const currentItem = ref<SourceCatalogItem | null>(null)
   const versionForm = reactive({ version: '', location: '', sha256: '', changelog: '' })
+  const versionStagingId = ref('')
+  const versionProbing = ref(false)
+  const versionDigest = ref('')
 
   const registerIsTemplate = computed(() => categoryKind(registerForm.category) === 'template')
   const editIsTemplate = computed(
@@ -1695,15 +1722,55 @@
     }
   }
 
+  function onCatalogLocationInput(value: string) {
+    versionForm.location = value
+    versionStagingId.value = ''
+    versionDigest.value = ''
+  }
+
+  function describeReleaseFile(result: ReleaseImportResult) {
+    const size = result.fileSizeBytes > 0 ? `${result.fileSizeBytes} 字节` : ''
+    const md5 = result.fileMd5 ? `MD5 ${result.fileMd5}` : ''
+    return [size, md5].filter(Boolean).join('，')
+  }
+
+  function applyVersionImport(result: ReleaseImportResult) {
+    versionStagingId.value = result.stagingId
+    if (result.version) versionForm.version = result.version
+    if (result.changelog) versionForm.changelog = result.changelog
+    if (result.fileSha256) versionForm.sha256 = result.fileSha256
+    versionForm.location = ''
+    versionDigest.value = describeReleaseFile(result)
+  }
+
+  async function probeCatalogVersionUrl() {
+    const location = versionForm.location.trim()
+    if (!/^https:\/\//i.test(location)) {
+      ElMessage.info('请先填写 https 下载地址')
+      return
+    }
+    versionProbing.value = true
+    try {
+      const result = await probeReleaseUrl('/api/v1/source/admin/release-import', location)
+      versionStagingId.value = result.stagingId
+      if (result.fileSha256) versionForm.sha256 = result.fileSha256
+      versionDigest.value = describeReleaseFile(result)
+      ElMessage.success('已填入大小和校验值，保存前仍可修改')
+    } finally {
+      versionProbing.value = false
+    }
+  }
+
   async function handleAddVersion() {
     if (!currentItem.value) return
     const cents = currentItem.value.priceCents || 0
     const location = versionForm.location.trim()
-    if (!versionForm.version.trim() || !location) {
+    if (!versionForm.version.trim() || (!location && !versionStagingId.value)) {
       ElMessage.info('请填写版本和地址')
       return
     }
     if (
+      !versionStagingId.value &&
       cents > 0 &&
       !isStationPackageLocation(location) &&
       !isPrivatePackageLocation(location) &&
@@ -1713,6 +1780,7 @@
       return
     }
     if (
+      !versionStagingId.value &&
       !isPaidHttpsImportLocation(location, cents) &&
       !/^[a-fA-F0-9]{64}$/.test(versionForm.sha256.trim())
     ) {
@@ -1721,13 +1789,28 @@
     }
     versionSaving.value = true
     try {
+      let location = versionForm.location.trim()
+      let sha256 = versionForm.sha256.trim()
+      if (versionStagingId.value) {
+        const stored = await materializeRelease('/api/v1/source/admin/release-import', {
+          stagingId: versionStagingId.value,
+          kind: isTemplateItem(currentItem.value) ? 'template' : 'plugin',
+          itemId: currentItem.value.id,
+          version: versionForm.version.trim(),
+          priceCents: cents
+        })
+        location = stored.location
+        if (!sha256) sha256 = stored.sha256
+        versionForm.location = location
+        versionForm.sha256 = sha256
+      }
       const payload = {
         version: versionForm.version,
-        sha256: versionForm.sha256,
+        sha256,
         changelog: versionForm.changelog,
         ...(isTemplateItem(currentItem.value)
-          ? { templateUrl: versionForm.location }
-          : { downloadUrl: versionForm.location })
+          ? { templateUrl: location }
+          : { downloadUrl: location })
       }
       if (isTemplateItem(currentItem.value)) {
         await registerSourceTemplateVersion(currentItem.value.id, payload)
@@ -1740,6 +1823,8 @@
       versionForm.location = ''
       versionForm.sha256 = ''
       versionForm.changelog = ''
+      versionStagingId.value = ''
+      versionDigest.value = ''
       await loadVersions()
       await loadItems()
     } finally {
@@ -1900,6 +1985,16 @@
     font-size: 13px;
     color: var(--art-gray-600);
     line-height: 1.5;
+  }
+
+  .url-probe {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .url-probe .el-input {
+    flex: 1;
   }
 
   .filter-panel :deep(.el-form) {

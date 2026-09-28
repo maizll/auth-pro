@@ -28,6 +28,8 @@ type buyerSnapshotState struct {
 	AccountRole     string        `json:"accountRole"`
 	LicenseNo       string        `json:"licenseNo"`
 	BindingID       string        `json:"bindingId"`
+	// EditionSource 只给顶栏展示，不参与快照签名。
+	EditionSource string `json:"editionSource"`
 }
 
 func buyerSnapshotPath() string {
@@ -83,6 +85,7 @@ type buyerAccessView struct {
 	AccountName     string
 	AccountRole     string
 	LicenseNo       string
+	EditionSource   string
 	Snapshot        storeSnapshot
 	SnapshotValid   bool
 }
@@ -266,6 +269,7 @@ func currentBuyerAccess(c *gin.Context) buyerAccessView {
 	view.AccountName = state.AccountName
 	view.AccountRole = state.AccountRole
 	view.LicenseNo = state.LicenseNo
+	view.EditionSource = state.EditionSource
 	view.VerifiedAt = state.VerifiedAt
 	view.GraceUntil = state.GraceUntil
 	view.ExplicitRevoked = state.ExplicitRevoked

@@ -85,7 +85,10 @@
 
         <template #operation="{ row }">
           <RowActions
-            :primary="[{ key: 'edit', label: '编辑' }]"
+            :primary="[
+              { key: 'edit', label: '编辑' },
+              { key: 'detail', label: '详情' }
+            ]"
             :more="licenseMoreActions(row)"
             @click="(action) => onLicenseAction(row, action)"
           />
@@ -263,6 +266,159 @@
         >
       </template>
     </ElDialog>
+
+    <ElDialog
+      v-model="grantDialog.visible"
+      title="开通商业版"
+      :width="narrow ? '92%' : '420px'"
+      destroy-on-close
+    >
+      <p class="quota-current">为「{{ grantDialog.label }}」开通商业版</p>
+      <ElRadioGroup v-model="grantDialog.period">
+        <ElRadio value="permanent">永久</ElRadio>
+        <ElRadio value="yearly">按年</ElRadio>
+        <ElRadio value="monthly">按月</ElRadio>
+      </ElRadioGroup>
+      <p class="form-tip"
+        >按年、按月到期后自动按免费版处理。客户站刷新页面或点「立即刷新」即可生效。</p
+      >
+      <template #footer>
+        <ElButton @click="grantDialog.visible = false">取消</ElButton>
+        <ElButton type="primary" :loading="grantDialog.submitting" @click="submitGrantCommercial"
+          >开通</ElButton
+        >
+      </template>
+    </ElDialog>
+
+    <ElDrawer
+      v-model="detail.visible"
+      :title="`授权详情 ${detail.licenseNo}`"
+      :size="narrow ? '100%' : '760px'"
+      destroy-on-close
+    >
+      <div v-loading="detail.loading" class="entitlement-drawer">
+        <h4>商业版记录</h4>
+        <div class="entitlement-scroll">
+          <ElTable :data="detail.editions" size="small" empty-text="还没有商业版记录">
+            <ElTableColumn label="期限" width="80">
+              <template #default="{ row }">
+                <button type="button" class="cell-copy" @click="copyCell(row.periodLabel)">
+                  {{ row.periodLabel }}
+                </button>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="来源" min-width="100">
+              <template #default="{ row }">
+                <button type="button" class="cell-copy" @click="copyCell(row.source)">
+                  {{ row.source || '—' }}
+                </button>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="状态" width="90">
+              <template #default="{ row }">
+                <span class="cell-copy">{{ row.statusLabel }}</span>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="开始" width="140">
+              <template #default="{ row }">
+                <span class="cell-copy">{{ row.startedAt }}</span>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="到期" width="140">
+              <template #default="{ row }">
+                <span class="cell-copy">{{ row.expireAt || '永久' }}</span>
+              </template>
+            </ElTableColumn>
+          </ElTable>
+        </div>
+
+        <h4>已购插件</h4>
+        <div class="gift-row">
+          <ElSelect v-model="detail.giftKey" placeholder="选择要赠送的插件或模板" filterable>
+            <ElOption
+              v-for="item in detail.catalog"
+              :key="`${item.itemKind}:${item.itemId}`"
+              :label="item.label"
+              :value="`${item.itemKind}:${item.itemId}`"
+            />
+          </ElSelect>
+          <ElRadioGroup v-model="detail.giftPeriod">
+            <ElRadio value="permanent">永久</ElRadio>
+            <ElRadio value="yearly">按年</ElRadio>
+            <ElRadio value="monthly">按月</ElRadio>
+          </ElRadioGroup>
+          <ElButton type="primary" :loading="detail.gifting" @click="submitGiftPlugin"
+            >赠送</ElButton
+          >
+        </div>
+        <div class="entitlement-scroll">
+          <ElTable :data="detail.plugins" size="small" empty-text="还没有已购插件">
+            <ElTableColumn label="名称" min-width="140">
+              <template #default="{ row }">
+                <button type="button" class="cell-copy" @click="copyCell(row.itemId)">
+                  {{ row.itemKindLabel }} {{ row.itemId }}
+                </button>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="期限" width="80">
+              <template #default="{ row }">
+                <span class="cell-copy">{{ row.periodLabel }}</span>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="来源" width="90">
+              <template #default="{ row }">
+                <span class="cell-copy">{{ row.sourceLabel }}</span>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="到期" width="140">
+              <template #default="{ row }">
+                <span class="cell-copy">{{ row.expireAt || '永久' }}</span>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="操作" width="72" fixed="right">
+              <template #default="{ row }">
+                <ElButton
+                  v-if="row.active"
+                  link
+                  type="danger"
+                  @click="revokePlugin(row.id, row.itemId)"
+                  >撤销</ElButton
+                >
+                <span v-else class="text-secondary">已失效</span>
+              </template>
+            </ElTableColumn>
+          </ElTable>
+        </div>
+
+        <h4>操作记录</h4>
+        <div class="entitlement-scroll">
+          <ElTable :data="detail.logs" size="small" empty-text="还没有操作记录">
+            <ElTableColumn label="时间" width="140">
+              <template #default="{ row }">
+                <span class="cell-copy">{{ row.createdAt }}</span>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="操作" width="110">
+              <template #default="{ row }">
+                <span class="cell-copy">{{ row.actionLabel }}</span>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="说明" min-width="160">
+              <template #default="{ row }">
+                <button type="button" class="cell-copy" @click="copyCell(row.detail || row.target)">
+                  {{ row.detail || row.target || '—' }}
+                </button>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="操作人" width="100" fixed="right">
+              <template #default="{ row }">
+                <span class="cell-copy">{{ row.actor || '—' }}</span>
+              </template>
+            </ElTableColumn>
+          </ElTable>
+        </div>
+      </div>
+    </ElDrawer>
   </div>
 </template>
 
@@ -284,6 +440,14 @@
     fetchDeleteLicense,
     fetchGrantCommercialEdition,
     fetchRevokeCommercialEdition,
+    fetchLicenseCommercialDetail,
+    fetchGiftLicensePlugin,
+    fetchRevokeLicensePlugin,
+    type CommercialPeriod,
+    type LicenseCatalogOption,
+    type LicenseEditionRecord,
+    type LicenseOperationRecord,
+    type LicensePluginRecord,
     fetchLicenseSites,
     fetchUnbindLicenseSite,
     fetchAdjustLicenseSiteChanges,
@@ -506,10 +670,10 @@
         {
           prop: 'operation',
           label: '操作',
-          width: 112,
+          width: 156,
           useSlot: true,
           mobilePriority: 4,
-          mobileWidth: 104
+          mobileWidth: 120
         }
       ]
     },
@@ -542,6 +706,9 @@
     switch (action.key) {
       case 'edit':
         handleEdit(row)
+        break
+      case 'detail':
+        openLicenseDetail(row)
         break
       case 'sites':
         openSiteDialog(row)
@@ -780,20 +947,124 @@
     dialogVisible.value = true
   }
 
-  const handleGrantCommercial = async (row: LicenseItem) => {
+  const grantDialog = reactive({
+    visible: false,
+    id: 0,
+    label: '',
+    period: 'permanent' as CommercialPeriod,
+    submitting: false
+  })
+
+  const detail = reactive({
+    visible: false,
+    loading: false,
+    licenseId: 0,
+    licenseNo: '',
+    editions: [] as LicenseEditionRecord[],
+    plugins: [] as LicensePluginRecord[],
+    logs: [] as LicenseOperationRecord[],
+    catalog: [] as LicenseCatalogOption[],
+    giftKey: '',
+    giftPeriod: 'permanent' as CommercialPeriod,
+    gifting: false
+  })
+
+  const handleGrantCommercial = (row: LicenseItem) => {
+    grantDialog.id = row.id
+    grantDialog.label = row.domain || row.licenseNo || String(row.id)
+    grantDialog.period = 'permanent'
+    grantDialog.visible = true
+  }
+
+  const submitGrantCommercial = async () => {
+    grantDialog.submitting = true
     try {
-      await ElMessageBox.confirm(
-        `确定为「${row.domain || row.id}」授予永久商业版？`,
-        '授予商业版',
+      await fetchGrantCommercialEdition(grantDialog.id, grantDialog.period)
+      ElMessage.success('已开通商业版')
+      grantDialog.visible = false
+      refreshData()
+      window.dispatchEvent(new Event('store-account-refresh'))
+    } catch (error) {
+      showCaughtError(error, '开通失败')
+    } finally {
+      grantDialog.submitting = false
+    }
+  }
+
+  async function copyCell(text: string) {
+    const value = (text || '').trim()
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(value)
+      ElMessage.success('已复制')
+    } catch {
+      ElMessage.info(value)
+    }
+  }
+
+  const loadLicenseDetail = async () => {
+    detail.loading = true
+    try {
+      const data = await fetchLicenseCommercialDetail(detail.licenseId)
+      detail.licenseNo = data?.licenseNo || detail.licenseNo
+      detail.editions = data?.editions || []
+      detail.plugins = data?.plugins || []
+      detail.logs = data?.logs || []
+      detail.catalog = data?.catalog || []
+    } catch (error) {
+      showCaughtError(error, '读取授权详情失败')
+    } finally {
+      detail.loading = false
+    }
+  }
+
+  const openLicenseDetail = (row: LicenseItem) => {
+    detail.licenseId = row.id
+    detail.licenseNo = row.licenseNo || ''
+    detail.giftKey = ''
+    detail.giftPeriod = 'permanent'
+    detail.visible = true
+    void loadLicenseDetail()
+  }
+
+  const submitGiftPlugin = async () => {
+    const [itemKind, itemId] = detail.giftKey.split(':')
+    if (!itemKind || !itemId) {
+      ElMessage.info('请选择要赠送的插件或模板')
+      return
+    }
+    detail.gifting = true
+    try {
+      await fetchGiftLicensePlugin(detail.licenseId, {
+        itemKind,
+        itemId,
+        period: detail.giftPeriod
+      })
+      ElMessage.success('已赠送')
+      await loadLicenseDetail()
+    } catch (error) {
+      showCaughtError(error, '赠送失败')
+    } finally {
+      detail.gifting = false
+    }
+  }
+
+  const revokePlugin = async (entitlementId: number, itemId: string) => {
+    try {
+      const { value } = await ElMessageBox.prompt(
+        `撤销「${itemId}」后，这条插件权益立即失效`,
+        '撤销插件',
         {
-          type: 'warning'
+          inputPlaceholder: '填写原因，可留空',
+          confirmButtonText: '撤销',
+          cancelButtonText: '取消'
         }
       )
-      await fetchGrantCommercialEdition(row.id)
-      ElMessage.success('已授予商业版')
-      refreshData()
+      await fetchRevokeLicensePlugin(detail.licenseId, entitlementId, value || '')
+      ElMessage.success('已撤销')
+      await loadLicenseDetail()
     } catch (error) {
-      if (error !== 'cancel' && error !== 'close') showCaughtError(error, '授予失败')
+      if (error !== 'cancel' && error !== 'close') showCaughtError(error, '撤销失败')
     }
   }
 
@@ -973,6 +1244,43 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .entitlement-drawer h4 {
+      margin: 16px 0 8px;
+      font-size: 14px;
+    }
+
+    .entitlement-scroll {
+      overflow-x: auto;
+    }
+
+    .gift-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .gift-row .el-select {
+      flex: 1 1 220px;
+      min-width: 180px;
+    }
+
+    .cell-copy {
+      display: block;
+      max-width: 100%;
+      padding: 0;
+      overflow: hidden;
+      font: inherit;
+      color: inherit;
+      text-align: left;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: pointer;
+      background: transparent;
+      border: 0;
     }
 
     .text-secondary {

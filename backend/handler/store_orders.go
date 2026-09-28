@@ -77,9 +77,15 @@ func settleStorePurchaseOrder(db *sql.DB, orderNo string, paidCents int64, chann
 			return err
 		}
 	case "plugin", "template":
+		// 按年、按月购买要记下到期时间。到期后读取权益时不再算作有效，永久购买保持空到期。
+		expiry := nextEditionExpiry(period, nil, time.Now())
+		var expires any
+		if expiry != nil {
+			expires = *expiry
+		}
 		if _, err := tx.Exec(`INSERT INTO plugin_entitlements
-			(order_id, license_id, owner_type, owner_id, item_kind, item_id, period, source, status)
-			VALUES (?, ?, ?, ?, ?, ?, ?, 'purchase', 'active')`, id, licenseID, ownerType, ownerID, itemKind, itemID, period); err != nil {
+			(order_id, license_id, owner_type, owner_id, item_kind, item_id, period, expires_at, source, status)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'purchase', 'active')`, id, licenseID, ownerType, ownerID, itemKind, itemID, period, expires); err != nil {
 			return err
 		}
 	default:
@@ -245,9 +251,6 @@ func loadCatalogSaleQuote(db *sql.DB, kind, id string) (catalogSaleQuote, error)
 	}
 	if status != sourceItemPublished || price <= 0 {
 		return catalogSaleQuote{}, errors.New("该条目不存在或未上架")
-	}
-	if billing == sourceBillingYearly {
-		return catalogSaleQuote{}, errSourcePaidYearly
 	}
 	purchaseOnly := commercialExcludesItem(kind, id, price, developerID, false)
 	return catalogSaleQuote{

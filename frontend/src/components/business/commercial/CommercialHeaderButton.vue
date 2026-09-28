@@ -63,12 +63,16 @@
 
   function headerTerm(current: StoreAccount | null) {
     if (!current) return ''
-    if (current.permanent) return '永久授权'
-    if (!current.editionExpireAt) return '未设置到期时间'
-    const date = new Date(current.editionExpireAt * 1000)
-    if (Number.isNaN(date.getTime())) return '未设置到期时间'
-    const pad = (value: number) => String(value).padStart(2, '0')
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} 到期`
+    let when = '永久'
+    if (!current.permanent && current.editionExpireAt) {
+      const date = new Date(current.editionExpireAt * 1000)
+      if (!Number.isNaN(date.getTime())) {
+        const pad = (value: number) => String(value).padStart(2, '0')
+        when = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} 到期`
+      }
+    }
+    const source = (current.editionSource || '').trim()
+    return source ? `${when} · ${source}` : when
   }
 
   watch(
@@ -170,9 +174,9 @@
   }
 
   .commercial-header-entry__pill--pending {
-    color: var(--el-color-warning-dark-2);
-    background: var(--el-color-warning-light-9);
-    border: 1px solid var(--el-color-warning-light-5);
+    color: var(--el-color-primary);
+    background: var(--el-color-primary-light-9);
+    border: 1px solid var(--el-color-primary-light-5);
   }
 
   .commercial-header-entry :deep(.art-svg-icon) {
@@ -199,8 +203,8 @@
   }
 
   html.dark .commercial-header-entry__pill--pending {
-    color: var(--el-color-warning-light-3);
-    background: color-mix(in srgb, var(--el-color-warning) 16%, transparent);
-    border-color: color-mix(in srgb, var(--el-color-warning) 48%, transparent);
+    color: var(--el-color-primary-light-3);
+    background: color-mix(in srgb, var(--el-color-primary) 18%, transparent);
+    border-color: color-mix(in srgb, var(--el-color-primary) 48%, transparent);
   }
 </style>

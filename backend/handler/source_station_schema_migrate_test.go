@@ -236,6 +236,7 @@ var sourceStationMigrationNames = []string{
 	"license_domain_changes_v1",
 	"source_catalog_version_storage_v1",
 	"drop_github_update_url_v1",
+	"license_operation_logs_v1",
 }
 
 type sourceSchemaPluginRow struct {
