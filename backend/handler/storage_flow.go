@@ -129,7 +129,7 @@ func readStoredPackageDirect(ctx context.Context, location string) ([]byte, erro
 	switch {
 	case isGitHubPackageRef(location):
 		return fetchGitHubPackageBytes(ctx, location)
-	case isGiteePackageRef(location), isS3PackageRef(location):
+	case isGiteePackageRef(location), isS3PackageRef(location), isWebDAVPackageRef(location):
 		blob, err := loadStorageBlob()
 		if err != nil {
 			return nil, err
@@ -186,7 +186,8 @@ func tokenForGitHubRepo(owner, repo string) (string, error) {
 }
 
 // buyerSafeRedirect 只对对象存储的单个文件返回签名地址。
-// GitHub 的临时地址在客户端会被当成代码托管站拒绝，Gitee 地址带仓库路径，这两类仍由本站取回后下发。
+// GitHub 的临时地址在客户端会被当成代码托管站拒绝，Gitee 地址带仓库路径。
+// WebDAV 没有可单独失效的签名地址，不能把账号密码编进跳转。这三类都由本站取回、核对校验码后再下发。
 func buyerSafeRedirect(ctx context.Context, location string) (string, bool) {
 	if !isS3PackageRef(location) {
 		return "", false

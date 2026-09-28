@@ -45,7 +45,7 @@ func StoreDownloadTicket(c *gin.Context) {
 	driverName, objectKey := classifyPackageRef(location)
 	storageKey := ""
 	switch driverName {
-	case packageStorageGitHub, packageStorageGitee, packageStorageS3:
+	case packageStorageGitHub, packageStorageGitee, packageStorageS3, packageStorageWebDAV:
 		// 票据里记下内部引用。客户端只看到本站地址，看不到仓库路径。
 		storageKey = strings.TrimSpace(location)
 	case packageStorageLocal:

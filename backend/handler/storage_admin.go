@@ -50,6 +50,8 @@ func storageLocationView(loc storageLocation) gin.H {
 		kindText = "GitHub 私有仓库"
 	case packageStorageGitee:
 		kindText = "Gitee 私有仓库"
+	case packageStorageWebDAV:
+		kindText = "WebDAV 网盘"
 	}
 	return gin.H{
 		"id": loc.ID, "name": loc.Name, "kind": loc.Kind, "kindText": kindText,
@@ -79,6 +81,7 @@ func AdminStorageLocations(c *gin.Context) {
 			"github": storageLimitText(packageStorageGitHub),
 			"gitee":  storageLimitText(packageStorageGitee),
 			"s3":     storageLimitText(packageStorageS3),
+			"webdav": storageLimitText(packageStorageWebDAV),
 		},
 		"reminder": storageReminder(blob),
 	}})
@@ -312,6 +315,8 @@ func defaultStorageName(kind string) string {
 		return "GitHub 私有仓库"
 	case packageStorageGitee:
 		return "Gitee 私有仓库"
+	case packageStorageWebDAV:
+		return "WebDAV 网盘"
 	default:
 		return "对象存储"
 	}
@@ -332,6 +337,13 @@ func validateStorageLocation(loc storageLocation) error {
 	case packageStorageS3:
 		if loc.Endpoint == "" || loc.Region == "" || loc.Bucket == "" || loc.AccessKey == "" {
 			return errors.New("对象存储要填写 Endpoint、地域、Bucket 和 AccessKey")
+		}
+	case packageStorageWebDAV:
+		if err := validateWebDAVEndpoint(loc.Endpoint); err != nil {
+			return err
+		}
+		if strings.TrimSpace(loc.AccessKey) == "" {
+			return errors.New("请填写用户名。应用令牌填在密码里，用户名仍要填账号。")
 		}
 	default:
 		return errors.New("不支持的存储类型")
@@ -417,6 +429,8 @@ func objectRefOf(loc storageLocation, key string) string {
 		}
 	case packageStorageS3:
 		return formatS3PackageRef(loc.ID, key)
+	case packageStorageWebDAV:
+		return formatWebDAVPackageRef(loc.ID, key)
 	}
 	return key
 }

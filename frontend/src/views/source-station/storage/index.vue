@@ -24,7 +24,8 @@
       />
       <p class="limit-line">
         单文件上限：GitHub {{ limits.github }}，Gitee {{ limits.gitee }}，对象存储
-        {{ limits.s3 }}。超过上限会自动分片，下载时再拼回去并核对校验码。
+        {{ limits.s3 }}，WebDAV
+        {{ limits.webdav }}。超过上限会自动分片，下载时再拼回去并核对校验码。
       </p>
       <ArtTable :loading="loading" :data="rows" :columns="columns">
         <template #name="{ row }">
@@ -73,6 +74,7 @@
             <ElOption label="GitHub 私有仓库" value="github" />
             <ElOption label="Gitee 私有仓库" value="gitee" />
             <ElOption label="对象存储（OSS / COS / R2 / MinIO）" value="s3" />
+            <ElOption label="WebDAV 网盘" value="webdav" />
           </ElSelect>
         </ElFormItem>
         <ElFormItem label="角色">
@@ -103,6 +105,27 @@
             <span class="field-hint">MinIO 常用路径风格。OSS、COS、R2 一般关闭。</span>
           </ElFormItem>
         </template>
+        <template v-else-if="form.kind === 'webdav'">
+          <ElFormItem label="网盘地址">
+            <ElInput
+              v-model.trim="form.endpoint"
+              placeholder="https://cloud.example.com/remote.php/dav/files/用户名/"
+            />
+          </ElFormItem>
+          <ElFormItem label="用户名">
+            <ElInput
+              v-model.trim="form.accessKey"
+              :placeholder="editing ? '已保存，留空表示不更换' : '账号。应用令牌仍要填用户名'"
+            />
+          </ElFormItem>
+          <ElFormItem label="路径前缀">
+            <ElInput v-model.trim="form.prefix" placeholder="可留空，例如 packages" />
+          </ElFormItem>
+          <p class="field-hint">
+            适用于 Nextcloud、ownCloud、Seafile、Alist、Cloudreve 等提供 WebDAV 的自建网盘。自建
+            MinIO 请选对象存储。买家只拿到官网票据，网盘账号不会出现在下载地址里。
+          </p>
+        </template>
         <template v-else>
           <ElFormItem label="所有者">
             <ElInput v-model.trim="form.owner" placeholder="组织或用户名" />
@@ -114,12 +137,18 @@
             <ElInput v-model.trim="form.branch" placeholder="master" />
           </ElFormItem>
         </template>
-        <ElFormItem label="密钥">
+        <ElFormItem :label="form.kind === 'webdav' ? '密码或应用令牌' : '密钥'">
           <ElInput
             v-model="form.secret"
             type="password"
             show-password
-            :placeholder="editing ? '已保存，留空表示不更换' : '只保存到服务器，之后不能查看'"
+            :placeholder="
+              editing
+                ? '已保存，留空表示不更换'
+                : form.kind === 'webdav'
+                  ? '应用令牌填在这里。只保存到服务器，之后不能查看'
+                  : '只保存到服务器，之后不能查看'
+            "
           />
         </ElFormItem>
       </ElForm>
@@ -159,7 +188,7 @@
   const savingOption = ref(false)
   const dualWrite = ref(false)
   const reminder = ref('')
-  const limits = reactive({ github: '2 GiB', gitee: '100 MB', s3: '5 GiB' })
+  const limits = reactive({ github: '2 GiB', gitee: '100 MB', s3: '5 GiB', webdav: '512 MB' })
   const rows = ref<StorageLocation[]>([])
   const dialogVisible = ref(false)
   const editing = ref<StorageLocation | null>(null)
@@ -194,6 +223,9 @@
     if (row.kind === 's3') {
       return [row.bucket, row.region].filter(Boolean).join(' · ') || row.endpoint || '-'
     }
+    if (row.kind === 'webdav') {
+      return row.endpoint || '-'
+    }
     return [row.owner, row.repo].filter(Boolean).join(' / ') || '-'
   }
 
@@ -226,6 +258,7 @@
         limits.github = data.limits.github
         limits.gitee = data.limits.gitee
         limits.s3 = data.limits.s3
+        limits.webdav = data.limits.webdav || limits.webdav
       }
     } finally {
       loading.value = false

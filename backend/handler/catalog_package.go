@@ -78,7 +78,7 @@ func catalogRepoHostBlocked(raw string) bool {
 		return false
 	}
 	lower := strings.ToLower(raw)
-	if isRemoteManagedRef(raw) || strings.HasPrefix(lower, "github:") || strings.HasPrefix(lower, "gitee:") || strings.HasPrefix(lower, "s3:") {
+	if isRemoteManagedRef(raw) || strings.HasPrefix(lower, "github:") || strings.HasPrefix(lower, "gitee:") || strings.HasPrefix(lower, "s3:") || strings.HasPrefix(lower, "webdav:") {
 		return true
 	}
 	parsed, err := url.Parse(raw)

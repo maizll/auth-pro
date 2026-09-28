@@ -105,6 +105,16 @@ func putSingleZip(ctx context.Context, loc storageLocation, secret, kind, id, ve
 			return "", err
 		}
 		return formatS3PackageRef(loc.ID, key), nil
+	case packageStorageWebDAV:
+		client, err := webdavClientFor(loc, secret)
+		if err != nil {
+			return "", err
+		}
+		key := joinStoragePrefix(loc.KeyPrefix, kind+"/"+id+"/"+version+".zip")
+		if err := client.put(ctx, key, payload); err != nil {
+			return "", err
+		}
+		return formatWebDAVPackageRef(loc.ID, key), nil
 	default:
 		return "", errors.New("不支持的存储类型")
 	}
@@ -146,6 +156,8 @@ func objectRef(loc storageLocation, kind, id, version, name string) string {
 		return formatGitHubPackageRef(gitHubAssetRef{Owner: loc.Owner, Repo: loc.Repo, Tag: paidAssetTag(kind, id, version), Asset: name})
 	case packageStorageGitee:
 		return formatGiteePackageRef(gitHubAssetRef{Owner: loc.Owner, Repo: loc.Repo, Tag: paidAssetTag(kind, id, version), Asset: name})
+	case packageStorageWebDAV:
+		return formatWebDAVPackageRef(loc.ID, joinStoragePrefix(loc.KeyPrefix, name))
 	default:
 		return formatS3PackageRef(loc.ID, joinStoragePrefix(loc.KeyPrefix, name))
 	}
@@ -167,6 +179,12 @@ func putNamedObject(ctx context.Context, loc storageLocation, secret, kind, id, 
 		return uploadGiteeNamedAsset(ctx, settings, paidAssetTag(kind, id, version), name, payload)
 	case packageStorageS3:
 		client, err := s3ClientFor(loc, secret)
+		if err != nil {
+			return err
+		}
+		return client.put(ctx, joinStoragePrefix(loc.KeyPrefix, name), payload)
+	case packageStorageWebDAV:
+		client, err := webdavClientFor(loc, secret)
 		if err != nil {
 			return err
 		}

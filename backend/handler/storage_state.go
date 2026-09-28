@@ -255,6 +255,8 @@ func normalizeStorageKind(kind string) string {
 		return packageStorageGitee
 	case packageStorageS3, "oss", "cos", "r2", "minio":
 		return packageStorageS3
+	case packageStorageWebDAV, "nextcloud", "owncloud", "seafile", "alist", "cloudreve":
+		return packageStorageWebDAV
 	default:
 		return ""
 	}

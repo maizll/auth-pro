@@ -48,7 +48,7 @@ func readLocationObject(ctx context.Context, loc storageLocation, secret, key st
 
 func siblingObjectKey(loc storageLocation, currentKey, partName string) string {
 	switch loc.Kind {
-	case packageStorageS3:
+	case packageStorageS3, packageStorageWebDAV:
 		prefix := strings.Trim(loc.KeyPrefix, "/")
 		partName = strings.TrimLeft(partName, "/")
 		if prefix != "" && !strings.HasPrefix(partName, prefix+"/") {
@@ -105,6 +105,12 @@ func readLocationObjectRaw(ctx context.Context, loc storageLocation, secret, key
 			return nil, err
 		}
 		return client.get(ctx, key, storageReadLimit)
+	case packageStorageWebDAV:
+		client, err := webdavClientFor(loc, secret)
+		if err != nil {
+			return nil, err
+		}
+		return client.get(ctx, key)
 	default:
 		return nil, errors.New("不支持的存储类型")
 	}
@@ -211,6 +217,27 @@ func listLocationObjects(ctx context.Context, loc storageLocation, secret string
 		return listGitHubObjects(ctx, loc, secret)
 	case packageStorageGitee:
 		return listGiteeObjects(ctx, loc, secret)
+	case packageStorageWebDAV:
+		client, err := webdavClientFor(loc, secret)
+		if err != nil {
+			return nil, err
+		}
+		listed, err := client.listAll(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]storageObjectInfo, 0, len(listed))
+		for _, item := range listed {
+			if item.IsDir || item.Key == "" {
+				continue
+			}
+			name := item.Key
+			if slash := strings.LastIndex(name, "/"); slash >= 0 {
+				name = name[slash+1:]
+			}
+			out = append(out, storageObjectInfo{Key: item.Key, Name: name, Size: item.Size, Updated: item.Updated})
+		}
+		return out, nil
 	case packageStorageS3:
 		client, err := s3ClientFor(loc, secret)
 		if err != nil {
@@ -320,6 +347,12 @@ func deleteLocationObject(ctx context.Context, loc storageLocation, secret, key 
 			return err
 		}
 		return client.delete(ctx, key)
+	case packageStorageWebDAV:
+		client, err := webdavClientFor(loc, secret)
+		if err != nil {
+			return err
+		}
+		return client.delete(ctx, key)
 	default:
 		return errors.New("不支持的存储类型")
 	}
@@ -422,6 +455,9 @@ func signedLocationURL(ctx context.Context, loc storageLocation, secret, key str
 		ttl = 10 * time.Minute
 	}
 	switch loc.Kind {
+	case packageStorageWebDAV:
+		// 网盘没有可交给买家的签名地址。返回不安全，调用方改用官网票据，由本站带口令去取。
+		return "", false, nil
 	case packageStorageS3:
 		client, err := s3ClientFor(loc, secret)
 		if err != nil {
@@ -460,6 +496,27 @@ func signedLocationURL(ctx context.Context, loc storageLocation, secret, key str
 
 func objectExists(ctx context.Context, loc storageLocation, secret, key string) (bool, error) {
 	switch loc.Kind {
+	case packageStorageWebDAV:
+		client, err := webdavClientFor(loc, secret)
+		if err != nil {
+			return false, err
+		}
+		entries, err := client.propfind(ctx, key, 0)
+		if err != nil {
+			if strings.Contains(err.Error(), "找不到") {
+				return false, nil
+			}
+			return false, err
+		}
+		for _, entry := range entries {
+			if entry.Key == strings.Trim(key, "/") && !entry.IsDir {
+				return true, nil
+			}
+		}
+		if len(entries) == 1 && !entries[0].IsDir {
+			return true, nil
+		}
+		return false, nil
 	case packageStorageS3:
 		client, err := s3ClientFor(loc, secret)
 		if err != nil {
@@ -485,6 +542,8 @@ func probeStorageLocation(ctx context.Context, loc storageLocation, secret strin
 		return probeGitRepo(ctx, loc, secret, true)
 	case packageStorageGitee:
 		return probeGitRepo(ctx, loc, secret, false)
+	case packageStorageWebDAV:
+		return probeWebDAV(ctx, loc, secret)
 	case packageStorageS3:
 		client, err := s3ClientFor(loc, secret)
 		if err != nil {
@@ -607,6 +666,11 @@ func locationByRef(list []storageLocation, ref string) (storageLocation, string,
 		}
 	}
 	if id, key, ok := parseS3PackageRef(ref); ok {
+		if loc, found := findStorageLocation(list, id); found {
+			return loc, key, true
+		}
+	}
+	if id, key, ok := parseWebDAVPackageRef(ref); ok {
 		if loc, found := findStorageLocation(list, id); found {
 			return loc, key, true
 		}

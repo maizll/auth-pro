@@ -18,6 +18,7 @@ const (
 	packageStorageGitHub   = "github"
 	packageStorageGitee    = "gitee"
 	packageStorageS3       = "s3"
+	packageStorageWebDAV   = "webdav"
 	packageStorageExternal = "external"
 )
 

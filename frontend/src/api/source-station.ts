@@ -595,7 +595,7 @@ export interface StorageLocation {
 interface StorageLocationsData {
   dualWrite: boolean
   locations: StorageLocation[]
-  limits: { github: string; gitee: string; s3: string }
+  limits: { github: string; gitee: string; s3: string; webdav: string }
   reminder: string
 }
 

@@ -5,8 +5,9 @@ import (
 )
 
 const (
-	giteePackagePrefix = "gitee:"
-	s3PackagePrefix    = "s3:"
+	giteePackagePrefix  = "gitee:"
+	s3PackagePrefix     = "s3:"
+	webdavPackagePrefix = "webdav:"
 )
 
 func formatGiteePackageRef(ref gitHubAssetRef) string {
@@ -48,13 +49,35 @@ func isS3PackageRef(raw string) bool {
 	return ok
 }
 
+func formatWebDAVPackageRef(locationID, key string) string {
+	return webdavPackagePrefix + strings.TrimSpace(locationID) + "/" + strings.TrimLeft(key, "/")
+}
+
+func parseWebDAVPackageRef(raw string) (locationID, key string, ok bool) {
+	value := strings.TrimSpace(raw)
+	if !strings.HasPrefix(value, webdavPackagePrefix) {
+		return "", "", false
+	}
+	rest := strings.TrimPrefix(value, webdavPackagePrefix)
+	id, objectKey, found := strings.Cut(rest, "/")
+	if !found || id == "" || objectKey == "" || strings.Contains(objectKey, "..") {
+		return "", "", false
+	}
+	return id, objectKey, true
+}
+
+func isWebDAVPackageRef(raw string) bool {
+	_, _, ok := parseWebDAVPackageRef(raw)
+	return ok
+}
+
 // isManagedPackageRef 表示安装包在本站掌管的存储里，不能把内部地址交给客户。
 func isManagedPackageRef(raw string) bool {
 	return isPrivatePackageRef(raw) || isRemoteManagedRef(raw)
 }
 
 func isRemoteManagedRef(raw string) bool {
-	return isGitHubPackageRef(raw) || isGiteePackageRef(raw) || isS3PackageRef(raw)
+	return isGitHubPackageRef(raw) || isGiteePackageRef(raw) || isS3PackageRef(raw) || isWebDAVPackageRef(raw)
 }
 
 func classifyManagedRef(raw string) (driver, key string) {
@@ -63,6 +86,9 @@ func classifyManagedRef(raw string) (driver, key string) {
 	}
 	if id, objectKey, ok := parseS3PackageRef(raw); ok {
 		return packageStorageS3, id + "/" + objectKey
+	}
+	if id, objectKey, ok := parseWebDAVPackageRef(raw); ok {
+		return packageStorageWebDAV, id + "/" + objectKey
 	}
 	return "", ""
 }
