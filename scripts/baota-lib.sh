@@ -681,13 +681,34 @@ baota_panel_available() {
   baota_panel_script >/dev/null || return 1
 }
 
-# 标准输出只有 AUTH_PRO_* 键值。中文说明由辅助脚本写到标准错误，会直接显示给操作者。
-# 非 0 表示这一步失败，调用方负责撤掉本次新建的资源。
+# 辅助脚本的标准输出是 AUTH_PRO_* 键值，只写进临时文件再读入下面这些变量。
+# 中文说明仍走标准错误，操作者能看见。非 0 表示这一步失败，调用方负责撤掉本次新建的资源。
+# 不要用命令替换调用本函数，否则读到的变量会随子进程消失。
 baota_panel_run() {
-  local py script
+  local py script capture line code
   py="$(baota_panel_python)" || baota_die "找不到宝塔面板的 Python（btpython）。请确认面板已安装。"
   script="$(baota_panel_script)" || baota_die "缺少 baota-panel.py。请使用当前版本的安装包。"
-  "$py" "$script" "$@"
+  capture="$(mktemp "${TMPDIR:-/tmp}/auth-pro-panel.XXXXXX")"
+  BAOTA_PANEL_RESULT=""
+  BAOTA_PANEL_VERSION=""
+  BAOTA_PANEL_SITE_ID=""
+  BAOTA_PANEL_NGINX=""
+  BAOTA_PANEL_PROGRAM=""
+  set +e
+  "$py" "$script" "$@" >"$capture"
+  code=$?
+  set -e
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      AUTH_PRO_RESULT=*) BAOTA_PANEL_RESULT="${line#AUTH_PRO_RESULT=}" ;;
+      AUTH_PRO_PANEL_VERSION=*) BAOTA_PANEL_VERSION="${line#AUTH_PRO_PANEL_VERSION=}" ;;
+      AUTH_PRO_SITE_ID=*) BAOTA_PANEL_SITE_ID="${line#AUTH_PRO_SITE_ID=}" ;;
+      AUTH_PRO_NGINX=*) BAOTA_PANEL_NGINX="${line#AUTH_PRO_NGINX=}" ;;
+      AUTH_PRO_PROGRAM=*) BAOTA_PANEL_PROGRAM="${line#AUTH_PRO_PROGRAM=}" ;;
+    esac
+  done < "$capture"
+  rm -f "$capture"
+  return "$code"
 }
 
 baota_site_domain() {
@@ -1331,7 +1352,7 @@ baota_configure_nginx_error_page() {
   port="$(baota_effective_port)"
   nginx="${AUTH_PRO_NGINX_BIN:-nginx}"
   if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
-    baota_info "将尝试把后端不可达静态页写入引用 ${site} 或 127.0.0.1:${port} 的 Nginx 站点配置"
+    baota_info "将尝试把后端不可达静态页写入引用 ${site} 的 Nginx 站点配置"
     return 0
   fi
   if ! command -v python3 >/dev/null 2>&1; then
@@ -1816,7 +1837,7 @@ EOF
 
 # 面板已安装时的全新安装：建站、建库、反代、守护、向导。任一步失败只撤本次新建的对象。
 baota_oneclick_install() {
-  local domain port data db_name db_user db_pass snippet scheme cert_out
+  local domain port data db_name db_user db_pass snippet scheme cert_log
   domain="$(baota_site_domain)"
   [[ "$domain" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$ ]] || baota_die "域名不正确：${domain}"
   BAOTA_ONECLICK_DOMAIN="$domain"
@@ -1876,12 +1897,15 @@ baota_oneclick_install() {
     baota_warn "已指定不启动。站点、数据库和反代已就绪，但没有创建管理员。请启动 backend/start.sh 后用浏览器打开站点完成安装向导。"
   fi
   scheme="http"
-  cert_out="$(baota_panel_run cert --domain "$domain" --webroot "$BAOTA_SITE_ROOT" || true)"
-  if printf '%s\n' "$cert_out" | grep -q '^AUTH_PRO_RESULT=https$'; then
-    scheme="https"
-    baota_info "证书已申请，请使用 https://${domain}/"
+  # 证书失败时的那一句中文和日志路径由辅助脚本打印。这里只根据捕获到的结果决定网址用 http 还是 https。
+  cert_log="$(baota_data_dir)/logs/baota-install.log"
+  if baota_panel_run cert --domain "$domain" --webroot "$BAOTA_SITE_ROOT" --log "$cert_log"; then
+    if [[ "$BAOTA_PANEL_RESULT" == "https" ]]; then
+      scheme="https"
+      baota_info "证书已申请，请使用 https://${domain}/"
+    fi
   else
-    baota_info "证书未签发，站点保持 HTTP。"
+    baota_warn "证书申请步骤没有完成，站点保持 HTTP。"
   fi
   if [[ "$BAOTA_START" == "1" ]]; then
     baota_run_wizard "$domain" "$port" "$db_name" "$db_user" "$db_pass" "$scheme"

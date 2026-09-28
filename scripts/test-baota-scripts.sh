@@ -776,4 +776,32 @@ rm -rf "$tmp"
 ' bash "$ROOT/scripts"
 ok "旧备份只迁移本站点，失败时不删除，每类可只留 3 份"
 
+# 面板返回值只进变量。标准输出里不能出现 AUTH_PRO_*。
+FAKE_BIN="$WORKDIR/fake-btpython"
+mkdir -p "$FAKE_BIN"
+cat > "$FAKE_BIN/btpython" <<'EOF'
+#!/bin/sh
+echo 'AUTH_PRO_RESULT=ok'
+echo 'AUTH_PRO_PROGRAM=auth_pro_demo'
+echo '[信息] 给操作者的说明' >&2
+EOF
+chmod 755 "$FAKE_BIN/btpython"
+PANEL_OUT="$WORKDIR/panel-run.out"
+PANEL_ERR="$WORKDIR/panel-run.err"
+PATH="$FAKE_BIN:$PATH" bash -c '
+set -euo pipefail
+SCRIPT_DIR="$1"
+source "$SCRIPT_DIR/baota-lib.sh"
+baota_panel_run preflight
+printf "RESULT=%s\n" "$BAOTA_PANEL_RESULT"
+printf "PROGRAM=%s\n" "$BAOTA_PANEL_PROGRAM"
+' bash "$ROOT/scripts" >"$PANEL_OUT" 2>"$PANEL_ERR"
+grep -q '^RESULT=ok$' "$PANEL_OUT" || fail "没有读到面板返回值"
+grep -q '^PROGRAM=auth_pro_demo$' "$PANEL_OUT" || fail "没有读到进程守护名称"
+if grep -q 'AUTH_PRO_' "$PANEL_OUT"; then
+  fail "面板键值出现在了给操作者的输出里"
+fi
+grep -q '给操作者的说明' "$PANEL_ERR" || fail "中文说明没有留在标准错误"
+ok "面板返回值不出现在终端"
+
 printf '\n自检完成。宝塔进程守护拉起和真实 Nginx reload 仍需要在面板或本机 nginx 上再确认。\n'

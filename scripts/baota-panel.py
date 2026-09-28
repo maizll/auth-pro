@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 宝塔面板内部调用。只给 baota-install.sh 用，不要单独当安装器。
-# 输入是子命令和参数；成功时标准输出只打印 AUTH_PRO_* 键值，中文说明走标准错误。
-# 失败时退出码非 0，并且不删除调用方没有点名的站点、目录或数据库。
+# 输入是子命令和参数。标准输出只给调用方捕获的 AUTH_PRO_* 键值，操作者看不到。
+# 中文说明走标准错误。失败时退出码非 0，并且不删除调用方没有点名的站点、目录或数据库。
 """宝塔 13 面板内部建站、建库、反代、进程守护和证书。"""
 
 import argparse
@@ -19,7 +19,7 @@ OWNER_FILE = ".auth-pro-oneclick"
 
 
 def emit(key, value):
-    """给 bash 解析的一行。值里不能有换行。"""
+    """写给 baota-lib.sh 捕获的一行。值里不能有换行。不要把这一行当成给操作者看的说明。"""
     text = "" if value is None else str(value)
     text = text.replace("\r", " ").replace("\n", " ")
     print("%s=%s" % (key, text), flush=True)
@@ -470,6 +470,33 @@ def add_process(args):
     emit("AUTH_PRO_RESULT", "systemd")
 
 
+def append_install_log(path, text):
+    """把证书接口的完整返回追加到安装日志。写不进去时返回 False，调用方仍只给操作者一句中文。"""
+    if not path:
+        return False
+    try:
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(text)
+            if not text.endswith("\n"):
+                handle.write("\n")
+        return True
+    except OSError:
+        return False
+
+
+def keep_http(args, detail):
+    """证书失败只在终端打一行原因。完整返回值进安装日志，避免同一段内容打两遍。"""
+    wrote = append_install_log(args.log, "apply_cert_api: %s" % detail)
+    if wrote:
+        print("[注意] 证书没有签发，站点保持 HTTP。请在面板里对已经解析到本机的域名申请证书。详情见 %s" % args.log, file=sys.stderr, flush=True)
+    else:
+        print("[注意] 证书没有签发，站点保持 HTTP。请在面板里对已经解析到本机的域名申请证书。", file=sys.stderr, flush=True)
+    emit("AUTH_PRO_RESULT", "http")
+
+
 def apply_cert(args):
     """HTTP 验证申请证书。失败就保持 HTTP，不撤站点。"""
     public = load_public()
@@ -479,8 +506,7 @@ def apply_cert(args):
 
         row = public.M("sites").where("name=?", (domain,)).find()
         if not isinstance(row, dict) or not row.get("id"):
-            manual("没有找到站点 %s ，跳过证书。站点仍使用 HTTP。" % domain, [])
-            emit("AUTH_PRO_RESULT", "http")
+            keep_http(args, "站点 %s 不在面板网站列表里" % domain)
             return
         result = acme_v2.acme_v2().apply_cert_api(obj(
             id=str(row["id"]),
@@ -489,17 +515,12 @@ def apply_cert(args):
             domains=json.dumps([domain]),
         ))
     except Exception as exc:
-        manual("Let's Encrypt 没有申请成功。站点保持 HTTP。请在面板里对已经解析到本机的域名申请证书。", [str(exc)])
-        emit("AUTH_PRO_RESULT", "http")
+        keep_http(args, exc)
         return
-    info("apply_cert_api 返回：%s" % result)
     if isinstance(result, dict) and (result.get("status") is True or result.get("cert")):
         emit("AUTH_PRO_RESULT", "https")
         return
-    manual("Let's Encrypt 没有申请成功。站点保持 HTTP。请在面板里对已经解析到本机的域名申请证书。", [
-        "返回值：%s" % result,
-    ])
-    emit("AUTH_PRO_RESULT", "http")
+    keep_http(args, result)
 
 
 def build_parser():
@@ -552,6 +573,7 @@ def build_parser():
     cert = sub.add_parser("cert")
     cert.add_argument("--domain", required=True)
     cert.add_argument("--webroot", required=True)
+    cert.add_argument("--log", default="", help="证书失败时写入完整返回值的安装日志")
     cert.set_defaults(func=apply_cert)
     return parser
 
