@@ -155,4 +155,4 @@ baota_prepare_backup_dir() {
 
 面板自带类里没有进程守护管理器。图标是插件 `supervisor`（软件商店「进程守护管理器」）。安装入口是 `panelPlugin.panelPlugin().install_plugin`，参数 `sName=supervisor`，并带商店里的 `version` / `min_version`。插件安装要联网下载。若容器里装不上，降级为 systemd 单元，且只给本站点的 `start.sh`，不改其他服务。systemd 在本容器里不是 PID 1，降级路径只验证单元文件内容，不在容器里 systemctl。
 
-Nginx 使用面板极速安装：`bash install_soft.sh 1 install nginx 1.26`（下载对应系统的预编译包，不是源码编译）。MySQL 同样走 `install_soft.sh 1`。这两步的实测结果追加在下面。
+Nginx 使用面板脚本：`bash install_soft.sh 1 install nginx 1.26`。在这个 Ubuntu 22.04 容器里，预编译包没有直接用上，脚本退回编译并先编译了 OpenSSL 1.0.2u。完成后 `nginx -v` 是 **nginx/1.26.3**，`nginx -t` 通过，`/etc/init.d/nginx` 已启动。退出码 0。MySQL 用同一脚本安装 5.7，结果见后文。
