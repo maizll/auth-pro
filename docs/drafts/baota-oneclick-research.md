@@ -155,4 +155,90 @@ baota_prepare_backup_dir() {
 
 面板自带类里没有进程守护管理器。图标是插件 `supervisor`（软件商店「进程守护管理器」）。安装入口是 `panelPlugin.panelPlugin().install_plugin`，参数 `sName=supervisor`，并带商店里的 `version` / `min_version`。插件安装要联网下载。若容器里装不上，降级为 systemd 单元，且只给本站点的 `start.sh`，不改其他服务。systemd 在本容器里不是 PID 1，降级路径只验证单元文件内容，不在容器里 systemctl。
 
-Nginx 使用面板脚本：`bash install_soft.sh 1 install nginx 1.26`。在这个 Ubuntu 22.04 容器里，预编译包没有直接用上，脚本退回编译并先编译了 OpenSSL 1.0.2u。完成后 `nginx -v` 是 **nginx/1.26.3**，`nginx -t` 通过，`/etc/init.d/nginx` 已启动。退出码 0。MySQL 用同一脚本安装 5.7，结果见后文。
+Nginx 使用面板脚本：`bash install_soft.sh 1 install nginx 1.26`。在这个 Ubuntu 22.04 容器里，脚本退回编译并先编译了 OpenSSL 1.0.2u。完成后 `nginx -v` 是 **nginx/1.26.3**，`nginx -t` 通过，`/etc/init.d/nginx` 已启动。退出码 0。
+
+MySQL 极速脚本 `install_soft.sh 1 install mysql 5.7` 在 Ubuntu 上先请求 `https://download-cdn1.bt.cn/rpm/centos22/64/bt-mysql57.rpm`，返回 404（脚本用 rpm，容器里也没有 rpm 命令），然后改下 `install/0/mysql.sh` 从源码编译 GreatSQL。编译已在容器内停掉，避免占满内存。建库实测改用容器内 MariaDB 10.6.23：把 socket 写进 `/etc/my.cnf`，把 root 口令写入面板 sqlite 的 `config.mysql_root`。`database.AddDatabase` 仍是面板自己的类，连的是本机 3306。正式环境应使用已经装好的面板 MySQL，不要在 Ubuntu 上默默走源码编译。
+
+## 5. 原型实测（19127 被占用，不传 --port）
+
+原型是 `docs/drafts/baota-oneclick-prototype.py`。容器里用 Python 占住 `127.0.0.1:19127`。另外放了 `/www/wwwroot/other.example/index.html`，跑完 md5 仍是 `b260098afc93a054427d63c4de6be6a1`，19127 的监听还在。没有停止其它进程。
+
+第一次运行的完整输出：
+
+```text
+[信息] 端口 19127 不可用，继续查找
+[信息] 使用后端端口 19128
+[信息] 面板版本 13.1.0
+[信息] AddSite 返回：{'siteStatus': True, 'siteId': 1, 'ftpStatus': False, 'databaseStatus': False, 'gitStatus': False}
+[信息] AddDatabase 返回：{'status': True, 'msg': '添加成功'}
+[信息] CreateProxy 返回：{'status': True, 'msg': '添加成功'}
+[信息] 自定义 Nginx 片段：/www/server/panel/vhost/nginx/oneclick.lab.test.conf
+[信息] 读取 supervisor 插件信息失败：Working outside of request context.
+[手动] 没有装上宝塔进程守护管理器，已降级为 systemd 单元说明
+       在面板软件商店安装「进程守护管理器」，启动命令填 /www/wwwroot/oneclick.lab.test/backend/start.sh
+       或使用下面的单元，只管理本站点，不要改其它服务
+[Unit]
+Description=auth-pro oneclick.lab.test
+After=network.target
+
+[Service]
+WorkingDirectory=/www/wwwroot/oneclick.lab.test/backend
+ExecStart=/www/wwwroot/oneclick.lab.test/backend/start.sh
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
+[信息] 进程守护：{'status': False, 'mode': 'systemd-text', 'port': 19128}
+[信息] apply_cert_api 返回：{'status': False, 'msg': ["无法为['oneclick.lab.test']颁发证书，不能直接用域名后缀申请通配符证书! ", {'type': 'urn:ietf:params:acme:error:rejectedIdentifier', 'detail': 'Invalid identifiers requested :: Cannot issue for "oneclick.lab.test": Domain name does not end with a valid public suffix (TLD)', 'status': 400}], 'index': None}
+----
+网址: http://oneclick.lab.test/
+管理员账号: 安装向导完成后打印（本原型不写 install.lock）
+后端端口: 19128
+数据库: authpro_oneclick 用户 authpro_oneclick 密码 gqPMnukQ3DrD0EoP 主机 127.0.0.1
+```
+
+退出码 0。站点配置里反代是 `proxy_pass http://127.0.0.1:19128;`，`# BEGIN AUTH_PRO_ONECLICK` 已写入并通过 `nginx -t`。库 `authpro_oneclick` 在 MariaDB 里存在。
+
+再次执行同一条命令被拒绝，没有改站点：
+
+```text
+[错误] 站点 oneclick.lab.test 已存在，拒绝覆盖。请在面板里查看这个站点，本次没有修改它。
+```
+
+显式 `--port 19127` 也被拒绝，没有新建 `busyport.lab.test`：
+
+```text
+[错误] 端口 19127 已被占用或已写在其它 auth-pro 站点配置里，已停止。请换一个端口，本次没有新建站点。
+```
+
+### 进程守护的稳妥路径
+
+`panelPlugin.get_soft_find("supervisor")` 离开面板 HTTP 请求就会报 `Working outside of request context`，不能当作一条命令安装的入口。
+
+插件安装脚本 `https://download.bt.cn/install/plugin/supervisor/install.sh` 可以不登录面板就下载（HTTP 200）。它用豆瓣源 `pip install supervisor`，本次返回 `No matching distribution found for supervisor`。`systemctl` 在容器里也不存在，脚本照样以退出码 0 结束，`supervisord` 二进制当时没有装上。
+
+补上 `btpip install supervisor`（PyPI，装上 4.3.0）后，生成 `/etc/supervisor/supervisord.conf`，执行插件 `config.py`，直接启动 `pyenv/bin/supervisord`（不调用 systemctl）。然后：
+
+```text
+AddProcess 返回：{'status': True, 'msg': '增加守护进程成功!'}
+```
+
+参数：`pjname=auth_pro_oneclick`，`user=www`，`path` 为 `backend/`，`command` 为 `backend/start.sh`，`numprocs=1`。配置写在 `/www/server/panel/plugin/supervisor/profile/auth_pro_oneclick.ini`。原型里的 `start.sh` 只是占位，马上退出，所以 `supervisorctl status` 是 `FATAL Exited too quickly`。这只说明守护已经接到这个命令，不是后端程序已经跑起来。
+
+一条命令安装应优先走这条插件路径：自己用 `btpip install supervisor`，不要依赖脚本里的豆瓣源，也不要调用 `panelPlugin.install_plugin`。插件或 `supervisord` 起不来时，只打印本站点的 systemd 单元，不 `systemctl` 其它服务。
+
+### 每步失败时
+
+| 步骤 | 失败时 |
+| --- | --- |
+| 端口 | 显式端口被占用就退出。自动端口找不到空闲端口也退出。都不建站。 |
+| 站点已存在或目录非空 | 退出，不调用 `AddSite`。 |
+| 建站失败 | 打印面板手工建站说明，不建库。 |
+| 建库失败 | 删掉本次新建的站点，打印手工建库说明。已有同名库时 `AddDatabase` 自己返回失败，原型不 DROP。 |
+| 反代失败 | 删掉本次新建的库和站点，打印反代地址。 |
+| 自定义片段写入后 `nginx -t` 失败 | 还原该站点配置，反代保留，打印手工合并 `baota-nginx.snippet.conf`。 |
+| 进程守护失败 | 不删站，打印手工添加守护或 systemd 单元。 |
+| 证书失败 | 不删站，保留 HTTP，打印到面板申请证书。本次 `.test` 域名被 Let's Encrypt 拒绝，返回见上面的输出。 |
+
+免向导的接口结论仍见第 2 节。本原型没有启动 auth-pro 二进制，所以没有实际 POST 安装接口。
