@@ -1,12 +1,32 @@
 # 安装部署
 
-发布包只提供 Linux amd64，文件名是 `auth_pro-full-vX.Y.Z.tar.gz`。包里已经带了一键安装脚本 `baota-install.sh` 和升级脚本 `baota-upgrade.sh`。
+在宝塔终端粘贴下面这一条即可安装。把 `example.com` 换成站点域名。脚本从官网下载已发布的安装包，核对 SHA256 和签名后再安装。下载不需要登录，也不需要令牌。
 
-先在宝塔面板里建好网站、一个空的 MySQL，并配好 SSL。脚本不改面板里的这些设置。数据库密码不要写进脚本，第一次用浏览器打开站点时，在安装向导里填写。
+```bash
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com
+```
 
-## 全新安装
+网站目录默认是 `/www/wwwroot/example.com`。目录不存在时会自动创建。要指定端口或目录：
 
-把发布包放到网站目录，解压后执行安装脚本：
+```bash
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com --port 19127 --site-root /www/wwwroot/example.com
+```
+
+已经有 `backend/install.lock` 时，命令会停下来并提示改用升级，不会覆盖现有站点。
+
+宝塔的 `bt` 命令是面板菜单，没有稳定的建站参数。面板 API 默认关闭，还要单独打开密钥和 IP 白名单；建站、空库、反向代理和证书在不同面板版本上也不一样。脚本因此不调用这些接口。装完后请在面板里完成：
+
+1. 创建网站，根目录与上面的网站目录相同
+2. 创建一个空的 MySQL 数据库。数据库密码在浏览器安装向导里填写，不要写进命令
+3. 站点反向代理到 `127.0.0.1:19127`（改过端口就用那个端口），并把 `backend/baota-nginx.snippet.conf` 里的 location 放进站点配置
+4. 需要 HTTPS 时在面板申请证书
+5. 进程守护的启动命令是网站根下的 `backend/start.sh`，运行目录是 `backend/`。说明在 `backend/baota-guardian.txt`
+
+然后用浏览器打开站点域名。还没有安装锁时会进入安装向导：填写事先建好的空 MySQL，初始化数据表，创建超级管理员。
+
+## 已经拿到发布包
+
+发布包只提供 Linux amd64，文件名是 `auth_pro-full-vX.Y.Z.tar.gz`。包里带有 `baota-install.sh` 和 `baota-upgrade.sh`。
 
 ```bash
 cd /www/wwwroot/example.com
@@ -24,8 +44,6 @@ bash baota-install.sh \
 ```
 
 网站目录里已经有 `backend/install.lock` 时，安装脚本会拒绝执行，请改用下面的升级。
-
-装完后用浏览器打开站点域名。还没有安装锁时会进入安装向导：填写事先建好的空 MySQL，初始化数据表，创建超级管理员。
 
 ## 升级
 

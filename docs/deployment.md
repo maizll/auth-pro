@@ -1,6 +1,6 @@
 # 部署手册
 
-当前版本 **1.7.3**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
+当前版本 **1.7.4**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
 
 运行数据目录与进程的工作目录一致。宝塔脚本默认把它放在网站根下的 `backend/`。后端解析数据目录的顺序是：环境变量 `AUTO_PRO_DATA_DIR`，否则在当前工作目录或其子目录 `backend/` 中寻找 `install.lock`、`db.json` 或 `go.mod`，再否则用可执行文件所在目录。
 
@@ -29,7 +29,9 @@ go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出
 
 ## 宝塔：全新安装
 
-脚本在发布包根目录，仓库里对应 `scripts/baota-install.sh`（逻辑在 `scripts/baota-lib.sh`）。面板里的建站、空 MySQL、SSL 和进程守护开关仍要手工做，脚本不改面板数据库。
+客户在宝塔终端安装时，用 [安装部署](install.md) 里的一条命令。脚本会创建网站目录，再调用 `baota-install.sh`（逻辑在 `baota-lib.sh`）。面板里的建站、空 MySQL、SSL 和进程守护开关仍要手工做，脚本不改面板数据库。
+
+下面是已经拿到发布包时的步骤。
 
 已有 `backend/install.lock` 时安装脚本会拒绝，应改走升级。
 
@@ -50,7 +52,7 @@ bash baota-install.sh \
 
 ### 安装脚本会做的事
 
-1. 确认网站根（`--site-root`、`AUTH_PRO_SITE_ROOT`，或脚本就在已解压的站点里）。拒绝把 `/`、`/tmp`、`/www/wwwroot` 这类目录本身当成网站根。
+1. 确认网站根（`--site-root`、`AUTH_PRO_SITE_ROOT`，或脚本就在已解压的站点里）。目录不存在时会创建。拒绝把 `/`、`/tmp`、`/www/wwwroot` 这类目录本身当成网站根。
 2. 校验发布包，拒绝 `..` 和符号链接。放入 `index.html`、`assets/`、`backend/auth_pro` 等，不删除 `.user.ini` 这类面板文件。
 3. 把 `backend/auth_pro` 设为 `755`。
 4. 生成 `backend/baota.env`（`PORT`、`HOST=127.0.0.1`、`AUTO_PRO_DATA_DIR`）、`backend/start.sh`、`backend/baota-nginx.snippet.conf`、`backend/baota-guardian.txt`。`baota.env` 为 `600`。已有 `baota.env` 且没有用 `--port` 或 `AUTH_PRO_HOST` 覆盖时，默认保留。

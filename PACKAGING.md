@@ -17,10 +17,13 @@ auth_pro-full-v1.5.0.tar.gz
 ├── backend/
 │   └── auth_pro
 ├── manifest.json
+├── install.sh
 ├── baota-install.sh
 ├── baota-upgrade.sh
 └── baota-lib.sh
 ```
+
+`install.sh` 打在包根，供官网从当前已发布的安装包里读出并挂在 `/install.sh`。客户站点安装时不会把这个文件复制到网站根。
 
 ## 必须遵守
 
@@ -45,6 +48,7 @@ auth_pro-full-v1.5.0.tar.gz
 ├── backend/
 │   └── auth_pro
 ├── manifest.json
+├── install.sh
 ├── baota-install.sh
 ├── baota-upgrade.sh
 └── baota-lib.sh
@@ -90,7 +94,7 @@ Nginx 反代到 `127.0.0.1:19127`，并把 `backend/baota-nginx.snippet.conf` �
 
 ## 版本号单一信源
 
-仓库根目录 `VERSION`（当前 `1.7.3`）是产品线默认版本：
+仓库根目录 `VERSION`（当前 `1.7.4`）是产品线默认版本：
 
 - 后端 `auto_pro/config.AppVersion` 仓库默认与 `VERSION` 一致；`./scripts/build-release.sh` / `.ps1` 无参数时读该文件，并用 `-ldflags` 注入 `AppVersion` / `BuildTime`。
 - 前端 `VITE_VERSION` 与 `vite.config.ts` 的 `version.json` 同样对齐 `VERSION`；发布脚本会把参数版本写入 `VITE_VERSION`。

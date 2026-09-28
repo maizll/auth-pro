@@ -169,6 +169,7 @@ func main() {
 		handler.RegisterNotificationRoutes(api)
 		handler.RegisterSitePagePublicRoutes(api)
 		handler.RegisterProductUpdateRoutes(api)
+		handler.RegisterPublicInstallRoute(r)
 		handler.StartStoreSnapshotRefresher()
 
 		// 用户端（需鉴权）
