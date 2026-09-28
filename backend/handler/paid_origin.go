@@ -74,6 +74,11 @@ func settlePaidZipBytes(ctx context.Context, kind, id, version string, payload [
 	if version == "" {
 		version = "1.0.0"
 	}
+	if ref, putErr := putPaidWithLocations(ctx, kind, strings.TrimSpace(id), version, payload); putErr == nil && ref != "" {
+		return ref, fileSHA, false, nil
+	} else if putErr != nil && !errors.Is(putErr, errNoEnabledStorage) {
+		return "", "", false, putErr
+	}
 	if githubPaidRepoConfigured() {
 		driver, ok := packageStorageByName(packageStorageGitHub)
 		if !ok {
@@ -198,7 +203,7 @@ func adoptPaidItemLocation(kind, category, itemID, location, sha, version string
 		}
 		return "", sha, version, "", "", nil
 	}
-	if isGitHubPackageRef(location) {
+	if isRemoteManagedRef(location) {
 		return location, sha, version, "", paidOriginHealthOK, nil
 	}
 	if isPrivatePackageRef(location) {
@@ -206,7 +211,7 @@ func adoptPaidItemLocation(kind, category, itemID, location, sha, version string
 		return location, sha, version, origin, health, nil
 	}
 	if isStationHostedPackageURL(location) {
-		if !githubPaidRepoConfigured() {
+		if !storageReadyForPaid() {
 			return location, sha, version, "", "", nil
 		}
 		payload, err := readStationHostedZip(location)
@@ -217,7 +222,7 @@ func adoptPaidItemLocation(kind, category, itemID, location, sha, version string
 		if err != nil {
 			return "", "", "", "", "", err
 		}
-		if isGitHubPackageRef(ref) {
+		if isRemoteManagedRef(ref) {
 			dropUnusedStationPackage(location, kind, itemID)
 		}
 		return ref, fileSHA, version, "", paidOriginHealthOK, nil
@@ -273,11 +278,11 @@ func adoptPaidVersionLocation(kind, itemID, version, location, sha string) (stri
 		origin := matchingPaidVersionOrigin(kind, itemID, version, location)
 		return location, sha, origin, nil
 	}
-	if isGitHubPackageRef(location) {
+	if isRemoteManagedRef(location) {
 		return location, sha, "", nil
 	}
 	if isStationHostedPackageURL(location) {
-		if !githubPaidRepoConfigured() {
+		if !storageReadyForPaid() {
 			return location, sha, "", nil
 		}
 		payload, err := readStationHostedZip(location)
@@ -288,7 +293,7 @@ func adoptPaidVersionLocation(kind, itemID, version, location, sha string) (stri
 		if err != nil {
 			return "", "", "", err
 		}
-		if isGitHubPackageRef(ref) {
+		if isRemoteManagedRef(ref) {
 			dropUnusedStationPackage(location, kind, itemID)
 		}
 		return ref, fileSHA, "", nil
@@ -673,6 +678,7 @@ func checkPaidOriginHealth(ctx context.Context) {
 			touchLocalPaidHealth(ctx, store, sourceKindTemplate, item.ID, item.Name, item.PriceCents, item.TemplateURL, item.OriginHealth)
 		}
 	}
+	checkStorageLocations(ctx)
 }
 
 func touchPaidOriginHealth(ctx context.Context, store sourceStationStore, kind, id string, price int64, origin, location, current string) {

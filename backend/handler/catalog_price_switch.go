@@ -264,7 +264,7 @@ func relocateCatalogLocations(kind, category, itemID, version string, locations 
 }
 
 func hostedCatalogPackage(location string) bool {
-	return isPrivatePackageRef(location) || isGitHubPackageRef(location)
+	return isManagedPackageRef(location)
 }
 
 // keepHostedPackageOnFreeSwitch 在付费改回免费时沿用收费仓库里的托管包。
@@ -293,7 +293,7 @@ func catalogLocationNeedsMove(location string, price int64) bool {
 	if location == "" || price <= 0 {
 		return false
 	}
-	return !isPrivatePackageRef(location) && !isGitHubPackageRef(location)
+	return !isManagedPackageRef(location)
 }
 
 func relocateOneCatalogLocation(kind, category, itemID, version, location string, price int64) (catalogLocationMove, error) {
@@ -312,7 +312,7 @@ func relocateOneCatalogLocation(kind, category, itemID, version, location string
 			}
 			loc, sha = sealed, fileSHA
 		}
-		if !isPrivatePackageRef(loc) && !isGitHubPackageRef(loc) {
+		if !isManagedPackageRef(loc) {
 			return catalogLocationMove{}, errSourcePaidExternal
 		}
 		if origin == "" && isHTTPSLocation(location) {
@@ -334,10 +334,10 @@ func releasePaidLocationToPublic(location, sha string) (string, string, error) {
 	if isPrivatePackageRef(location) {
 		return unsealPaidPackage(location, sha)
 	}
-	if !isGitHubPackageRef(location) {
+	if !isRemoteManagedRef(location) {
 		return location, sha, nil
 	}
-	payload, err := fetchGitHubPackageBytes(context.Background(), location)
+	payload, err := readStoredPackageBytes(context.Background(), location)
 	if err != nil || !isZipPayload(payload) {
 		return "", "", errors.New("收费仓库暂时无法读取安装包，不能改回免费")
 	}

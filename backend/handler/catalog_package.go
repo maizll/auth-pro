@@ -77,7 +77,8 @@ func catalogRepoHostBlocked(raw string) bool {
 	if raw == "" {
 		return false
 	}
-	if isGitHubPackageRef(raw) || strings.HasPrefix(strings.ToLower(raw), "github:") {
+	lower := strings.ToLower(raw)
+	if isRemoteManagedRef(raw) || strings.HasPrefix(lower, "github:") || strings.HasPrefix(lower, "gitee:") || strings.HasPrefix(lower, "s3:") {
 		return true
 	}
 	parsed, err := url.Parse(raw)
@@ -216,36 +217,7 @@ func readStoredCatalogPackage(ctx context.Context, location, expectedSHA string)
 }
 
 func readStoredPackageBytes(ctx context.Context, location string) ([]byte, error) {
-	location = strings.TrimSpace(location)
-	switch {
-	case isGitHubPackageRef(location):
-		return fetchGitHubPackageBytes(ctx, location)
-	case isPrivatePackageRef(location):
-		return readPrivatePackageFile(location)
-	case isStationHostedPackageURL(location):
-		name, ok := stationPackageNameFromURL(location)
-		if !ok {
-			return nil, errCatalogPackageMissing
-		}
-		path, ok := publicStationPackagePath(name)
-		if !ok {
-			return nil, errCatalogPackageMissing
-		}
-		return readCatalogFile(path)
-	case strings.HasPrefix(strings.ToLower(location), "https://"):
-		payload, err := safeHTTPGet(ctx, location, safeFetchOptions{
-			RequireHTTPS: true,
-			MaxBytes:     pluginPackageMaxSize,
-			Timeout:      2 * time.Minute,
-			MaxRedirects: defaultSafeRedirects,
-		})
-		if err != nil {
-			return nil, errCatalogPackageUnavailable
-		}
-		return payload, nil
-	default:
-		return nil, errCatalogPackageMissing
-	}
+	return readStoredPackageWithFallback(ctx, location)
 }
 
 func readPrivatePackageFile(location string) ([]byte, error) {
@@ -278,7 +250,7 @@ func fetchGitHubPackageBytes(ctx context.Context, location string) ([]byte, erro
 	if !ok {
 		return nil, errCatalogPackageMissing
 	}
-	token, err := loadGitHubPaidToken()
+	token, err := tokenForGitHubRepo(ref.Owner, ref.Repo)
 	if err != nil || strings.TrimSpace(token) == "" {
 		return nil, errCatalogPackageUnavailable
 	}
@@ -320,9 +292,30 @@ func fetchGitHubPackageBytes(ctx context.Context, location string) ([]byte, erro
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		return nil, errCatalogPackageUnavailable
 	}
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, pluginPackageMaxSize+1))
-	if err != nil || int64(len(payload)) > pluginPackageMaxSize || len(payload) == 0 {
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, storageReadLimit+1))
+	if err != nil || int64(len(payload)) > storageReadLimit || len(payload) == 0 {
 		return nil, errCatalogPackageUnavailable
 	}
-	return payload, nil
+	manifest, sharded := parseShardManifest(payload)
+	if !sharded {
+		if int64(len(payload)) > pluginPackageMaxSize {
+			return nil, errCatalogPackageUnavailable
+		}
+		return payload, nil
+	}
+	parts := make([][]byte, 0, len(manifest.Parts))
+	for _, name := range manifest.Parts {
+		partRef := ref
+		partRef.Asset = name
+		part, partErr := fetchGitHubAssetBytes(ctx, token, partRef)
+		if partErr != nil {
+			return nil, errCatalogPackageUnavailable
+		}
+		parts = append(parts, part)
+	}
+	joined, joinErr := joinShards(parts, manifest.SHA256, manifest.Size)
+	if joinErr != nil {
+		return nil, errCatalogPackageUnavailable
+	}
+	return joined, nil
 }

@@ -10,7 +10,7 @@
     <p class="switch-lead">这条目前免费，而且已经公开。保存后会立刻生效：</p>
     <ul class="switch-list">
       <li>公开下载地址作废，不能再直接下载。</li>
-      <li>安装包迁入已配置的收费仓库；没配置时改由本站私有托管，下载走付费校验。</li>
+      <li>安装包迁入已配置的主存储；没配置时改由本站私有托管，下载走付费校验。</li>
       <li>外链会由本站自动拉取后再托管，买家看不到原来的地址。</li>
     </ul>
     <el-radio-group v-model="choice" class="switch-options">

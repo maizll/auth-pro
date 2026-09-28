@@ -29,7 +29,7 @@ const (
 	githubPaidTokenMissingText = "请先在软件源设置里配置收费仓库和 GitHub 令牌"
 	githubPaidTokenInvalidText = "GitHub 令牌无效或已过期，请到软件源设置重新配置。令牌需要 Contents 读写权限"
 	githubPaidAssetMissingText = "收费仓库里找不到该安装包，请重新上传"
-	paidLocalFallbackText      = "安装包暂存在本站。请到软件源设置粘贴令牌，点「测试令牌」确认私有仓库后再保存。"
+	paidLocalFallbackText      = "安装包暂存在本站。请到「存储管理」添加主存储，测试连接后再保存。"
 	githubPaidDefaultRepo      = "auth-pro-paid"
 	githubPaidTokenCreateURL   = "https://github.com/settings/tokens/new?scopes=repo&description=auth-pro"
 	githubPaidPermissionText   = "权限不足：细粒度令牌需要 Administration 读写（创建仓库）和 Contents 读写，经典令牌需要 repo 权限。"
@@ -364,7 +364,7 @@ func loadGitHubPaidRepo() (owner, repo, token string, err error) {
 
 func githubPaidSettingsView() gin.H {
 	owner, repo, _, _ := loadGitHubPaidRepo()
-	configured := githubPaidRepoConfigured()
+	configured := storageReadyForPaid()
 	reminder := ""
 	if !configured {
 		reminder = paidLocalFallbackText
@@ -458,6 +458,7 @@ func AdminGitHubPaidTokenSave(c *gin.Context) {
 		ActorType: "admin", ActorName: c.GetString("username"), Action: "settings",
 		TargetType: "github_paid", TargetID: owner + "/" + repo, Detail: "已更新收费仓库",
 	})
+	_ = syncLegacyStorageLocations()
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已保存收费仓库（页面不回显令牌明文）", "data": githubPaidSettingsView()})
 }
 
@@ -753,7 +754,7 @@ func concealDeveloperPaidStorage(view gin.H) {
 	delete(view, "githubAsset")
 	for _, key := range []string{"downloadUrl", "templateUrl"} {
 		raw, _ := view[key].(string)
-		if isGitHubPackageRef(raw) || isPrivatePackageRef(raw) {
+		if isManagedPackageRef(raw) {
 			view[key] = ""
 			view["storedBySite"] = true
 			view["packageSource"] = "upload"

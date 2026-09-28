@@ -43,7 +43,6 @@
     "src/api/source-station.ts:type:SourcePackagePublishResult",
     "src/api/source-station.ts:type:SourcePlugin",
     "src/api/source-station.ts:type:SourcePluginDraft",
-    "src/api/source-station.ts:type:SourceReleaseTestResult",
     "src/api/source-station.ts:type:SourceTemplate",
     "src/api/source-station.ts:type:SourceTemplateDraft",
     "src/api/source-station.ts:type:SourceVersionDraft",

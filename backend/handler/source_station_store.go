@@ -517,6 +517,7 @@ type memorySourceStore struct {
 	githubPaidToken  string
 	githubPaidOwner  string
 	githubPaidRepo   string
+	storageBlob      *storageConfigBlob
 	categoryExtras   []sourceCatalogCategory
 	catalogApps      map[int64]sourceCatalogApp
 	sourceAliases    map[string]int64

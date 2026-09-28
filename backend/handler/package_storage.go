@@ -16,6 +16,8 @@ import (
 const (
 	packageStorageLocal    = "local"
 	packageStorageGitHub   = "github"
+	packageStorageGitee    = "gitee"
+	packageStorageS3       = "s3"
 	packageStorageExternal = "external"
 )
 
@@ -67,6 +69,9 @@ func classifyPackageRef(raw string) (driver, key string) {
 	}
 	if name, ok := privatePackageName(raw); ok {
 		return packageStorageLocal, name
+	}
+	if driver, key := classifyManagedRef(raw); driver != "" {
+		return driver, key
 	}
 	if strings.HasPrefix(strings.ToLower(raw), "https://") {
 		return packageStorageExternal, raw

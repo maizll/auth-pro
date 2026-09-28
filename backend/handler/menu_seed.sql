@@ -49,9 +49,12 @@ INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `redirect`,
 (902, 9, 'SourceStationApplications', 'applications', '/source-station/applications', '',                                             'menus.sourceStation.applications', 'ri:user-add-line',      2, 1, 0),
 (903, 9, 'SourceStationCatalog',      'catalog',      '/source-station/catalog',      '',                                             'menus.sourceStation.catalog',      'ri:file-list-3-line',   3, 0, 0),
 (904, 9, 'SourceStationAds',          'ads',          '/source-station/ads',          '',                                             'menus.sourceStation.ads',          'ri:advertisement-line', 4, 1, 0),
-(905, 9, 'SourceStationSettings',     'settings',     '/source-station/settings',     '',                                             'menus.sourceStation.settings',     'ri:settings-3-line',    5, 1, 0),
-(906, 9, 'SourceStationPlugins',      'plugins',      '/source-station/packages',      '/source-station/packages',                      'menus.sourceStation.plugins',      'ri:puzzle-line',        6, 1, 1),
-(907, 9, 'SourceStationTemplates',    'templates',    '/source-station/packages',      '/source-station/packages?category=home-template', 'menus.sourceStation.templates',  'ri:layout-4-line',      7, 1, 1);
+(908, 9, 'SourceStationStorage',        'storage',          '/source-station/storage',         '',                                             'menus.sourceStation.storage',         'ri:hard-drive-2-line',  5, 1, 0),
+(909, 9, 'SourceStationStorageMonitor','storage-monitor',  '/source-station/storage/monitor', '',                                             'menus.sourceStation.storageMonitor',  'ri:pulse-line',         6, 1, 0),
+(910, 9, 'SourceStationStorageFiles',  'storage-files',    '/source-station/storage/files',   '',                                             'menus.sourceStation.storageFiles',    'ri:folder-open-line',   7, 0, 1),
+(905, 9, 'SourceStationSettings',     'settings',     '/source-station/settings',     '',                                             'menus.sourceStation.settings',     'ri:settings-3-line',    8, 1, 0),
+(906, 9, 'SourceStationPlugins',      'plugins',      '/source-station/packages',      '/source-station/packages',                      'menus.sourceStation.plugins',      'ri:puzzle-line',        9, 1, 1),
+(907, 9, 'SourceStationTemplates',    'templates',    '/source-station/packages',      '/source-station/packages?category=home-template', 'menus.sourceStation.templates',  'ri:layout-4-line',     10, 1, 1);
 
 -- Piracy
 INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `title`, `icon`, `sort`, `keep_alive`) VALUES
