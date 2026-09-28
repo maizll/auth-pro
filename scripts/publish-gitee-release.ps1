@@ -15,7 +15,7 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
   throw "Version must match X.Y.Z: $Version"
 }
 if ([string]::IsNullOrWhiteSpace($Repository)) {
-  throw "Gitee publish is an optional mirror. Pass -Repository owner/repo. Canonical updates are GitHub maizll/auth-pro."
+  throw "Gitee publish is an optional mirror. Pass -Repository owner/repo. Canonical updates are GitHub maizll/auth-pro-client."
 }
 if ($Repository -notmatch '^([^/]+)/([^/]+)$') {
   throw "Repository must match owner/repo: $Repository"

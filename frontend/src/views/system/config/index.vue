@@ -413,7 +413,7 @@
 
                     <ElAlert
                       v-if="!realnameConfig.pluginEnabled"
-                      type="warning"
+                      type="info"
                       :closable="false"
                       title="尚未启用实名认证服务商插件"
                       description="请前往应用商店，在「实名认证服务商」分区启用一个插件后再回来配置"
@@ -847,7 +847,7 @@
                         </div>
                         <ElTag
                           v-if="realnameForm.requireAppIds.includes(app.id)"
-                          type="warning"
+                          type="info"
                           size="small"
                           effect="light"
                           >需实名</ElTag
@@ -905,23 +905,26 @@
               </div>
 
               <ElTable v-loading="recordLoading" :data="recordList" size="small" stripe>
-                <ElTableColumn label="主体" min-width="170">
+                <ElTableColumn label="主体" min-width="160" show-overflow-tooltip>
                   <template #default="{ row }">
-                    <div class="record-owner">
+                    <div class="record-owner cell-one-line-row">
                       <ElTag
                         size="small"
-                        :type="row.ownerType === 'agent' ? 'warning' : 'primary'"
+                        :type="row.ownerType === 'agent' ? 'primary' : 'info'"
                         effect="plain"
                       >
                         {{ row.ownerType === 'agent' ? '代理' : '用户' }}
                       </ElTag>
-                      <div>
-                        <div>{{ row.ownerName || '-' }}</div>
-                        <span class="record-email">{{ row.ownerEmail }}</span>
-                      </div>
+                      <span>{{ row.ownerName || '-' }}</span>
                     </div>
                   </template>
                 </ElTableColumn>
+                <ElTableColumn
+                  prop="ownerEmail"
+                  label="邮箱"
+                  min-width="180"
+                  show-overflow-tooltip
+                />
                 <ElTableColumn prop="realName" label="姓名" width="90" />
                 <ElTableColumn prop="idCard" label="身份证号" min-width="150" />
                 <ElTableColumn label="服务商" width="90">
@@ -940,11 +943,11 @@
                     </ElTag>
                   </template>
                 </ElTableColumn>
-                <ElTableColumn label="详细失败原因" min-width="420">
+                <ElTableColumn label="详细失败原因" min-width="220" show-overflow-tooltip>
                   <template #default="{ row }">
-                    <div v-if="row.status === 'failed'" class="record-fail-reason">
-                      {{ row.failReason || '-' }}
-                    </div>
+                    <span v-if="row.status === 'failed'" class="cell-one-line">{{
+                      row.failReason || '-'
+                    }}</span>
                     <span v-else>-</span>
                   </template>
                 </ElTableColumn>
@@ -1997,18 +2000,6 @@
     display: flex;
     align-items: center;
     gap: 8px;
-  }
-
-  .record-email {
-    font-size: 12px;
-    color: var(--el-text-color-secondary);
-  }
-
-  .record-fail-reason {
-    line-height: 1.6;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    word-break: break-word;
   }
 
   .record-pagination {

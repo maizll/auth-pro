@@ -34,7 +34,7 @@
         <ElAlert v-if="loadError" type="error" :closable="false" show-icon :title="loadError" />
         <ElAlert
           v-else-if="siteProblem"
-          type="warning"
+          type="info"
           :closable="false"
           show-icon
           :title="siteProblem"
@@ -73,8 +73,8 @@
                 <strong>{{ commercialUi.offer.name }}</strong>
                 <span
                   class="offer-profile__badge"
-                  :class="commercialUi.offer.purchaseOnly ? 'is-third' : 'is-official'"
-                  >{{ commercialUi.offer.purchaseOnly ? '第三方' : '官方' }}</span
+                  :class="offerIsThird ? 'is-third' : 'is-official'"
+                  >{{ offerIsThird ? '第三方' : '官方' }}</span
                 >
               </div>
               <p v-if="offerMeta" class="offer-profile__meta">{{ offerMeta }}</p>
@@ -120,7 +120,7 @@
           <p v-else class="upgrade-tip">尚未经源站确认绑定，确认后才显示当前账号。</p>
           <ElAlert
             v-if="account?.domainMismatch"
-            type="warning"
+            type="info"
             :closable="false"
             show-icon
             title="当前访问域名与授权域名不一致，付费能力暂按免费版处理。"
@@ -269,7 +269,7 @@
               <p class="section-title">选择购买方式</p>
               <div
                 class="choice-grid"
-                :class="{ 'is-single': commercialUi.offer.purchaseOnly }"
+                :class="{ 'is-single': !offerInCommercial }"
                 role="radiogroup"
                 aria-label="购买方式"
               >
@@ -285,14 +285,18 @@
                     <small>/ {{ offerPeriod }}</small>
                   </span>
                   <span class="choice-card__note">{{
-                    commercialUi.offer.purchaseOnly ? purchaseOnlyNote : singleUnlockNote
+                    offerIsThird
+                      ? purchaseOnlyNote
+                      : offerInCommercial
+                        ? singleUnlockNote
+                        : officialSeparateNote
                   }}</span>
                   <span v-if="itemChoice === 'item'" class="choice-card__check" aria-hidden="true"
                     ><ArtSvgIcon icon="ri:check-line"
                   /></span>
                 </button>
                 <button
-                  v-if="!commercialUi.offer.purchaseOnly && recommendedPlan"
+                  v-if="offerInCommercial && recommendedPlan"
                   type="button"
                   class="choice-card"
                   :class="{ 'is-selected': itemChoice === 'plan' }"
@@ -310,9 +314,7 @@
                   /></span>
                 </button>
               </div>
-              <p
-                v-if="!commercialUi.offer.purchaseOnly && !loading && !recommendedPlan"
-                class="upgrade-tip"
+              <p v-if="offerInCommercial && !loading && !recommendedPlan" class="upgrade-tip"
                 >源站尚未配置可购买的套餐。</p
               >
               <section v-if="showCompare" class="compare">
@@ -450,6 +452,7 @@
   import CommercialMark from './CommercialMark.vue'
   import CommercialLicenseCard from './CommercialLicenseCard.vue'
   import {
+    catalogItemAccess,
     commercialCompareNote,
     commercialCompareRows,
     commercialCta,
@@ -505,6 +508,11 @@
   )
   const pendingItem = computed(() => !!commercialUi.offer && !choosingEdition.value)
   const buyingItem = computed(() => pendingItem.value && !needsBind.value)
+  const offerAccess = computed(() => catalogItemAccess(commercialUi.offer))
+  const offerIsThird = computed(() => offerAccess.value.party === 'third')
+  const offerInCommercial = computed(
+    () => offerAccess.value.party === 'official' && offerAccess.value.commercialIncluded
+  )
   // 卡片上的期限用短写法：永久、年、N 天。
   function slashPeriod(period?: string) {
     const text = commercialPeriodText(period)
@@ -516,6 +524,7 @@
     commercialUi.offer?.kind === 'template' ? '单独购买此模板' : '单独购买此插件'
   )
   const purchaseOnlyNote = '由第三方开发者提供，商业版不包含，需要单独购买'
+  const officialSeparateNote = '官方条目，未包含在商业版中，需要单独购买'
   const singleUnlockNote = computed(() =>
     commercialUi.offer?.kind === 'template' ? '只解锁这一个模板' : '只解锁这一个插件'
   )
@@ -545,7 +554,7 @@
     const offer = commercialUi.offer
     if (!offer) return ''
     const money = `${commercialYuanText(offer.priceCents)} / ${slashPeriod(offer.period)}`
-    if (offer.purchaseOnly) return `单独购买 ${money}`
+    if (!offerInCommercial.value) return `单独购买 ${money}`
     return `单独购买 ${money}，也可选商业版（绑定后选择）`
   })
   const dialogTitle = computed(() => {
@@ -591,7 +600,7 @@
   // 官方单品和套餐窗口都展示对照表。第三方条目商业版不包含，不放这张表。
   const showCompare = computed(() => {
     if (needsBind.value || payUrl.value) return false
-    if (buyingItem.value) return !commercialUi.offer?.purchaseOnly
+    if (buyingItem.value) return offerInCommercial.value
     return action.value !== 'view'
   })
   const payStatus = ref('')
@@ -926,7 +935,7 @@
       planId.value = plans.value.some((item) => item.id === keptPlan)
         ? keptPlan
         : plans.value[0]?.id
-      if (!plans.value.length) ElMessage.warning('源站尚未配置可购买的套餐')
+      if (!plans.value.length) ElMessage.info('源站尚未配置可购买的套餐')
     }
   }
 
@@ -994,7 +1003,7 @@
   }
 
   async function paySelected() {
-    if (itemChoice.value === 'plan' && recommendedPlan.value && !commercialUi.offer?.purchaseOnly) {
+    if (itemChoice.value === 'plan' && recommendedPlan.value && offerInCommercial.value) {
       planId.value = recommendedPlan.value.id
       settleAsEdition.value = true
       await pay()
@@ -1042,7 +1051,7 @@
 
   async function pay() {
     if (!planId.value) {
-      ElMessage.warning('请选择套餐')
+      ElMessage.info('请选择套餐')
       return
     }
     acting.value = true
@@ -1487,11 +1496,11 @@
     align-items: center;
     justify-content: space-between;
     padding: 10px 12px;
-    color: #9a3412;
+    color: var(--el-text-color-regular);
     font-size: 13px;
     line-height: 1.5;
-    background: #fff7ed;
-    border: 1px solid #fdba74;
+    background: var(--el-color-primary-light-9);
+    border: 1px solid var(--el-color-primary-light-7);
     border-radius: 10px;
   }
 

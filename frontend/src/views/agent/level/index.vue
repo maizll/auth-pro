@@ -449,7 +449,7 @@
   }
 
   const levelTagType = (discount: number) => {
-    if (discount <= 7) return 'warning'
+    if (discount <= 7) return 'info'
     if (discount <= 8) return 'success'
     return 'info'
   }
@@ -523,7 +523,7 @@
 
   const handleToggle = async (row: AgentLevelItem) => {
     if (row.enabled && row.agentCount > 0) {
-      ElMessage.warning('该等级已有代理商使用，不能禁用')
+      ElMessage.info('该等级已有代理商使用，不能禁用')
       return
     }
 
@@ -550,7 +550,7 @@
 
   const handleDelete = async (row: AgentLevelItem) => {
     if (row.agentCount > 0) {
-      ElMessage.warning('该等级已有代理商使用，不能删除')
+      ElMessage.info('该等级已有代理商使用，不能删除')
       return
     }
 

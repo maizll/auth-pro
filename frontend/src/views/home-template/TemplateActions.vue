@@ -75,6 +75,7 @@
   } from '@/api/system-manage'
   import {
     catalogCardBuyLabel,
+    catalogItemAccess,
     catalogPurchaseResumeEvent,
     openCatalogPurchase,
     type CatalogPurchaseOffer
@@ -88,10 +89,7 @@
   )
   const unpaid = computed(
     () =>
-      !builtin.value &&
-      !props.template.enabled &&
-      (props.template.priceCents || 0) > 0 &&
-      props.template.ownership === 'none'
+      !builtin.value && !props.template.enabled && catalogItemAccess(props.template).needsPurchase
   )
   const buyLabel = computed(() => catalogCardBuyLabel(props.template.priceCents))
   const catalogId = computed(
@@ -113,7 +111,7 @@
       name: props.template.name,
       priceCents: props.template.priceCents || 0,
       period: props.template.billing || 'permanent',
-      purchaseOnly: !!props.template.purchaseOnly,
+      access: props.template.access,
       summary: props.template.description,
       version: props.template.version,
       author: props.template.author?.name,

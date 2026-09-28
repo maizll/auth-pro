@@ -28,7 +28,7 @@ Usage: publish-gitee-release.sh <version> [options]
 
 Options:
   -v, --version <X.Y.Z>       发行版本号
-  -r, --repository <owner/repo>  可选 Gitee 镜像仓库（必填；规范发布面是 GitHub maizll/auth-pro）
+  -r, --repository <owner/repo>  可选 Gitee 镜像仓库（必填；规范发布面是 GitHub maizll/auth-pro-client）
       --remote <name>         git 远程名，默认 origin
       --skip-tests            跳过后端测试
   -h, --help                  显示帮助
@@ -59,7 +59,7 @@ done
 
 [[ -n "$VERSION" ]] || { usage >&2; die 'Version is required'; }
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Version must match X.Y.Z: $VERSION"
-[[ -n "$REPOSITORY" ]] || die 'Gitee publish is an optional mirror. Pass --repository owner/repo. Canonical updates are GitHub maizll/auth-pro.'
+[[ -n "$REPOSITORY" ]] || die 'Gitee publish is an optional mirror. Pass --repository owner/repo. Canonical updates are GitHub maizll/auth-pro-client.'
 [[ "$REPOSITORY" =~ ^([^/]+)/([^/]+)$ ]] || die "Repository must match owner/repo: $REPOSITORY"
 OWNER="${BASH_REMATCH[1]}"
 REPO="${BASH_REMATCH[2]}"

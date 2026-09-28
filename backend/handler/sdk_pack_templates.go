@@ -165,14 +165,14 @@ print("verify", authpro.verify())
 		body: `package main
 
 // AuthPro Go 示例 — [[.AppName]]
-// 离线使用：go mod edit -replace github.com/maizll/auth-pro/sdk/go=.
+// 离线使用：go mod edit -replace auth.maizll.com/sdk/go=.
 
 import (
 	"fmt"
 	"path/filepath"
 	"runtime"
 
-	authpro "github.com/maizll/auth-pro/sdk/go/authpro"
+	authpro "auth.maizll.com/sdk/go/authpro"
 )
 
 func main() {

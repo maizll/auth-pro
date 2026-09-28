@@ -173,7 +173,7 @@
                   {{ form.easypayPid || '-' }}
                 </ElDescriptionsItem>
                 <ElDescriptionsItem label="商户 Key">
-                  <ElTag :type="keyReady ? 'success' : 'warning'">
+                  <ElTag :type="keyReady ? 'success' : 'info'">
                     {{ keyReady ? '已配置' : '未配置' }}
                   </ElTag>
                 </ElDescriptionsItem>
@@ -395,9 +395,7 @@
                 <ElDescriptionsItem label="商户私钥">
                   <ElTag
                     :type="
-                      formV2.easypayMerchantKeySet || formV2.easypayMerchantKey
-                        ? 'success'
-                        : 'warning'
+                      formV2.easypayMerchantKeySet || formV2.easypayMerchantKey ? 'success' : 'info'
                     "
                   >
                     {{
@@ -410,9 +408,7 @@
                 <ElDescriptionsItem label="平台公钥">
                   <ElTag
                     :type="
-                      formV2.easypayPlatformKeySet || formV2.easypayPlatformKey
-                        ? 'success'
-                        : 'warning'
+                      formV2.easypayPlatformKeySet || formV2.easypayPlatformKey ? 'success' : 'info'
                     "
                   >
                     {{
@@ -1016,7 +1012,7 @@
   const submitPaymentTestV2 = async () => {
     if (testDialogV2.submitting) return
     if (!testDialogV2.payType) {
-      ElMessage.warning('请选择支付方式')
+      ElMessage.info('请选择支付方式')
       return
     }
 
@@ -1121,7 +1117,7 @@
   const submitPaymentTest = async () => {
     if (testDialog.submitting) return
     if (!testDialog.payType) {
-      ElMessage.warning('请选择支付方式')
+      ElMessage.info('请选择支付方式')
       return
     }
 

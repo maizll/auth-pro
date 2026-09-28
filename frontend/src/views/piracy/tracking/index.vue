@@ -72,12 +72,7 @@
         <div class="table-header">
           <span class="card-title">盗版案例</span>
           <div class="table-actions">
-            <el-button
-              type="warning"
-              plain
-              :disabled="!selectedRows.length"
-              @click="handleBatchBlock"
-            >
+            <el-button type="info" plain :disabled="!selectedRows.length" @click="handleBatchBlock">
               批量拉黑 ({{ selectedRows.length }})
             </el-button>
             <el-button plain :disabled="!selectedRows.length" @click="handleExportEvidence">
@@ -235,7 +230,7 @@
     string,
     'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined
   > = {
-    discovered: 'warning',
+    discovered: 'info',
     blocked: 'danger'
   } as const
 

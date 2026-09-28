@@ -51,7 +51,7 @@
 </template>
 
 <script setup lang="ts">
-  import ArtButtonTable from '@/components/core/forms/art-button-table/index.vue'
+  import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import { useTableColumns } from '@/hooks/core/useTableColumns'
   import MenuDialog from './modules/menu-dialog.vue'
   import {
@@ -177,14 +177,17 @@
     {
       prop: 'operation',
       label: '操作',
-      width: 160,
-      align: 'right',
-      formatter: (row: MenuItem) => {
-        return h('div', { style: 'text-align: right' }, [
-          h(ArtButtonTable, { type: 'edit', onClick: () => handleEditMenu(row) }),
-          h(ArtButtonTable, { type: 'delete', onClick: () => handleDeleteMenu(row) })
-        ])
-      }
+      width: 148,
+      align: 'left',
+      formatter: (row: MenuItem) =>
+        h(RowActions, {
+          primary: [{ key: 'edit', label: '编辑' }],
+          more: [{ key: 'delete', label: '删除', danger: true }],
+          onClick: (action: RowActionItem) => {
+            if (action.key === 'edit') handleEditMenu(row)
+            else if (action.key === 'delete') handleDeleteMenu(row)
+          }
+        })
     }
   ])
 

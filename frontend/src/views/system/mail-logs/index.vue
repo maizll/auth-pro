@@ -144,7 +144,7 @@
   }
 
   const statusTagTypes: Record<string, 'success' | 'warning' | 'danger' | 'info'> = {
-    pending: 'warning',
+    pending: 'info',
     sent: 'success',
     failed: 'danger',
     skipped: 'info'

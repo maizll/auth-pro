@@ -202,10 +202,48 @@ func installHomeTemplate(ctx context.Context, db *sql.DB, id int64) (string, err
 	return installSoftwareSourceTemplate(ctx, db, id)
 }
 
+func paidTemplateCatalogID(catalogID, templateKey string) (string, bool) {
+	for _, key := range []string{strings.TrimSpace(templateKey), strings.TrimSpace(catalogID)} {
+		if key == "" {
+			continue
+		}
+		item := findPaidCatalog("template", key)
+		if item.PriceCents > 0 {
+			if item.ID != "" {
+				return item.ID, true
+			}
+			return key, true
+		}
+	}
+	return "", false
+}
+
+func installPaidTemplateBytes(db *sql.DB, ctx context.Context, id int64, templateKey string, payload []byte) (string, error) {
+	sum := sha256.Sum256(payload)
+	remote := softwaresource.Template{
+		ID: templateKey, TemplateKey: templateKey, Name: templateKey, Version: "paid",
+		SHA256: actualChecksumString(sum), Format: "zip", SchemaVersion: 1,
+	}
+	installedPath, err := installCatalogHomeTemplateZIP(payload, remote)
+	if err != nil && strings.Contains(err.Error(), "入口类型不一致") {
+		remote.SchemaVersion = 0
+		installedPath, err = installCatalogHomeTemplateZIP(payload, remote)
+	}
+	if err != nil {
+		return "", err
+	}
+	snapshot, _ := json.Marshal(remote)
+	if _, err := db.ExecContext(ctx, "UPDATE home_templates SET sha256=?, catalog_snapshot=?, updated_at=NOW() WHERE id=?", remote.SHA256, snapshot, id); err != nil {
+		_ = os.RemoveAll(filepath.Dir(installedPath))
+		return "", err
+	}
+	return installedPath, nil
+}
+
 func installSoftwareSourceTemplate(ctx context.Context, db *sql.DB, id int64) (string, error) {
-	var catalogID, checksum, existingInstalledPath, sourceType string
-	err := db.QueryRowContext(ctx, "SELECT COALESCE(catalog_id, ''), sha256, installed_path, source_type FROM home_templates WHERE id = ?", id).
-		Scan(&catalogID, &checksum, &existingInstalledPath, &sourceType)
+	var catalogID, checksum, existingInstalledPath, sourceType, templateKey string
+	err := db.QueryRowContext(ctx, "SELECT COALESCE(catalog_id, ''), sha256, installed_path, source_type, template_key FROM home_templates WHERE id = ?", id).
+		Scan(&catalogID, &checksum, &existingInstalledPath, &sourceType, &templateKey)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", errors.New("模板不存在")
 	}
@@ -220,6 +258,13 @@ func installSoftwareSourceTemplate(ctx context.Context, db *sql.DB, id int64) (s
 	}
 	if installedTemplateMatches(existingInstalledPath, checksum) {
 		return existingInstalledPath, nil
+	}
+	if paidID, priced := paidTemplateCatalogID(catalogID, templateKey); priced {
+		payload, err := downloadPaidPackage(ctx, "template", paidID)
+		if err != nil {
+			return "", err
+		}
+		return installPaidTemplateBytes(db, ctx, id, templateKey, payload)
 	}
 	if catalogID == "" {
 		return "", errors.New("模板尚未关联独立软件源目录，请刷新应用商店")
@@ -400,12 +445,13 @@ func annotateHomeTemplateCommerce(c *gin.Context, rows []gin.H) {
 		if item.PriceCents <= 0 {
 			continue
 		}
-		purchaseOnly := item.PurchaseOnly || catalogPurchaseOnly("template", item.ID)
+		access := resolveCatalogAccess(view, "template", item.ID, item.PriceCents)
 		rows[i]["priceCents"] = item.PriceCents
 		rows[i]["billing"] = item.Billing
-		rows[i]["purchaseOnly"] = purchaseOnly
+		rows[i]["purchaseOnly"] = access.Party == "third"
 		rows[i]["catalogItemId"] = item.ID
-		rows[i]["ownership"] = ownershipForPrice(item.PriceCents, view.Edition == storeEditionCommercial && !purchaseOnly, buyerOwnsCatalogItem(view, "template", item.ID))
+		rows[i]["ownership"] = ownershipLabel(item.PriceCents, access)
+		rows[i]["access"] = access
 	}
 }
 

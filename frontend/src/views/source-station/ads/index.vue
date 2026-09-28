@@ -120,7 +120,7 @@
             </el-button>
             <el-button
               link
-              type="warning"
+              type="info"
               size="small"
               :disabled="row.status !== 'pending'"
               @click="handleRejectApp(row)"

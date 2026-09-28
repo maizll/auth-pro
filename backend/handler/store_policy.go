@@ -222,16 +222,3 @@ func parseHTTPSBase(raw string) (*url.URL, error) {
 	}
 	return parsed, nil
 }
-
-func ownershipForPrice(priceCents int64, commercial, purchased bool) string {
-	if priceCents <= 0 {
-		return "free"
-	}
-	if purchased {
-		return "purchased"
-	}
-	if commercial {
-		return "included"
-	}
-	return "none"
-}

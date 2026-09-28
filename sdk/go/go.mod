@@ -1,3 +1,3 @@
-module github.com/maizll/auth-pro/sdk/go
+module auth.maizll.com/sdk/go
 
 go 1.22

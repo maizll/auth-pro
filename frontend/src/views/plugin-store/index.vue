@@ -42,7 +42,7 @@
         <ElAlert
           v-if="templateLoadError && showHomeTemplates"
           :title="templateLoadError"
-          type="warning"
+          type="info"
           show-icon
           :closable="false"
           class="store-error"
@@ -97,13 +97,13 @@
               </div>
               <div class="plugin-card-bottom">
                 <div class="plugin-status">
-                  <ElTag v-if="template.updateAvailable" type="warning" size="small">待更新</ElTag>
+                  <ElTag v-if="template.updateAvailable" type="info" size="small">待更新</ElTag>
                   <ElTag v-if="template.enabled" type="success" size="small">已启用</ElTag>
                   <ElTag v-else-if="!template.available" type="danger" size="small">{{
                     template.sourceType === 'upload' ? '安装文件损坏' : '源中已移除'
                   }}</ElTag>
                   <ElTag v-else-if="template.installed" type="info" size="small">已安装</ElTag>
-                  <ElTag v-else type="warning" size="small">未安装</ElTag>
+                  <ElTag v-else type="info" size="small">未安装</ElTag>
                   <ElText v-if="template.sourceType" type="info" size="small">
                     {{
                       template.format === 'zip' || template.sourceType === 'upload'
@@ -142,8 +142,12 @@
                 <div class="plugin-meta">
                   <div class="plugin-name">
                     <strong>{{ plugin.name }}</strong>
-                    <ElTag v-if="plugin.official" type="primary" size="small" effect="plain"
-                      >官方</ElTag
+                    <ElTag
+                      v-if="pluginOriginTag(plugin)"
+                      :type="pluginOriginTag(plugin) === '第三方' ? 'info' : 'primary'"
+                      size="small"
+                      effect="plain"
+                      >{{ pluginOriginTag(plugin) }}</ElTag
                     >
                     <ElTag type="info" size="small" effect="plain">v{{ plugin.version }}</ElTag>
                     <CommercialMark
@@ -172,22 +176,25 @@
               <div class="plugin-card-bottom">
                 <div class="plugin-status">
                   <template v-if="plugin.remote">
-                    <ElTag type="warning" size="small" effect="light">未安装</ElTag>
+                    <ElTag type="info" size="small" effect="light">未安装</ElTag>
                     <ElText type="info" size="small">来源：{{ plugin.source }}</ElText>
                   </template>
                   <template v-else-if="!pluginHasRuntime(plugin)">
-                    <ElTag type="success" size="small" effect="plain">已安装</ElTag>
+                    <ElTag v-if="plugin.updateAvailable" type="info" size="small">待更新</ElTag>
+                    <ElTag v-else type="success" size="small" effect="plain">已安装</ElTag>
                     <ElText type="info" size="small">资源包已解压</ElText>
                   </template>
                   <template v-else>
+                    <ElTag v-if="plugin.updateAvailable" type="info" size="small">待更新</ElTag>
                     <ElTag v-if="plugin.enabled" type="success" size="small" effect="light"
                       >已启用</ElTag
                     >
                     <ElTag v-else type="info" size="small" effect="plain">未启用</ElTag>
                     <ElText
-                      :type="plugin.configured ? 'success' : 'warning'"
+                      :type="plugin.configured ? 'success' : 'info'"
                       size="small"
                       class="config-status"
+                      :class="{ 'is-muted': !plugin.configured }"
                     >
                       <ArtSvgIcon
                         :icon="
@@ -212,6 +219,15 @@
                     </ElButton>
                   </template>
                   <template v-else>
+                    <ElButton
+                      v-if="plugin.updateAvailable"
+                      type="primary"
+                      size="small"
+                      :loading="downloadingId === plugin.id"
+                      @click="handleDownload(plugin)"
+                    >
+                      更新
+                    </ElButton>
                     <ElButton
                       v-if="configTarget(plugin)"
                       size="small"
@@ -253,17 +269,12 @@
 
     <ElDialog v-model="sourceDialogVisible" title="软件源管理" width="640px">
       <div class="source-add">
-        <ElInput v-model="newSourceUrl" placeholder="JSON 清单或 Git 仓库地址" />
+        <ElInput v-model="newSourceUrl" placeholder="官网 JSON 目录地址" />
         <ElInput
           v-model="newSourceName"
           placeholder="名称（可选，留空自动获取）"
           class="source-name-input"
         />
-        <ElSelect v-model="newSourceType" class="source-type-select">
-          <ElOption label="自动识别" value="auto" />
-          <ElOption label="JSON 目录" value="json" />
-          <ElOption label="Git 仓库" value="git" />
-        </ElSelect>
         <ElButton type="primary" :loading="addingSource" @click="handleAddSource">添加</ElButton>
       </div>
       <ElTable :data="sources" size="small" class="source-table">
@@ -272,11 +283,9 @@
             <span class="source-dot" :class="`is-${row.state}`" />
           </template>
         </ElTableColumn>
-        <ElTableColumn label="名称" width="140" show-overflow-tooltip>
-          <template #default="{ row }">
-            <div>{{ row.name }}</div>
-            <div v-if="row.lastError" class="source-error">{{ row.lastError }}</div>
-          </template>
+        <ElTableColumn prop="name" label="名称" width="140" show-overflow-tooltip />
+        <ElTableColumn label="最近错误" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.lastError || '-' }}</template>
         </ElTableColumn>
         <ElTableColumn label="类型" width="96">
           <template #default="{ row }">{{ sourceTypeLabel(row.sourceType) }}</template>
@@ -292,12 +301,13 @@
           </template>
         </ElTableColumn>
         <template #empty>
-          <ElEmpty description="暂无软件源" :image-size="60" />
+          <ElEmpty description="还没有自己添加的软件源" :image-size="60" />
         </template>
       </ElTable>
 
       <div class="source-tip">
-        可以填写 JSON 目录，或填写 Git 仓库地址。以 .json 结尾或内容是 JSON 的地址会按 JSON
+        官网目录已经写在程序里，不在这个列表里，也不能删除或停用。这里只管理自己添加的软件源。可以填写
+        JSON 目录，或填写 Git 仓库地址。以 .json 结尾或内容是 JSON 的地址会按 JSON
         目录保存；类型选错会在添加时自动改正并提示。本站请为每个应用单独添加一条公开清单，避免不同应用的目录混在一起。Git
         仓库的根目录需要有软件清单。
       </div>
@@ -337,11 +347,12 @@
   import TemplateActions from '@/views/home-template/TemplateActions.vue'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
-  import { fetchStoreAccount, fetchStoreCatalog, type StoreCatalogItem } from '@/api/store'
+  import { fetchStoreAccount } from '@/api/store'
   import { fetchSourceCatalogApps, type SourceCatalogApp } from '@/api/source-station'
   import { fetchRestoreLicenseApp } from '@/api/license-manage'
   import {
     catalogCardBuyLabel,
+    catalogItemAccess,
     catalogPurchaseResumeEvent,
     openCatalogPurchase,
     rememberCommercialAccount,
@@ -388,7 +399,6 @@
   const addingSource = ref(false)
   const newSourceUrl = ref('')
   const newSourceName = ref('')
-  const newSourceType = ref<'auto' | 'json' | 'git'>('auto')
 
   const sourceTypeLabel = (sourceType?: string) => (sourceType === 'git' ? 'Git 仓库' : 'JSON 目录')
   const sourceAppGone = (source: PluginSource) =>
@@ -514,7 +524,10 @@
     templateLoadError.value = ''
     try {
       const [pluginResult, templateResult] = await Promise.allSettled([
-        fetchPluginList({ q: searchText.value || undefined }),
+        fetchPluginList({
+          q: searchText.value || undefined,
+          refresh: refreshTemplates === true ? '1' : undefined
+        }),
         fetchHomeTemplateList(refreshTemplates === true)
       ])
 
@@ -574,45 +587,31 @@
     searchTimer = setTimeout(loadPlugins, 400)
   }
 
-  const catalog = ref<StoreCatalogItem[]>([])
-
-  function badgeFor(ownership?: string, price?: number) {
-    if (!price || price <= 0) return null
-    if (ownership === 'included' || ownership === 'purchased') {
-      return { text: '已包含', icon: 'ri:shield-check-fill', tone: 'ok' as const }
+  function pluginOriginTag(plugin: PluginInfo) {
+    if ((plugin.priceCents || 0) > 0) {
+      return catalogItemAccess(plugin).party === 'third' ? '第三方' : '官方'
     }
-    return { text: '商业版免费', icon: 'ri:rocket-2-line', tone: 'primary' as const }
+    return plugin.official ? '官方' : ''
   }
 
   function pluginBadge(plugin: PluginInfo) {
-    return badgeFor(plugin.ownership, plugin.priceCents)
+    return catalogItemAccess(plugin).badge
   }
 
   function templateBadge(template: HomeTemplateInfo) {
-    const key = template.catalogId || template.templateId
-    const item = catalog.value.find(
-      (row) => row.kind === 'template' && (row.id === key || row.id === String(template.id))
-    )
-    return badgeFor(item?.ownership, item?.priceCents)
+    return catalogItemAccess(template).badge
   }
 
   async function loadStoreCatalog() {
     try {
-      const account = await fetchStoreAccount()
-      rememberCommercialAccount(account)
+      rememberCommercialAccount(await fetchStoreAccount())
     } catch {
       /* 版本状态只在顶栏显示，这里读失败不改顶栏。 */
-    }
-    try {
-      const data = await fetchStoreCatalog()
-      catalog.value = data.list || []
-    } catch {
-      catalog.value = []
     }
   }
 
   function unpaidPlugin(plugin: PluginInfo) {
-    return !plugin.enabled && (plugin.priceCents || 0) > 0 && plugin.ownership === 'none'
+    return !plugin.enabled && catalogItemAccess(plugin).needsPurchase
   }
 
   function pluginOffer(plugin: PluginInfo, resume: () => Promise<boolean>): CatalogPurchaseOffer {
@@ -622,7 +621,7 @@
       name: plugin.name,
       priceCents: plugin.priceCents || 0,
       period: plugin.billing || 'permanent',
-      purchaseOnly: !!plugin.purchaseOnly,
+      access: plugin.access,
       icon: plugin.icon,
       summary: plugin.description,
       version: plugin.version,
@@ -702,15 +701,14 @@
   const handleAddSource = async () => {
     const url = newSourceUrl.value.trim()
     if (!url) {
-      ElMessage.warning('请输入软件源清单地址')
+      ElMessage.info('请输入软件源清单地址')
       return
     }
     addingSource.value = true
     try {
-      await fetchAddPluginSource(newSourceName.value.trim(), url, newSourceType.value)
+      await fetchAddPluginSource(newSourceName.value.trim(), url, 'json')
       newSourceUrl.value = ''
       newSourceName.value = ''
-      newSourceType.value = 'auto'
       await loadPlugins()
     } catch (e: any) {
       showCaughtError(e, '软件源添加失败，请检查清单地址')
@@ -758,7 +756,7 @@
     const source = retargetSource.value
     if (!source) return
     if (!retargetAppId.value && !retargetUrl.value.trim()) {
-      ElMessage.warning('请选择目标应用或填写新的软件源地址')
+      ElMessage.info('请选择目标应用或填写新的软件源地址')
       return
     }
     retargetSaving.value = true
@@ -1016,6 +1014,10 @@
             align-items: center;
             gap: 3px;
           }
+
+          .config-status.is-muted {
+            color: var(--el-text-color-secondary);
+          }
         }
 
         .plugin-actions {
@@ -1057,14 +1059,6 @@
       flex-wrap: wrap;
       gap: 4px 8px;
       justify-content: center;
-    }
-
-    .source-error {
-      margin-top: 2px;
-      font-size: 12px;
-      line-height: 1.4;
-      color: var(--el-color-danger);
-      white-space: normal;
     }
 
     .source-dot {

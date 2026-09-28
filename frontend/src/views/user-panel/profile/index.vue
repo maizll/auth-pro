@@ -19,7 +19,7 @@
               <iconify-icon icon="ri:shield-check-fill" width="12" />
               已实名
             </el-tag>
-            <el-tag v-else-if="realnameEnabled" type="warning" size="small" effect="light">
+            <el-tag v-else-if="realnameEnabled" type="info" size="small" effect="light">
               未实名
             </el-tag>
           </div>
@@ -99,7 +99,7 @@
                 />
                 <template v-else>
                   <el-alert
-                    type="warning"
+                    type="info"
                     :closable="false"
                     title="部分应用要求完成实名认证后才能安装使用"
                     class="mb-3"
@@ -278,11 +278,11 @@
 
   async function handleSaveProfile() {
     if (!profileForm.nickname && !profileForm.email && !profileForm.phone) {
-      ElMessage.warning('请至少修改一项')
+      ElMessage.info('请至少修改一项')
       return
     }
     if (profileForm.phone && !/^1\d{10}$/.test(profileForm.phone.trim())) {
-      ElMessage.warning('手机号格式不正确')
+      ElMessage.info('手机号格式不正确')
       return
     }
     try {
@@ -312,11 +312,11 @@
 
   async function handleChangePassword() {
     if (!passwordForm.oldPassword || !passwordForm.newPassword) {
-      ElMessage.warning('请填写完整')
+      ElMessage.info('请填写完整')
       return
     }
     if (passwordForm.newPassword.length < 6) {
-      ElMessage.warning('新密码至少6位')
+      ElMessage.info('新密码至少6位')
       return
     }
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
@@ -353,15 +353,15 @@
     const idCard = realnameForm.idCard.trim().toUpperCase()
     const mobile = realnameForm.mobile.trim()
     if (realName.length < 2) {
-      ElMessage.warning('请输入真实姓名')
+      ElMessage.info('请输入真实姓名')
       return
     }
     if (!/^\d{17}[\dX]$/.test(idCard)) {
-      ElMessage.warning('请输入正确的 18 位身份证号')
+      ElMessage.info('请输入正确的 18 位身份证号')
       return
     }
     if (needRealnameMobile.value && !/^1[3-9]\d{9}$/.test(mobile)) {
-      ElMessage.warning('请输入正确的 11 位手机号')
+      ElMessage.info('请输入正确的 11 位手机号')
       return
     }
     realnameSubmitting.value = true

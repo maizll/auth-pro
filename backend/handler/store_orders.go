@@ -249,7 +249,7 @@ func loadCatalogSaleQuote(db *sql.DB, kind, id string) (catalogSaleQuote, error)
 	if billing == sourceBillingYearly {
 		return catalogSaleQuote{}, errSourcePaidYearly
 	}
-	purchaseOnly := developerID > 0 || catalogItemPurchaseOnly(kind, id)
+	purchaseOnly := commercialExcludesItem(kind, id, price, developerID, false)
 	return catalogSaleQuote{
 		Kind: kind, ID: id, Name: name, PriceCents: price, Billing: billing,
 		Period: catalogSalePeriod(billing), DeveloperID: developerID, PurchaseOnly: purchaseOnly,

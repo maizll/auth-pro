@@ -321,17 +321,64 @@ func buyerOwnsCatalogItem(view buyerAccessView, kind, id string) bool {
 	return false
 }
 
-func catalogPurchaseOnly(kind, id string) bool {
-	if id == "" {
+// catalogAccess 是一条目录条目的购买判断。列表、按钮和购买弹窗只读这一份。
+// party 为 official 或 third。grant 为空、commercial（商业版包含）或 purchase（单独买过）。
+type catalogAccess struct {
+	Party              string `json:"party"`
+	CommercialIncluded bool   `json:"commercialIncluded"`
+	Owned              bool   `json:"owned"`
+	Grant              string `json:"grant"`
+}
+
+// commercialExcludesItem 表示商业版不包含这条。目录里已经写入来源和商业版免费时只看这两个字段。
+// 旧目录没有这两列时，才退回内置插件、开发者编号和仅单买策略。
+func commercialExcludesItem(kind, id string, priceCents, developerID int64, listedPurchaseOnly bool) bool {
+	if priceCents <= 0 || strings.TrimSpace(id) == "" {
 		return false
 	}
-	if findPaidCatalog(kind, id).PurchaseOnly {
-		return true
+	if _, _, ok := lookupStoredCatalogListing(kind, id); ok {
+		_, included := resolveListing(kind, id, priceCents)
+		return !included
 	}
-	if catalogItemPurchaseOnly(kind, id) {
-		return true
+	item := findPaidCatalog(kind, id)
+	if item.Party == catalogPartyOfficial || item.Party == catalogPartyThird {
+		_, included := resolveListing(kind, id, priceCents)
+		return !included
 	}
-	return catalogDeveloperPaid(kind, id)
+	return legacyCommercialExcludes(kind, id, priceCents, developerID, listedPurchaseOnly)
+}
+
+// resolveCatalogAccess 在排除规则上补上当前买家是否已经拥有。启用和弹窗都走这里。
+func resolveCatalogAccess(view buyerAccessView, kind, id string, priceCents int64) catalogAccess {
+	if priceCents < 0 {
+		priceCents = 0
+	}
+	party, included := resolveListing(kind, id, priceCents)
+	commercial := view.Edition == storeEditionCommercial && !view.DomainMismatch && !view.ExplicitRevoked
+	purchased := priceCents > 0 && buyerOwnsCatalogItem(view, kind, id)
+	grant := ""
+	owned := priceCents <= 0
+	if included && commercial {
+		grant = "commercial"
+		owned = true
+	} else if purchased {
+		grant = "purchase"
+		owned = true
+	}
+	return catalogAccess{Party: party, CommercialIncluded: included, Owned: owned, Grant: grant}
+}
+
+func ownershipLabel(priceCents int64, access catalogAccess) string {
+	if priceCents <= 0 {
+		return "free"
+	}
+	if access.Grant == "purchase" {
+		return "purchased"
+	}
+	if access.Owned {
+		return "included"
+	}
+	return "none"
 }
 
 func catalogDeveloperPaid(kind, id string) bool {
@@ -349,16 +396,17 @@ func catalogDeveloperPaid(kind, id string) bool {
 	return queryErr == nil && developerID > 0
 }
 
-func buyerCatalogOwnership(view buyerAccessView, kind, id string, priceCents int64) string {
-	covered := view.Edition == storeEditionCommercial && !catalogPurchaseOnly(kind, id)
-	return ownershipForPrice(priceCents, covered, buyerOwnsCatalogItem(view, kind, id))
-}
-
 func paidEnableAllowed(priceCents int64, commercial, entitled bool) bool {
 	if priceCents <= 0 {
 		return true
 	}
 	return commercial || entitled
+}
+
+// buyerMayInstallPaid 判断当前买家能不能直接安装这个标价条目。
+// 商业版覆盖官方条目。开发者条目和标成仅单买的条目必须另有购买权益。
+func buyerMayInstallPaid(c *gin.Context, kind, id string, priceCents int64) bool {
+	return resolveCatalogAccess(currentBuyerAccess(c), kind, id, priceCents).Owned
 }
 
 func findPaidCatalog(kind, id string) paidCatalogItem {
@@ -376,9 +424,7 @@ func rejectPaidPluginEnable(c *gin.Context, id string) bool {
 	}
 	item := findPaidCatalog("plugin", id)
 	view := currentBuyerAccess(c)
-	commercial := view.Edition == storeEditionCommercial && !catalogPurchaseOnly("plugin", id)
-	entitled := buyerOwnsCatalogItem(view, "plugin", id) || (commercial && view.Snapshot.AllPaidItems)
-	if paidEnableAllowed(item.PriceCents, commercial, entitled) {
+	if resolveCatalogAccess(view, "plugin", id, item.PriceCents).Owned {
 		return false
 	}
 	if item.Kind == "" {
@@ -409,9 +455,7 @@ func rejectPaidTemplateEnable(c *gin.Context, rawID string) bool {
 	if id == "" {
 		id = rawID
 	}
-	commercial := view.Edition == storeEditionCommercial && !catalogPurchaseOnly("template", id)
-	entitled := buyerOwnsCatalogItem(view, "template", id) || (commercial && view.Snapshot.AllPaidItems)
-	if paidEnableAllowed(item.PriceCents, commercial, entitled) {
+	if resolveCatalogAccess(view, "template", id, item.PriceCents).Owned {
 		return false
 	}
 	if item.Kind == "" {
@@ -446,20 +490,24 @@ func rememberPaidCatalogFromIndex(index *remotePluginIndex) {
 		items = append(items, item)
 	}
 	for _, plugin := range index.Plugins {
+		party, included, purchaseOnly := indexListing(sourceKindPlugin, plugin.ID, plugin.PriceCents, plugin.Party, plugin.CommercialIncluded, plugin.PurchaseOnly)
 		upsert(paidCatalogItem{
 			Kind: "plugin", ID: plugin.ID, Name: plugin.Name, Version: plugin.Version,
-			PriceCents: plugin.PriceCents, Billing: plugin.Billing, PurchaseOnly: plugin.PurchaseOnly,
+			PriceCents: plugin.PriceCents, Billing: plugin.Billing,
+			PurchaseOnly: purchaseOnly, Party: party, CommercialIncluded: included,
 		})
 	}
 	for _, raw := range index.HomeTemplates {
 		var meta struct {
-			ID           string `json:"id"`
-			TemplateKey  string `json:"templateKey"`
-			Name         string `json:"name"`
-			Version      string `json:"version"`
-			PriceCents   int64  `json:"priceCents"`
-			Billing      string `json:"billing"`
-			PurchaseOnly bool   `json:"purchaseOnly"`
+			ID                 string `json:"id"`
+			TemplateKey        string `json:"templateKey"`
+			Name               string `json:"name"`
+			Version            string `json:"version"`
+			PriceCents         int64  `json:"priceCents"`
+			Billing            string `json:"billing"`
+			PurchaseOnly       bool   `json:"purchaseOnly"`
+			Party              string `json:"party"`
+			CommercialIncluded bool   `json:"commercialIncluded"`
 		}
 		if json.Unmarshal(raw, &meta) != nil {
 			continue
@@ -468,9 +516,11 @@ func rememberPaidCatalogFromIndex(index *remotePluginIndex) {
 		if id == "" {
 			id = meta.ID
 		}
+		party, included, purchaseOnly := indexListing(sourceKindTemplate, id, meta.PriceCents, meta.Party, meta.CommercialIncluded, meta.PurchaseOnly)
 		upsert(paidCatalogItem{
 			Kind: "template", ID: id, Name: meta.Name, Version: meta.Version,
-			PriceCents: meta.PriceCents, Billing: meta.Billing, PurchaseOnly: meta.PurchaseOnly,
+			PriceCents: meta.PriceCents, Billing: meta.Billing,
+			PurchaseOnly: purchaseOnly, Party: party, CommercialIncluded: included,
 		})
 	}
 	savePaidCatalog(items)

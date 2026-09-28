@@ -41,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-  import ArtButtonTable from '@/components/core/forms/art-button-table/index.vue'
+  import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import { useTable } from '@/hooks/core/useTable'
   import { fetchDeleteUser, fetchGetUserList } from '@/api/system-manage'
   import UserSearch from './modules/user-search.vue'
@@ -119,17 +119,10 @@
         {
           prop: 'userName',
           label: '用户名',
-          width: 180,
-          formatter: (row) => {
-            return h('div', { class: 'user flex-c' }, [
-              h('div', { class: 'ml-2' }, [
-                h('p', { class: 'user-name' }, row.userName || '-'),
-                h('p', { class: 'email' }, row.userEmail)
-              ])
-            ])
-          }
+          minWidth: 140,
+          showOverflowTooltip: true
         },
-        { prop: 'userEmail', label: '邮箱' },
+        { prop: 'userEmail', label: '邮箱', minWidth: 180, showOverflowTooltip: true },
         {
           prop: 'balance',
           label: '余额',
@@ -158,24 +151,22 @@
         {
           prop: 'operation',
           label: '操作',
-          width: 160,
+          width: 168,
           fixed: 'right',
+          align: 'left',
           formatter: (row) =>
-            h('div', [
-              h(ArtButtonTable, {
-                icon: 'ri:login-circle-line',
-                iconClass: 'bg-success/12 text-success',
-                onClick: () => loginAsUser(row)
-              }),
-              h(ArtButtonTable, {
-                type: 'edit',
-                onClick: () => showDialog('edit', row)
-              }),
-              h(ArtButtonTable, {
-                type: 'delete',
-                onClick: () => deleteUser(row)
-              })
-            ])
+            h(RowActions, {
+              primary: [{ key: 'edit', label: '编辑' }],
+              more: [
+                { key: 'impersonate', label: '代登录' },
+                { key: 'delete', label: '删除', danger: true }
+              ],
+              onClick: (action: RowActionItem) => {
+                if (action.key === 'edit') showDialog('edit', row)
+                else if (action.key === 'impersonate') void loginAsUser(row)
+                else if (action.key === 'delete') void deleteUser(row)
+              }
+            })
         }
       ]
     },

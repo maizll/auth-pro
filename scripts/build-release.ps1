@@ -25,7 +25,7 @@ $PackagesDir = Join-Path $ReleaseRoot 'packages'
 $PackagePath = Join-Path $PackagesDir "$DistName.tar.gz"
 $LatestPath = Join-Path $PackagesDir 'latest.json'
 $ReleasesPath = Join-Path $PackagesDir 'releases.json'
-$ReleaseRepository = if ($env:AUTO_PRO_RELEASE_REPOSITORY) { $env:AUTO_PRO_RELEASE_REPOSITORY } else { 'maizll/auth-pro' }
+$ReleaseRepository = if ($env:AUTO_PRO_RELEASE_REPOSITORY) { $env:AUTO_PRO_RELEASE_REPOSITORY } else { 'maizll/auth-pro-client' }
 $UpdatePackageBaseUrl = if ($env:AUTO_PRO_UPDATE_PACKAGE_BASE_URL) { $env:AUTO_PRO_UPDATE_PACKAGE_BASE_URL } else { "https://github.com/$ReleaseRepository/releases/download/v$Version" }
 $UpdateReleasesUrl = if ($env:AUTO_PRO_UPDATE_RELEASES_URL) { $env:AUTO_PRO_UPDATE_RELEASES_URL } else { "https://github.com/$ReleaseRepository/releases/download/v$Version/releases.json" }
 

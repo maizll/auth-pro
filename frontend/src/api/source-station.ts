@@ -130,6 +130,8 @@ export interface SourceCatalogItem {
   priceCents?: number
   billing?: string
   delivery?: string
+  party?: 'official' | 'third' | string
+  commercialIncluded?: boolean
   originUrl?: string
   originHealth?: string
   originHint?: string
@@ -161,6 +163,7 @@ export interface SourceVersion {
   originUrl?: string
   reviewNote: string
   reviewedBy: string
+  sizeBytes?: number
   createdAt: string
   updatedAt: string
 }
@@ -271,6 +274,8 @@ export interface SourcePluginDraft {
   forceUpdate?: boolean
   author?: SourceAuthor
   shelf?: boolean
+  party?: 'official' | 'third'
+  commercialIncluded?: boolean
   priceSwitch?: 'grandfather' | 'purchase_only'
 }
 
@@ -291,6 +296,8 @@ export interface SourceTemplateDraft {
   forceUpdate?: boolean
   author?: SourceAuthor
   shelf?: boolean
+  party?: 'official' | 'third'
+  commercialIncluded?: boolean
   priceSwitch?: 'grandfather' | 'purchase_only'
 }
 
@@ -318,13 +325,13 @@ export const SOURCE_ITEM_STATUS: Record<
   { label: string; type: 'primary' | 'success' | 'warning' | 'info' | 'danger' }
 > = {
   draft: { label: '草稿', type: 'info' },
-  review: { label: '待审核', type: 'warning' },
+  review: { label: '待审核', type: 'info' },
   approved: { label: '已通过', type: 'primary' },
   published: { label: '已上架', type: 'success' },
   hidden: { label: '已下架', type: 'info' },
   rejected: { label: '已驳回', type: 'danger' },
-  deprecated: { label: '已弃用', type: 'warning' },
-  pending: { label: '待处理', type: 'warning' },
+  deprecated: { label: '已弃用', type: 'info' },
+  pending: { label: '待处理', type: 'info' },
   frozen: { label: '已冻结', type: 'danger' }
 }
 
@@ -333,9 +340,9 @@ export const SOURCE_VERSION_STATUS: Record<
   { label: string; type: 'primary' | 'success' | 'warning' | 'info' | 'danger' }
 > = {
   draft: { label: '草稿', type: 'info' },
-  pending: { label: '待审核', type: 'warning' },
+  pending: { label: '待审核', type: 'info' },
   published: { label: '已发布', type: 'success' },
-  deprecated: { label: '已弃用', type: 'warning' }
+  deprecated: { label: '已弃用', type: 'info' }
 }
 
 export const AD_POSITIONS = [
@@ -382,7 +389,7 @@ export const SOURCE_APPLICATION_STATUS: Record<
   string,
   { label: string; type: 'primary' | 'success' | 'warning' | 'info' | 'danger' }
 > = {
-  pending: { label: '待审核', type: 'warning' },
+  pending: { label: '待审核', type: 'info' },
   approved: { label: '已通过', type: 'success' },
   rejected: { label: '已拒绝', type: 'danger' },
   cancelled: { label: '已取消', type: 'info' },

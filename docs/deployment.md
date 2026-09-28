@@ -1,6 +1,6 @@
 # 部署手册
 
-当前版本 **1.7.0**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
+当前版本 **1.7.1**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
 
 运行数据目录与进程的工作目录一致。宝塔脚本默认把它放在网站根下的 `backend/`。后端解析数据目录的顺序是：环境变量 `AUTO_PRO_DATA_DIR`，否则在当前工作目录或其子目录 `backend/` 中寻找 `install.lock`、`db.json` 或 `go.mod`，再否则用可执行文件所在目录。
 
@@ -170,15 +170,9 @@ location / {
 
 ## 在线更新
 
-管理端「在线更新」（仅超级管理员）默认向 GitHub 仓库 `maizll/auth-pro` 读取最新 Release：
+管理端「在线更新」（仅超级管理员）向源站读取最新版本和安装包。后台不显示仓库地址，也不能手填更新地址。旧库里如果存过代码托管站的更新地址，升级时会删掉，程序不再读取。
 
-```text
-https://api.github.com/repos/maizll/auth-pro/releases/latest
-```
-
-Release 附件里要有 `latest.json`。清单里的 `package.signature` 必须是 `sha256:` 加上与包 SHA256 相同的 64 位十六进制，并且要与 GitHub Release 附件的 digest 一致。前端目录不是符号链接时，先写入暂存目录再原子改名。更新失败时安装脚本会尝试把前端和二进制换回备份（见 `backend/handler/update.go` 里的回滚步骤）。勾选备份数据库时，SQL 导出到数据目录 `updates/backups/db-<时间>.sql`。
-
-可用 `AUTO_PRO_UPDATE_URL` 改成自建 HTTPS 清单。默认源只接受 `maizll/auth-pro` 及 GitHub 官方附件存储。Gitee 只在显式配置镜像且 owner/repo 与配置一致时可用，不会默认信任历史仓库。
+清单里的 `package.signature` 必须是 `sha256:` 加上与包 SHA256 相同的 64 位十六进制。下载完成后再重算哈希，对不上就拒绝安装。前端目录不是符号链接时，先写入暂存目录再原子改名。更新失败时安装脚本会尝试把前端和二进制换回备份（见 `backend/handler/update.go` 里的回滚步骤）。勾选备份数据库时，SQL 导出到数据目录 `updates/backups/db-<时间>.sql`。
 
 页面上可以「检查更新」和「立即更新」。重启阶段大约 3 分钟还没有结果时，页面会写明「更新重启失败」、能读到的原因，以及下面的恢复步骤，不会一直停在 95%。新版本健康启动后页面会自动刷新并显示新版本号。失败提示为已尝试回滚。
 

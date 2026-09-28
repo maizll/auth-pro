@@ -81,7 +81,7 @@ func TestAdminCanUpdateExistingCatalogItemFields(t *testing.T) {
 	}
 
 	live := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
-	if !strings.Contains(live.Body.String(), "聚合支付") || !strings.Contains(live.Body.String(), "pay-v2.zip") {
+	if !strings.Contains(live.Body.String(), "聚合支付") || !strings.Contains(live.Body.String(), nextSHA) || strings.Contains(live.Body.String(), "cdn.example.com") {
 		t.Fatalf("published index not refreshed: %s", live.Body.String())
 	}
 

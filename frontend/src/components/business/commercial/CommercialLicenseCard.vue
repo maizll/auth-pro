@@ -80,7 +80,7 @@
   async function refreshNow() {
     refreshing.value = true
     try {
-      const next = await refreshStoreSnapshot()
+      const next = await refreshStoreSnapshot(true)
       if (next) {
         rememberCommercialAccount(next)
         emit('refreshed', next)

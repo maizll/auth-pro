@@ -4,7 +4,7 @@
     <el-alert
       v-if="paidRepoReminder"
       class="mb-4"
-      type="warning"
+      type="info"
       :closable="false"
       show-icon
       :title="paidRepoReminder"
@@ -66,9 +66,18 @@
         <div class="table-header">
           <div>
             <span class="card-title">软件目录（共 {{ tableData.length }} 条）</span>
-            <p class="card-hint">
+            <p class="card-hint" :class="{ 'is-collapsed': narrow && !hintExpanded }">
               先选择应用，再按分类筛选。源站只保存说明和下载地址，不保存源码。上架后会自动出现在该应用的软件源里。下架后商店不再显示，已经安装的不会被远程卸掉。弃用后会从公开目录移除，默认列表也不再显示；需要查看时，把状态筛成「已弃用」。
             </p>
+            <el-button
+              v-if="narrow"
+              link
+              type="primary"
+              class="hint-toggle"
+              @click="hintExpanded = !hintExpanded"
+            >
+              {{ hintExpanded ? '收起' : '展开' }}
+            </el-button>
           </div>
           <div class="table-actions">
             <el-button :disabled="!selectedRows.length" @click="openRebind(selectedRows)"
@@ -85,60 +94,53 @@
       </template>
 
       <el-table :data="tableData" stripe v-loading="loading" @selection-change="onSelectionChange">
-        <el-table-column v-if="!narrow" type="selection" width="42" />
-        <el-table-column
-          v-if="!narrow"
-          prop="id"
-          label="标识"
-          min-width="140"
-          show-overflow-tooltip
-        />
-        <el-table-column prop="name" label="名称" :min-width="narrow ? 48 : 140">
+        <el-table-column type="selection" width="42" />
+        <el-table-column prop="id" label="标识" min-width="140" />
+        <el-table-column prop="name" label="名称" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">
-            <div>{{ row.name }}</div>
-            <p v-if="row.fulfillmentHint" class="card-hint">{{ row.fulfillmentHint }}</p>
+            <div class="cell-one-line-row">
+              <span>{{ row.name }}</span>
+              <el-tag size="small" effect="plain">{{ listingLabel(row) }}</el-tag>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" label="分类" width="120">
+        <el-table-column label="托管说明" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.fulfillmentHint || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="分类" width="120">
           <template #default="{ row }">
             {{ row.categoryLabel || categoryLabel(row.category) }}
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" label="当前版本" width="110">
+        <el-table-column label="当前版本" width="110">
           <template #default="{ row }">
             {{ row.latestVersion || row.version || '-' }}
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" label="售价" width="100">
+        <el-table-column label="售价" width="100">
           <template #default="{ row }">{{ formatCatalogPriceLabel(row.priceCents) }}</template>
         </el-table-column>
-        <el-table-column label="状态" :width="narrow ? 72 : 100" align="center">
+        <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="statusMeta(row.status).type" size="small">
               {{ statusMeta(row.status).label }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" label="下载地址" min-width="200" show-overflow-tooltip>
+        <el-table-column label="下载地址" min-width="200">
           <template #default="{ row }">
             {{ itemLocation(row) }}
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" label="来源外链" min-width="180" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span>{{ row.originUrl || '-' }}</span>
-            <p v-if="row.originHint" class="card-hint">{{ row.originHint }}</p>
-          </template>
+        <el-table-column label="来源外链" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.originUrl || '-' }}</template>
         </el-table-column>
-        <el-table-column
-          v-if="!narrow"
-          prop="sha256"
-          label="校验码"
-          min-width="160"
-          show-overflow-tooltip
-        />
-        <el-table-column v-if="!narrow" prop="updatedAt" label="更新时间" width="170" />
-        <el-table-column label="操作" :width="narrow ? 104 : 168" :fixed="narrow ? false : 'right'">
+        <el-table-column label="来源说明" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.originHint || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="sha256" label="校验码" min-width="160" />
+        <el-table-column prop="updatedAt" label="更新时间" width="170" />
+        <el-table-column label="操作" width="176" fixed="right">
           <template #default="{ row }">
             <RowActions
               :primary="catalogPrimary(row)"
@@ -150,16 +152,22 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="uploadVisible" title="上传安装包" width="640px" destroy-on-close>
+    <el-dialog
+      v-model="uploadVisible"
+      title="上传安装包"
+      width="640px"
+      append-to-body
+      destroy-on-close
+    >
       <el-alert
-        type="warning"
+        type="info"
         :closable="false"
         show-icon
         title="校验不通过就会拒绝：压缩包里要有合法的插件或模板清单，不能包含越界路径。失败不会保存，也不会推送到发布页。"
         class="mb-3"
       />
       <p class="card-hint mb-3">
-        来源二选一。免费用公开地址，本站不存包。收费可以上传压缩包，或填写公开地址让本站拉一次。配置收费仓库后，安装包会放进站长的私有仓库，买家付款后拿到临时下载地址。
+        来源二选一。免费用公开地址，本站不存包。收费可以上传压缩包，或填写公开地址让本站拉一次。配置收费仓库后，安装包放在站长的私有仓库。买家付款后从官网地址下载，由官网取包并核对校验码。
       </p>
       <el-form label-width="120px">
         <el-form-item label="来源">
@@ -269,7 +277,12 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="editVisible" title="编辑目录项" width="560px" destroy-on-close>
+    <el-dialog
+      v-model="editVisible"
+      title="编辑目录项"
+      :width="narrow ? '92%' : '560px'"
+      destroy-on-close
+    >
       <el-alert
         type="info"
         :closable="false"
@@ -303,12 +316,34 @@
         <el-form-item label="售价（元）">
           <el-input v-model="editForm.priceYuan" placeholder="0" />
           <p class="card-hint">
-            填 0 表示免费。已公开的免费条目可以改为收费，保存前会确认老用户是否继续免费。改回 0
-            会恢复公开下载。
+            填 0
+            表示免费。已公开的免费条目可以改为收费，保存前会确认老用户是否继续免费。收费仓库已有安装包时，改回
+            0 可以不填外链，下载仍由官网提供。
           </p>
         </el-form-item>
+        <el-form-item label="来源">
+          <el-radio-group v-model="editForm.party">
+            <el-radio value="official">官方</el-radio>
+            <el-radio value="third">第三方</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="商业版免费">
+          <el-checkbox
+            v-model="editForm.commercialIncluded"
+            :disabled="editForm.party !== 'official'"
+            >商业版用户可直接启用</el-checkbox
+          >
+          <p class="card-hint">仅官方条目可勾选。官方付费条目默认勾选，第三方不包含在商业版里。</p>
+        </el-form-item>
         <el-form-item label="下载地址" prop="location">
-          <el-input v-model="editForm.location" placeholder="https://..." />
+          <el-input
+            v-model="editForm.location"
+            :placeholder="editHostedPackage ? '留空则沿用收费仓库里的安装包' : 'https://...'"
+          />
+          <p v-if="editHostedPackage" class="card-hint">
+            收费仓库已有安装包。改回免费可以不填地址，继续用这份托管包，下载仍由官网提供。填写新的
+            https 地址则改用外链。
+          </p>
         </el-form-item>
         <el-form-item v-if="editingItem?.originUrl" label="来源外链">
           <el-input :model-value="editingItem.originUrl" disabled />
@@ -340,7 +375,12 @@
 
     <CatalogPriceSwitchDialog v-model="priceSwitchVisible" @confirm="confirmPriceSwitch" />
 
-    <el-dialog v-model="registerVisible" title="登记外部地址" width="560px" destroy-on-close>
+    <el-dialog
+      v-model="registerVisible"
+      title="登记外部地址"
+      :width="narrow ? '92%' : '560px'"
+      destroy-on-close
+    >
       <el-form ref="registerRef" :model="registerForm" :rules="registerRules" label-width="110px">
         <el-form-item label="应用" prop="appId">
           <el-select v-model="registerForm.appId" placeholder="请选择应用" style="width: 100%">
@@ -379,6 +419,20 @@
           <p class="card-hint">
             填 0 表示免费。大于 0 请到「上传安装包」上传压缩包或填写公开地址。
           </p>
+        </el-form-item>
+        <el-form-item label="来源">
+          <el-radio-group v-model="registerForm.party">
+            <el-radio value="official">官方</el-radio>
+            <el-radio value="third">第三方</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="商业版免费">
+          <el-checkbox
+            v-model="registerForm.commercialIncluded"
+            :disabled="registerForm.party !== 'official'"
+            >商业版用户可直接启用</el-checkbox
+          >
+          <p class="card-hint">仅官方条目可勾选。官方付费条目默认勾选，第三方不包含在商业版里。</p>
         </el-form-item>
         <el-form-item label="下载地址" prop="location">
           <el-input v-model="registerForm.location" placeholder="https://..." />
@@ -454,11 +508,61 @@
       </el-form>
     </el-dialog>
 
-    <el-drawer v-model="versionVisible" :title="`${currentItem?.name || ''} 多版本`" size="720px">
+    <el-drawer
+      v-model="versionVisible"
+      :title="`${currentItem?.name || '插件'} 的版本`"
+      :size="narrow ? '100%' : '720px'"
+    >
       <div class="table-actions mb-3">
-        <el-button type="primary" @click="versionFormVisible = true">登记新版本</el-button>
+        <el-button type="primary" @click="openVersionUpload">上传新版本</el-button>
+        <el-button @click="versionFormVisible = true">登记外部地址</el-button>
       </div>
-      <el-table :data="versions" v-loading="versionLoading" stripe>
+      <div v-if="narrow" v-loading="versionLoading" class="version-cards">
+        <article v-for="row in versions" :key="row.version" class="version-card">
+          <header class="version-card-head">
+            <strong>{{ row.version }}</strong>
+            <el-tag v-if="row.version === currentItem?.latestVersion" type="success" size="small"
+              >最新版</el-tag
+            >
+            <el-tag v-else type="info" size="small">历史版本</el-tag>
+          </header>
+          <p>大小：{{ formatPackageSize(row.sizeBytes) }}</p>
+          <p>上传时间：{{ formatVersionTime(row.createdAt) }}</p>
+          <p>说明：{{ row.changelog || '无' }}</p>
+          <div class="version-card-actions">
+            <el-button
+              v-if="canVersionAction(row.status, 'approve')"
+              type="success"
+              size="small"
+              @click="runVersion(row, 'approve')"
+              >通过</el-button
+            >
+            <el-button
+              v-if="canVersionAction(row.status, 'reject')"
+              type="info"
+              size="small"
+              @click="runVersion(row, 'reject')"
+              >驳回</el-button
+            >
+            <el-button
+              v-if="showSetLatest(row)"
+              type="primary"
+              size="small"
+              @click="runVersion(row, 'latest')"
+              >设为最新版</el-button
+            >
+            <el-button
+              v-if="canVersionAction(row.status, 'deprecate')"
+              type="danger"
+              size="small"
+              @click="runVersion(row, 'deprecate')"
+              >弃用</el-button
+            >
+          </div>
+        </article>
+        <el-empty v-if="!versionLoading && !versions.length" description="还没有版本" />
+      </div>
+      <el-table v-else :data="versions" v-loading="versionLoading" stripe>
         <el-table-column prop="version" label="版本" width="110" />
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
@@ -467,10 +571,10 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="latest" width="80" align="center">
+        <el-table-column label="是否最新" width="90" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.version === currentItem?.latestVersion" type="success" size="small"
-              >latest</el-tag
+              >最新</el-tag
             >
           </template>
         </el-table-column>
@@ -480,7 +584,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="changelog" label="说明" min-width="140" show-overflow-tooltip />
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <el-button
               v-if="canVersionAction(row.status, 'approve')"
@@ -493,18 +597,18 @@
             <el-button
               v-if="canVersionAction(row.status, 'reject')"
               link
-              type="warning"
+              type="info"
               size="small"
               @click="runVersion(row, 'reject')"
               >驳回</el-button
             >
             <el-button
-              v-if="canVersionAction(row.status, 'latest')"
+              v-if="showSetLatest(row)"
               link
               type="primary"
               size="small"
               @click="runVersion(row, 'latest')"
-              >设为 latest</el-button
+              >设为最新版</el-button
             >
             <el-button
               v-if="canVersionAction(row.status, 'deprecate')"
@@ -569,7 +673,7 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, reactive, ref } from 'vue'
+  import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
   import { useRoute } from 'vue-router'
   import type { FormInstance, FormRules, UploadFile } from 'element-plus'
   import { ElMessage, ElMessageBox } from 'element-plus'
@@ -701,14 +805,59 @@
     authorName: '',
     changelog: '',
     category: 'other',
-    shelf: false
+    shelf: false,
+    party: 'official' as 'official' | 'third',
+    commercialIncluded: false
   })
+  let listingSyncLock = false
+
+  function priceYuanPositive(value: string) {
+    const cents = Number(String(value || '').trim())
+    return Number.isFinite(cents) && cents > 0
+  }
+
+  function listingLabel(row: SourceCatalogItem) {
+    const party = row.party === 'third' ? '第三方' : '官方'
+    if ((row.priceCents || 0) <= 0) return party
+    if (row.party !== 'third' && row.commercialIncluded) return `${party} · 商业版免费`
+    return `${party} · 商业版不包含`
+  }
+
+  watch(
+    () => registerForm.party,
+    (party) => {
+      if (listingSyncLock) return
+      if (party !== 'official') registerForm.commercialIncluded = false
+      else if (priceYuanPositive(registerForm.priceYuan)) registerForm.commercialIncluded = true
+    }
+  )
+  watch(
+    () => registerForm.priceYuan,
+    (value, oldValue) => {
+      if (listingSyncLock || registerForm.party !== 'official') return
+      if (priceYuanPositive(value) && !priceYuanPositive(oldValue || '')) {
+        registerForm.commercialIncluded = true
+      }
+    }
+  )
+
   const editVisible = ref(false)
   const editing = ref(false)
   const priceSwitchVisible = ref(false)
   const pendingPriceSwitch = ref<'grandfather' | 'purchase_only' | ''>('')
   const editRef = ref<FormInstance>()
   const editingItem = ref<SourceCatalogItem | null>(null)
+  function hostedCatalogItem(row: SourceCatalogItem | null) {
+    if (!row) return false
+    if (row.packageSource === 'github') return true
+    const raw = `${row.downloadUrl || ''} ${row.templateUrl || ''}`
+    return (
+      raw.includes('github:') ||
+      isPrivatePackageLocation(row.downloadUrl || '') ||
+      isPrivatePackageLocation(row.templateUrl || '')
+    )
+  }
+  const editHostedPackage = computed(() => hostedCatalogItem(editingItem.value))
   const editForm = reactive({
     id: '',
     name: '',
@@ -720,12 +869,50 @@
     changelog: '',
     category: '',
     icon: '',
-    note: ''
+    note: '',
+    party: 'official' as 'official' | 'third',
+    commercialIncluded: false
   })
+  watch(
+    () => editForm.party,
+    (party) => {
+      if (listingSyncLock) return
+      if (party !== 'official') editForm.commercialIncluded = false
+    }
+  )
+  watch(
+    () => editForm.priceYuan,
+    (value, oldValue) => {
+      if (listingSyncLock || editForm.party !== 'official') return
+      if (priceYuanPositive(value) && !priceYuanPositive(oldValue || '')) {
+        editForm.commercialIncluded = true
+      }
+    }
+  )
   const editRules: FormRules = {
     category: [{ required: true, message: '请选择分类', trigger: 'change' }],
     name: [{ required: true, message: '请填写名称', trigger: 'blur' }],
-    location: [{ required: true, message: '请填写外部地址', trigger: 'blur' }],
+    location: [
+      {
+        validator: (_rule: unknown, value: string, callback: (error?: Error) => void) => {
+          const raw = String(value || '').trim()
+          if (!raw || raw.startsWith('私有仓库 ')) {
+            if (editHostedPackage.value) {
+              callback()
+              return
+            }
+            callback(new Error('请填写外部地址'))
+            return
+          }
+          if (!isHttpsLocation(raw)) {
+            callback(new Error('外部地址须以 https:// 开头'))
+            return
+          }
+          callback()
+        },
+        trigger: 'blur'
+      }
+    ],
     sha256: [
       optionalPaidShaRule(
         () => editForm.priceYuan,
@@ -772,6 +959,7 @@
   const savingCategories = ref(false)
   const extraForm = reactive({ key: '', label: '', kind: 'plugin' as 'plugin' | 'template' })
 
+  const hintExpanded = ref(false)
   const versionVisible = ref(false)
   const versionLoading = ref(false)
   const versionSaving = ref(false)
@@ -821,6 +1009,20 @@
 
   function isTemplateItem(row: SourceCatalogItem) {
     return row.kind === 'template' || categoryKind(row.category) === 'template'
+  }
+
+  function showSetLatest(row: SourceVersion) {
+    return (
+      canVersionAction(row.status, 'latest') && row.version !== currentItem.value?.latestVersion
+    )
+  }
+
+  function formatPackageSize(bytes?: number) {
+    const size = Number(bytes || 0)
+    if (!Number.isFinite(size) || size <= 0) return '未记录'
+    if (size < 1024) return `${size} B`
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+    return `${(size / 1024 / 1024).toFixed(2)} MB`
   }
 
   function canVersionAction(
@@ -988,7 +1190,7 @@
 
   function openRebind(rows: SourceCatalogItem[]) {
     if (!rows.length) {
-      ElMessage.warning('请选择要切换的条目')
+      ElMessage.info('请选择要切换的条目')
       return
     }
     rebindItems.value = rows
@@ -999,7 +1201,7 @@
 
   async function handleRebind() {
     if (!rebindAppId.value) {
-      ElMessage.warning('请选择目标应用')
+      ElMessage.info('请选择目标应用')
       return
     }
     rebindSaving.value = true
@@ -1041,9 +1243,21 @@
     loadItems()
   }
 
+  function formatVersionTime(value?: string) {
+    if (!value) return '未记录'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return '未记录'
+    const pad = (part: number) => String(part).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  }
+
+  function openVersionUpload() {
+    openUpload()
+  }
+
   function openUpload() {
     if (registerBlockReason.value) {
-      ElMessage.warning(registerBlockReason.value)
+      ElMessage.info(registerBlockReason.value)
       return
     }
     uploadFile.value = null
@@ -1085,7 +1299,7 @@
 
   async function handleParse() {
     if (uploadBlockReason.value) {
-      ElMessage.warning(uploadBlockReason.value)
+      ElMessage.info(uploadBlockReason.value)
       return
     }
     parsing.value = true
@@ -1112,7 +1326,7 @@
 
   async function handlePublish() {
     if (uploadBlockReason.value) {
-      ElMessage.warning(uploadBlockReason.value)
+      ElMessage.info(uploadBlockReason.value)
       return
     }
     const priced = resolveCatalogPriceCents(
@@ -1120,7 +1334,7 @@
       uploadForm.source === 'upload' ? '' : uploadForm.location
     )
     if (priced.error) {
-      ElMessage.warning(priced.error)
+      ElMessage.info(priced.error)
       return
     }
     publishing.value = true
@@ -1145,10 +1359,11 @@
 
   function openEdit(row: SourceCatalogItem) {
     editingItem.value = row
+    listingSyncLock = true
     editForm.id = row.id
     editForm.name = row.name
     editForm.description = row.description || ''
-    editForm.location = itemLocation(row)
+    editForm.location = hostedCatalogItem(row) ? '' : itemLocation(row)
     editForm.sha256 = row.sha256 || ''
     editForm.priceYuan = formatCatalogPriceYuan(row.priceCents)
     editForm.authorName = row.author?.name || ''
@@ -1156,11 +1371,21 @@
     editForm.category = row.category
     editForm.icon = row.icon || ''
     editForm.note = ''
+    editForm.party = row.party === 'third' ? 'third' : 'official'
+    editForm.commercialIncluded = editForm.party === 'official' && !!row.commercialIncluded
     editVisible.value = true
+    void nextTick(() => {
+      listingSyncLock = false
+    })
   }
 
   function confirmPriceSwitch(policy: 'grandfather' | 'purchase_only') {
     pendingPriceSwitch.value = policy
+    if (policy === 'purchase_only' || editForm.party !== 'official') {
+      editForm.commercialIncluded = false
+    } else {
+      editForm.commercialIncluded = true
+    }
     void saveEdit(policy)
   }
 
@@ -1169,7 +1394,7 @@
     await editRef.value?.validate()
     const priced = resolveCatalogPriceCents(editForm.priceYuan, editForm.location)
     if (priced.error) {
-      ElMessage.warning(priced.error)
+      ElMessage.info(priced.error)
       return
     }
     const action = catalogPriceSwitchAction(
@@ -1186,7 +1411,9 @@
     if (action === 'to-free') {
       try {
         await ElMessageBox.confirm(
-          '改回免费后，安装包会重新提供公开下载地址。已经发给老用户的免费权益会保留。',
+          editHostedPackage.value
+            ? '改回免费后继续使用收费仓库里的安装包，下载由官网提供。留空即可；填写新的 https 地址则改用外链。'
+            : '改回免费后，安装包会重新提供公开下载地址。已经发给老用户的免费权益会保留。',
           '改回免费',
           { confirmButtonText: '确认改回免费', cancelButtonText: '取消', type: 'warning' }
         )
@@ -1197,11 +1424,17 @@
     await saveEdit('')
   }
 
+  function submittedEditLocation() {
+    const raw = editForm.location.trim()
+    if (editHostedPackage.value && (raw === '' || raw.startsWith('私有仓库 '))) return ''
+    return raw
+  }
+
   async function saveEdit(priceSwitch: 'grandfather' | 'purchase_only' | '') {
     if (!editingItem.value) return
     const priced = resolveCatalogPriceCents(editForm.priceYuan, editForm.location)
     if (priced.error) {
-      ElMessage.warning(priced.error)
+      ElMessage.info(priced.error)
       return
     }
     editing.value = true
@@ -1217,13 +1450,15 @@
           description: editForm.description,
           version: editingItem.value.version || '1.0.0',
           schemaVersion: editingItem.value.schemaVersion || 1,
-          templateUrl: editForm.location,
+          templateUrl: submittedEditLocation(),
           sha256: editForm.sha256,
           priceCents: priced.cents,
           changelog: editForm.changelog,
           category: editForm.category,
           author: { name: editForm.authorName },
           note,
+          party: editForm.party,
+          commercialIncluded: editForm.party === 'official' && editForm.commercialIncluded,
           ...switchField
         })
       } else {
@@ -1233,7 +1468,7 @@
           name: editForm.name,
           description: editForm.description,
           version: editingItem.value.version || '1.0.0',
-          downloadUrl: editForm.location,
+          downloadUrl: submittedEditLocation(),
           sha256: editForm.sha256,
           priceCents: priced.cents,
           changelog: editForm.changelog,
@@ -1241,6 +1476,8 @@
           icon: editForm.icon,
           author: { name: editForm.authorName },
           note,
+          party: editForm.party,
+          commercialIncluded: editForm.party === 'official' && editForm.commercialIncluded,
           ...switchField
         })
       }
@@ -1261,7 +1498,7 @@
 
   function openRegister() {
     if (registerBlockReason.value) {
-      ElMessage.warning(registerBlockReason.value)
+      ElMessage.info(registerBlockReason.value)
       return
     }
     registerForm.appId = searchForm.appId
@@ -1276,6 +1513,8 @@
     registerForm.changelog = ''
     registerForm.category = searchForm.category || 'other'
     registerForm.shelf = false
+    registerForm.party = 'official'
+    registerForm.commercialIncluded = false
     registerVisible.value = true
   }
 
@@ -1283,7 +1522,7 @@
     await registerRef.value?.validate()
     const priced = resolveCatalogPriceCents(registerForm.priceYuan, registerForm.location)
     if (priced.error) {
-      ElMessage.warning(priced.error)
+      ElMessage.info(priced.error)
       return
     }
     registering.value = true
@@ -1303,7 +1542,9 @@
           schemaVersion: 1,
           category: registerForm.category,
           author: { name: registerForm.authorName },
-          shelf: registerForm.shelf
+          shelf: registerForm.shelf,
+          party: registerForm.party,
+          commercialIncluded: registerForm.party === 'official' && registerForm.commercialIncluded
         })
       } else {
         await registerSourcePlugin({
@@ -1318,7 +1559,9 @@
           changelog: registerForm.changelog,
           category: registerForm.category,
           author: { name: registerForm.authorName },
-          shelf: registerForm.shelf
+          shelf: registerForm.shelf,
+          party: registerForm.party,
+          commercialIncluded: registerForm.party === 'official' && registerForm.commercialIncluded
         })
       }
       ElMessage.success('已登记外部地址（未上传源码）')
@@ -1340,7 +1583,7 @@
     const key = extraForm.key.trim().toLowerCase()
     const label = extraForm.label.trim()
     if (!key || !label) {
-      ElMessage.warning('请填写分类标识和名称')
+      ElMessage.info('请填写分类标识和名称')
       return
     }
     savingCategories.value = true
@@ -1457,7 +1700,7 @@
     const cents = currentItem.value.priceCents || 0
     const location = versionForm.location.trim()
     if (!versionForm.version.trim() || !location) {
-      ElMessage.warning('请填写版本和地址')
+      ElMessage.info('请填写版本和地址')
       return
     }
     if (
@@ -1466,14 +1709,14 @@
       !isPrivatePackageLocation(location) &&
       !isHttpsLocation(location)
     ) {
-      ElMessage.warning('付费条目请上传压缩包，或填写 https 网址由本站拉取托管')
+      ElMessage.info('付费条目请上传压缩包，或填写 https 网址由本站拉取托管')
       return
     }
     if (
       !isPaidHttpsImportLocation(location, cents) &&
       !/^[a-fA-F0-9]{64}$/.test(versionForm.sha256.trim())
     ) {
-      ElMessage.warning('请填写 64 位校验码')
+      ElMessage.info('请填写 64 位校验码')
       return
     }
     versionSaving.value = true
@@ -1575,7 +1818,75 @@
 
   .table-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
+  }
+
+  .hint-toggle {
+    margin-top: 2px;
+    padding: 0;
+    height: auto;
+  }
+
+  .card-hint.is-collapsed {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    overflow: hidden;
+  }
+
+  .version-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .version-card {
+    padding: 12px;
+    border: 1px solid var(--art-card-border);
+    border-radius: 8px;
+    background: var(--default-box-color);
+  }
+
+  .version-card p {
+    margin: 6px 0 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--art-gray-700);
+    word-break: break-word;
+  }
+
+  .version-card-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .version-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  @media (max-width: 767px) {
+    .table-header {
+      flex-direction: column;
+    }
+
+    .table-actions {
+      width: 100%;
+    }
+
+    .table-actions :deep(.el-button) {
+      flex: 1 1 140px;
+      height: auto;
+      margin-left: 0;
+      padding: 8px 10px;
+      white-space: normal;
+      line-height: 1.35;
+    }
   }
 
   .card-title {

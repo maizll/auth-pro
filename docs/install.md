@@ -46,10 +46,12 @@ bash baota-upgrade.sh \
 
 登录后台，打开「在线更新」（仅超级管理员）。页面上可以点「检查更新」和「立即更新」。
 
-默认向这个地址读取最新版本：
+点「检查更新」后，程序向源站读取最新版本并下载安装包：
 
 ```text
-https://api.github.com/repos/maizll/auth-pro/releases/latest
+https://auth.maizll.com/api/v1/update/latest.json
 ```
 
-Release 附件里要有 `latest.json`。
+后台不显示仓库地址，也不能手填更新地址。
+
+安装包会核对 SHA256 和签名。更新失败时会尝试把页面和程序换回备份。

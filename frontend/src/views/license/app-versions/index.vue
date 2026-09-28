@@ -43,21 +43,21 @@
 
         <!-- 更新包 -->
         <template #package="{ row }">
-          <div class="package-cell">
-            <span class="package-name">{{ row.packageName || '外部下载地址' }}</span>
-            <span class="package-meta">
-              {{ row.sourceType === 'upload' ? '本地上传' : '外部 URL' }} ·
-              {{ formatFileSize(row.fileSizeBytes) }}
-            </span>
-          </div>
+          <span class="cell-one-line package-name">{{ row.packageName || '外部下载地址' }}</span>
+        </template>
+        <template #packageMeta="{ row }">
+          <span class="cell-one-line">
+            {{ row.sourceType === 'upload' ? '本地上传' : '外部 URL' }} ·
+            {{ formatFileSize(row.fileSizeBytes) }}
+          </span>
         </template>
 
         <!-- 更新策略 -->
         <template #policy="{ row }">
-          <div class="policy-tags">
+          <div class="policy-tags cell-one-line-row">
             <ElTag v-if="row.forceUpdate" type="danger" size="small">强制更新</ElTag>
             <ElTag v-else type="info" size="small">可选更新</ElTag>
-            <ElTag v-if="row.minVersion" type="warning" size="small" effect="plain">
+            <ElTag v-if="row.minVersion" type="info" size="small" effect="plain">
               低于 {{ row.minVersion }} 强更
             </ElTag>
           </div>
@@ -425,8 +425,27 @@
         { type: 'index', width: 60, label: '序号' }, // 序号
         { prop: 'version', label: '版本号', minWidth: 130, useSlot: true },
         { prop: 'title', label: '更新标题', minWidth: 190, showOverflowTooltip: true },
-        { prop: 'package', label: '更新包', minWidth: 190, useSlot: true },
-        { prop: 'policy', label: '更新策略', minWidth: 150, useSlot: true },
+        {
+          prop: 'package',
+          label: '更新包',
+          minWidth: 160,
+          showOverflowTooltip: true,
+          useSlot: true
+        },
+        {
+          prop: 'packageMeta',
+          label: '包来源',
+          minWidth: 160,
+          showOverflowTooltip: true,
+          useSlot: true
+        },
+        {
+          prop: 'policy',
+          label: '更新策略',
+          minWidth: 180,
+          showOverflowTooltip: true,
+          useSlot: true
+        },
         { prop: 'publishedAt', label: '发布时间', width: 170 },
         {
           prop: 'operation',
@@ -558,12 +577,12 @@
     const valid = await formRef.value?.validate().catch(() => false)
     if (!valid) return
     if (form.sourceType === 'upload' && !selectedFile.value && !reusableUploadedPackage.value) {
-      ElMessage.warning('请选择更新包')
+      ElMessage.info('请选择更新包')
       return
     }
     if (form.sourceType === 'url') {
       if (!form.downloadUrl || form.fileSizeMb <= 0 || !/^[0-9a-fA-F]{32}$/.test(form.fileMd5)) {
-        ElMessage.warning('请完整填写下载地址、文件大小和文件 MD5')
+        ElMessage.info('请完整填写下载地址、文件大小和文件 MD5')
         return
       }
     }
@@ -737,12 +756,6 @@
     color: var(--el-color-primary);
   }
 
-  .package-cell {
-    flex-direction: column;
-    align-items: flex-start;
-    min-width: 0;
-  }
-
   .package-name {
     max-width: 100%;
     overflow: hidden;
@@ -751,16 +764,10 @@
     white-space: nowrap;
   }
 
-  .package-meta {
-    margin-top: 3px;
-    font-size: 12px;
-    color: var(--art-gray-600);
-  }
-
   .policy-tags {
-    flex-direction: column;
+    flex-wrap: nowrap;
     gap: 6px;
-    align-items: flex-start;
+    overflow: hidden;
   }
 
   .package-source-panel,

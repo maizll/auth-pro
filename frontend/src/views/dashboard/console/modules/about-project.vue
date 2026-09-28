@@ -3,7 +3,7 @@
     <div>
       <h2 class="text-2xl font-medium">关于项目</h2>
       <p class="text-g-700 mt-1">{{ systemName }} 提供授权、代理、用户与校验日志管理</p>
-      <p class="text-g-700 mt-1">文档与工单在本系统内，代码仓库仅指向本项目</p>
+      <p class="text-g-700 mt-1">文档与工单都在本系统内</p>
 
       <div class="flex flex-wrap gap-3.5 max-w-150 mt-9">
         <div
@@ -23,27 +23,16 @@
 
 <script setup lang="ts">
   import { useSystemConfigStore } from '@/store/modules/system-config'
-  import { WEB_LINKS } from '@/utils/constants'
 
   const router = useRouter()
   const { siteName: systemName } = storeToRefs(useSystemConfigStore())
 
   const linkList = [
     { label: '开发文档', routeName: 'DeveloperDoc' },
-    { label: '工单', routeName: 'TicketManage' },
-    { label: '代码仓库', url: WEB_LINKS.GITHUB }
+    { label: '工单', routeName: 'TicketManage' }
   ]
 
-  /**
-   * 站内文档走路由；仅本仓库地址新开标签。
-   */
-  const goPage = (link: { routeName?: string; url?: string }): void => {
-    if (link.routeName) {
-      void router.push({ name: link.routeName })
-      return
-    }
-    if (link.url) {
-      window.open(link.url, '_blank', 'noopener,noreferrer')
-    }
+  const goPage = (link: { routeName: string }): void => {
+    void router.push({ name: link.routeName })
   }
 </script>

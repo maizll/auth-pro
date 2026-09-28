@@ -188,15 +188,15 @@
 
   const generatePack = async () => {
     if (!packForm.appId) {
-      ElMessage.warning('请选择应用')
+      ElMessage.info('请选择应用')
       return
     }
     if (!packForm.modules.length) {
-      ElMessage.warning('请至少选择一个接入模块')
+      ElMessage.info('请至少选择一个接入模块')
       return
     }
     if (!packForm.language) {
-      ElMessage.warning('请选择接入语言')
+      ElMessage.info('请选择接入语言')
       return
     }
     generating.value = true

@@ -185,15 +185,15 @@
 
   const handleSave = async () => {
     if (!form.appId.trim() || !form.alipayPublicKey.trim()) {
-      ElMessage.warning('请填写 APPID 和支付宝公钥')
+      ElMessage.info('请填写 APPID 和支付宝公钥')
       return
     }
     if (!form.privateKeySet && !form.privateKey?.trim()) {
-      ElMessage.warning('请填写应用私钥')
+      ElMessage.info('请填写应用私钥')
       return
     }
     if (form.certMode && (!form.appCertSn.trim() || !form.alipayRootCertSn.trim())) {
-      ElMessage.warning('证书模式请填写两个证书 SN')
+      ElMessage.info('证书模式请填写两个证书 SN')
       return
     }
     saving.value = true

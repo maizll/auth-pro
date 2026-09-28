@@ -50,7 +50,7 @@ func TestInstallDocUsesPublishedBaotaCommands(t *testing.T) {
 		"cd /www/wwwroot/example.com\ntar -xzf auth_pro-full-vX.Y.Z.tar.gz\nbash baota-install.sh",
 		"AUTH_PRO_YES=1 AUTH_PRO_START=0 \\\nbash baota-install.sh \\\n  --site-root /www/wwwroot/example.com \\\n  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz",
 		"bash baota-upgrade.sh \\\n  --site-root /www/wwwroot/example.com \\\n  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \\\n  --no-start",
-		"https://api.github.com/repos/maizll/auth-pro/releases/latest",
+		"https://auth.maizll.com/api/v1/update/latest.json",
 		"检查更新",
 		"立即更新",
 	} {
@@ -76,6 +76,18 @@ func TestInstallDocUsesPublishedBaotaCommands(t *testing.T) {
 		publicBody := readRepoDoc(t, rel)
 		if strings.Contains(publicBody, "从 1.5.5") || strings.Contains(publicBody, "从 1.5.3") || strings.Contains(publicBody, "升到 1.5.7") {
 			t.Fatalf("%s still tells customers how to upgrade a specific old release", rel)
+		}
+	}
+	for rel := range sitePublicDocs {
+		publicBody := readRepoDoc(t, rel)
+		for _, leaked := range []string{
+			"github.com/maizll",
+			"api.github.com/repos/maizll",
+			"raw.githubusercontent.com/maizll",
+		} {
+			if strings.Contains(publicBody, leaked) {
+				t.Fatalf("%s still exposes %s", rel, leaked)
+			}
 		}
 	}
 	admin := readRepoDoc(t, "admin.md")
@@ -107,6 +119,35 @@ func TestSplitAndClassifyReleaseNotes(t *testing.T) {
 	}
 	if classifyReleaseNote(notes[0]) != siteTagAdded || classifyReleaseNote(notes[1]) != siteTagImproved || classifyReleaseNote(notes[2]) != siteTagFixed {
 		t.Fatalf("tags=%s %s %s", classifyReleaseNote(notes[0]), classifyReleaseNote(notes[1]), classifyReleaseNote(notes[2]))
+	}
+}
+
+func TestReleaseNotes171ReplacesStaleParagraphs(t *testing.T) {
+	notes := splitReleaseNoteParagraphs(readRepoDoc(t, "release-notes-1.7.1.txt"))
+	if len(notes) < 6 || len(notes) > 8 {
+		t.Fatalf("1.7.1 notes=%d %q", len(notes), notes)
+	}
+	keep := map[string]struct{}{}
+	for _, note := range notes {
+		if strings.Contains(note, "\n") || len([]rune(note)) > 90 {
+			t.Fatalf("note is not one short sentence: %s", note)
+		}
+		keep[siteChangelogFingerprint("1.7.1", note, "")] = struct{}{}
+	}
+	stale := "在线更新改为只走源站。后台「在线更新」不再显示、也不能修改更新地址。安装包仍核对 SHA256 和签名，备份、重启和失败回滚跟以前一样。"
+	staleFP := siteChangelogFingerprint("1.7.1", stale, "")
+	if !releaseEntryDropped(0, siteChangelogRelease, staleFP, keep) {
+		t.Fatal("stale release paragraph should be removed")
+	}
+	if releaseEntryDropped(1, siteChangelogRelease, staleFP, keep) {
+		t.Fatal("edited changelog rows stay")
+	}
+	if releaseEntryDropped(0, "manual", staleFP, keep) {
+		t.Fatal("manual rows stay")
+	}
+	current := siteChangelogFingerprint("1.7.1", notes[0], "")
+	if releaseEntryDropped(0, siteChangelogRelease, current, keep) {
+		t.Fatal("current release sentence should stay")
 	}
 }
 

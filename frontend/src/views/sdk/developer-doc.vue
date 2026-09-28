@@ -111,7 +111,7 @@
         <pre><code>{{ versionUpdateFlow }}</code></pre>
 
         <ElAlert
-          type="warning"
+          type="info"
           :closable="false"
           title="下载地址是短期令牌地址。客户端应及时下载并校验文件大小与 MD5，不要持久化该地址。"
         />

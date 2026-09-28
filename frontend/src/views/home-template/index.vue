@@ -48,7 +48,7 @@
         <ElAlert
           v-if="refreshWarning"
           :title="refreshWarning"
-          type="warning"
+          type="info"
           show-icon
           :closable="false"
           class="panel-error"
@@ -126,14 +126,14 @@
 
             <div class="template-footer">
               <div class="template-status">
-                <ElTag v-if="template.updateAvailable" type="warning" size="small">待更新</ElTag>
+                <ElTag v-if="template.updateAvailable" type="info" size="small">待更新</ElTag>
                 <ElTag v-if="!template.available" type="danger" size="small" effect="light">
                   源中已移除
                 </ElTag>
                 <ElTag v-else-if="template.installed" type="info" size="small" effect="plain">
                   已安装
                 </ElTag>
-                <ElTag v-else type="warning" size="small" effect="light">未安装</ElTag>
+                <ElTag v-else type="info" size="small" effect="light">未安装</ElTag>
               </div>
 
               <TemplateActions :template="template" @changed="loadAll()" />

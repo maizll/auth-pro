@@ -1,5 +1,16 @@
 # 更新日志
 
+## [v1.7.1] 2026-09-27 — 更新改走官网
+
+- 官网以外的站点只从官网更新，后台不能改地址。
+- 官网凭商业版签名私钥识别自己，并从自己的发布仓库更新。
+- 插件和首页模板改为从官网目录下载。
+- 软件源管理不再列出官网默认源。
+- 软件目录可以设置来源和「商业版免费」；商业版可直接安装官方付费插件。
+- 后台开通、更改或吊销商业版后，客户站刷新即可生效。
+- 授权列表和「我的授权」在到期时间后显示「免费版」或「商业版」。
+- 手机上的列表可以左右滑动，单元格单行显示。
+
 ## [v1.7.0] 2026-09-27 — 官网公开页、可管理导航和企业蓝模板
 
 - 系统文档和更新日志的代码块按语言高亮，右上角可以复制整段命令。配色用蓝色，长命令在框内横向滚动。
@@ -248,7 +259,7 @@
 
 ## [v1.4.1] 2026-09-21 — 发布面冻结、单一前端根、侧栏以后端菜单为准
 
-- 在线更新默认源改为 GitHub `maizll/auth-pro` Releases（`latest.json` / 标签附件）。仓库默认、构建脚本与 `.github/workflows/release.yml` 不再指向 `Zcy-sa/auth-pro`（Gitee）或 `cy70923167/auth_pro`。不删除历史 Release，不 force-push 标签。
+- 在线更新默认源改为代码托管站的 Releases（`latest.json` / 标签附件）。仓库默认、构建脚本与 `.github/workflows/release.yml` 不再指向历史 Gitee 仓库。不删除历史 Release，不 force-push 标签。
 - 根目录 `VERSION` 作为产品线版本信源；`AppVersion` / `VITE_VERSION` 默认 `1.4.1`，未注入 `-ldflags` 时不再静默显示 `1.0.0`。发布构建仍从 tag 注入。
 - 生产 HTTP 与在线更新共用同一套前端根解析。缺盘上 `index.html` 时启动失败或返回 503（带版本号），不再静默服务 `go:embed static`。开发/引导需显式 `AUTO_PRO_ALLOW_EMBEDDED_FRONTEND=1`。启动日志打印 disk/embed 根与内容指纹。
 - 默认 `VITE_ACCESS_MODE=backend`（`.env` / `.env.production` / 开发环境）。侧栏树来自 `GET /api/system/menus`，「系统 → 菜单管理」改标题或排序后刷新即可生效。

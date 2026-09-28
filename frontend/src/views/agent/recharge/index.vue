@@ -103,7 +103,7 @@
   > = {
     recharge: 'success',
     consume: 'danger',
-    refund: 'warning',
+    refund: 'info',
     transfer: 'info',
     bonus: 'success'
   } as const

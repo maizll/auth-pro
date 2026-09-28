@@ -158,7 +158,7 @@
   const subjectTagTypes: Record<string, 'primary' | 'success' | 'warning' | 'info'> = {
     user: 'primary',
     agent: 'success',
-    test: 'warning'
+    test: 'info'
   }
 
   const statusLabels: Record<string, string> = {
@@ -170,7 +170,7 @@
   }
 
   const statusTagTypes: Record<string, 'success' | 'warning' | 'danger' | 'info'> = {
-    pending: 'warning',
+    pending: 'info',
     paid: 'success',
     failed: 'danger',
     cancelled: 'info'

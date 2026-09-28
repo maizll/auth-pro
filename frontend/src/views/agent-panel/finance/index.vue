@@ -142,39 +142,24 @@
       </div>
 
       <el-table :data="tableData" stripe v-loading="loading">
-        <el-table-column
-          prop="orderNo"
-          label="流水号"
-          :min-width="narrow ? 48 : 180"
-          show-overflow-tooltip
-        />
-        <el-table-column prop="typeLabel" label="类型" :width="narrow ? 64 : 90" align="center">
+        <el-table-column prop="orderNo" label="流水号" min-width="180" />
+        <el-table-column prop="typeLabel" label="类型" width="90" align="center">
           <template #default="{ row }">
             <el-tag :type="typeTagMap[row.type]" size="small" effect="light">{{
               row.typeLabel
             }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="amount" label="金额" :width="narrow ? 72 : 130" align="right">
+        <el-table-column prop="amount" label="金额" width="130" align="right">
           <template #default="{ row }">
             <span :class="amountClass(row)">{{ formatAmount(row) }}</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" prop="balanceAfter" label="余额" width="120" align="right">
+        <el-table-column prop="balanceAfter" label="余额" width="120" align="right">
           <template #default="{ row }">¥{{ row.balanceAfter.toFixed(2) }}</template>
         </el-table-column>
-        <el-table-column
-          v-if="!narrow"
-          prop="remark"
-          label="备注"
-          min-width="220"
-          show-overflow-tooltip
-        />
-        <el-table-column prop="createdAt" label="时间" :width="narrow ? 92 : 170">
-          <template #default="{ row }">
-            {{ narrow ? String(row.createdAt || '').slice(0, 10) : row.createdAt }}
-          </template>
-        </el-table-column>
+        <el-table-column prop="remark" label="备注" min-width="220" />
+        <el-table-column prop="createdAt" label="时间" width="170" />
         <template #empty>
           <el-empty description="暂无流水记录" :image-size="80" />
         </template>
@@ -309,7 +294,7 @@
   > = {
     recharge: 'success',
     consume: 'danger',
-    refund: 'warning',
+    refund: 'info',
     transfer: 'info',
     bonus: 'success'
   } as const
@@ -420,12 +405,12 @@
 
   function handleRecharge() {
     if (!rechargeOptions.enabled || rechargeMethodOptions.value.length === 0) {
-      ElMessage.warning('线上支付未开启，请联系管理员')
+      ElMessage.info('线上支付未开启，请联系管理员')
       return
     }
     const amount = Number(rechargeAmount.value)
     if (!amount || amount <= 0) {
-      ElMessage.warning('请输入充值金额')
+      ElMessage.info('请输入充值金额')
       return
     }
     const codes = rechargeMethodOptions.value.map((item) => item.code)
@@ -499,7 +484,7 @@
           fetchTransactions()
         } else if (status === 'failed' || status === 'cancelled' || attempts >= 20) {
           stopRechargePoll()
-          if (status !== 'pending') ElMessage.warning('充值未完成')
+          if (status !== 'pending') ElMessage.info('充值未完成')
         }
       } catch {
         if (attempts >= 20) stopRechargePoll()
@@ -530,7 +515,7 @@
         }
         if (data.data?.status === 'failed' || data.data?.status === 'cancelled') {
           qrCheckout.visible = false
-          ElMessage.warning('充值未完成')
+          ElMessage.info('充值未完成')
           return
         }
       } catch {

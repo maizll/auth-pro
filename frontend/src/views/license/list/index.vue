@@ -33,15 +33,18 @@
         </template>
 
         <template #expireAt="{ row }">
-          <span :title="formatLicenseExpire(row.expireAt)">{{
-            formatLicenseExpire(row.expireAt, narrow)
-          }}</span>
+          <EditionExpire
+            :commercial="row.commercialActive"
+            :title="formatLicenseExpire(row.expireAt)"
+          >
+            {{ formatLicenseExpire(row.expireAt, narrow) }}
+          </EditionExpire>
         </template>
 
         <!-- 归属账号 -->
         <template #owner="{ row }">
           <div class="owner-cell">
-            <ElTag :type="row.ownerType === 'agent' ? 'warning' : 'info'" size="small">
+            <ElTag :type="row.ownerType === 'agent' ? 'primary' : 'info'" size="small">
               {{ row.ownerType === 'agent' ? '代理' : '用户' }}
             </ElTag>
             <span>{{ row.ownerName || `ID ${row.ownerId}` }}</span>
@@ -209,7 +212,7 @@
       <ElTable :data="siteDialog.list" size="small" v-loading="siteDialog.loading" max-height="360">
         <ElTableColumn label="类型" width="80">
           <template #default="{ row }">
-            <ElTag :type="row.targetType === 'ip' ? 'warning' : undefined" size="small">
+            <ElTag :type="row.targetType === 'ip' ? 'info' : undefined" size="small">
               {{ row.targetType === 'ip' ? 'IP' : '域名' }}
             </ElTag>
           </template>
@@ -266,6 +269,7 @@
 <script setup lang="ts">
   import { ElMessage, ElMessageBox } from 'element-plus'
   import CommercialReissueBanner from '@/components/business/commercial/CommercialReissueBanner.vue'
+  import EditionExpire from '@/components/business/commercial/EditionExpire.vue'
   import { showCaughtError } from '@/utils/http/error-toast'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
@@ -336,7 +340,7 @@
   const typeTagMap: Record<string, TagType> = {
     domain: undefined,
     wildcard: 'success',
-    ip: 'warning',
+    ip: 'info',
     key: 'info'
   }
 
@@ -476,10 +480,10 @@
           prop: 'expireAt',
           label: '到期时间',
           mobileLabel: '到期',
-          width: 160,
+          width: 228,
           useSlot: true,
           mobilePriority: 3,
-          mobileWidth: 92
+          mobileWidth: 168
         },
         { prop: 'verifyCount', label: '验证次数', width: 100, align: 'center', mobileHidden: true },
         {

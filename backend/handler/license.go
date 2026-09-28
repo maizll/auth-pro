@@ -127,9 +127,6 @@ func LicenseList(c *gin.Context) {
 		         ELSE ''
 		       END as owner_name,
 		       l.source,
-		       COALESCE((SELECT e.status FROM main_license_editions e
-		         WHERE e.license_id = l.id AND e.edition = 'commercial' AND e.status = 'active'
-		         ORDER BY e.id DESC LIMIT 1), '') AS commercial_status,
 		       l.expired_at, l.remark, l.created_at,
 		       (SELECT COUNT(*) FROM verify_logs v WHERE v.license_id = l.id) as verify_count,
 		       COUNT(DISTINCT ld.id) AS bound_sites, COALESCE(l.max_domains, 0) AS max_sites,
@@ -187,11 +184,10 @@ func LicenseList(c *gin.Context) {
 		var expiredAt sql.NullTime
 		var createdAt time.Time
 		var remark sql.NullString
-		var commercialStatus string
 		var changePrice sql.NullFloat64
 		err := rows.Scan(&item.ID, &item.Domain, &item.AppName, &item.AppID,
 			&item.Type, &item.Status, &item.OwnerType, &item.OwnerID, &item.OwnerName,
-			&item.Source, &commercialStatus,
+			&item.Source,
 			&expiredAt, &remark, &createdAt, &item.VerifyCount, &item.BoundSites, &item.MaxSites, &item.FreeSiteChanges, &changePrice)
 		if err != nil {
 			continue
@@ -205,7 +201,8 @@ func LicenseList(c *gin.Context) {
 		if item.SourceLabel == "" {
 			item.SourceLabel = item.Source
 		}
-		item.CommercialActive = commercialStatus == "active"
+		// 和客户端快照用同一个判断：最新一条商业版仍有效才显示商业版。
+		_, _, _, item.CommercialActive = loadCommercialEdition(db, item.ID)
 		if item.Status == "revoked" {
 			item.Status = "disabled"
 		}

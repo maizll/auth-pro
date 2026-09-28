@@ -1,6 +1,6 @@
 # 代码结构与维护指南
 
-这份文档给接手源码的人用。产品版本以仓库根目录 `VERSION` 为准。当前是 **1.7.0**。
+这份文档给接手源码的人用。产品版本以仓库根目录 `VERSION` 为准。当前是 **1.7.1**。
 
 从这一版起，合并和发版前必须通过 `scripts/quality-check.sh`。检查失败时，GitHub 的 CI 和打标签发版都会停住，不会打出安装包。
 
@@ -48,9 +48,11 @@
 
 ### 在线更新
 
-后台页面是 `frontend/src/views/online-update/index.vue`，请求在 `frontend/src/api/update.ts`。
+后台页面是 `frontend/src/views/online-update/index.vue`，请求在 `frontend/src/api/update.ts`。页面不展示更新地址。
 
-后端路由在 `backend/main.go`：`/api/system/update/status|history|check|apply` 和 `jobs/:id`。实现在 `backend/handler/update.go`：`AdminOnlineUpdateStatus`、`AdminOnlineUpdateCheck`、`AdminOnlineUpdateApply`。拉包、校验、解压、重启都在这个文件。进程守护脚本是仓库根目录的 `guardian-start.sh`。
+客户站只向 `https://auth.maizll.com/api/v1/update/latest.json` 要清单，安装包和历史版本也走源站。实现在 `backend/handler/update.go`。源站对外提供这些清单和安装包的接口在 `backend/handler/update_distribute.go`。
+
+后端路由在 `backend/main.go`：客户站管理接口是 `/api/system/update/status|history|check|apply` 和 `jobs/:id`。源站公开接口是 `/api/v1/update/latest.json`、`/api/v1/update/releases.json` 和 `/api/v1/update/package/:version`。拉包、校验、解压、重启仍在 `update.go`。进程守护脚本是仓库根目录的 `guardian-start.sh`。
 
 ## 同一功能只留一处
 

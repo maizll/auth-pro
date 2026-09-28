@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	authpro "github.com/maizll/auth-pro/sdk/go/authpro"
+	authpro "auth.maizll.com/sdk/go/authpro"
 )
 
 func TestBootVerifyAgainstStub(t *testing.T) {

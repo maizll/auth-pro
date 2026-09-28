@@ -265,14 +265,16 @@ func sourcePublicPluginEntry(plugin sourcePlugin) map[string]any {
 	}
 	entry := map[string]any{
 		"id": plugin.ID, "category": category, "name": plugin.Name, "description": plugin.Description,
-		"icon": plugin.Icon, "version": plugin.Version, "author": plugin.Author,
+		"icon": plugin.Icon, "version": plugin.Version, "author": publicCatalogAuthor(plugin.Author),
 		"priceCents": plugin.PriceCents, "billing": catalogBillingLabel(plugin.Billing),
-		"purchaseOnly": catalogEntryPurchaseOnly("plugin", plugin.ID, plugin.DeveloperID, plugin.PriceCents),
+		"party": pluginListingParty(plugin), "commercialIncluded": pluginListingIncluded(plugin),
+		"purchaseOnly": plugin.PriceCents > 0 && !pluginListingIncluded(plugin),
 		"forceUpdate":  plugin.ForceUpdate,
 	}
-	if plugin.PriceCents <= 0 && !isPrivatePackageRef(plugin.DownloadURL) && !isGitHubPackageRef(plugin.DownloadURL) {
-		entry["downloadUrl"] = plugin.DownloadURL
-		entry["sha256"] = plugin.SHA256
+	// 免费包的下载地址一律换成官网。仓库、外链和本站暂存位置都不写进公开目录。
+	if field, rawURL, sum, ok := catalogPublicPackageFields("plugin", plugin.ID, plugin.DownloadURL, plugin.SHA256, plugin.PriceCents); ok {
+		entry[field] = rawURL
+		entry["sha256"] = sum
 	}
 	if plugin.Changelog != "" {
 		entry["changelog"] = plugin.Changelog
@@ -296,12 +298,17 @@ func sourcePublicTemplateEntry(template sourceTemplate) map[string]any {
 		"id": template.TemplateKey, "category": category, "name": template.Name, "description": template.Description,
 		"version": template.Version, "schemaVersion": schemaVersion,
 		"priceCents": template.PriceCents, "billing": catalogBillingLabel(template.Billing),
-		"purchaseOnly": catalogEntryPurchaseOnly("template", template.TemplateKey, template.DeveloperID, template.PriceCents),
+		"party": templateListingParty(template), "commercialIncluded": templateListingIncluded(template),
+		"purchaseOnly": template.PriceCents > 0 && !templateListingIncluded(template),
 		"forceUpdate":  template.ForceUpdate,
 	}
-	if template.PriceCents <= 0 && !isPrivatePackageRef(template.TemplateURL) && !isGitHubPackageRef(template.TemplateURL) {
-		entry["sha256"] = template.SHA256
-		entry["templateUrl"] = template.TemplateURL
+	templateID := strings.TrimSpace(template.TemplateKey)
+	if templateID == "" {
+		templateID = template.ID
+	}
+	if field, rawURL, sum, ok := catalogPublicPackageFields("template", templateID, template.TemplateURL, template.SHA256, template.PriceCents); ok {
+		entry[field] = rawURL
+		entry["sha256"] = sum
 	}
 	if template.Changelog != "" {
 		entry["changelog"] = template.Changelog

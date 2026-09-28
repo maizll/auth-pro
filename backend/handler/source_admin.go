@@ -120,6 +120,11 @@ func AdminSourceUpdatePlugin(c *gin.Context) {
 	req.ID = existing.ID
 	req.AppID = existing.AppID
 	req.DownloadURL, req.SHA256 = preferSealedLocation(existing.DownloadURL, existing.SHA256, req.DownloadURL, req.SHA256)
+	req.DownloadURL, req.SHA256, err = keepHostedPackageOnFreeSwitch(existing.PriceCents, existing.DownloadURL, existing.SHA256, req.PriceCents, req.DownloadURL, req.SHA256)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
 	plugin, err := adminPluginFromRequest(req)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
@@ -259,6 +264,11 @@ func AdminSourceUpdateTemplate(c *gin.Context) {
 	req.TemplateKey = existing.TemplateKey
 	req.AppID = existing.AppID
 	req.TemplateURL, req.SHA256 = preferSealedLocation(existing.TemplateURL, existing.SHA256, req.TemplateURL, req.SHA256)
+	req.TemplateURL, req.SHA256, err = keepHostedPackageOnFreeSwitch(existing.PriceCents, existing.TemplateURL, existing.SHA256, req.PriceCents, req.TemplateURL, req.SHA256)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
 	item, err := adminTemplateFromRequest(req)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
@@ -534,7 +544,7 @@ func adminPluginFromRequest(req sourcePluginDraftRequest) (sourcePlugin, error) 
 	if err != nil {
 		return sourcePlugin{}, err
 	}
-	if priceCents <= 0 && downloadURL != "" && !isPrivatePackageRef(downloadURL) {
+	if priceCents <= 0 && downloadURL != "" && !hostedCatalogPackage(downloadURL) {
 		if err := validatePluginDownloadURL(downloadURL); err != nil {
 			return sourcePlugin{}, err
 		}
@@ -579,23 +589,25 @@ func adminPluginFromRequest(req sourcePluginDraftRequest) (sourcePlugin, error) 
 		downloadURL, sha256Value = verified, fileSHA
 	}
 	return sourcePlugin{
-		ID:           pluginID,
-		AppID:        req.AppID,
-		Category:     category,
-		Name:         name,
-		Description:  truncateText(req.Description, 500),
-		Icon:         icon,
-		Version:      version,
-		SHA256:       sha256Value,
-		DownloadURL:  downloadURL,
-		OriginURL:    originURL,
-		OriginHealth: originHealth,
-		PriceCents:   priceCents,
-		Billing:      billing,
-		Delivery:     delivery,
-		Changelog:    truncateText(req.Changelog, 2000),
-		MinVersion:   truncateText(req.MinVersion, 40),
-		ForceUpdate:  req.ForceUpdate,
+		ID:                 pluginID,
+		AppID:              req.AppID,
+		Category:           category,
+		Name:               name,
+		Description:        truncateText(req.Description, 500),
+		Icon:               icon,
+		Version:            version,
+		SHA256:             sha256Value,
+		DownloadURL:        downloadURL,
+		OriginURL:          originURL,
+		OriginHealth:       originHealth,
+		PriceCents:         priceCents,
+		Billing:            billing,
+		Delivery:           delivery,
+		Party:              req.Party,
+		CommercialIncluded: req.CommercialIncluded,
+		Changelog:          truncateText(req.Changelog, 2000),
+		MinVersion:         truncateText(req.MinVersion, 40),
+		ForceUpdate:        req.ForceUpdate,
 		Author: sourceAuthor{
 			Name:  truncateText(req.Author.Name, 100),
 			URL:   truncateText(req.Author.URL, 300),
@@ -621,7 +633,7 @@ func adminTemplateFromRequest(req sourceTemplateDraftRequest) (sourceTemplate, e
 	if err != nil {
 		return sourceTemplate{}, err
 	}
-	if priceCents <= 0 && templateURL != "" && !isPrivatePackageRef(templateURL) {
+	if priceCents <= 0 && templateURL != "" && !hostedCatalogPackage(templateURL) {
 		if err := validateTemplateLocation(templateURL); err != nil {
 			return sourceTemplate{}, err
 		}
@@ -669,24 +681,26 @@ func adminTemplateFromRequest(req sourceTemplateDraftRequest) (sourceTemplate, e
 		templateURL, sha256Value = verified, fileSHA
 	}
 	return sourceTemplate{
-		ID:            templateKey,
-		AppID:         req.AppID,
-		Category:      category,
-		TemplateKey:   templateKey,
-		Name:          name,
-		Description:   truncateText(req.Description, 500),
-		Version:       version,
-		SchemaVersion: schemaVersion,
-		SHA256:        sha256Value,
-		TemplateURL:   templateURL,
-		OriginURL:     originURL,
-		OriginHealth:  originHealth,
-		PriceCents:    priceCents,
-		Billing:       billing,
-		Delivery:      delivery,
-		Changelog:     truncateText(req.Changelog, 2000),
-		MinVersion:    truncateText(req.MinVersion, 40),
-		ForceUpdate:   req.ForceUpdate,
+		ID:                 templateKey,
+		AppID:              req.AppID,
+		Category:           category,
+		TemplateKey:        templateKey,
+		Name:               name,
+		Description:        truncateText(req.Description, 500),
+		Version:            version,
+		SchemaVersion:      schemaVersion,
+		SHA256:             sha256Value,
+		TemplateURL:        templateURL,
+		OriginURL:          originURL,
+		OriginHealth:       originHealth,
+		PriceCents:         priceCents,
+		Billing:            billing,
+		Delivery:           delivery,
+		Party:              req.Party,
+		CommercialIncluded: req.CommercialIncluded,
+		Changelog:          truncateText(req.Changelog, 2000),
+		MinVersion:         truncateText(req.MinVersion, 40),
+		ForceUpdate:        req.ForceUpdate,
 		Author: sourceAuthor{
 			Name:  truncateText(req.Author.Name, 100),
 			URL:   truncateText(req.Author.URL, 300),

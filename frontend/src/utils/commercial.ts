@@ -3,7 +3,10 @@ import { h, reactive } from 'vue'
 import { ElButton, ElNotification } from 'element-plus'
 import type { StoreAccount } from '@/api/store'
 import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
+import { catalogItemAccess, type CatalogAccess } from './catalog-access'
 import { storePayloadRebind } from './commercial-bind'
+
+export { catalogItemAccess }
 
 export {
   buyerRebindMessage,
@@ -47,7 +50,7 @@ export interface CatalogPurchaseOffer {
   name: string
   priceCents: number
   period?: string
-  purchaseOnly?: boolean
+  access?: CatalogAccess | null
   /** 开发者登记的图标。空则用名称首字。 */
   icon?: string
   /** 开发者登记的简介。界面最多先显示两行。 */
@@ -120,8 +123,8 @@ export function openCommercialUpgrade() {
 }
 
 export function openCatalogPurchase(offer: CatalogPurchaseOffer) {
-  // 商业版已经包含的官方插件或模板不再弹出购买，直接启用。开发者条目仍要单独购买。
-  if (!offer.purchaseOnly && isCommercialActive(commercialUi.account)) {
+  // 已经拥有的条目直接启用。是否拥有只看 catalogItemAccess，不再在这里重算。
+  if (!catalogItemAccess(offer).needsPurchase) {
     if (offer.resume) {
       void offer.resume()
       return
@@ -199,7 +202,7 @@ export function notifyCommercialRequired(payload?: { msg?: string; data?: unknow
         name?: string
         priceCents?: number
         period?: string
-        purchaseOnly?: boolean
+        access?: CatalogAccess | null
       }
     | undefined
   const feature = data?.feature || ''
@@ -211,7 +214,7 @@ export function notifyCommercialRequired(payload?: { msg?: string; data?: unknow
       name: data.name || (kind === 'template' ? '付费模板' : '付费插件'),
       priceCents: data.priceCents || 0,
       period: data.period,
-      purchaseOnly: !!data.purchaseOnly
+      access: data.access
     })
     return
   }

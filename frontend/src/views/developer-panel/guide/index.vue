@@ -20,7 +20,7 @@
         </div>
       </div>
       <el-alert
-        type="warning"
+        type="info"
         :closable="false"
         show-icon
         class="mt-4"

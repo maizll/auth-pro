@@ -45,8 +45,11 @@ func TestPublicIndexOmitsPaidPackageLocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	free, paid := findIndexEntry(t, index.Plugins, "free-one"), findIndexEntry(t, index.Plugins, "paid-one")
-	if free["downloadUrl"] != "https://cdn.example.com/free.zip" || free["sha256"] != freeSHA {
+	if free["downloadUrl"] != catalogBuyerPackageURL("plugin", "free-one") || free["sha256"] != freeSHA {
 		t.Fatalf("free entry lost package fields: %#v", free)
+	}
+	if strings.Contains(rec.Body.String(), "cdn.example.com") || strings.Contains(rec.Body.String(), "paid:") {
+		t.Fatalf("public index leaked stored location: %s", rec.Body.String())
 	}
 	if free["name"] != "免费插件" || free["priceCents"] != float64(0) || free["billing"] != sourceBillingFree {
 		t.Fatalf("free metadata=%#v", free)

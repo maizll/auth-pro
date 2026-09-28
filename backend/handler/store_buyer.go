@@ -3,6 +3,7 @@
 package handler
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -98,7 +99,8 @@ func BuyerStationVerify(c *gin.Context) {
 
 // BuyerStoreAccount 返回本机商业版状态。
 // 不带 verify 时只读本地快照，供顶栏快速显示。
-// verify=1 时向源站核对绑定：源站确认有效才标 sourceVerified。
+// verify=1 只向源站核对绑定是否还在，不拉取商业版快照。
+// 最新权益在登录后台整页刷新时拉取，同一站点短时间内只请求官网一次。
 // 绑定不存在、已删除或令牌失效则清掉本地旧记录，返回未绑定和 bindingInvalid。
 // 连不上源站时保留本地快照，不把商业版降成未绑定。
 func BuyerStoreAccount(c *gin.Context) {
@@ -185,10 +187,11 @@ func BuyerStoreCatalog(c *gin.Context) {
 	items := loadPaidCatalog()
 	out := make([]gin.H, 0, len(items))
 	for _, item := range items {
+		access := resolveCatalogAccess(view, item.Kind, item.ID, item.PriceCents)
 		out = append(out, gin.H{
 			"kind": item.Kind, "id": item.ID, "name": item.Name, "version": item.Version, "priceCents": item.PriceCents,
-			"billing": item.Billing, "purchaseOnly": item.PurchaseOnly || catalogPurchaseOnly(item.Kind, item.ID),
-			"ownership": buyerCatalogOwnership(view, item.Kind, item.ID, item.PriceCents),
+			"billing": item.Billing, "purchaseOnly": access.Party == "third",
+			"ownership": ownershipLabel(item.PriceCents, access), "access": access,
 		})
 	}
 	storeData(c, gin.H{"list": out, "edition": view.Edition})
@@ -490,10 +493,18 @@ func BuyerStoreOrderQuery(c *gin.Context) {
 	c.JSON(http.StatusOK, payload)
 }
 
-// BuyerStoreRefresh 立即向源站核对快照并返回最新账号状态。
-// 明确吊销时清本地绑定并要求重新绑定；网络失败只返回 400，不把商业版直接降成免费版。
+// BuyerStoreRefresh 向源站核对快照并返回最新账号状态。
+// 默认 45 秒内的重复调用直接用本地快照，并发调用合并成一次官网请求。
+// force=1 给「立即刷新」绕过这层缓存，但 30 秒内只打官网一次。
+// 官网失败时保留本地快照。明确吊销时清本地绑定并要求重新绑定。
 func BuyerStoreRefresh(c *gin.Context) {
-	err := refreshBuyerSnapshot(c.Request.Context(), buyerRequestDomain(c))
+	force := buyerRefreshForced(c)
+	var err error
+	if force {
+		err = refreshBuyerSnapshotForced(c.Request.Context(), buyerRequestDomain(c))
+	} else {
+		err = refreshBuyerSnapshot(c.Request.Context(), buyerRequestDomain(c))
+	}
 	if err != nil {
 		if storeFailSource(c, err) {
 			return
@@ -502,6 +513,37 @@ func BuyerStoreRefresh(c *gin.Context) {
 		return
 	}
 	BuyerStoreAccount(c)
+}
+
+// buyerRefreshForced 识别立即刷新。
+// 查询串 force=1 和 JSON {"force":1} 都算，因为前端 POST 会把 params 放进请求体。
+func buyerRefreshForced(c *gin.Context) bool {
+	if c.Query("force") == "1" || c.Query("force") == "true" {
+		return true
+	}
+	if c.Request == nil || c.Request.Body == nil {
+		return false
+	}
+	payload, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return false
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(payload))
+	if len(bytes.TrimSpace(payload)) == 0 {
+		return false
+	}
+	var req struct {
+		Force json.RawMessage `json:"force"`
+	}
+	if json.Unmarshal(payload, &req) != nil || len(bytes.TrimSpace(req.Force)) == 0 {
+		return false
+	}
+	switch strings.Trim(string(req.Force), `"`) {
+	case "1", "true":
+		return true
+	default:
+		return false
+	}
 }
 
 func buyerRefreshFailureRevoked(err error) bool {

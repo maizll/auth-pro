@@ -26,6 +26,7 @@ const (
 	sitePagesDocsMigration         = "site_pages_docs_v1"
 	sitePagesDocsRefreshMigration  = "site_pages_docs_v2"
 	sitePagesDocsRefreshMigration3 = "site_pages_docs_v3"
+	sitePagesDocsRefreshMigration4 = "site_pages_docs_v4"
 	siteNavBuiltin                 = "builtin"
 	siteNavExternal                = "external"
 	siteChangelogRelease           = "release"
@@ -33,8 +34,8 @@ const (
 	siteTagAdded                   = "added"
 	siteTagImproved                = "improved"
 	siteTagFixed                   = "fixed"
-	// 免费版安装包固定指向本仓库的 GitHub Releases latest，不在页面上写死某个版本号。
-	freeEditionDownloadURL = "https://github.com/maizll/auth-pro/releases/latest"
+	// 免费版安装包走源站下载接口，不写死版本号，也不露出仓库地址。
+	freeEditionDownloadURL = "https://auth.maizll.com/api/v1/update/package/latest"
 )
 
 var (
@@ -142,6 +143,10 @@ func EnsureSitePagesSchema(db *sql.DB) error {
 		return err
 	}
 	if err := refreshSiteDocsOnce(db); err != nil {
+		return err
+	}
+	// 先删掉没改过、又带仓库地址的更新日志，再按仓库里的发布说明重新导入。
+	if err := scrubLeakedRepositoryNotes(db); err != nil {
 		return err
 	}
 	if err := importSiteReleaseNotes(db, findSiteDocsRoot()); err != nil {

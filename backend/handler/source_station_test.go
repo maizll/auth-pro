@@ -269,8 +269,11 @@ func TestSourceStationApproveFlowFeedsPublishedIndex(t *testing.T) {
 	if err != nil || sourceType != "json" || len(index.Plugins) != 1 || len(index.HomeTemplates) != 1 {
 		t.Fatalf("index=%+v err=%v body=%s", index, err, payload)
 	}
-	if index.Plugins[0].ID != "demo-plugin" || index.Plugins[0].DownloadURL != "https://cdn.example.com/demo-plugin.zip" {
+	if index.Plugins[0].ID != "demo-plugin" || index.Plugins[0].DownloadURL != catalogBuyerPackageURL("plugin", "demo-plugin") {
 		t.Fatalf("plugin=%+v", index.Plugins[0])
+	}
+	if strings.Contains(string(payload), "cdn.example.com") || strings.Contains(string(payload), "github.com") {
+		t.Fatalf("public index leaked upstream url: %s", payload)
 	}
 	var manifest struct {
 		Name          string `json:"name"`
@@ -291,7 +294,7 @@ func TestSourceStationApproveFlowFeedsPublishedIndex(t *testing.T) {
 	if item.ID != "source-home" || item.Name == "" || item.Version != "1.0.0" || item.SchemaVersion != 1 {
 		t.Fatalf("homeTemplate=%+v body=%s", item, payload)
 	}
-	if item.SHA256 != sha || item.TemplateURL != "https://cdn.example.com/templates/source-home.json" {
+	if item.SHA256 != sha || item.TemplateURL != catalogBuyerPackageURL("template", "source-home") {
 		t.Fatalf("homeTemplate location=%+v", item)
 	}
 
@@ -586,8 +589,11 @@ func TestSourceStationPluginVersionUpdateUnshelfAndRollback(t *testing.T) {
 		t.Fatalf("register v1=%s", register.Body.String())
 	}
 	v1 := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
-	if !strings.Contains(v1.Body.String(), `"1.0.0"`) || !strings.Contains(v1.Body.String(), "up-1.0.0.zip") {
+	if !strings.Contains(v1.Body.String(), `"1.0.0"`) || !strings.Contains(v1.Body.String(), sha1) || !strings.Contains(v1.Body.String(), catalogBuyerPackageURL("plugin", "up-plugin")) {
 		t.Fatalf("index v1=%s", v1.Body.String())
+	}
+	if strings.Contains(v1.Body.String(), "cdn.example.com") || strings.Contains(v1.Body.String(), "up-1.0.0.zip") {
+		t.Fatalf("index v1 leaked stored url: %s", v1.Body.String())
 	}
 
 	create := sourceJSON(t, router, http.MethodPost, "/api/v1/source/admin/plugins/up-plugin/versions", admin,
@@ -600,14 +606,17 @@ func TestSourceStationPluginVersionUpdateUnshelfAndRollback(t *testing.T) {
 		t.Fatalf("approve v1.0.1=%s", submit.Body.String())
 	}
 	latest := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
-	if !strings.Contains(latest.Body.String(), `"version":"1.0.1"`) || !strings.Contains(latest.Body.String(), "up-1.0.1.zip") {
+	if !strings.Contains(latest.Body.String(), `"version":"1.0.1"`) || !strings.Contains(latest.Body.String(), sha2) {
 		t.Fatalf("index should show latest 1.0.1: %s", latest.Body.String())
+	}
+	if strings.Contains(latest.Body.String(), sha1) || strings.Contains(latest.Body.String(), "cdn.example.com") {
+		t.Fatalf("index should not keep old package as current: %s", latest.Body.String())
 	}
 	if !strings.Contains(latest.Body.String(), `"changelog":"修复下载"`) || !strings.Contains(latest.Body.String(), `"forceUpdate":false`) {
 		t.Fatalf("index missing changelog/forceUpdate: %s", latest.Body.String())
 	}
-	if strings.Contains(latest.Body.String(), "up-1.0.0.zip") {
-		t.Fatalf("index should not keep old downloadUrl as current: %s", latest.Body.String())
+	if strings.Contains(latest.Body.String(), "up-1.0.0.zip") || strings.Contains(latest.Body.String(), "up-1.0.1.zip") {
+		t.Fatalf("index should not keep stored download names: %s", latest.Body.String())
 	}
 
 	versions := sourceJSON(t, router, http.MethodGet, "/api/v1/source/admin/plugins/up-plugin/versions", admin, "")
@@ -637,10 +646,10 @@ func TestSourceStationPluginVersionUpdateUnshelfAndRollback(t *testing.T) {
 		t.Fatalf("rollback=%s", rollback.Body.String())
 	}
 	rolled := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
-	if !strings.Contains(rolled.Body.String(), `"version":"1.0.0"`) || !strings.Contains(rolled.Body.String(), "up-1.0.0.zip") {
+	if !strings.Contains(rolled.Body.String(), `"version":"1.0.0"`) || !strings.Contains(rolled.Body.String(), sha1) {
 		t.Fatalf("rollback should restore 1.0.0 in index: %s", rolled.Body.String())
 	}
-	if strings.Contains(rolled.Body.String(), "up-1.0.1.zip") {
+	if strings.Contains(rolled.Body.String(), sha2) || strings.Contains(rolled.Body.String(), "cdn.example.com") {
 		t.Fatalf("rolled index still points at 1.0.1: %s", rolled.Body.String())
 	}
 
