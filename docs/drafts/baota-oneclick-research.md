@@ -87,6 +87,10 @@ baota_prepare_backup_dir() {
 
 后端没起来时不能代跑这三个接口。降级是打印中文手工步骤：浏览器打开站点，填写已建好的库和管理员，不要再自动写 `db.json`。
 
-## 3. 面板实测
+## 3. 面板实测环境
 
-待实测。本环境 PID 1 是 tini，`systemctl` 不可用。官方安装脚本仍会先跑；Ubuntu 分支用 `update-rc.d` 注册面板，不依赖 systemd 启用 `btpanel.service`。Nginx / MySQL 是否能在无 systemd 时被面板脚本拉起，装完再记。
+禁止在 VM 宿主机上执行官方 `install_panel.sh`。该脚本会改防火墙、ufw 和服务，前几次都在安装期间或刚结束时把执行环境打崩，VM 被重置。
+
+实测改到 Docker 容器内：`ubuntu:22.04`，需要时加 `--privileged`，使用容器自己的网络命名空间，不用 `--network host`。安装、Nginx、MySQL 和 `btpython` 调用都只在容器里做。宿主机只安装 Docker 引擎，不跑宝塔安装脚本。
+
+若 Docker 起不来，则只下载面板压缩包做静态分析，并标明哪些调用没有实测。
