@@ -224,6 +224,9 @@
       "templates": "Catalog",
       "catalog": "Public Index",
       "ads": "Ads",
+      "storage": "Storage",
+      "storageMonitor": "Storage Check",
+      "storageFiles": "Package Files",
       "settings": "Settings"
     },
     "security": {

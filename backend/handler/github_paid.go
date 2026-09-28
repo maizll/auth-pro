@@ -29,7 +29,7 @@ const (
 	githubPaidTokenMissingText = "请先在软件源设置里配置收费仓库和 GitHub 令牌"
 	githubPaidTokenInvalidText = "GitHub 令牌无效或已过期，请到软件源设置重新配置。令牌需要 Contents 读写权限"
 	githubPaidAssetMissingText = "收费仓库里找不到该安装包，请重新上传"
-	paidLocalFallbackText      = "安装包暂存在本站。请到软件源设置粘贴令牌，点「测试令牌」确认私有仓库后再保存。"
+	paidLocalFallbackText      = "安装包暂存在本站。请到「存储管理」添加主存储，测试连接后再保存。"
 	githubPaidDefaultRepo      = "auth-pro-paid"
 	githubPaidTokenCreateURL   = "https://github.com/settings/tokens/new?scopes=repo&description=auth-pro"
 	githubPaidPermissionText   = "权限不足：细粒度令牌需要 Administration 读写（创建仓库）和 Contents 读写，经典令牌需要 repo 权限。"
@@ -364,7 +364,7 @@ func loadGitHubPaidRepo() (owner, repo, token string, err error) {
 
 func githubPaidSettingsView() gin.H {
 	owner, repo, _, _ := loadGitHubPaidRepo()
-	configured := githubPaidRepoConfigured()
+	configured := storageReadyForPaid()
 	reminder := ""
 	if !configured {
 		reminder = paidLocalFallbackText
@@ -458,6 +458,7 @@ func AdminGitHubPaidTokenSave(c *gin.Context) {
 		ActorType: "admin", ActorName: c.GetString("username"), Action: "settings",
 		TargetType: "github_paid", TargetID: owner + "/" + repo, Detail: "已更新收费仓库",
 	})
+	_ = syncLegacyStorageLocations()
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已保存收费仓库（页面不回显令牌明文）", "data": githubPaidSettingsView()})
 }
 
@@ -667,41 +668,6 @@ func probeGitHubPaidAsset(ctx context.Context, location string) error {
 	return err
 }
 
-func uploadPaidZipToStationRepo(ctx context.Context, kind, id, version string, payload []byte) (string, error) {
-	owner, repo, token, err := loadGitHubPaidRepo()
-	if err != nil {
-		return "", err
-	}
-	if owner == "" || repo == "" || token == "" {
-		return "", errGitHubPaidTokenMissing
-	}
-	kind = strings.TrimSpace(kind)
-	if kind == "" {
-		kind = sourceKindPlugin
-	}
-	manifest := sourcePackageManifest{
-		ID: id, Version: version, Kind: kind, Name: id, Description: id + " " + version, Filename: id + "-" + version + ".zip",
-	}
-	settings := sourceReleaseSettings{
-		Provider: "github", Owner: owner, Repo: repo, Token: token, TagStrategy: "paid-{kind}-{id}-{version}",
-	}
-	if _, err := pushGitHubRelease(ctx, settings, manifest, payload); err != nil {
-		if strings.Contains(err.Error(), "401") {
-			return "", errGitHubPaidTokenInvalid
-		}
-		return "", errors.New("上传到收费仓库失败，请检查令牌是否具备 Contents 读写权限")
-	}
-	ref := gitHubAssetRef{
-		Owner: owner, Repo: repo,
-		Tag:   renderSourceReleaseTag(settings.TagStrategy, id, version, kind),
-		Asset: sourceReleaseAssetName(manifest),
-	}
-	if !validGitHubAssetRef(ref) {
-		return "", errors.New("收费仓库里的标签或文件名不合法")
-	}
-	return formatGitHubPackageRef(ref), nil
-}
-
 func touchGitHubPaidHealth(ctx context.Context, store sourceStationStore, kind, id, name string, price int64, location, current string) {
 	if price <= 0 || !isGitHubPackageRef(location) {
 		return
@@ -753,7 +719,7 @@ func concealDeveloperPaidStorage(view gin.H) {
 	delete(view, "githubAsset")
 	for _, key := range []string{"downloadUrl", "templateUrl"} {
 		raw, _ := view[key].(string)
-		if isGitHubPackageRef(raw) || isPrivatePackageRef(raw) {
+		if isManagedPackageRef(raw) {
 			view[key] = ""
 			view["storedBySite"] = true
 			view["packageSource"] = "upload"

@@ -196,17 +196,6 @@ export interface SourceIndexData {
   snapshot?: SourceIndexSnapshot
 }
 
-export interface SourceReleaseSettings {
-  provider: string
-  owner: string
-  repo: string
-  tagStrategy: string
-  branch: string
-  hasToken: boolean
-  tokenMasked: string
-  configured: boolean
-}
-
 export interface SourcePackageManifest {
   kind: string
   id: string
@@ -581,48 +570,178 @@ export function fetchSourceAudit(limit = 100) {
   })
 }
 
-export interface GitHubPaidOwner {
-  login: string
-  kind?: string
-}
-
-export interface GitHubPaidSettings {
-  configured: boolean
+export interface StorageLocation {
+  id: string
+  name: string
+  kind: string
+  kindText: string
+  role: string
+  roleText: string
   owner?: string
   repo?: string
-  reminder?: string
-  login?: string
-  owners?: GitHubPaidOwner[]
-  private?: boolean
-  connected?: boolean
-  repoStatus?: string
-  hint?: string
-  defaultRepo?: string
-  tokenCreateUrl?: string
+  branch?: string
+  endpoint?: string
+  region?: string
+  bucket?: string
+  prefix?: string
+  pathStyle?: boolean
+  accessKey?: string
+  hasSecret?: boolean
+  limitText?: string
+  legacy?: string
+  updatedAt?: string
 }
 
-export function fetchGitHubPaidToken() {
-  return request.get<GitHubPaidSettings>({ url: `${BASE}/settings/github-paid` })
+interface StorageLocationsData {
+  dualWrite: boolean
+  locations: StorageLocation[]
+  limits: { github: string; gitee: string; s3: string; webdav: string }
+  reminder: string
 }
 
-export function saveGitHubPaidToken(payload: { token?: string; owner?: string; repo?: string }) {
-  return request.put<GitHubPaidSettings>({
-    url: `${BASE}/settings/github-paid`,
-    data: payload
+export interface StorageLocationInput {
+  id?: string
+  name: string
+  kind: string
+  role: string
+  owner?: string
+  repo?: string
+  branch?: string
+  endpoint?: string
+  region?: string
+  bucket?: string
+  prefix?: string
+  pathStyle?: boolean
+  accessKey?: string
+  secret?: string
+}
+
+export interface StorageObjectRow {
+  key: string
+  name: string
+  size: number
+  updatedAt?: string
+  item?: string
+  sha256?: string
+  orphan?: boolean
+}
+
+interface StorageZipData {
+  files: { name: string; size: number }[]
+  preview: Record<string, string>
+}
+
+export interface StorageHealthRow {
+  level: string
+  locationId?: string
+  locationName?: string
+  target: string
+  message: string
+}
+
+export function fetchStorageLocations() {
+  return request.get<StorageLocationsData>({ url: `${BASE}/storage/locations` })
+}
+
+export function createStorageLocation(payload: StorageLocationInput) {
+  return request.post<StorageLocation>({
+    url: `${BASE}/storage/locations`,
+    data: payload,
+    showSuccessMessage: true
   })
 }
 
-export function testGitHubPaidToken(payload: { token?: string; owner?: string; repo?: string }) {
-  return request.post<GitHubPaidSettings>({
-    url: `${BASE}/settings/github-paid/test`,
-    data: payload
+export function updateStorageLocation(id: string, payload: StorageLocationInput) {
+  return request.put<StorageLocation>({
+    url: `${BASE}/storage/locations/${encodeURIComponent(id)}`,
+    data: payload,
+    showSuccessMessage: true
   })
 }
 
-export function createGitHubPaidRepo(payload: { token?: string; owner?: string; repo?: string }) {
-  return request.post<GitHubPaidSettings>({
-    url: `${BASE}/settings/github-paid/repo`,
-    data: payload
+export function deleteStorageLocation(id: string) {
+  return request.del({
+    url: `${BASE}/storage/locations/${encodeURIComponent(id)}`,
+    showSuccessMessage: true
+  })
+}
+
+export function saveStorageOptions(dualWrite: boolean) {
+  return request.put<{ dualWrite: boolean }>({
+    url: `${BASE}/storage/options`,
+    data: { dualWrite },
+    showSuccessMessage: true
+  })
+}
+
+export function testStorageLocation(payload: StorageLocationInput) {
+  return request.post<{ ok?: boolean }>({
+    url: `${BASE}/storage/test`,
+    data: payload,
+    showSuccessMessage: true,
+    timeout: PACKAGE_TIMEOUT
+  })
+}
+
+export function fetchStorageObjects(locationId: string) {
+  return request.get<{ list: StorageObjectRow[] }>({
+    url: `${BASE}/storage/locations/${encodeURIComponent(locationId)}/objects`
+  })
+}
+
+export function fetchStorageZip(locationId: string, key: string) {
+  return request.get<StorageZipData>({
+    url: `${BASE}/storage/objects/zip`,
+    params: { locationId, key },
+    timeout: PACKAGE_TIMEOUT
+  })
+}
+
+export function downloadStorageObject(locationId: string, key: string) {
+  return request.post<{ url: string; expiresIn: number }>({
+    url: `${BASE}/storage/objects/download`,
+    data: { locationId, key }
+  })
+}
+
+export function deleteStorageObject(locationId: string, key: string, confirm: string) {
+  return request.post({
+    url: `${BASE}/storage/objects/delete`,
+    data: { locationId, key, confirm },
+    showSuccessMessage: true
+  })
+}
+
+export function verifyStorageObject(locationId: string, key: string) {
+  return request.post<{ sha256: string }>({
+    url: `${BASE}/storage/objects/verify`,
+    data: { locationId, key },
+    showSuccessMessage: true,
+    timeout: PACKAGE_TIMEOUT
+  })
+}
+
+export function copyStorageObject(locationId: string, key: string, targetId: string) {
+  return request.post<{ ref: string }>({
+    url: `${BASE}/storage/objects/copy`,
+    data: { locationId, key, targetId },
+    showSuccessMessage: true,
+    timeout: PACKAGE_TIMEOUT
+  })
+}
+
+export function fetchStorageHealth() {
+  return request.get<{ checkedAt?: string; list: StorageHealthRow[] | null; interval: string }>({
+    url: `${BASE}/storage/health`
+  })
+}
+
+export function runStorageHealth() {
+  return request.post<{ checkedAt?: string; list: StorageHealthRow[] | null; interval: string }>({
+    url: `${BASE}/storage/health/run`,
+    data: {},
+    showSuccessMessage: true,
+    timeout: PACKAGE_TIMEOUT
   })
 }
 
@@ -643,50 +762,6 @@ export function saveSoftwareSourceAlias(payload: { oldAppKey: string; targetAppI
     url: `${BASE}/settings/source-aliases`,
     data: payload,
     showSuccessMessage: true
-  })
-}
-
-export function fetchSourceReleaseSettings() {
-  return request.get<SourceReleaseSettings>({ url: `${BASE}/settings/release` })
-}
-
-export function saveSourceReleaseSettings(payload: {
-  provider: string
-  owner: string
-  repo: string
-  token?: string
-  tagStrategy: string
-  branch: string
-}) {
-  return request.put<SourceReleaseSettings>({ url: `${BASE}/settings/release`, data: payload })
-}
-
-export interface SourceReleaseTestResult {
-  provider: string
-  owner: string
-  repo: string
-  fullName?: string
-  htmlUrl?: string
-  private?: boolean
-  permissions?: {
-    admin?: boolean
-    push?: boolean
-    pull?: boolean
-  }
-}
-
-export function testSourceReleaseSettings(payload: {
-  provider: string
-  owner: string
-  repo: string
-  token?: string
-  tagStrategy: string
-  branch: string
-}) {
-  return request.post<SourceReleaseTestResult>({
-    url: `${BASE}/settings/release/test`,
-    data: payload,
-    timeout: PACKAGE_TIMEOUT
   })
 }
 

@@ -636,6 +636,18 @@ func productUpdateTokenCandidates() []string {
 	if token, err := loadGitHubPaidToken(); err == nil {
 		add(token)
 	}
+	// 存储管理里的 GitHub 令牌。从仓库导入列出 Release 时和旧的收费仓库令牌是同一批凭证。
+	if blob, blobErr := loadStorageBlob(); blobErr == nil {
+		for _, loc := range enabledStorageLocations(blob.Locations) {
+			if loc.Kind != packageStorageGitHub {
+				continue
+			}
+			secret, secretErr := locationSecret(loc)
+			if secretErr == nil {
+				add(secret)
+			}
+		}
+	}
 	if settings, err := currentSourceStationStore().GetReleaseSettings(); err == nil {
 		settings = normalizeReleaseSettings(settings)
 		if settings.Provider == "github" {

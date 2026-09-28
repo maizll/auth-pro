@@ -52,6 +52,37 @@ export const sourceStationRoutes: AppRouteRecord = {
       }
     },
     {
+      path: 'storage',
+      name: 'SourceStationStorage',
+      component: '/source-station/storage',
+      meta: {
+        title: 'menus.sourceStation.storage',
+        icon: 'ri:hard-drive-2-line',
+        keepAlive: true
+      }
+    },
+    {
+      path: 'storage-monitor',
+      name: 'SourceStationStorageMonitor',
+      component: '/source-station/storage/monitor',
+      meta: {
+        title: 'menus.sourceStation.storageMonitor',
+        icon: 'ri:pulse-line',
+        keepAlive: true
+      }
+    },
+    {
+      path: 'storage-files',
+      name: 'SourceStationStorageFiles',
+      component: '/source-station/storage/files',
+      meta: {
+        title: 'menus.sourceStation.storageFiles',
+        icon: 'ri:folder-open-line',
+        isHide: true,
+        keepAlive: false
+      }
+    },
+    {
       path: 'settings',
       name: 'SourceStationSettings',
       component: '/source-station/settings',

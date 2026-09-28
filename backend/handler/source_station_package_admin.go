@@ -41,6 +41,7 @@ func AdminSourceReleaseSettingsSave(c *gin.Context) {
 		TargetType: "release", TargetID: saved.Provider,
 		Detail: saved.Owner + "/" + saved.Repo + " tag=" + saved.TagStrategy,
 	})
+	_ = syncLegacyStorageLocations()
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已保存 Release 推送设置（令牌仅保存在服务端，GET 只返回掩码）", "data": saved.publicView()})
 }
 

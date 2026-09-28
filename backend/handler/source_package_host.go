@@ -189,7 +189,7 @@ func SourceDeveloperPackageUpload(c *gin.Context) {
 	data["stored"] = true
 	data["url"] = storedURL
 	data["sha256"] = fileSHA
-	if isGitHubPackageRef(storedURL) || isPrivatePackageRef(storedURL) {
+	if isManagedPackageRef(storedURL) {
 		data["storedBySite"] = true
 	}
 	if manifest.Kind == sourceKindTemplate {

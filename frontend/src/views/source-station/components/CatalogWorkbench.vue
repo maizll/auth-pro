@@ -167,7 +167,7 @@
         class="mb-3"
       />
       <p class="card-hint mb-3">
-        来源二选一。免费用公开地址，本站不存包。收费可以上传压缩包，或填写公开地址让本站拉一次。配置收费仓库后，安装包放在站长的私有仓库。买家付款后从官网地址下载，由官网取包并核对校验码。
+        来源二选一。免费用公开地址，本站不存包。收费可以上传压缩包，或填写公开地址让本站拉一次。配置主存储后，安装包放在站长的私有存储。买家付款后从官网地址下载，由官网取包并核对校验码。
       </p>
       <el-form label-width="120px">
         <el-form-item label="来源">
@@ -198,7 +198,7 @@
           </el-upload>
           <p class="card-hint">
             售价大于 0
-            时，配置了收费仓库就上传到该仓库并删除临时文件；未配置则暂存在本站。免费请改用公开地址，或勾选推送
+            时，配置了主存储就上传到该存储并删除临时文件；未配置则暂存在本站。免费请改用公开地址，或勾选推送
             Release。
           </p>
         </el-form-item>
@@ -248,7 +248,7 @@
             @input="parsedManifest = null"
           />
           <p class="card-hint">
-            免费条目保存这条地址，本站不存包。收费条目会拉取一次：已配置收费仓库则上传后删除临时文件，未配置则暂存在本站。
+            免费条目保存这条地址，本站不存包。收费条目会拉取一次：已配置主存储则上传后删除临时文件，未配置则暂存在本站。
           </p>
         </el-form-item>
       </el-form>
@@ -317,7 +317,7 @@
           <el-input v-model="editForm.priceYuan" placeholder="0" />
           <p class="card-hint">
             填 0
-            表示免费。已公开的免费条目可以改为收费，保存前会确认老用户是否继续免费。收费仓库已有安装包时，改回
+            表示免费。已公开的免费条目可以改为收费，保存前会确认老用户是否继续免费。主存储已有安装包时，改回
             0 可以不填外链，下载仍由官网提供。
           </p>
         </el-form-item>
@@ -338,11 +338,11 @@
         <el-form-item label="下载地址" prop="location">
           <el-input
             v-model="editForm.location"
-            :placeholder="editHostedPackage ? '留空则沿用收费仓库里的安装包' : 'https://...'"
+            :placeholder="editHostedPackage ? '留空则沿用已托管的安装包' : 'https://...'"
           />
           <p v-if="editHostedPackage" class="card-hint">
-            收费仓库已有安装包。改回免费可以不填地址，继续用这份托管包，下载仍由官网提供。填写新的
-            https 地址则改用外链。
+            已托管的安装包还在。改回免费可以不填地址，继续用这份包，下载仍由官网提供。填写新的 https
+            地址则改用外链。
           </p>
         </el-form-item>
         <el-form-item v-if="editingItem?.originUrl" label="来源外链">
@@ -708,7 +708,7 @@
     SOURCE_ITEM_STATUS,
     SOURCE_VERSION_STATUS,
     fetchSourceCatalogCategories,
-    fetchGitHubPaidToken,
+    fetchStorageLocations,
     fetchSourceCatalogItems,
     fetchSourceCatalogApps,
     rebindSourceCatalogItems,
@@ -1439,7 +1439,7 @@
       try {
         await ElMessageBox.confirm(
           editHostedPackage.value
-            ? '改回免费后继续使用收费仓库里的安装包，下载由官网提供。留空即可；填写新的 https 地址则改用外链。'
+            ? '改回免费后继续使用已托管的安装包，下载由官网提供。留空即可；填写新的 https 地址则改用外链。'
             : '改回免费后，安装包会重新提供公开下载地址。已经发给老用户的免费权益会保留。',
           '改回免费',
           { confirmButtonText: '确认改回免费', cancelButtonText: '取消', type: 'warning' }
@@ -1849,8 +1849,8 @@
 
   async function loadPaidRepoReminder() {
     try {
-      const data = await fetchGitHubPaidToken()
-      paidRepoReminder.value = data.configured ? '' : data.reminder || ''
+      const data = await fetchStorageLocations()
+      paidRepoReminder.value = data.reminder || ''
     } catch {
       paidRepoReminder.value = ''
     }

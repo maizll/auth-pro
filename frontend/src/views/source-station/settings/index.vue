@@ -1,162 +1,26 @@
-<!-- 源站设置。收费仓库在这里粘贴令牌、测试并创建私有仓库。 -->
+<!-- 源站设置。安装包位置改到存储管理，这里只保留旧应用软件源地址。 -->
 <template>
   <div class="source-station-page">
-    <el-card v-loading="loading" shadow="never" class="art-card">
+    <el-card shadow="never" class="art-card">
       <template #header>
         <div class="table-header">
           <div>
-            <span class="card-title">发布仓库令牌</span>
+            <span class="card-title">安装包存储</span>
             <p class="card-hint">
-              校验通过的压缩包可以推送到 GitHub 或 Gitee
-              的发布页。源站只保存下载地址和校验码。令牌只存在服务器上，页面只显示掩码。「测试连接」只检查仓库和令牌是否可用，不会创建发布。
+              私有仓库和对象存储已改到「存储管理」。可以设主存储和备用，密钥加密保存，页面不能查看。
             </p>
           </div>
           <div class="table-actions">
-            <el-button :loading="testing" @click="handleTest">测试连接</el-button>
-            <el-button type="primary" :loading="saving" @click="handleSave">保存设置</el-button>
+            <el-button type="primary" @click="goStorage">打开存储管理</el-button>
           </div>
         </div>
       </template>
-
-      <p v-if="showReleaseEmptyHint" class="release-empty-hint">
-        未配置，上传时需要填 https 外链
-      </p>
       <el-alert
-        v-else-if="showReleaseMissing"
-        :title="`当前表单不完整，缺少：${missingFields.join('、')}`"
         type="info"
         :closable="false"
         show-icon
-        class="mb-4"
+        title="原来的发布仓库和收费仓库会自动变成存储列表里的两条。"
       />
-      <el-alert
-        v-else-if="formReady"
-        :title="alertTitle"
-        type="success"
-        :closable="false"
-        show-icon
-        class="mb-4"
-      >
-        {{ alertDescription }}
-      </el-alert>
-
-      <el-form :model="form" label-width="140px" class="settings-form">
-        <el-form-item label="代码平台">
-          <el-radio-group v-model="form.provider">
-            <el-radio value="github">GitHub</el-radio>
-            <el-radio value="gitee">Gitee</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="所有者">
-          <el-input v-model.trim="form.owner" placeholder="组织或用户名" />
-        </el-form-item>
-        <el-form-item label="仓库">
-          <el-input v-model.trim="form.repo" placeholder="仓库名" />
-        </el-form-item>
-        <el-form-item label="访问令牌">
-          <el-input
-            v-model="form.token"
-            type="password"
-            show-password
-            :placeholder="
-              settings.hasToken ? `已设置 ${settings.tokenMasked}，留空不修改` : '仅服务端保存'
-            "
-          />
-        </el-form-item>
-        <el-form-item label="版本标签">
-          <el-input v-model.trim="form.tagStrategy" placeholder="{id}-{version}" />
-          <p class="field-hint">一般保持默认即可，用来给每次发布命名。</p>
-        </el-form-item>
-        <el-form-item v-if="form.provider === 'gitee'" label="Gitee 分支">
-          <el-input v-model.trim="form.branch" placeholder="master" />
-        </el-form-item>
-      </el-form>
-    </el-card>
-
-    <el-card v-loading="githubLoading" shadow="never" class="art-card github-paid-card">
-      <template #header>
-        <div class="table-header">
-          <div>
-            <span class="card-title">收费仓库</span>
-            <p class="card-hint">
-              站长和开发者的收费安装包都放在这一个私有 GitHub
-              仓库。只需粘贴令牌，点「测试令牌」就会识别所有者，也可以改选所属组织。仓库默认是
-              auth-pro-paid，不存在时可以自动创建私有仓库。令牌加密保存，页面不回显明文。
-              <a
-                class="token-link"
-                :href="githubTokenCreateUrl"
-                target="_blank"
-                rel="noopener noreferrer"
-                >去 GitHub 创建令牌</a
-              >
-            </p>
-            <p class="card-hint">
-              细粒度令牌需要 Administration 读写（创建仓库）和 Contents 读写，经典令牌需要 repo
-              权限。仓库已经存在时，没有创建权限也可以使用。
-            </p>
-          </div>
-          <div class="table-actions">
-            <el-button :loading="githubTesting" @click="handleGitHubTest">测试令牌</el-button>
-            <el-button type="primary" :loading="githubSaving" @click="handleGitHubSave"
-              >保存</el-button
-            >
-          </div>
-        </div>
-      </template>
-      <el-alert
-        v-if="githubConnected"
-        class="mb-4 github-paid-alert"
-        type="success"
-        :closable="false"
-        show-icon
-        :title="githubConnectedTitle"
-      >
-        <span v-if="!githubConfigured">请点「保存」，令牌才会加密写入服务器。</span>
-        <span v-else>令牌已加密保存，页面不回显明文。</span>
-      </el-alert>
-      <el-alert
-        v-else
-        class="mb-4 github-paid-alert"
-        type="info"
-        :closable="false"
-        show-icon
-        title="尚未配置收费仓库"
-      >
-        安装包暂存在本站。请粘贴令牌并点「测试令牌」，确认私有仓库后再保存。
-      </el-alert>
-      <el-form label-width="140px" class="settings-form github-paid-form">
-        <el-form-item label="所有者">
-          <el-select
-            v-model="githubOwner"
-            filterable
-            placeholder="测试令牌后自动填入"
-            class="owner-select"
-          >
-            <el-option
-              v-for="item in githubOwnerOptions"
-              :key="`${item.kind}-${item.login}`"
-              :label="githubOwnerLabel(item)"
-              :value="item.login"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="仓库">
-          <div class="repo-row">
-            <el-input v-model.trim="githubRepo" placeholder="auth-pro-paid" />
-            <el-button :loading="githubCreating" @click="handleGitHubCreate"
-              >自动创建私有仓库</el-button
-            >
-          </div>
-        </el-form-item>
-        <el-form-item label="读写令牌">
-          <el-input
-            v-model="githubToken"
-            type="password"
-            show-password
-            :placeholder="githubConfigured ? '已配置，留空不修改' : '粘贴 GitHub 令牌'"
-          />
-        </el-form-item>
-      </el-form>
     </el-card>
 
     <el-card v-loading="aliasLoading" shadow="never" class="art-card alias-card">
@@ -218,80 +82,16 @@
 <script setup lang="ts">
   import { computed, onMounted, reactive, ref } from 'vue'
   import { ElMessage } from 'element-plus'
+  import { useRouter } from 'vue-router'
   import {
-    createGitHubPaidRepo,
-    fetchGitHubPaidToken,
     fetchSoftwareSourceAliases,
     fetchSourceCatalogApps,
-    fetchSourceReleaseSettings,
-    saveGitHubPaidToken,
     saveSoftwareSourceAlias,
-    saveSourceReleaseSettings,
-    testGitHubPaidToken,
-    testSourceReleaseSettings,
-    type GitHubPaidOwner,
-    type GitHubPaidSettings,
     type SoftwareSourceAlias,
-    type SourceCatalogApp,
-    type SourceReleaseSettings
+    type SourceCatalogApp
   } from '@/api/source-station'
-  import { isHttpError } from '@/utils/http/error'
 
-  const githubPaidDefaultRepo = 'auth-pro-paid'
-  const githubPaidTokenUrl =
-    'https://github.com/settings/tokens/new?scopes=repo&description=auth-pro'
-
-  const loading = ref(false)
-  const saving = ref(false)
-  const testing = ref(false)
-  // 点过保存或测试后，即使三项都空也要指出缺什么；没碰过则只显示灰色说明。
-  const releaseChecked = ref(false)
-  const githubLoading = ref(false)
-  const githubSaving = ref(false)
-  const githubTesting = ref(false)
-  const githubCreating = ref(false)
-  const githubConfigured = ref(false)
-  const githubConnected = ref(false)
-  const githubOwner = ref('')
-  const githubRepo = ref(githubPaidDefaultRepo)
-  const githubOwners = ref<GitHubPaidOwner[]>([])
-  const githubTokenCreateUrl = ref(githubPaidTokenUrl)
-  const githubToken = ref('')
-  const githubOwnerOptions = computed(() => {
-    const list = [...githubOwners.value]
-    const current = githubOwner.value.trim()
-    if (current && !list.some((item) => item.login === current)) {
-      list.unshift({ login: current, kind: 'saved' })
-    }
-    return list
-  })
-  const githubConnectedTitle = computed(
-    () => `已连接：${githubOwner.value}/${githubRepo.value}（私有）`
-  )
-
-  function githubOwnerLabel(item: GitHubPaidOwner) {
-    if (item.kind === 'org') return `${item.login}（组织）`
-    if (item.kind === 'user') return `${item.login}（用户）`
-    return item.login
-  }
-  const settings = ref<SourceReleaseSettings>({
-    provider: 'github',
-    owner: '',
-    repo: '',
-    tagStrategy: '{id}-{version}',
-    branch: 'master',
-    hasToken: false,
-    tokenMasked: '',
-    configured: false
-  })
-  const form = reactive({
-    provider: 'github',
-    owner: '',
-    repo: '',
-    token: '',
-    tagStrategy: '{id}-{version}',
-    branch: 'master'
-  })
+  const router = useRouter()
   const aliasLoading = ref(false)
   const aliasSaving = ref(false)
   const aliases = ref<SoftwareSourceAlias[]>([])
@@ -302,174 +102,8 @@
   })
   const liveAliasApps = computed(() => aliasApps.value.filter((app) => !app.archived))
 
-  const formHasToken = computed(() => Boolean(form.token.trim()) || settings.value.hasToken)
-
-  const missingFields = computed(() => {
-    const missing: string[] = []
-    const provider = form.provider.trim().toLowerCase()
-    if (provider !== 'github' && provider !== 'gitee') missing.push('代码平台')
-    if (!form.owner.trim()) missing.push('所有者')
-    if (!form.repo.trim()) missing.push('仓库')
-    if (!formHasToken.value) missing.push('访问令牌')
-    return missing
-  })
-
-  const formReady = computed(() => missingFields.value.length === 0)
-
-  // 只看所有者、仓库、令牌。平台和标签有默认值，不算「已经填过」。
-  const releaseTouched = computed(() =>
-    Boolean(form.owner.trim() || form.repo.trim() || formHasToken.value)
-  )
-
-  const showReleaseEmptyHint = computed(
-    () => !settings.value.configured && !releaseTouched.value && !releaseChecked.value
-  )
-
-  const showReleaseMissing = computed(() => !formReady.value && !showReleaseEmptyHint.value)
-
-  const alertTitle = computed(() => '当前表单已齐：上传时可推送到发布页（保存后生效）')
-
-  const alertDescription = computed(() => {
-    if (settings.value.configured) {
-      return '服务端已保存完整配置。表单改动需点击「保存设置」后才会写入服务端。'
-    }
-    return '服务端尚未保存完整配置，请点击「保存设置」后上传才会推送到发布页。'
-  })
-
-  function rejectIncompleteRelease() {
-    releaseChecked.value = true
-    return !formReady.value
-  }
-
-  function applyGitHubPaid(data?: GitHubPaidSettings, preferConnected?: boolean) {
-    if (!data) return
-    githubConfigured.value = Boolean(data.configured)
-    if (data.owner) githubOwner.value = data.owner
-    githubRepo.value = data.repo || data.defaultRepo || githubRepo.value || githubPaidDefaultRepo
-    if (data.owners?.length) githubOwners.value = data.owners
-    if (data.tokenCreateUrl) githubTokenCreateUrl.value = data.tokenCreateUrl
-    githubConnected.value =
-      preferConnected === false ? false : Boolean(data.connected && data.private !== false)
-  }
-
-  function applyGitHubPaidError(error: unknown) {
-    if (!isHttpError(error) || !error.data || typeof error.data !== 'object') return
-    applyGitHubPaid(error.data as GitHubPaidSettings, false)
-  }
-
-  function githubPaidPayload() {
-    return {
-      token: githubToken.value.trim(),
-      owner: githubOwner.value.trim(),
-      repo: githubRepo.value.trim() || githubPaidDefaultRepo
-    }
-  }
-
-  async function loadGitHubToken() {
-    githubLoading.value = true
-    try {
-      const data = await fetchGitHubPaidToken()
-      applyGitHubPaid(data)
-      if (!data.repo) githubRepo.value = data.defaultRepo || githubPaidDefaultRepo
-      githubToken.value = ''
-    } finally {
-      githubLoading.value = false
-    }
-  }
-
-  async function handleGitHubSave() {
-    githubSaving.value = true
-    try {
-      const data = await saveGitHubPaidToken(githubPaidPayload())
-      applyGitHubPaid(data)
-      githubToken.value = ''
-      ElMessage.success(data.connected ? githubConnectedTitle.value : '已保存收费仓库')
-    } catch (error) {
-      applyGitHubPaidError(error)
-    } finally {
-      githubSaving.value = false
-    }
-  }
-
-  async function handleGitHubTest() {
-    githubTesting.value = true
-    try {
-      const data = await testGitHubPaidToken(githubPaidPayload())
-      applyGitHubPaid(data)
-      if (data.connected) {
-        ElMessage.success(githubConnectedTitle.value)
-      } else if (data.hint) {
-        ElMessage.info(data.hint)
-      }
-    } catch (error) {
-      applyGitHubPaidError(error)
-    } finally {
-      githubTesting.value = false
-    }
-  }
-
-  async function handleGitHubCreate() {
-    githubCreating.value = true
-    try {
-      const data = await createGitHubPaidRepo(githubPaidPayload())
-      applyGitHubPaid(data)
-      if (data.connected) ElMessage.success(githubConnectedTitle.value)
-    } catch (error) {
-      applyGitHubPaidError(error)
-    } finally {
-      githubCreating.value = false
-    }
-  }
-
-  async function loadSettings() {
-    loading.value = true
-    try {
-      const data = await fetchSourceReleaseSettings()
-      settings.value = data
-      form.provider = data.provider || 'github'
-      form.owner = data.owner || ''
-      form.repo = data.repo || ''
-      form.token = ''
-      form.tagStrategy = data.tagStrategy || '{id}-{version}'
-      form.branch = data.branch || 'master'
-    } finally {
-      loading.value = false
-    }
-  }
-
-  function releasePayload() {
-    return {
-      provider: form.provider,
-      owner: form.owner,
-      repo: form.repo,
-      token: form.token,
-      tagStrategy: form.tagStrategy,
-      branch: form.branch
-    }
-  }
-
-  async function handleTest() {
-    if (rejectIncompleteRelease()) return
-    testing.value = true
-    try {
-      const data = await testSourceReleaseSettings(releasePayload())
-      ElMessage.success(data.htmlUrl ? `连接成功 ${data.htmlUrl}` : '连接成功')
-    } finally {
-      testing.value = false
-    }
-  }
-
-  async function handleSave() {
-    if (rejectIncompleteRelease()) return
-    saving.value = true
-    try {
-      const data = await saveSourceReleaseSettings(releasePayload())
-      settings.value = data
-      form.token = ''
-      ElMessage.success('已保存 Release 推送设置')
-    } finally {
-      saving.value = false
-    }
+  function goStorage() {
+    router.push('/source-station/storage')
   }
 
   function fillAlias(row: SoftwareSourceAlias) {
@@ -507,8 +141,6 @@
   }
 
   onMounted(() => {
-    void loadSettings()
-    void loadGitHubToken()
     void loadAliases()
   })
 </script>
@@ -554,11 +186,6 @@
     max-width: 720px;
   }
 
-  .mb-4 {
-    margin-bottom: 16px;
-  }
-
-  .github-paid-card,
   .alias-card {
     margin-top: 16px;
   }
@@ -567,8 +194,7 @@
     max-width: 560px;
   }
 
-  .product-app-select,
-  .free-plan-select {
+  .product-app-select {
     width: 100%;
   }
 
@@ -579,57 +205,8 @@
     color: var(--art-gray-600);
   }
 
-  .release-empty-hint {
-    margin: 0 0 16px;
-    font-size: 13px;
-    line-height: 1.5;
-    color: var(--el-text-color-secondary);
-  }
-
-  .token-link {
-    margin-left: 6px;
-    color: var(--el-color-primary);
-    text-decoration: none;
-  }
-
-  .owner-select {
-    width: 100%;
-  }
-
-  .repo-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-
-    .el-input {
-      flex: 1;
-    }
-  }
-
-  .github-paid-card :deep(.github-paid-alert.el-alert--info) {
-    background-color: var(--el-color-primary-light-9);
-    border: 1px solid var(--el-color-primary-light-7);
-    border-left: 4px solid var(--el-color-primary);
-    color: var(--el-text-color-regular);
-
-    .el-alert__title,
-    .el-alert__description,
-    .el-alert__icon,
-    .el-alert__content {
-      color: var(--el-text-color-regular);
-    }
-  }
-
   @media (max-width: 767px) {
-    .github-paid-card {
-      .table-actions :deep(.el-button),
-      .repo-row :deep(.el-button) {
-        min-height: 36px;
-      }
-    }
-
-    .github-paid-form {
+    .settings-form {
       max-width: none;
 
       :deep(.el-form-item) {
@@ -646,11 +223,6 @@
       :deep(.el-form-item__content) {
         margin-left: 0 !important;
       }
-    }
-
-    .repo-row {
-      flex-direction: column;
-      align-items: stretch;
     }
   }
 </style>

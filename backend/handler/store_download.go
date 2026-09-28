@@ -45,8 +45,8 @@ func StoreDownloadTicket(c *gin.Context) {
 	driverName, objectKey := classifyPackageRef(location)
 	storageKey := ""
 	switch driverName {
-	case packageStorageGitHub:
-		// 票据里记下仓库引用，客户端只能看到官网地址。
+	case packageStorageGitHub, packageStorageGitee, packageStorageS3, packageStorageWebDAV:
+		// 票据里记下内部引用。客户端只看到本站地址，看不到仓库路径。
 		storageKey = strings.TrimSpace(location)
 	case packageStorageLocal:
 		if _, ok := privatePackageName(sourcePaidPackagePrefix + objectKey); !ok {
@@ -102,7 +102,12 @@ func StorePackageDownload(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "下载路径不合法"})
 		return
 	}
-	payload, readErr := readStoredPackageBytes(c.Request.Context(), ticketPackageLocation(claims.StorageKey, location))
+	resolved := ticketPackageLocation(claims.StorageKey, location)
+	if signed, ok := buyerSafeRedirect(c.Request.Context(), resolved); ok {
+		c.Redirect(http.StatusFound, signed)
+		return
+	}
+	payload, readErr := readStoredPackageBytes(c.Request.Context(), resolved)
 	if readErr != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": catalogPackageMissingText})
 		return
@@ -135,7 +140,7 @@ func ticketStorageMatches(storageKey, location string) bool {
 }
 
 func ticketPackageLocation(storageKey, location string) string {
-	if isGitHubPackageRef(storageKey) {
+	if isRemoteManagedRef(storageKey) {
 		return storageKey
 	}
 	if isPrivatePackageRef(location) {

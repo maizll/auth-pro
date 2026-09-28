@@ -206,6 +206,9 @@ func releaseImportRepo(purpose, raw string) (string, string, error) {
 			if err == nil && owner != "" && repo != "" {
 				return owner, repo, nil
 			}
+			if owner, repo, ok := primaryGitHubStorageRepo(); ok {
+				return owner, repo, nil
+			}
 			raw = releaseImportDefaultPaidRepo
 		} else {
 			owner, repo, err := productUpdateRepository()
@@ -217,6 +220,25 @@ func releaseImportRepo(purpose, raw string) (string, string, error) {
 		return "", "", errors.New("仓库格式应为 所有者/名称")
 	}
 	return parts[0], parts[1], nil
+}
+
+// primaryGitHubStorageRepo 用存储管理里启用的 GitHub 位置作为插件、模板导入的默认仓库。
+func primaryGitHubStorageRepo() (string, string, bool) {
+	blob, err := loadStorageBlob()
+	if err != nil {
+		return "", "", false
+	}
+	for _, loc := range enabledStorageLocations(blob.Locations) {
+		if loc.Kind != packageStorageGitHub {
+			continue
+		}
+		owner := strings.TrimSpace(loc.Owner)
+		repo := strings.TrimSpace(loc.Repo)
+		if owner != "" && repo != "" {
+			return owner, repo, true
+		}
+	}
+	return "", "", false
 }
 
 type releaseImportListItem struct {

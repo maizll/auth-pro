@@ -130,7 +130,7 @@ func paidPublishError(developerID, price int64, delivery, location string) error
 	if delivery == sourceDeliveryBuiltin {
 		return nil
 	}
-	if !isStationHostedPackageURL(location) && !isPrivatePackageRef(location) && !isGitHubPackageRef(location) {
+	if !isStationHostedPackageURL(location) && !isManagedPackageRef(location) {
 		return errSourcePaidExternal
 	}
 	return nil
@@ -140,7 +140,7 @@ func rejectPaidExternalLocation(price int64, location string) error {
 	if price <= 0 || strings.TrimSpace(location) == "" {
 		return nil
 	}
-	if isStationHostedPackageURL(location) || isPrivatePackageRef(location) || isGitHubPackageRef(location) {
+	if isStationHostedPackageURL(location) || isManagedPackageRef(location) {
 		return nil
 	}
 	return errSourcePaidExternal
@@ -190,9 +190,9 @@ func newPaidPackageName() (string, error) {
 func prepareCatalogPackage(price int64, location, sha, ignoreKind, ignoreID string) (string, string, error) {
 	location = strings.TrimSpace(location)
 	sha = strings.ToLower(strings.TrimSpace(sha))
-	if isGitHubPackageRef(location) {
+	if isRemoteManagedRef(location) {
 		if price <= 0 {
-			return "", "", errors.New("私有 GitHub 仓库只用于收费条目")
+			return "", "", errors.New("私有仓库只用于收费条目")
 		}
 		if len(sha) != 64 {
 			return "", "", errors.New("私有仓库安装包缺少校验码")
@@ -225,9 +225,9 @@ func validateCatalogPackage(price int64, kind, location, sha string) error {
 	if err := rejectPaidExternalLocation(price, location); err != nil {
 		return err
 	}
-	if isGitHubPackageRef(location) {
+	if isRemoteManagedRef(location) {
 		if price <= 0 {
-			return errors.New("私有 GitHub 仓库只用于收费条目")
+			return errors.New("私有仓库只用于收费条目")
 		}
 		if len(strings.ToLower(strings.TrimSpace(sha))) != 64 {
 			return errors.New("私有仓库安装包缺少校验码")

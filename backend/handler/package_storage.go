@@ -16,6 +16,9 @@ import (
 const (
 	packageStorageLocal    = "local"
 	packageStorageGitHub   = "github"
+	packageStorageGitee    = "gitee"
+	packageStorageS3       = "s3"
+	packageStorageWebDAV   = "webdav"
 	packageStorageExternal = "external"
 )
 
@@ -68,6 +71,9 @@ func classifyPackageRef(raw string) (driver, key string) {
 	if name, ok := privatePackageName(raw); ok {
 		return packageStorageLocal, name
 	}
+	if driver, key := classifyManagedRef(raw); driver != "" {
+		return driver, key
+	}
 	if strings.HasPrefix(strings.ToLower(raw), "https://") {
 		return packageStorageExternal, raw
 	}
@@ -108,14 +114,6 @@ func fillReleaseSize(rel *sourceRelease) {
 
 func gitHubObjectKey(ref gitHubAssetRef) string {
 	return ref.Owner + "/" + ref.Repo + "/" + ref.Tag + "/" + ref.Asset
-}
-
-func paidStoragePutKey(kind, id, version string) string {
-	kind = strings.TrimSpace(kind)
-	if kind == "" {
-		kind = sourceKindPlugin
-	}
-	return kind + "/" + strings.TrimSpace(id) + "/" + strings.TrimSpace(version)
 }
 
 func parsePaidStoragePutKey(key string) (kind, id, version string, err error) {
@@ -239,13 +237,14 @@ func (githubPackageStorage) Put(ctx context.Context, key string, payload []byte)
 	if err != nil {
 		return "", err
 	}
-	ref, err := uploadPaidZipToStationRepo(ctx, kind, id, version, payload)
+	// 与 settlePaidZipBytes 共用主备和分片，避免仓库导入再单独推一次 Release。
+	ref, err := putPaidWithLocations(ctx, kind, id, version, payload)
 	if err != nil {
 		return "", err
 	}
 	parsed, ok := parseGitHubPackageRef(ref)
 	if !ok {
-		return "", errors.New("收费仓库里的标签或文件名不合法")
+		return ref, nil
 	}
 	return gitHubObjectKey(parsed), nil
 }
