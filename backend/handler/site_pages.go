@@ -28,6 +28,7 @@ const (
 	sitePagesDocsRefreshMigration3 = "site_pages_docs_v3"
 	sitePagesDocsRefreshMigration4 = "site_pages_docs_v4"
 	sitePagesDocsRefreshMigration5 = "site_pages_docs_v5"
+	sitePagesDocsRefreshMigration6 = "site_pages_docs_v6"
 	siteNavBuiltin                 = "builtin"
 	siteNavExternal                = "external"
 	siteChangelogRelease           = "release"

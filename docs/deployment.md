@@ -1,6 +1,6 @@
 # 部署手册
 
-当前版本 **1.7.4**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
+当前版本 **1.7.5**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
 
 运行数据目录与进程的工作目录一致。宝塔脚本默认把它放在网站根下的 `backend/`。后端解析数据目录的顺序是：环境变量 `AUTO_PRO_DATA_DIR`，否则在当前工作目录或其子目录 `backend/` 中寻找 `install.lock`、`db.json` 或 `go.mod`，再否则用可执行文件所在目录。
 
@@ -66,7 +66,7 @@ bash baota-install.sh \
 | `--site-root DIR` | 网站根 |
 | `--package FILE` | `auth_pro-full-vX.Y.Z.tar.gz` |
 | `--source DIR` | 已经解压好的发布目录 |
-| `--port PORT` | 后端端口，默认 `19127` |
+| `--port PORT` | 后端端口。不写时从 `19127` 起到 `19227` 选第一个空闲端口；写了但被占用则退出，不结束占用进程 |
 | `--start` / `--no-start` | 装完是否启动。有本站进程守护时由守护启动；不启动时仍会先停本站旧进程 |
 | `--stop-port` | 兼容旧命令。现在默认就会先停本站进程 |
 | `--yes` / `-y` | 不再询问。也可用 `AUTH_PRO_YES=1` |
@@ -118,7 +118,7 @@ backend/updates/backups/baota-upgrade-<时间>-<pid>/
 
 ## Nginx 与 SSL
 
-后端默认只监听 `127.0.0.1:19127`（`baota.env` 的 `HOST` 与 `PORT`）。站点反代到该地址。证书在宝塔面板申请，脚本不申请证书。
+未指定 `--port` 时，安装从 `19127` 起选择第一个空闲端口，最多到 `19227`，并写入 `baota.env` 的 `PORT`。`19127` 正在被监听，或已被其它站点的 `backend/baota.env` 登记（包括进程暂停）时，改用下一个端口，不停止其它站点。站点反代到安装结束时打印的 `http://127.0.0.1:<端口>`。`HOST` 仍是 `127.0.0.1`。证书在宝塔面板申请，脚本不申请证书。下面的示例按选中 `19127` 来写。
 
 把 `backend/baota-nginx.snippet.conf` 里的 `location` 放进站点 `server`。脚本生成的拦截是：
 

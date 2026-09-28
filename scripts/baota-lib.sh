@@ -447,6 +447,223 @@ baota_port_is_open() {
   [[ -n "$(baota_listen_inodes "$port")" ]]
 }
 
+# 同机常常已经跑着官网或别的授权站，默认端口 19127 会被占住。
+# 客户没写 --port 时，不要求回头改命令，也不结束别人的进程。
+# 从 19127 向上找第一个空闲端口，到 19227 为止：既看现在是否在监听，
+# 也看其它站点 backend/baota.env 里登记的端口，暂停的站点同样避开。
+# 客户写了 --port 就只用那个端口；被占用则退出，不换端口，不杀进程。
+BAOTA_PORT_AUTO_FIRST=19127
+BAOTA_PORT_AUTO_LAST=19227
+
+baota_can_detect_listeners() {
+  [[ -r /proc/net/tcp || -r /proc/net/tcp6 ]] && return 0
+  command -v ss >/dev/null 2>&1 && return 0
+  command -v netstat >/dev/null 2>&1 && return 0
+  command -v lsof >/dev/null 2>&1 && return 0
+  return 1
+}
+
+baota_proc_listen_ports() {
+  local file line local_addr state port_hex
+  for file in /proc/net/tcp /proc/net/tcp6; do
+    [[ -r "$file" ]] || continue
+    set -f
+    while read -r line; do
+      set -- $line
+      [[ "${1:-}" == "sl" ]] && continue
+      [[ $# -ge 4 ]] || continue
+      local_addr="$2"
+      state="$4"
+      [[ "$state" == "0A" ]] || continue
+      port_hex="${local_addr##*:}"
+      printf '%d\n' "$((16#$port_hex))"
+    done < "$file"
+    set +f
+  done
+}
+
+baota_addr_port() {
+  local addr="$1" port
+  port="${addr##*:}"
+  [[ "$port" =~ ^[0-9]+$ ]] || return 0
+  printf '%s\n' "$port"
+}
+
+baota_ss_listen_ports() {
+  local line field local_addr
+  command -v ss >/dev/null 2>&1 || return 0
+  set -f
+  while read -r line; do
+    [[ "$line" == *LISTEN* ]] || continue
+    set -- $line
+    local_addr=""
+    for field in "$@"; do
+      case "$field" in
+        *:*) local_addr="$field"; break ;;
+      esac
+    done
+    [[ -n "$local_addr" ]] || continue
+    baota_addr_port "$local_addr"
+  done < <(ss -ltn 2>/dev/null || true)
+  set +f
+}
+
+baota_netstat_listen_ports() {
+  local line field local_addr
+  command -v netstat >/dev/null 2>&1 || return 0
+  set -f
+  while read -r line; do
+    [[ "$line" == *LISTEN* ]] || continue
+    set -- $line
+    local_addr=""
+    for field in "$@"; do
+      case "$field" in
+        *:*) local_addr="$field"; break ;;
+      esac
+    done
+    [[ -n "$local_addr" ]] || continue
+    baota_addr_port "$local_addr"
+  done < <(netstat -ltn 2>/dev/null || true)
+  set +f
+}
+
+baota_lsof_listen_ports() {
+  command -v lsof >/dev/null 2>&1 || return 0
+  lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | sed -n 's/.*:\([0-9][0-9]*\) (LISTEN).*/\1/p' || true
+}
+
+baota_refresh_listen_ports() {
+  BAOTA_LISTEN_PORTS="$(
+    baota_proc_listen_ports
+    baota_ss_listen_ports
+    baota_netstat_listen_ports
+    baota_lsof_listen_ports
+  )"
+}
+
+baota_port_listening() {
+  local port="$1"
+  [[ -n "${BAOTA_LISTEN_PORTS+x}" ]] || baota_refresh_listen_ports
+  # 不用管道交给 grep。grep 一旦命中就会关掉管道，在 pipefail 下会把“已占用”看成空闲。
+  grep -qx "$port" <<< "${BAOTA_LISTEN_PORTS}"
+}
+
+baota_env_port() {
+  local file="$1" port
+  [[ -f "$file" ]] || return 0
+  port="$(sed -n 's/^PORT=//p' "$file" | head -n 1)"
+  port="${port//$'\r'/}"
+  port="${port#\"}"
+  port="${port%\"}"
+  port="${port#\'}"
+  port="${port%\'}"
+  [[ "$port" =~ ^[0-9]+$ ]] || return 0
+  printf '%s\n' "$port"
+}
+
+# 其它站点登记在 backend/baota.env 的端口。进程停着也算占用，避免新站选中后两边同时启动。
+baota_other_site_ports() {
+  local data root envfile env_dir port resolved_env resolved_data
+  data="$(baota_data_dir)"
+  resolved_data=""
+  if [[ -d "$data" ]]; then
+    resolved_data="$(cd "$data" && pwd -P)"
+  fi
+  for root in /www/wwwroot "$(dirname "$BAOTA_SITE_ROOT")"; do
+    [[ -n "$root" && -d "$root" ]] || continue
+    for envfile in "$root"/*/backend/baota.env; do
+      [[ -f "$envfile" ]] || continue
+      env_dir="$(dirname "$envfile")"
+      resolved_env="$(cd "$env_dir" && pwd -P)"
+      if [[ -n "$resolved_data" && "$resolved_env" == "$resolved_data" ]]; then
+        continue
+      fi
+      if [[ -z "$resolved_data" && "${env_dir%/}" == "${data%/}" ]]; then
+        continue
+      fi
+      if [[ ! -f "$env_dir/auth_pro" && ! -f "$env_dir/install.lock" && ! -f "$env_dir/start.sh" ]]; then
+        continue
+      fi
+      port="$(baota_env_port "$envfile")"
+      [[ -n "$port" ]] || continue
+      printf '%s\n' "$port"
+    done
+  done
+}
+
+baota_load_reserved_ports() {
+  [[ -n "${BAOTA_RESERVED_READY:-}" ]] && return 0
+  BAOTA_RESERVED_PORTS="$(baota_other_site_ports)"
+  BAOTA_RESERVED_READY=1
+}
+
+baota_port_reserved() {
+  local port="$1"
+  baota_load_reserved_ports
+  grep -qx "$port" <<< "${BAOTA_RESERVED_PORTS}"
+}
+
+baota_port_unavailable() {
+  local port="$1"
+  baota_port_listening "$port" && return 0
+  baota_port_reserved "$port" && return 0
+  return 1
+}
+
+# 指定端口被其它站点占用时必须退出。本站自己的旧进程留给后面的回收，不在这里结束。
+baota_explicit_port_blocked() {
+  local port="$1" pid
+  if baota_port_reserved "$port"; then
+    return 0
+  fi
+  baota_port_listening "$port" || return 1
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] || continue
+    if baota_our_root "$pid" "$BAOTA_SITE_ROOT" >/dev/null; then
+      return 1
+    fi
+  done < <(baota_pids_for_port "$port")
+  return 0
+}
+
+baota_select_install_port() {
+  local data own="" candidate
+  [[ "$BAOTA_ACTION" == "install" ]] || return 0
+  baota_refresh_listen_ports
+  if [[ "$BAOTA_PORT_SET" == "1" ]]; then
+    candidate="$(baota_effective_port)"
+    if baota_explicit_port_blocked "$candidate"; then
+      baota_die "端口 ${candidate} 已被占用。指定了 --port 时不会改用其它端口，也不会结束占用该端口的进程。"
+    fi
+    return 0
+  fi
+  data="$(baota_data_dir)"
+  if [[ -f "$data/baota.env" ]]; then
+    own="$(baota_env_port "$data/baota.env")"
+  fi
+  # 本站已经写过端口时沿用，避免一次重装把这个站点改到另一个端口。
+  if [[ -n "$own" ]]; then
+    return 0
+  fi
+  if ! baota_can_detect_listeners; then
+    baota_die "无法检查端口是否被占用。需要 /proc/net/tcp、ss、netstat 或 lsof 之一，也可以用 --port 指定端口。"
+  fi
+  for ((candidate = BAOTA_PORT_AUTO_FIRST; candidate <= BAOTA_PORT_AUTO_LAST; candidate++)); do
+    if baota_port_unavailable "$candidate"; then
+      continue
+    fi
+    BAOTA_PORT="$candidate"
+    BAOTA_PORT_SET=1
+    if [[ "$candidate" == "$BAOTA_PORT_AUTO_FIRST" ]]; then
+      baota_info "使用默认端口 ${candidate}"
+    else
+      baota_info "默认端口 ${BAOTA_PORT_AUTO_FIRST} 已被占用或已被其它站点登记，已自动改用 ${candidate}。没有停止或修改其它站点。"
+    fi
+    return 0
+  done
+  baota_die "端口 ${BAOTA_PORT_AUTO_FIRST} 到 ${BAOTA_PORT_AUTO_LAST} 都已被占用或已被其它站点登记。请空出一个端口，或用 --port 指定这个范围以外的端口。没有停止或修改其它站点。"
+}
+
 baota_cmd_is_ours() {
   local pid="$1" site="$2" exe cmd bin
   [[ "$pid" =~ ^[0-9]+$ ]] || return 1
@@ -1045,7 +1262,7 @@ baota_write_guardian_note() {
 运行目录: ${data}
 端口: ${port}
 说明: 在线更新会替换文件后退出，由本守护按 start.sh 拉起。手工替换程序或 --no-start 升级前，仍要先在宝塔进程守护里停止此项，否则进程会被立刻拉起。
-Nginx 反代: 127.0.0.1:${port}
+Nginx 反代: http://127.0.0.1:${port}
 Nginx 拦截片段: ${data}/baota-nginx.snippet.conf
 EOF
   baota_info "已写入 $file"
@@ -1340,6 +1557,13 @@ baota_print_manual_steps() {
   data="$(baota_data_dir)"
   port="$(baota_effective_port)"
   host="${AUTH_PRO_PUBLIC_HOST:-}"
+  cat <<EOF
+
+============================================================
+本站实际使用的后端端口：${port}
+反向代理请填写：http://127.0.0.1:${port}
+============================================================
+EOF
   if [[ -n "$host" ]]; then
     cat <<EOF
 
@@ -1355,7 +1579,7 @@ EOF
 还要在宝塔面板里完成这几步（脚本不会改面板里的网站、数据库、反向代理和证书）：
   1. 创建网站，根目录设为 ${BAOTA_SITE_ROOT}
   2. 创建空 MySQL 库和用户。数据库密码在网页安装向导里填写，不要写进命令
-  3. 站点反向代理到 127.0.0.1:${port}，并把 ${data}/baota-nginx.snippet.conf 中的 location 放进 server，避免直接下载 /backend、db.json、install.lock。502/503/504 使用同文件里的 error_page，返回网站根 backend-unavailable.html
+  3. 站点反向代理到 http://127.0.0.1:${port}，并把 ${data}/baota-nginx.snippet.conf 中的 location 放进 server，避免直接下载 /backend、db.json、install.lock。502/503/504 使用同文件里的 error_page，返回网站根 backend-unavailable.html
   4. 需要 HTTPS 时在面板申请证书
   5. 进程守护：启动命令 ${data}/start.sh ，运行目录 ${data} 。说明见 ${data}/baota-guardian.txt
      在线更新会自己退出并交给守护拉起。手工停进程或 --no-start 升级前，先在守护里停止，否则进程会被立刻拉起
@@ -1369,6 +1593,7 @@ baota_cmd_install() {
   baota_parse_args "$@"
   baota_resolve_site_root
   baota_resolve_start_flag
+  baota_select_install_port
   local data port
   data="$(baota_data_dir)"
   port="$(baota_effective_port)"

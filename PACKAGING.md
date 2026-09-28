@@ -85,16 +85,16 @@ bash baota-upgrade.sh \
 
 - 启动命令：`/www/wwwroot/example.com/backend/start.sh`
 - 运行目录：`/www/wwwroot/example.com/backend`
-- 环境在 `backend/baota.env`（默认 `PORT=19127`、`HOST=127.0.0.1`）
+- 环境在 `backend/baota.env`（未指定端口时从 `19127` 起自动选择并写入 `PORT`，`HOST=127.0.0.1`）
 - 在线更新（1.5.7 及以后）会退出并交给守护拉起。手工替换或 `--no-start` 前先停止守护，否则进程会被立刻拉起
 
-Nginx 反代到 `127.0.0.1:19127`，并把 `backend/baota-nginx.snippet.conf` 里的 `location` 放进站点 `server`，至少拦截 `/backend/`、`db.json`、`install.lock`。同一说明也写在 `backend/baota-guardian.txt`。非交互执行可设 `AUTH_PRO_YES=1`；只看步骤用 `--dry-run`。
+Nginx 反代到安装结束时打印的 `http://127.0.0.1:<端口>`，并把 `backend/baota-nginx.snippet.conf` 里的 `location` 放进站点 `server`，至少拦截 `/backend/`、`db.json`、`install.lock`。同一说明也写在 `backend/baota-guardian.txt`。非交互执行可设 `AUTH_PRO_YES=1`；只看步骤用 `--dry-run`。
 
 **二进制只会从这个盘上目录提供前端。** 解压必须让 `index.html` 落在进程将解析到的根上（宝塔网站根，或 `AUTO_PRO_FRONTEND_DIR` / `data/frontend/current`）。缺文件时进程 **启动失败** 或对页面返回 **503 + 版本号**，不会静默改走 `go:embed static` 里的旧页。开发机引导才可设 `AUTO_PRO_ALLOW_EMBEDDED_FRONTEND=1`。启动日志会打印 `frontend root: mode=disk|embed` 以及 `index.html` 指纹 / 资源名。
 
 ## 版本号单一信源
 
-仓库根目录 `VERSION`（当前 `1.7.4`）是产品线默认版本：
+仓库根目录 `VERSION`（当前 `1.7.5`）是产品线默认版本：
 
 - 后端 `auto_pro/config.AppVersion` 仓库默认与 `VERSION` 一致；`./scripts/build-release.sh` / `.ps1` 无参数时读该文件，并用 `-ldflags` 注入 `AppVersion` / `BuildTime`。
 - 前端 `VITE_VERSION` 与 `vite.config.ts` 的 `version.json` 同样对齐 `VERSION`；发布脚本会把参数版本写入 `VITE_VERSION`。

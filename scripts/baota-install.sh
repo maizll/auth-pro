@@ -19,7 +19,9 @@ baota_print_help() {
   --site-root DIR   网站根，例如 /www/wwwroot/example.com
   --package FILE    发布包 auth_pro-full-vX.Y.Z.tar.gz
   --source DIR      已解压的发布目录
-  --port PORT       后端端口，默认 19127（已有 baota.env 时沿用其中的 PORT）
+  --port PORT       后端端口。不写时从 19127 起自动找空闲端口，最多到 19227。
+                    19127 被占用或已被其它站点登记时改用下一个，不结束其它进程。
+                    写了 --port 但该端口已被占用时直接退出。已有 baota.env 且没写 --port 时沿用其中的 PORT
   --start           安装后在端口空闲时启动。已配置本站进程守护时由守护启动
   --no-start        只放好文件。覆盖安装仍会先停本站旧进程
   --stop-port       兼容旧参数。现在安装和升级都会先停本站进程，不必再加

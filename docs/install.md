@@ -6,11 +6,13 @@
 curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com
 ```
 
-网站目录默认是 `/www/wwwroot/example.com`。目录不存在时会自动创建。要指定端口或目录：
+网站目录默认是 `/www/wwwroot/example.com`。目录不存在时会自动创建。不写端口时，后端从 `19127` 起使用第一个空闲端口，最多到 `19227`。同机其它站点正在监听，或在它的 `backend/baota.env` 里登记了这个端口（进程暂停也算），就会改用下一个。装完会打印实际端口。要固定端口或目录时：
 
 ```bash
 curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com --port 19127 --site-root /www/wwwroot/example.com
 ```
+
+这样写了 `--port` 之后，若该端口已被占用，命令会退出，不会改用别的端口，也不会结束占用它的进程。
 
 已经有 `backend/install.lock` 时，命令会停下来并提示改用升级，不会覆盖现有站点。
 
@@ -18,7 +20,7 @@ curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com --port 19
 
 1. 创建网站，根目录与上面的网站目录相同
 2. 创建一个空的 MySQL 数据库。数据库密码在浏览器安装向导里填写，不要写进命令
-3. 站点反向代理到 `127.0.0.1:19127`（改过端口就用那个端口），并把 `backend/baota-nginx.snippet.conf` 里的 location 放进站点配置
+3. 站点反向代理到安装结束时打印的地址，形如 `http://127.0.0.1:19128`，并把 `backend/baota-nginx.snippet.conf` 里的 location 放进站点配置
 4. 需要 HTTPS 时在面板申请证书
 5. 进程守护的启动命令是网站根下的 `backend/start.sh`，运行目录是 `backend/`。说明在 `backend/baota-guardian.txt`
 

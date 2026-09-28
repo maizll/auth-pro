@@ -92,8 +92,8 @@ func refreshSiteDocsOnce(db *sql.DB) error {
 		`ALTER TABLE site_doc_articles ADD COLUMN edited TINYINT NOT NULL DEFAULT 0`); err != nil {
 		return err
 	}
-	// v2 刷新安装命令，v3 去掉旧升级说明，v4 去掉公开文档里的仓库地址，v5 改成一条命令安装。都跳过用户改过的文章。
-	for _, name := range []string{sitePagesDocsRefreshMigration, sitePagesDocsRefreshMigration3, sitePagesDocsRefreshMigration4, sitePagesDocsRefreshMigration5} {
+	// v2 刷新安装命令，v3 去掉旧升级说明，v4 去掉公开文档里的仓库地址，v5 改成一条命令安装，v6 说明未指定端口时自动避开已占用端口。都跳过用户改过的文章。
+	for _, name := range []string{sitePagesDocsRefreshMigration, sitePagesDocsRefreshMigration3, sitePagesDocsRefreshMigration4, sitePagesDocsRefreshMigration5, sitePagesDocsRefreshMigration6} {
 		if err := runSiteDocsRefresh(db, name); err != nil {
 			return err
 		}

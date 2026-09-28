@@ -21,13 +21,15 @@ install_print_help() {
 
 从官网下载已发布的安装包，核对 SHA256 和签名后安装。
 网站目录默认是 /www/wwwroot/域名，不存在时会自动创建。
+不写 --port 时，从 19127 起自动找空闲端口，最多到 19227。同机已有站点占用 19127 时会改用下一个，不结束其它站点的进程。
+写了 --port 但该端口已被占用时，命令会退出。
 已经有 backend/install.lock 时会停下来，请改用升级，不会覆盖。
 
 数据库密码不要写在命令里。装完后用浏览器打开站点，在安装向导里填写。
 
 选项：
   --site-root DIR   网站根。不写则使用 /www/wwwroot/域名
-  --port PORT       后端端口，默认 19127
+  --port PORT       后端端口。不写则从 19127 起自动找空闲端口，最多到 19227
   --start           安装后尝试启动。准备用进程守护时可省略
   --no-start        只放好文件（默认）
   -h, --help        显示本说明
@@ -229,6 +231,7 @@ if [[ -n "$DOMAIN" ]]; then
 fi
 
 install_info "开始安装到 ${SITE_ROOT}"
+# 没写 --port 就不传。空闲端口由 baota-install.sh 在 19127–19227 里选择。
 ARGS=(--yes --site-root "$SITE_ROOT" --package "$PKG_FILE" "$START_FLAG")
 if [[ -n "$PORT" ]]; then
   ARGS+=(--port "$PORT")

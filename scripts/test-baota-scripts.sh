@@ -152,10 +152,11 @@ ok "全新安装：权限、环境文件、Nginx 片段、守护说明"
 
 NEW_SITE="$WORKDIR/auto-site"
 [[ ! -e "$NEW_SITE" ]] || fail "自动创建用的目录不应预先存在"
+AUTO_PORT="$(free_port)"
 "$INSTALL" --yes --no-start \
   --site-root "$NEW_SITE" \
   --package "$WORKDIR/v1.tar.gz" \
-  --port "$PORT" >"$WORKDIR/autocreate.out"
+  --port "$AUTO_PORT" >"$WORKDIR/autocreate.out"
 [[ -d "$NEW_SITE/backend" ]] || fail "没有创建网站目录"
 [[ -x "$NEW_SITE/backend/start.sh" ]] || fail "自动创建后没有 start.sh"
 grep -q '已创建网站目录' "$WORKDIR/autocreate.out" || fail "没有说明已创建目录"
@@ -163,10 +164,11 @@ grep -q '请用浏览器打开站点域名' "$WORKDIR/autocreate.out" || fail "�
 ok "网站目录不存在时自动创建"
 
 DRY_NEW="$WORKDIR/dry-auto-site"
+DRY_PORT="$(free_port)"
 "$INSTALL" --yes --dry-run --no-start \
   --site-root "$DRY_NEW" \
   --package "$WORKDIR/v1.tar.gz" \
-  --port "$PORT" >"$WORKDIR/dry-auto.out"
+  --port "$DRY_PORT" >"$WORKDIR/dry-auto.out"
 [[ ! -e "$DRY_NEW" ]] || fail "预演创建了网站目录"
 grep -q '将创建网站目录' "$WORKDIR/dry-auto.out" || fail "预演没有说明将创建目录"
 ok "预演不创建网站目录"
@@ -603,9 +605,135 @@ cmp -s "$NGINX_ROOT/site.conf" "$WORKDIR/nginx-before-ok.conf" || fail "nginx -t
 grep -q -- '-s reload' "$NGINX_LOG" && fail "nginx -t 失败后仍然 reload"
 ok "nginx -t 失败时还原配置并且不 reload"
 
+wait_tcp() {
+  local port="$1" _
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if python3 - "$port" <<'PY'
+import socket, sys
+s = socket.socket()
+s.settimeout(0.2)
+try:
+    s.connect(("127.0.0.1", int(sys.argv[1])))
+except OSError:
+    raise SystemExit(1)
+PY
+    then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
+# 19127 被别的进程占用，且 19128 只写在暂停站点的 baota.env 里。不传 --port 应落到 19129。
+PORT_LAB="$WORKDIR/port-lab"
+PAUSED_SITE="$PORT_LAB/paused.example"
+mkdir -p "$PAUSED_SITE/backend"
+printf 'paused-binary\n' > "$PAUSED_SITE/backend/auth_pro"
+printf 'paused\n' > "$PAUSED_SITE/backend/install.lock"
+printf 'PORT=19128\nHOST=127.0.0.1\n' > "$PAUSED_SITE/backend/baota.env"
+cp "$PAUSED_SITE/backend/baota.env" "$WORKDIR/paused.env.before"
+OWN_19127=0
+HOLD19127=""
+if python3 - <<'PY'
+import socket
+s = socket.socket()
+try:
+    s.bind(("127.0.0.1", 19127))
+except OSError:
+    raise SystemExit(1)
+finally:
+    s.close()
+PY
+then
+  python3 - 19127 <<'PY' &
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"held")
+    def log_message(self, *args):
+        return
+ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+PY
+  HOLD19127=$!
+  PIDS+=("$HOLD19127")
+  OWN_19127=1
+fi
+wait_tcp 19127 || fail "19127 没有处于占用状态，自动选端口测试无法开始"
+SIMPLE_SITE="$WORKDIR/port-simple/cs.maizll.com"
+"$INSTALL" --yes --no-start \
+  --site-root "$SIMPLE_SITE" \
+  --package "$WORKDIR/v1.tar.gz" >"$WORKDIR/auto-19128.out"
+grep -q '已自动改用 19128' "$WORKDIR/auto-19128.out" || fail "19127 被占用时没有改用 19128"
+grep -q '本站实际使用的后端端口：19128' "$WORKDIR/auto-19128.out" || fail "没有醒目打印 19128"
+grep -q '反向代理请填写：http://127.0.0.1:19128' "$WORKDIR/auto-19128.out" || fail "反向代理地址不是 19128"
+grep -q '^PORT=19128$' "$SIMPLE_SITE/backend/baota.env" || fail "没有把 19128 写入 baota.env"
+wait_tcp 19127 || fail "改用 19128 时 19127 不再处于占用状态"
+ok "19127 被占用且未指定端口时自动改用 19128"
+
+AUTO_SITE="$PORT_LAB/auto.example"
+"$INSTALL" --yes --no-start \
+  --site-root "$AUTO_SITE" \
+  --package "$WORKDIR/v1.tar.gz" >"$WORKDIR/auto-port.out"
+grep -q '已自动改用 19129' "$WORKDIR/auto-port.out" || fail "没有说明改用 19129"
+grep -q '本站实际使用的后端端口：19129' "$WORKDIR/auto-port.out" || fail "结束时没有醒目打印实际端口"
+grep -q '反向代理请填写：http://127.0.0.1:19129' "$WORKDIR/auto-port.out" || fail "没有打印反向代理地址"
+grep -q '站点反向代理到 http://127.0.0.1:19129' "$WORKDIR/auto-port.out" || fail "手工步骤里的反向代理不是实际端口"
+grep -q '^PORT=19129$' "$AUTO_SITE/backend/baota.env" || fail "baota.env 没有写入自动选择的端口"
+grep -q 'http://127.0.0.1:19129' "$AUTO_SITE/backend/baota-nginx.snippet.conf" || fail "Nginx 片段不是实际端口"
+grep -q 'http://127.0.0.1:19129' "$AUTO_SITE/backend/baota-guardian.txt" || fail "进程守护说明不是实际端口"
+wait_tcp 19127 || fail "自动改用 19129 时 19127 不再处于占用状态"
+cmp -s "$PAUSED_SITE/backend/baota.env" "$WORKDIR/paused.env.before" || fail "自动选端口时修改了暂停站点的配置"
+grep -q 'paused-binary' "$PAUSED_SITE/backend/auth_pro" || fail "自动选端口时修改了暂停站点的程序"
+ok "19127 被占用且 19128 已登记时自动改用 19129"
+
+EXPLICIT_SITE="$PORT_LAB/explicit.example"
+if "$INSTALL" --yes --no-start \
+  --site-root "$EXPLICIT_SITE" \
+  --package "$WORKDIR/v1.tar.gz" \
+  --port 19127 >"$WORKDIR/explicit-port.out" 2>"$WORKDIR/explicit-port.err"; then
+  fail "指定已被占用的端口时不应继续安装"
+fi
+grep -q '指定了 --port' "$WORKDIR/explicit-port.err" || fail "指定端口被占用时没有说明不会改端口"
+grep -q '不会结束' "$WORKDIR/explicit-port.err" || fail "指定端口被占用时没有说明不结束进程"
+[[ ! -e "$EXPLICIT_SITE/backend/auth_pro" ]] || fail "指定端口被占用后仍写入了程序"
+wait_tcp 19127 || fail "指定端口被占用时 19127 不再处于占用状态"
+cmp -s "$PAUSED_SITE/backend/baota.env" "$WORKDIR/paused.env.before" || fail "指定端口失败时修改了其它站点"
+ok "指定已被占用的端口时退出且不杀进程"
+
+FULL_LAB="$WORKDIR/port-full"
+mkdir -p "$FULL_LAB"
+full_port=19128
+while [[ "$full_port" -le 19227 ]]; do
+  mkdir -p "$FULL_LAB/s${full_port}/backend"
+  printf 'x\n' > "$FULL_LAB/s${full_port}/backend/install.lock"
+  printf 'PORT=%s\n' "$full_port" > "$FULL_LAB/s${full_port}/backend/baota.env"
+  full_port=$((full_port + 1))
+done
+FULL_SITE="$FULL_LAB/new.example"
+if "$INSTALL" --yes --no-start \
+  --site-root "$FULL_SITE" \
+  --package "$WORKDIR/v1.tar.gz" >"$WORKDIR/full-port.out" 2>"$WORKDIR/full-port.err"; then
+  fail "19127 到 19227 都占用时不应安装成功"
+fi
+grep -q '19227' "$WORKDIR/full-port.err" || fail "端口范围用尽时没有说明上限"
+[[ ! -e "$FULL_SITE/backend/auth_pro" ]] || fail "端口范围用尽后仍写入了程序"
+wait_tcp 19127 || fail "端口范围用尽时 19127 不再处于占用状态"
+ok "19127 到 19227 都不可用时报错"
+
+if [[ "$OWN_19127" == "1" && -n "$HOLD19127" ]]; then
+  kill "$HOLD19127" 2>/dev/null || true
+  wait "$HOLD19127" 2>/dev/null || true
+fi
+
 REMOTE="$ROOT/scripts/install.sh"
 bash -n "$REMOTE"
 "$REMOTE" --help | grep -q 'auth.maizll.com/install.sh' || fail "安装入口 --help 没有官网地址"
+"$REMOTE" --help | grep -q '19227' || fail "安装入口 --help 没有说明自动端口上限"
+"$INSTALL" --help | grep -q '19227' || fail "baota-install.sh --help 没有说明自动端口上限"
 if grep -E -q 'github\.com|githubusercontent' "$REMOTE"; then
   fail "一条命令安装脚本露出了仓库地址"
 fi
@@ -692,7 +820,8 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   fi
   sleep 0.1
 done
-bash "$GOOD_COPY" demo.example --site-root "$REMOTE_SITE" --port "$PORT" >"$WORKDIR/remote-install.out"
+REMOTE_BACKEND_PORT="$(free_port)"
+bash "$GOOD_COPY" demo.example --site-root "$REMOTE_SITE" --port "$REMOTE_BACKEND_PORT" >"$WORKDIR/remote-install.out"
 [[ -x "$REMOTE_SITE/backend/start.sh" ]] || fail "一条命令安装没有生成 start.sh"
 grep -q 'http://demo.example' "$WORKDIR/remote-install.out" || fail "没有打印要打开的网址"
 grep -q '还要在宝塔面板里完成' "$WORKDIR/remote-install.out" || fail "没有打印剩余手工步骤"
@@ -701,7 +830,7 @@ ok "一条命令安装：下载、核对、创建目录"
 
 SUM_BEFORE="$(sha256sum "$REMOTE_SITE/index.html" | awk '{print $1}')"
 printf 'installed\n' > "$REMOTE_SITE/backend/install.lock"
-if bash "$GOOD_COPY" demo.example --site-root "$REMOTE_SITE" --port "$PORT" >"$WORKDIR/remote-locked.out" 2>"$WORKDIR/remote-locked.err"; then
+if bash "$GOOD_COPY" demo.example --site-root "$REMOTE_SITE" --port "$REMOTE_BACKEND_PORT" >"$WORKDIR/remote-locked.out" 2>"$WORKDIR/remote-locked.err"; then
   fail "已安装站点仍继续一条命令安装"
 fi
 grep -q '在线更新' "$WORKDIR/remote-locked.err" || fail "已安装时没有提示改用升级"
@@ -721,7 +850,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   sleep 0.1
 done
 BAD_SITE="$WORKDIR/bad-hash-site"
-if bash "$BAD_COPY" bad.example --site-root "$BAD_SITE" --port "$PORT" >"$WORKDIR/bad-hash.out" 2>"$WORKDIR/bad-hash.err"; then
+if bash "$BAD_COPY" bad.example --site-root "$BAD_SITE" --port "$REMOTE_BACKEND_PORT" >"$WORKDIR/bad-hash.out" 2>"$WORKDIR/bad-hash.err"; then
   fail "SHA256 不一致时不应安装"
 fi
 grep -q 'SHA256 不一致' "$WORKDIR/bad-hash.err" || fail "SHA256 不一致时没有拒绝"
