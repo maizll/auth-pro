@@ -3,7 +3,7 @@ import { resolveBizStatus } from './status'
 
 const reviewPending = resolveBizStatus({ domain: 'review', status: 'pending' })
 assert.equal(reviewPending.label, '待审核')
-assert.equal(reviewPending.type, 'warning')
+assert.equal(reviewPending.type, 'info')
 assert.equal(reviewPending.known, true)
 
 const adApproved = resolveBizStatus({ domain: 'ad', status: 'approved' })
@@ -16,7 +16,7 @@ assert.equal(licenseDisabled.type, 'danger')
 
 const licenseExpiring = resolveBizStatus({ domain: 'license', status: 'expiring' })
 assert.equal(licenseExpiring.label, '即将到期')
-assert.equal(licenseExpiring.type, 'warning')
+assert.equal(licenseExpiring.type, 'info')
 
 const campaignActive = resolveBizStatus({ domain: 'campaign', status: 'active' })
 assert.equal(campaignActive.label, '进行中')
@@ -24,7 +24,7 @@ assert.equal(campaignActive.type, 'success')
 
 const campaignDisabled = resolveBizStatus({ domain: 'campaign', status: 'disabled' })
 assert.equal(campaignDisabled.label, '已禁用')
-assert.equal(campaignDisabled.type, 'warning')
+assert.equal(campaignDisabled.type, 'info')
 
 const withServerLabel = resolveBizStatus({
   domain: 'license',

@@ -22,7 +22,7 @@ const (
 
 var builtinAuthor = templateAuthor{
 	Name: "auth_pro 官方",
-	URL:  "https://github.com/maizll/auth-pro",
+	URL:  "https://auth.maizll.com",
 }
 
 func builtinDefaultPreviewURL() string {
@@ -53,12 +53,16 @@ func PublicSoftwareSourcePlugins(c *gin.Context) {
 		if template.PreviewURL != "" {
 			previewURL = "/api/software-source/templates/" + template.ID + "/preview"
 		}
+		templateURL := template.ContentURL
+		if catalogRepoHostBlocked(templateURL) {
+			templateURL = ""
+		}
 		templates = append(templates, gin.H{
 			"id": template.TemplateKey, "catalogId": template.ID, "name": template.Name,
 			"description": template.Description, "version": template.Version, "previewUrl": previewURL,
 			"author":        templateAuthor{Name: template.Author.Name, URL: template.Author.URL, Email: template.Author.Email},
 			"schemaVersion": template.SchemaVersion, "sha256": template.SHA256,
-			"templateUrl": template.ContentURL, "templatePath": "",
+			"templateUrl": templateURL, "templatePath": "",
 		})
 	}
 	writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{

@@ -95,7 +95,7 @@ export const DEVELOPER_APPLY_STATUS: Record<
 > = {
   pending: {
     label: '审核中',
-    type: 'warning',
+    type: 'info',
     description: '入驻申请已提交，请等待管理员在源站「入驻审核」中处理。'
   },
   approved: {

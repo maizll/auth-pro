@@ -43,17 +43,6 @@ export interface StorePayOption {
   payType?: string
 }
 
-export interface StoreCatalogItem {
-  kind: string
-  id: string
-  name: string
-  version: string
-  priceCents: number
-  billing?: string
-  purchaseOnly?: boolean
-  ownership: 'free' | 'included' | 'purchased' | 'none' | string
-}
-
 export function fetchStoreAccount(verify = false) {
   return request.get<StoreAccount>({
     url: '/api/store/account',
@@ -65,13 +54,6 @@ export function fetchStoreAccount(verify = false) {
 export function fetchStorePlans() {
   return request.get<{ list: StorePlan[]; payOptions?: StorePayOption[] }>({
     url: '/api/store/plans',
-    showErrorMessage: false
-  })
-}
-
-export function fetchStoreCatalog() {
-  return request.get<{ list: StoreCatalogItem[]; edition: string }>({
-    url: '/api/store/catalog',
     showErrorMessage: false
   })
 }
@@ -146,6 +128,8 @@ export function logoutStoreAccount() {
   })
 }
 
-export function refreshStoreSnapshot() {
-  return request.post<StoreAccount>({ url: '/api/store/refresh' })
+export function refreshStoreSnapshot(force = false) {
+  return request.post<StoreAccount>({
+    url: force ? '/api/store/refresh?force=1' : '/api/store/refresh'
+  })
 }

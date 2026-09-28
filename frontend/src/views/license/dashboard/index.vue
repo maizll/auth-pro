@@ -53,7 +53,7 @@
                 <span class="expire-domain">{{ item.domain }}</span>
                 <span class="expire-app">{{ item.appName }}</span>
               </div>
-              <el-tag type="warning" size="small">{{ item.daysLeft }}天后到期</el-tag>
+              <el-tag type="info" size="small">{{ item.daysLeft }}天后到期</el-tag>
             </div>
             <el-empty v-if="expiringSoon.length === 0" description="暂无即将到期的授权" />
           </div>
@@ -115,7 +115,7 @@
   > = {
     domain: undefined,
     wildcard: 'success',
-    ip: 'warning',
+    ip: 'info',
     key: 'info'
   } as const
 

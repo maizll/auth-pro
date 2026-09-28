@@ -69,7 +69,7 @@
             >
             <div class="info-item"
               ><span class="info-label">等级</span
-              ><el-tag type="warning" size="small">{{ agentInfo.levelName }}</el-tag></div
+              ><el-tag type="primary" size="small">{{ agentInfo.levelName }}</el-tag></div
             >
             <div class="info-item"
               ><span class="info-label">折扣</span><span>{{ agentInfo.discount }}</span></div
@@ -89,25 +89,19 @@
             <div class="title"><h4>最近开码</h4></div>
           </div>
           <el-table :data="recentLicenses" stripe size="small">
-            <el-table-column
-              prop="domain"
-              label="域名/IP/密钥"
-              :min-width="narrow ? 100 : 180"
-              :width="narrow ? 110 : undefined"
-              show-overflow-tooltip
-            />
-            <el-table-column v-if="!narrow" prop="appName" label="应用" width="100" />
-            <el-table-column v-if="!narrow" prop="typeLabel" label="类型" width="80">
+            <el-table-column prop="domain" label="域名/IP/密钥" min-width="180" />
+            <el-table-column prop="appName" label="应用" width="100" />
+            <el-table-column prop="typeLabel" label="类型" width="80">
               <template #default="{ row }">
                 <el-tag size="small">{{ row.typeLabel }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column :label="narrow ? '到期' : '到期时间'" :width="narrow ? 96 : 140">
+            <el-table-column :label="narrow ? '到期' : '到期时间'" :width="narrow ? 168 : 140">
               <template #default="{ row }">{{
                 formatLicenseExpire(row.expireAt, narrow)
               }}</template>
             </el-table-column>
-            <el-table-column v-if="!narrow" prop="createdAt" label="开通时间" width="130" />
+            <el-table-column prop="createdAt" label="开通时间" width="130" />
           </el-table>
         </div>
       </ElCol>

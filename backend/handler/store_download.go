@@ -1,13 +1,14 @@
-// 付费包下载。先确认授权还能下，再发短期票据或 GitHub 临时链接。私有包不提供永久直链。
+// 付费包下载。先确认授权还能下，再发官网自己的短期票据。
+// 仓库里的包由官网取回并核对 sha256，不把临时链接交给客户端。
 
 package handler
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,8 +17,7 @@ import (
 
 // StoreDownloadTicket 给已签名的买家换一张短期下载凭证。
 // kind 和 id 标识插件或模板。授权不能下时返回 403。
-// GitHub 上的包直接返回几分钟有效的临时链接，避免安装包经过源站中转。
-// 本站私有目录里的包只发一次性票据，票据过期或路径越界时不能下载。
+// 无论安装包在本站还是在仓库里，返回的地址都是官网票据，过期后不能下载。
 func StoreDownloadTicket(c *gin.Context) {
 	if !storeTicketRate.allow(c.ClientIP(), 60, time.Minute, time.Now()) {
 		storeFail(c, 429, "换票过于频繁")
@@ -43,55 +43,42 @@ func StoreDownloadTicket(c *gin.Context) {
 	}
 	location, version, sha, _ := lookupPaidPackageLocation(db, req.Kind, req.ID)
 	driverName, objectKey := classifyPackageRef(location)
+	storageKey := ""
 	switch driverName {
 	case packageStorageGitHub:
-		// 私有仓库不能把 Release 地址公开。临时链接由令牌换出，过期后买家要重新换票。
-		driver, ok := packageStorageByName(packageStorageGitHub)
-		if !ok {
-			storeFail(c, 400, "付费包不存在")
-			return
-		}
-		tempURL, urlErr := driver.SignedURL(c.Request.Context(), objectKey, 5*time.Minute)
-		if urlErr != nil {
-			storeFail(c, 400, urlErr.Error())
-			return
-		}
-		storeData(c, gin.H{
-			"url":       tempURL,
-			"sha256":    sha,
-			"expiresIn": 300,
-		})
-		return
+		// 票据里记下仓库引用，客户端只能看到官网地址。
+		storageKey = strings.TrimSpace(location)
 	case packageStorageLocal:
-		name := objectKey
-		if _, ok := privatePackageName(sourcePaidPackagePrefix + name); !ok {
+		if _, ok := privatePackageName(sourcePaidPackagePrefix + objectKey); !ok {
 			storeFail(c, 404, "付费包不存在")
 			return
 		}
-		if req.Version == "" {
-			req.Version = version
-		}
-		token, err := createStoreDownloadToken(storeDownloadClaims{
-			LicenseID: row.LicenseID, ItemKind: req.Kind, ItemID: req.ID, Version: req.Version, StorageKey: name, Source: "commercial",
-		})
-		if err != nil {
-			storeFail(c, 500, "签发下载票失败")
-			return
-		}
-		storeData(c, gin.H{
-			"token":     token,
-			"expiresIn": int(storeDownloadTTL.Seconds()),
-			"url":       buildRequestURL(c, "/api/v1/store/packages/"+token),
-		})
-		return
+		storageKey = objectKey
 	default:
 		storeFail(c, 404, "付费包不存在")
 		return
 	}
+	if req.Version == "" {
+		req.Version = version
+	}
+	token, err := createStoreDownloadToken(storeDownloadClaims{
+		LicenseID: row.LicenseID, ItemKind: req.Kind, ItemID: req.ID, Version: req.Version, StorageKey: storageKey, Source: "commercial",
+	})
+	if err != nil {
+		storeFail(c, 500, "签发下载票失败")
+		return
+	}
+	storeData(c, gin.H{
+		"token":     token,
+		"sha256":    sha,
+		"expiresIn": int(storeDownloadTTL.Seconds()),
+		"url":       buildRequestURL(c, "/api/v1/store/packages/"+token),
+	})
 }
 
-// StorePackageDownload 用票据把本站私有目录里的 ZIP 发给买家。
-// 票据过期、路径含 ..、授权已不能下载时拒绝。文件不存在返回 404。
+// StorePackageDownload 用票据把安装包发给买家。
+// 票据过期、路径含 ..、授权已不能下载时拒绝。
+// 仓库里的包在这里取回并核对 sha256，响应里不带仓库地址。
 func StorePackageDownload(c *gin.Context) {
 	claims, err := parseStoreDownloadToken(strings.TrimSpace(c.Param("token")))
 	if err != nil {
@@ -110,19 +97,67 @@ func StorePackageDownload(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": errStoreDownloadDenied.Error()})
 		return
 	}
-	name := filepath.Base(claims.StorageKey)
-	if name == "." || name == "/" || strings.Contains(claims.StorageKey, "..") {
+	location, _, sha, _ := lookupPaidPackageLocation(db, claims.ItemKind, claims.ItemID)
+	if !ticketStorageMatches(claims.StorageKey, location) || strings.Contains(claims.StorageKey, "..") {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "下载路径不合法"})
 		return
 	}
-	path := filepath.Join(stationPaidPackageDir(), name)
-	payload, err := os.ReadFile(path)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": "付费包不存在"})
+	payload, readErr := readStoredPackageBytes(c.Request.Context(), ticketPackageLocation(claims.StorageKey, location))
+	if readErr != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 404, "msg": catalogPackageMissingText})
 		return
 	}
-	c.Header("Content-Disposition", "attachment; filename=\""+name+"\"")
+	sum := sha256SumHex(payload)
+	if sha == "" || !strings.EqualFold(sum, sha) {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": catalogPackageSHAText})
+		return
+	}
+	filename := safeDownloadName(claims.ItemID)
+	c.Header("Cache-Control", "no-store")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
 	c.Data(http.StatusOK, "application/zip", payload)
+}
+
+func ticketStorageMatches(storageKey, location string) bool {
+	storageKey = strings.TrimSpace(storageKey)
+	location = strings.TrimSpace(location)
+	if storageKey == "" || location == "" {
+		return false
+	}
+	if storageKey == location {
+		return true
+	}
+	if name, ok := privatePackageName(location); ok && name == storageKey {
+		return true
+	}
+	return false
+}
+
+func ticketPackageLocation(storageKey, location string) string {
+	if isGitHubPackageRef(storageKey) {
+		return storageKey
+	}
+	if isPrivatePackageRef(location) {
+		return location
+	}
+	if name, ok := privatePackageName(sourcePaidPackagePrefix + strings.TrimSpace(storageKey)); ok {
+		return sourcePaidPackagePrefix + name
+	}
+	return location
+}
+
+func sha256SumHex(payload []byte) string {
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
+}
+
+func safeDownloadName(id string) string {
+	id = strings.TrimSpace(id)
+	if !catalogPackageIDPattern.MatchString(id) {
+		return "package.zip"
+	}
+	return id + ".zip"
 }
 
 // licenseDownloadAllowed 判断这条授权现在能不能下这个付费包。
@@ -153,8 +188,10 @@ func licenseCanDownloadPaid(db *sql.DB, licenseID int64, kind, itemID string) bo
 		return false
 	}
 	_, _, _, active := loadCommercialEdition(db, licenseID)
-	if catalogItemPurchaseOnly(kind, itemID) {
+	if commercialExcludesItem(kind, itemID, 1, developerID, false) {
 		active = false
+	} else {
+		developerID = 0
 	}
 	var count int
 	err := db.QueryRow(`SELECT COUNT(*) FROM plugin_entitlements

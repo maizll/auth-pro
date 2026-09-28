@@ -229,7 +229,8 @@ func sdkPackRequireSnippet(lang string) (fence, snippet, dropIn string) {
 	case "python":
 		return "python", "import sys\nsys.path.insert(0, \"" + dropIn + "\")\nimport authpro\nauthpro.boot(\"" + dropIn + "/config.json\")", dropIn
 	case "go":
-		return "go", "import authpro \"github.com/maizll/auth-pro/sdk/go/authpro\"\n// go mod edit -replace github.com/maizll/auth-pro/sdk/go=./" + dropIn + "\n_ = authpro.Boot(\"" + dropIn + "/config.json\")", dropIn
+		// 模块路径用源站域名，不写代码托管站仓库名，避免接入包和后台二进制里出现仓库地址。
+		return "go", "import authpro \"auth.maizll.com/sdk/go/authpro\"\n// go mod edit -replace auth.maizll.com/sdk/go=./" + dropIn + "\n_ = authpro.Boot(\"" + dropIn + "/config.json\")", dropIn
 	case "browser":
 		return "html", "<script src=\"./" + dropIn + "/auth-pro.js\"></script>\n<script>AuthPro.boot(config)</script>", dropIn
 	default:

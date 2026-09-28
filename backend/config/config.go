@@ -33,25 +33,22 @@ var (
 // AppVersion 是当前系统整体版本号。前后端共用该版本。
 // 发布构建通过 -ldflags 从 git tag / VERSION 注入；仓库默认必须与根目录 VERSION 一致，
 // 避免忘记 -ldflags 时静默显示 1.0.0。
-var AppVersion = "1.7.0"
+var AppVersion = "1.7.1"
 
 // BuildTime 是二进制构建时间，发布时通过 -ldflags 注入。
 var BuildTime = ""
 
-// DefaultUpdateManifestURL 是默认的在线更新清单地址，可用 AUTO_PRO_UPDATE_URL 覆盖。
-// 发布面冻结在 GitHub maizll/auth-pro Releases（latest.json / 标签附件）。
-const DefaultUpdateManifestURL = "https://api.github.com/repos/maizll/auth-pro/releases/latest"
+// DefaultUpdateManifestURL 是客户站在线更新清单。
+// 写死在源站，避免后台、数据库或环境变量把仓库地址带出去。
+const DefaultUpdateManifestURL = "https://auth.maizll.com/api/v1/update/latest.json"
 
 // GetDataDir 获取运行数据目录。
 func GetDataDir() string {
 	return getDataDir()
 }
 
-// GetUpdateManifestURL 获取在线更新清单地址。
+// GetUpdateManifestURL 返回在线更新清单地址。正式程序不能用环境变量改掉。
 func GetUpdateManifestURL() string {
-	if value := os.Getenv("AUTO_PRO_UPDATE_URL"); value != "" {
-		return value
-	}
 	return DefaultUpdateManifestURL
 }
 

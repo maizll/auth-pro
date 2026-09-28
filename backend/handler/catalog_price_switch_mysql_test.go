@@ -193,11 +193,8 @@ func TestCatalogPriceSwitchMariaDB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.PriceCents != 0 || !isStationHostedPackageURL(restored.DownloadURL) {
-		t.Fatalf("restored=%#v old=%s", restored, publicURL)
-	}
-	if _, statErr := os.Stat(stationPackagePath(restored.DownloadURL)); statErr != nil {
-		t.Fatalf("new public file missing: %v", statErr)
+	if restored.PriceCents != 0 || restored.DownloadURL != item.DownloadURL || !hostedCatalogPackage(restored.DownloadURL) {
+		t.Fatalf("restored=%#v kept=%s", restored, item.DownloadURL)
 	}
 	var audits int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM source_audit_logs WHERE target_id='keep-free' AND action IN ('price_to_paid','price_to_free')`).Scan(&audits); err != nil {

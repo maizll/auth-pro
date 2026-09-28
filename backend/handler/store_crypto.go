@@ -101,10 +101,11 @@ func loadStoreSnapshotPrivateKey() (ed25519.PrivateKey, error) {
 		return nil, errors.New("商店签名公钥未配置，拒绝签发快照。发行包应使用内置源站公钥；若构建时被覆盖成占位符，请改回默认值或用 ldflags 打入公钥后再发布")
 	}
 	if priv != nil {
-		if !bytes.Equal(priv.Public().(ed25519.PublicKey), pub) {
+		key, ok := storeSnapshotKeyFromSeed(priv, pub)
+		if !ok {
 			return nil, errors.New("商店签名私钥与发行包公钥不匹配")
 		}
-		return priv, nil
+		return key, nil
 	}
 
 	path := storeSnapshotPrivateKeyPath()
@@ -116,12 +117,28 @@ func loadStoreSnapshotPrivateKey() (ed25519.PrivateKey, error) {
 	if err != nil || len(raw) != ed25519.PrivateKeySize {
 		return nil, errors.New("商店签名私钥格式不正确")
 	}
-	key := ed25519.PrivateKey(raw)
 	// 私钥和发行包公钥必须是一对。对不上就拒绝签发，避免用错钥匙把别的站的快照签成有效。
-	if !bytes.Equal(key.Public().(ed25519.PublicKey), pub) {
+	key, ok := storeSnapshotKeyFromSeed(ed25519.PrivateKey(raw), pub)
+	if !ok {
 		return nil, errors.New("商店签名私钥与发行包公钥不匹配")
 	}
 	return key, nil
+}
+
+// storeSnapshotKeyFromSeed 用私钥前 32 字节当种子，重算公钥，确认这是编译进程序的那一把。
+// 不能用 PrivateKey.Public()。Go 的 64 字节私钥是「32 字节种子 + 32 字节公钥」，Public() 只把后 32 字节原样返回，并不从种子推算。
+// 客户随便写 32 字节垃圾，再拼上公开的公钥，Public() 就会对上，本机就会被当成官网。
+// 这里用 NewKeyFromSeed 从种子算出公钥：算出的公钥必须等于编译进程序的公钥，文件后 32 字节也必须等于这个公钥。有一边对不上就不是这把钥匙。
+func storeSnapshotKeyFromSeed(raw ed25519.PrivateKey, wantPub ed25519.PublicKey) (ed25519.PrivateKey, bool) {
+	if len(raw) != ed25519.PrivateKeySize || len(wantPub) != ed25519.PublicKeySize {
+		return nil, false
+	}
+	derived := ed25519.NewKeyFromSeed(raw[:ed25519.SeedSize])
+	pub := derived[ed25519.SeedSize:]
+	if !bytes.Equal(pub, wantPub) || !bytes.Equal(raw[ed25519.SeedSize:], pub) {
+		return nil, false
+	}
+	return derived, true
 }
 
 // generateStoreSnapshotKey 在源站数据目录生成一对新的 Ed25519 密钥。

@@ -73,6 +73,7 @@
     display: inline-flex;
     align-items: center;
     flex-wrap: nowrap;
+    justify-content: flex-start;
     gap: 2px;
     white-space: nowrap;
   }

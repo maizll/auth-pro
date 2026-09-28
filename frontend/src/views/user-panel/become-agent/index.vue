@@ -55,7 +55,7 @@
         class="risk-alert"
         title="账户升级不可撤销"
         description="升级成功后将无法继续登录用户端。原账号密码、实名资料、现有授权和剩余余额会迁移到新代理账户，历史支付与流水记录继续保留在原用户主体下。"
-        type="warning"
+        type="info"
         :closable="false"
         show-icon
       />
@@ -188,7 +188,7 @@
               <el-alert
                 title="已有待支付的代理开通订单"
                 :description="`订单 ${pendingOrder.orderNo} 尚未完成，可继续前往收银台或取消后重新选择。`"
-                type="warning"
+                type="info"
                 :closable="false"
                 show-icon
               />
@@ -466,7 +466,7 @@
         }
         if (status === 'failed' || status === 'cancelled') {
           qrCheckout.visible = false
-          ElMessage.warning(data.data?.errorMessage || '支付未完成')
+          ElMessage.info(data.data?.errorMessage || '支付未完成')
           return
         }
       } catch {
@@ -544,7 +544,7 @@
   async function submitUpgrade() {
     if (!selectedLevel.value || !confirmed.value || submitting.value) return
     if (payMethod.value === 'balance' && !selectedLevel.value.canAfford) {
-      ElMessage.warning('当前余额不足，请选择在线支付方式')
+      ElMessage.info('当前余额不足，请选择在线支付方式')
       return
     }
     const paymentLabel = selectedPayOption.value?.label || '所选方式'

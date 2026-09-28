@@ -90,7 +90,7 @@ Nginx 反代到 `127.0.0.1:19127`，并把 `backend/baota-nginx.snippet.conf` �
 
 ## 版本号单一信源
 
-仓库根目录 `VERSION`（当前 `1.7.0`）是产品线默认版本：
+仓库根目录 `VERSION`（当前 `1.7.1`）是产品线默认版本：
 
 - 后端 `auto_pro/config.AppVersion` 仓库默认与 `VERSION` 一致；`./scripts/build-release.sh` / `.ps1` 无参数时读该文件，并用 `-ldflags` 注入 `AppVersion` / `BuildTime`。
 - 前端 `VITE_VERSION` 与 `vite.config.ts` 的 `version.json` 同样对齐 `VERSION`；发布脚本会把参数版本写入 `VITE_VERSION`。
@@ -146,7 +146,7 @@ release/packages/latest.json
 release/packages/releases.json
 ```
 
-构建脚本只生成 `Linux amd64` 后端，版本参数必须匹配 `X.Y.Z`。`latest.json` 中记录平台、文件名、**GitHub** `maizll/auth-pro` Release 下载地址、文件大小和 SHA256；`releases.json` 合并保留已有历史版本，并将上一版本标签到当前版本之间的 Git 提交标题自动记录到对应版本的 `notes`。首次发布会记录当前 Git 历史；无 Git 历史时才使用兜底说明。可通过 `AUTO_PRO_RELEASE_NOTES` 显式覆盖本次更新内容（JSON 字符串数组或按行分隔文本）。
+构建脚本只生成 `Linux amd64` 后端，版本参数必须匹配 `X.Y.Z`。`latest.json` 记录平台、文件名、客户交付仓库的 Release 下载地址、文件大小和 SHA256；1.7.1 客户站看到的地址由源站改写，见 `docs/update-distribution.md`。`releases.json` 合并保留已有历史版本，并将上一版本标签到当前版本之间的 Git 提交标题自动记录到对应版本的 `notes`。首次发布会记录当前 Git 历史；无 Git 历史时才使用兜底说明。可通过 `AUTO_PRO_RELEASE_NOTES` 显式覆盖本次更新内容（JSON 字符串数组或按行分隔文本）。
 
 ## GitHub Release 发布（规范发布面）
 
@@ -165,14 +165,15 @@ latest.json
 releases.json
 ```
 
-在线更新默认读取 GitHub 最新 Release，再定位 `latest.json` 附件：
+1.7.1 客户站只读源站清单，不再读代码托管站。清单、历史版本和安装包都只使用：
 
 ```text
-https://api.github.com/repos/maizll/auth-pro/releases/latest
-https://github.com/maizll/auth-pro/releases/latest/download/latest.json
+https://auth.maizll.com/api/v1/update/latest.json
+https://auth.maizll.com/api/v1/update/releases.json
+https://auth.maizll.com/api/v1/update/package/<版本号>
 ```
 
-服务端可通过 `AUTO_PRO_UPDATE_URL` 指向自建 HTTPS 镜像清单。GitHub 默认源只信任 `maizll/auth-pro` 的 Release API / 附件路径及 GitHub 官方附件重定向目标。
+后台、环境变量和数据库都不能改这个地址。`AUTO_PRO_UPDATE_URL` 不再起作用。源站对外返回清单前，会把下载地址改写成上面的源站地址。维护步骤不放进官网文档。
 
 可选的 `scripts/publish-gitee-release.sh` / `.ps1` 只用于自建 Gitee **镜像**，必须显式传入 `--repository` / `-Repository`，避免误发到历史 fork。
 
@@ -181,9 +182,9 @@ https://github.com/maizll/auth-pro/releases/latest/download/latest.json
 在线更新同时核对两件事：
 
 1. 压缩包大小和 SHA256。SHA256 可以发现下载损坏。
-2. `latest.json` 的 `package.signature` 必须是 `sha256:<64 位十六进制>`，并且与包的 SHA256 一致。应用更新时，客户端再向固定地址 `https://api.github.com/repos/maizll/auth-pro/releases/tags/vX.Y.Z` 读取同名附件的 `digest`。摘要缺失、与本地哈希不一致，或清单签名为空/错误，都会拒绝安装。
+2. `latest.json` 的 `package.signature` 必须是 `sha256:<64 位十六进制>`，并且与包的 SHA256 一致。签名为空或与包的 SHA256 不一致，都会拒绝安装。1.7.1 不再向代码托管站查询附件 digest。
 
-因此只改镜像上的 `latest.json`（同时改下载地址和 SHA256）不能通过应用。自定义 `AUTO_PRO_UPDATE_URL` 仍可作为 HTTPS 镜像，但包内容必须与 `maizll/auth-pro` 上该版本附件的 GitHub 摘要一致，并且应用时要能访问 `api.github.com`。
+因此只改源站清单上的下载地址和 SHA256、却配不上签名，不能通过应用。
 
 发布脚本会把 `package.signature` 写成 `sha256:` 加包的 SHA256。GitHub 上传附件后计算的 `digest` 与这个值相同。下一次打 `vX.Y.Z` 标签发布时会带上该字段。签名为空的历史 `latest.json` 不能被已包含本校验的实例继续在线安装。
 

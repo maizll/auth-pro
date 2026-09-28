@@ -16,50 +16,54 @@ import (
 )
 
 type sourcePluginDraftRequest struct {
-	ID            string       `json:"id"`
-	AppID         int64        `json:"appId"`
-	Category      string       `json:"category"`
-	Name          string       `json:"name"`
-	Description   string       `json:"description"`
-	Icon          string       `json:"icon"`
-	Version       string       `json:"version"`
-	SHA256        string       `json:"sha256"`
-	DownloadURL   string       `json:"downloadUrl"`
-	PriceCents    int64        `json:"priceCents"`
-	Billing       string       `json:"billing"`
-	Delivery      string       `json:"delivery"`
-	Changelog     string       `json:"changelog"`
-	MinVersion    string       `json:"minVersion"`
-	ForceUpdate   bool         `json:"forceUpdate"`
-	Author        sourceAuthor `json:"author"`
-	Shelf         bool         `json:"shelf"`
-	Note          string       `json:"note"`
-	PackageSource string       `json:"packageSource"`
-	PriceSwitch   string       `json:"priceSwitch"`
+	ID                 string       `json:"id"`
+	AppID              int64        `json:"appId"`
+	Category           string       `json:"category"`
+	Name               string       `json:"name"`
+	Description        string       `json:"description"`
+	Icon               string       `json:"icon"`
+	Version            string       `json:"version"`
+	SHA256             string       `json:"sha256"`
+	DownloadURL        string       `json:"downloadUrl"`
+	PriceCents         int64        `json:"priceCents"`
+	Billing            string       `json:"billing"`
+	Delivery           string       `json:"delivery"`
+	Party              string       `json:"party"`
+	CommercialIncluded bool         `json:"commercialIncluded"`
+	Changelog          string       `json:"changelog"`
+	MinVersion         string       `json:"minVersion"`
+	ForceUpdate        bool         `json:"forceUpdate"`
+	Author             sourceAuthor `json:"author"`
+	Shelf              bool         `json:"shelf"`
+	Note               string       `json:"note"`
+	PackageSource      string       `json:"packageSource"`
+	PriceSwitch        string       `json:"priceSwitch"`
 }
 
 type sourceTemplateDraftRequest struct {
-	ID            string       `json:"id"`
-	AppID         int64        `json:"appId"`
-	Category      string       `json:"category"`
-	TemplateKey   string       `json:"templateKey"`
-	Name          string       `json:"name"`
-	Description   string       `json:"description"`
-	Version       string       `json:"version"`
-	SchemaVersion int          `json:"schemaVersion"`
-	SHA256        string       `json:"sha256"`
-	TemplateURL   string       `json:"templateUrl"`
-	PriceCents    int64        `json:"priceCents"`
-	Billing       string       `json:"billing"`
-	Delivery      string       `json:"delivery"`
-	Changelog     string       `json:"changelog"`
-	MinVersion    string       `json:"minVersion"`
-	ForceUpdate   bool         `json:"forceUpdate"`
-	Author        sourceAuthor `json:"author"`
-	Shelf         bool         `json:"shelf"`
-	Note          string       `json:"note"`
-	PackageSource string       `json:"packageSource"`
-	PriceSwitch   string       `json:"priceSwitch"`
+	ID                 string       `json:"id"`
+	AppID              int64        `json:"appId"`
+	Category           string       `json:"category"`
+	TemplateKey        string       `json:"templateKey"`
+	Name               string       `json:"name"`
+	Description        string       `json:"description"`
+	Version            string       `json:"version"`
+	SchemaVersion      int          `json:"schemaVersion"`
+	SHA256             string       `json:"sha256"`
+	TemplateURL        string       `json:"templateUrl"`
+	PriceCents         int64        `json:"priceCents"`
+	Billing            string       `json:"billing"`
+	Delivery           string       `json:"delivery"`
+	Party              string       `json:"party"`
+	CommercialIncluded bool         `json:"commercialIncluded"`
+	Changelog          string       `json:"changelog"`
+	MinVersion         string       `json:"minVersion"`
+	ForceUpdate        bool         `json:"forceUpdate"`
+	Author             sourceAuthor `json:"author"`
+	Shelf              bool         `json:"shelf"`
+	Note               string       `json:"note"`
+	PackageSource      string       `json:"packageSource"`
+	PriceSwitch        string       `json:"priceSwitch"`
 }
 
 type sourceReleaseDraftRequest struct {
@@ -648,6 +652,7 @@ func sourcePluginView(item sourcePlugin) gin.H {
 		"description": item.Description, "icon": item.Icon, "version": item.Version, "author": item.Author,
 		"sha256": item.SHA256, "downloadUrl": item.DownloadURL, "changelog": item.Changelog,
 		"priceCents": item.PriceCents, "billing": catalogBillingLabel(item.Billing), "delivery": catalogDeliveryLabel(item.Delivery),
+		"party": pluginListingParty(item), "commercialIncluded": pluginListingIncluded(item),
 		"latestVersion": item.LatestVersion, "minVersion": item.MinVersion, "forceUpdate": item.ForceUpdate,
 		"status": item.Status, "reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
 		"updatedAt": item.UpdatedAt.Format(time.RFC3339), "createdAt": item.CreatedAt.Format(time.RFC3339),
@@ -667,6 +672,7 @@ func sourceTemplateView(item sourceTemplate) gin.H {
 		"description": item.Description, "version": item.Version, "schemaVersion": item.SchemaVersion,
 		"sha256": item.SHA256, "templateUrl": item.TemplateURL, "changelog": item.Changelog,
 		"priceCents": item.PriceCents, "billing": catalogBillingLabel(item.Billing), "delivery": catalogDeliveryLabel(item.Delivery),
+		"party": templateListingParty(item), "commercialIncluded": templateListingIncluded(item),
 		"latestVersion": item.LatestVersion, "minVersion": item.MinVersion, "forceUpdate": item.ForceUpdate,
 		"status": item.Status, "author": item.Author, "reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
 		"updatedAt": item.UpdatedAt.Format(time.RFC3339), "createdAt": item.CreatedAt.Format(time.RFC3339),
@@ -679,7 +685,7 @@ func sourceTemplateView(item sourceTemplate) gin.H {
 func sourceReleaseView(item sourceRelease) gin.H {
 	view := gin.H{
 		"kind": item.Kind, "itemId": item.ItemID, "version": item.Version, "changelog": item.Changelog,
-		"sha256": item.SHA256, "status": item.Status, "reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
+		"sha256": item.SHA256, "sizeBytes": item.SizeBytes, "status": item.Status, "reviewNote": item.ReviewNote, "reviewedBy": item.ReviewedBy,
 		"createdAt": item.CreatedAt.Format(time.RFC3339), "updatedAt": item.UpdatedAt.Format(time.RFC3339),
 	}
 	if item.Kind == sourceKindTemplate {

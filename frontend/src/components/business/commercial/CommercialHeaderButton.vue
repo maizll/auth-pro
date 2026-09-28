@@ -44,7 +44,7 @@
 
 <script setup lang="ts">
   import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-  import { fetchStoreAccount, type StoreAccount } from '@/api/store'
+  import { fetchStoreAccount, refreshStoreSnapshot, type StoreAccount } from '@/api/store'
   import {
     commercialUi,
     isCommercialActive,
@@ -79,9 +79,11 @@
     }
   )
 
-  async function load() {
+  async function load(pull: boolean) {
     try {
-      const next = await fetchStoreAccount()
+      const next = pull
+        ? await refreshStoreSnapshot().catch(() => fetchStoreAccount())
+        : await fetchStoreAccount()
       account.value = next
       rememberCommercialAccount(next)
     } catch {
@@ -91,13 +93,17 @@
     }
   }
 
+  function onAccountRefresh() {
+    void load(false)
+  }
+
   onMounted(() => {
-    load()
-    window.addEventListener('store-account-refresh', load)
+    void load(true)
+    window.addEventListener('store-account-refresh', onAccountRefresh)
   })
 
   onBeforeUnmount(() => {
-    window.removeEventListener('store-account-refresh', load)
+    window.removeEventListener('store-account-refresh', onAccountRefresh)
   })
 </script>
 

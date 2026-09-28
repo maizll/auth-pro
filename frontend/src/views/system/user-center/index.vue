@@ -89,7 +89,7 @@
               <p class="text-xs text-g-500">管理管理员账号昵称与通知邮箱</p>
             </div>
           </div>
-          <ElTag v-if="isEdit" type="warning" size="small" effect="plain">编辑中</ElTag>
+          <ElTag v-if="isEdit" type="info" size="small" effect="plain">编辑中</ElTag>
           <ElTag v-else type="info" size="small" effect="plain"
             >UID: #{{ userInfo.userId || '-' }}</ElTag
           >
@@ -183,7 +183,7 @@
               <p class="text-xs text-g-500">定期更改密码提升管理员账号安全性</p>
             </div>
           </div>
-          <ElTag v-if="isEditPwd" type="warning" size="small" effect="plain">修改中</ElTag>
+          <ElTag v-if="isEditPwd" type="info" size="small" effect="plain">修改中</ElTag>
           <ElTag v-else type="success" size="small" effect="light">密码受保护</ElTag>
         </div>
 

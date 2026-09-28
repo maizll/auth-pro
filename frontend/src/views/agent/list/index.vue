@@ -38,7 +38,7 @@
         <!-- 账户来源 -->
         <template #sourceLabel="{ row }">
           <ElTag
-            :type="row.source === 'user_upgrade' ? 'warning' : 'info'"
+            :type="row.source === 'user_upgrade' ? 'info' : 'info'"
             size="small"
             effect="plain"
           >
@@ -58,13 +58,12 @@
 
         <!-- 升级迁移 -->
         <template #conversion="{ row }">
-          <div v-if="row.source === 'user_upgrade'" class="conversion-summary">
-            <span>原用户 #{{ row.originalUserId }}</span>
-            <span>
-              余额 ¥{{ Number(row.transferredBalance || 0).toFixed(2) }} · 授权
-              {{ row.migratedLicenseCount }} 项
-            </span>
-          </div>
+          <span v-if="row.source === 'user_upgrade'" class="cell-one-line">
+            原用户 #{{ row.originalUserId }} · 余额 ¥{{
+              Number(row.transferredBalance || 0).toFixed(2)
+            }}
+            · 授权 {{ row.migratedLicenseCount }} 项
+          </span>
           <span v-else>-</span>
         </template>
 
@@ -291,7 +290,13 @@
         { prop: 'discount', label: '折扣', width: 80, align: 'center', useSlot: true },
         { prop: 'balance', label: '余额(元)', width: 110, align: 'right', useSlot: true },
         { prop: 'totalLicenses', label: '当前授权', width: 90, align: 'center' },
-        { prop: 'conversion', label: '升级迁移', minWidth: 180, useSlot: true },
+        {
+          prop: 'conversion',
+          label: '升级迁移',
+          minWidth: 220,
+          showOverflowTooltip: true,
+          useSlot: true
+        },
         {
           prop: 'statusLabel',
           label: '状态',
@@ -409,7 +414,7 @@
   }
 
   const levelTagType = (discount: number) => {
-    if (discount <= 7) return 'warning'
+    if (discount <= 7) return 'info'
     if (discount <= 8) return 'success'
     return 'info'
   }
@@ -428,7 +433,7 @@
     await fetchLevelOptions()
     const defaultLevel = getDefaultLevel()
     if (!defaultLevel) {
-      ElMessage.warning('暂无可用代理商等级，请先新增并启用等级')
+      ElMessage.info('暂无可用代理商等级，请先新增并启用等级')
       return
     }
     Object.assign(formData, {
@@ -448,7 +453,7 @@
     isEdit.value = true
     await fetchLevelOptions()
     if (!levelOptions.value.length) {
-      ElMessage.warning('暂无可用代理商等级，请先新增并启用等级')
+      ElMessage.info('暂无可用代理商等级，请先新增并启用等级')
     }
     Object.assign(formData, {
       id: row.id,
@@ -504,7 +509,7 @@
 
   const handleDelete = async (row: AgentItem) => {
     if (row.source === 'user_upgrade') {
-      ElMessage.warning('用户升级产生的代理需保留审计关联，只能冻结，不能删除')
+      ElMessage.info('用户升级产生的代理需保留审计关联，只能冻结，不能删除')
       return
     }
 
@@ -565,14 +570,6 @@
     .balance-text {
       font-weight: 600;
       color: var(--el-color-primary);
-    }
-
-    .conversion-summary {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      font-size: 12px;
-      color: var(--el-text-color-secondary);
     }
 
     .form-tip {

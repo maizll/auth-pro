@@ -275,8 +275,11 @@ func TestSourcePackagePublishGitHubRelease(t *testing.T) {
 		t.Fatalf("plugin sha/status=%s %s", plugin.SHA256, plugin.Status)
 	}
 	index := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
-	if !strings.Contains(index.Body.String(), `"demo-plugin"`) || !strings.Contains(index.Body.String(), plugin.DownloadURL) {
+	if !strings.Contains(index.Body.String(), `"demo-plugin"`) || !strings.Contains(index.Body.String(), catalogBuyerPackageURL("plugin", "demo-plugin")) || !strings.Contains(index.Body.String(), plugin.SHA256) {
 		t.Fatalf("index missing published plugin: %s", index.Body.String())
+	}
+	if strings.Contains(index.Body.String(), plugin.DownloadURL) || strings.Contains(index.Body.String(), "github.com") {
+		t.Fatalf("index leaked release url: %s", index.Body.String())
 	}
 }
 
@@ -436,8 +439,11 @@ func TestSourceLockedPipelineUploadToPublicIndex(t *testing.T) {
 
 	index := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
 	body := index.Body.String()
-	if !strings.Contains(body, `"demo-plugin"`) || !strings.Contains(body, "demo-plugin-1.0.0.zip") || !strings.Contains(body, plugin.SHA256) {
+	if !strings.Contains(body, `"demo-plugin"`) || !strings.Contains(body, catalogBuyerPackageURL("plugin", "demo-plugin")) || !strings.Contains(body, plugin.SHA256) {
 		t.Fatalf("index missing plugin: %s", body)
+	}
+	if strings.Contains(body, "cdn.example.com") || strings.Contains(body, "demo-plugin-1.0.0.zip") {
+		t.Fatalf("index leaked stored url: %s", body)
 	}
 	if !strings.Contains(body, `"clean-home"`) || !strings.Contains(body, `"schemaVersion":1`) || !strings.Contains(body, "homeTemplates") {
 		t.Fatalf("index missing homeTemplates: %s", body)
@@ -453,7 +459,7 @@ func TestSourceLockedPipelineUploadToPublicIndex(t *testing.T) {
 		t.Fatal("approve 1.0.1")
 	}
 	latest := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
-	if !strings.Contains(latest.Body.String(), `"version":"1.0.1"`) || strings.Contains(latest.Body.String(), "demo-plugin-1.0.0.zip") {
+	if !strings.Contains(latest.Body.String(), `"version":"1.0.1"`) || !strings.Contains(latest.Body.String(), v2SHA) || strings.Contains(latest.Body.String(), plugin.SHA256) || strings.Contains(latest.Body.String(), "cdn.example.com") {
 		t.Fatalf("index should show latest 1.0.1: %s", latest.Body.String())
 	}
 

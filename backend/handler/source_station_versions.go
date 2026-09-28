@@ -118,7 +118,11 @@ func (store *memorySourceStore) upsertVersionLocked(rel sourceRelease, developer
 			if rel.Changelog != "" {
 				existing.Changelog = rel.Changelog
 			}
+			if rel.SizeBytes > 0 {
+				existing.SizeBytes = rel.SizeBytes
+			}
 			stampReleaseStorage(&existing)
+			fillReleaseSize(&existing)
 			existing.Status = sourceVersionDraft
 			existing.ReviewNote = ""
 			existing.ReviewedBy = ""
@@ -140,7 +144,11 @@ func (store *memorySourceStore) upsertVersionLocked(rel sourceRelease, developer
 		if rel.Changelog != "" {
 			existing.Changelog = rel.Changelog
 		}
+		if rel.SizeBytes > 0 {
+			existing.SizeBytes = rel.SizeBytes
+		}
 		stampReleaseStorage(&existing)
+		fillReleaseSize(&existing)
 		existing.UpdatedAt = now
 		bucket[rel.ItemID][rel.Version] = existing
 		if err := store.denormalizeLatestLocked(rel.Kind, rel.ItemID); err != nil {
@@ -152,6 +160,7 @@ func (store *memorySourceStore) upsertVersionLocked(rel sourceRelease, developer
 		rel.Status = sourceVersionDraft
 	}
 	stampReleaseStorage(&rel)
+	fillReleaseSize(&rel)
 	rel.CreatedAt = now
 	rel.UpdatedAt = now
 	bucket[rel.ItemID][rel.Version] = rel
@@ -901,7 +910,7 @@ func mysqlVersionListQuery(kind, itemID string) (string, []any) {
 	if kind == sourceKindTemplate {
 		loc = "template_url"
 	}
-	return `SELECT ` + idCol + `, version, changelog, ` + loc + `, sha256, origin_url, status, review_note, reviewed_by, created_at, updated_at, storage_driver, object_key FROM ` + table + ` WHERE ` + idCol + `=? ORDER BY created_at DESC, version DESC`, []any{itemID}
+	return `SELECT ` + idCol + `, version, changelog, ` + loc + `, sha256, origin_url, status, review_note, reviewed_by, created_at, updated_at, storage_driver, object_key, size_bytes FROM ` + table + ` WHERE ` + idCol + `=? ORDER BY created_at DESC, version DESC`, []any{itemID}
 }
 
 func mysqlVersionGetQuery(kind, itemID, version string) (string, []any) {
@@ -910,14 +919,14 @@ func mysqlVersionGetQuery(kind, itemID, version string) (string, []any) {
 	if kind == sourceKindTemplate {
 		loc = "template_url"
 	}
-	return `SELECT ` + idCol + `, version, changelog, ` + loc + `, sha256, origin_url, status, review_note, reviewed_by, created_at, updated_at, storage_driver, object_key FROM ` + table + ` WHERE ` + idCol + `=? AND version=?`, []any{itemID, version}
+	return `SELECT ` + idCol + `, version, changelog, ` + loc + `, sha256, origin_url, status, review_note, reviewed_by, created_at, updated_at, storage_driver, object_key, size_bytes FROM ` + table + ` WHERE ` + idCol + `=? AND version=?`, []any{itemID, version}
 }
 
 func scanSourceRelease(scanner interface{ Scan(dest ...any) error }, kind string) (sourceRelease, error) {
 	var item sourceRelease
 	var createdAt, updatedAt time.Time
 	item.Kind = kind
-	if err := scanner.Scan(&item.ItemID, &item.Version, &item.Changelog, &item.Location, &item.SHA256, &item.OriginURL, &item.Status, &item.ReviewNote, &item.ReviewedBy, &createdAt, &updatedAt, &item.StorageDriver, &item.ObjectKey); err != nil {
+	if err := scanner.Scan(&item.ItemID, &item.Version, &item.Changelog, &item.Location, &item.SHA256, &item.OriginURL, &item.Status, &item.ReviewNote, &item.ReviewedBy, &createdAt, &updatedAt, &item.StorageDriver, &item.ObjectKey, &item.SizeBytes); err != nil {
 		return sourceRelease{}, err
 	}
 	item.CreatedAt, item.UpdatedAt = createdAt.UTC(), updatedAt.UTC()
@@ -932,23 +941,26 @@ func mysqlWriteVersion(db *sql.DB, kind, itemID, version string, rel sourceRelea
 		status = sourceVersionDraft
 	}
 	stampReleaseStorage(&rel)
+	fillReleaseSize(&rel)
 	if kind == sourceKindTemplate {
 		_, err := db.Exec(`INSERT INTO source_catalog_template_versions
-			(template_id, version, changelog, template_url, sha256, origin_url, storage_driver, object_key, status, review_note, reviewed_by)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(template_id, version, changelog, template_url, sha256, origin_url, storage_driver, object_key, size_bytes, status, review_note, reviewed_by)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON DUPLICATE KEY UPDATE changelog=VALUES(changelog), template_url=VALUES(template_url), sha256=VALUES(sha256),
 				origin_url=VALUES(origin_url), storage_driver=VALUES(storage_driver), object_key=VALUES(object_key),
+				size_bytes=IF(VALUES(size_bytes)>0, VALUES(size_bytes), size_bytes),
 				status=VALUES(status), review_note=VALUES(review_note), reviewed_by=VALUES(reviewed_by)`,
-			itemID, version, rel.Changelog, rel.Location, rel.SHA256, rel.OriginURL, rel.StorageDriver, rel.ObjectKey, status, rel.ReviewNote, rel.ReviewedBy)
+			itemID, version, rel.Changelog, rel.Location, rel.SHA256, rel.OriginURL, rel.StorageDriver, rel.ObjectKey, rel.SizeBytes, status, rel.ReviewNote, rel.ReviewedBy)
 		return err
 	}
 	_, err := db.Exec(`INSERT INTO source_catalog_plugin_versions
-		(plugin_id, version, changelog, download_url, sha256, origin_url, storage_driver, object_key, status, review_note, reviewed_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(plugin_id, version, changelog, download_url, sha256, origin_url, storage_driver, object_key, size_bytes, status, review_note, reviewed_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE changelog=VALUES(changelog), download_url=VALUES(download_url), sha256=VALUES(sha256),
 			origin_url=VALUES(origin_url), storage_driver=VALUES(storage_driver), object_key=VALUES(object_key),
+			size_bytes=IF(VALUES(size_bytes)>0, VALUES(size_bytes), size_bytes),
 			status=VALUES(status), review_note=VALUES(review_note), reviewed_by=VALUES(reviewed_by)`,
-		itemID, version, rel.Changelog, rel.Location, rel.SHA256, rel.OriginURL, rel.StorageDriver, rel.ObjectKey, status, rel.ReviewNote, rel.ReviewedBy)
+		itemID, version, rel.Changelog, rel.Location, rel.SHA256, rel.OriginURL, rel.StorageDriver, rel.ObjectKey, rel.SizeBytes, status, rel.ReviewNote, rel.ReviewedBy)
 	return err
 }
 
@@ -963,6 +975,10 @@ func coalesceRelease(existing, incoming sourceRelease) sourceRelease {
 	if incoming.Changelog != "" {
 		existing.Changelog = incoming.Changelog
 	}
+	if incoming.SizeBytes > 0 {
+		existing.SizeBytes = incoming.SizeBytes
+	}
 	stampReleaseStorage(&existing)
+	fillReleaseSize(&existing)
 	return existing
 }

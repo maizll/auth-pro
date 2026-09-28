@@ -124,7 +124,7 @@ func TestDeprecateLatestVersionRepointsToRemainingPublished(t *testing.T) {
 	}
 
 	live := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
-	if !strings.Contains(live.Body.String(), `"version":"1.0.1"`) || !strings.Contains(live.Body.String(), "multi-1.0.1.zip") {
+	if !strings.Contains(live.Body.String(), `"version":"1.0.1"`) || !strings.Contains(live.Body.String(), sha2) || strings.Contains(live.Body.String(), "cdn.example.com") {
 		t.Fatalf("latest should be 1.0.1: %s", live.Body.String())
 	}
 
@@ -134,10 +134,10 @@ func TestDeprecateLatestVersionRepointsToRemainingPublished(t *testing.T) {
 
 	assertPublicIndexIDs(t, router, "app-a", []string{"multi-plugin"}, nil)
 	rolled := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
-	if !strings.Contains(rolled.Body.String(), `"version":"1.0.0"`) || !strings.Contains(rolled.Body.String(), "multi-1.0.0.zip") {
+	if !strings.Contains(rolled.Body.String(), `"version":"1.0.0"`) || !strings.Contains(rolled.Body.String(), sha1) {
 		t.Fatalf("remaining published version should stay in public index: %s", rolled.Body.String())
 	}
-	if strings.Contains(rolled.Body.String(), "multi-1.0.1.zip") {
+	if strings.Contains(rolled.Body.String(), sha2) || strings.Contains(rolled.Body.String(), "cdn.example.com") {
 		t.Fatalf("deprecated latest must not remain the public version: %s", rolled.Body.String())
 	}
 	assertAdminDefaultCatalogIDs(t, router, admin, []string{"multi-plugin"})
@@ -157,7 +157,7 @@ func TestPublishedIndexUpdatesOnMetadataVersionAndCategories(t *testing.T) {
 		t.Fatalf("edit published=%s", rec.Body.String())
 	}
 	live := sourceJSON(t, router, http.MethodGet, "/software-source/app-a/index.json", "", "")
-	if !strings.Contains(live.Body.String(), "聚合支付") || !strings.Contains(live.Body.String(), "pay-1.0.1.zip") || !strings.Contains(live.Body.String(), nextSHA) {
+	if !strings.Contains(live.Body.String(), "聚合支付") || !strings.Contains(live.Body.String(), nextSHA) || strings.Contains(live.Body.String(), "cdn.example.com") {
 		t.Fatalf("published edit must update public index: %s", live.Body.String())
 	}
 

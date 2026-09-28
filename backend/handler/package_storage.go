@@ -81,6 +81,31 @@ func stampReleaseStorage(rel *sourceRelease) {
 	rel.StorageDriver, rel.ObjectKey = classifyPackageRef(rel.Location)
 }
 
+// fillReleaseSize 在已经拿到安装包时记下字节数。纯外链且没有本地文件时保持 0，页面显示「未记录」。
+func fillReleaseSize(rel *sourceRelease) {
+	if rel == nil || rel.SizeBytes > 0 {
+		return
+	}
+	path := ""
+	if name, ok := privatePackageName(rel.Location); ok {
+		path = filepath.Join(stationPaidPackageDirPath(), name)
+	} else if name, ok := stationPackageNameFromURL(rel.Location); ok {
+		hosted, found := publicStationPackagePath(name)
+		if !found {
+			return
+		}
+		path = hosted
+	}
+	if path == "" {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() || info.Size() <= 0 {
+		return
+	}
+	rel.SizeBytes = info.Size()
+}
+
 func gitHubObjectKey(ref gitHubAssetRef) string {
 	return ref.Owner + "/" + ref.Repo + "/" + ref.Tag + "/" + ref.Asset
 }

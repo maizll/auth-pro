@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"auto_pro/config"
@@ -505,7 +506,88 @@ func saveSnapshotMap(raw map[string]any, refreshOK, revoked bool, accountLine st
 	return saveBuyerSnapshot(state)
 }
 
+const (
+	buyerSnapshotCacheTTL      = 45 * time.Second
+	buyerSnapshotForceInterval = 30 * time.Second
+)
+
+// buyerSnapshotNow 让测试把缓存窗口拨到指定时刻。生产路径就是当前时间。
+var buyerSnapshotNow = time.Now
+
+type buyerSnapshotFlight struct {
+	done chan struct{}
+	err  error
+}
+
+// buyerSnapshotRefreshGate 保证同一站点短时间内只打一次官网。
+// 普通刷新看 lastCall；立即刷新另看 lastForce，可以绕过普通缓存，但仍限频。
+type buyerSnapshotRefreshGate struct {
+	mu        sync.Mutex
+	lastCall  time.Time
+	lastForce time.Time
+	flight    *buyerSnapshotFlight
+	waiting   int
+}
+
+var buyerSnapshotRefresh buyerSnapshotRefreshGate
+
+func resetBuyerSnapshotRefreshGate() {
+	buyerSnapshotRefresh.mu.Lock()
+	buyerSnapshotRefresh.lastCall = time.Time{}
+	buyerSnapshotRefresh.lastForce = time.Time{}
+	buyerSnapshotRefresh.flight = nil
+	buyerSnapshotRefresh.waiting = 0
+	buyerSnapshotRefresh.mu.Unlock()
+}
+
 func refreshBuyerSnapshot(ctx context.Context, domain string) error {
+	return refreshBuyerSnapshotMode(ctx, domain, false)
+}
+
+func refreshBuyerSnapshotForced(ctx context.Context, domain string) error {
+	return refreshBuyerSnapshotMode(ctx, domain, true)
+}
+
+// refreshBuyerSnapshotMode 合并并发请求。缓存未过期或立即刷新还在限频窗口内时，直接沿用本地快照。
+func refreshBuyerSnapshotMode(ctx context.Context, domain string, force bool) error {
+	buyerSnapshotRefresh.mu.Lock()
+	if buyerSnapshotRefresh.flight != nil {
+		flight := buyerSnapshotRefresh.flight
+		buyerSnapshotRefresh.waiting++
+		buyerSnapshotRefresh.mu.Unlock()
+		<-flight.done
+		return flight.err
+	}
+	now := buyerSnapshotNow()
+	if force {
+		if !buyerSnapshotRefresh.lastForce.IsZero() && now.Sub(buyerSnapshotRefresh.lastForce) < buyerSnapshotForceInterval {
+			buyerSnapshotRefresh.mu.Unlock()
+			return nil
+		}
+	} else if !buyerSnapshotRefresh.lastCall.IsZero() && now.Sub(buyerSnapshotRefresh.lastCall) < buyerSnapshotCacheTTL {
+		buyerSnapshotRefresh.mu.Unlock()
+		return nil
+	}
+	flight := &buyerSnapshotFlight{done: make(chan struct{})}
+	buyerSnapshotRefresh.flight = flight
+	buyerSnapshotRefresh.lastCall = now
+	if force {
+		buyerSnapshotRefresh.lastForce = now
+	}
+	buyerSnapshotRefresh.mu.Unlock()
+
+	err := refreshBuyerSnapshotOnce(ctx, domain)
+	buyerSnapshotRefresh.mu.Lock()
+	if buyerSnapshotRefresh.flight == flight {
+		buyerSnapshotRefresh.flight = nil
+	}
+	buyerSnapshotRefresh.mu.Unlock()
+	flight.err = err
+	close(flight.done)
+	return err
+}
+
+func refreshBuyerSnapshotOnce(ctx context.Context, domain string) error {
 	_ = ctx
 	var payload map[string]any
 	path := "/api/v1/store/status"
@@ -564,30 +646,44 @@ func StartStoreSnapshotRefresher() {
 	})
 }
 
-func installPaidPackage(ctx context.Context, kind, id string) error {
+// downloadPaidPackage 向官网换下载票并取回安装包字节。
+// 票面地址必须是官网。代码托管站的临时链接在这里拒绝，不跟随跳转。
+func downloadPaidPackage(ctx context.Context, kind, id string) ([]byte, error) {
 	var ticket struct {
 		Data struct {
 			URL string `json:"url"`
 		} `json:"data"`
 	}
 	if err := signedSourceJSON(http.MethodPost, "/api/v1/store/download-ticket", map[string]any{"kind": kind, "id": id}, &ticket); err != nil {
-		return err
+		return nil, err
 	}
-	if ticket.Data.URL == "" || !strings.HasPrefix(ticket.Data.URL, "https://") {
-		return errors.New("下载地址无效")
+	if ticket.Data.URL == "" || !strings.HasPrefix(ticket.Data.URL, "https://") || catalogRepoHostBlocked(ticket.Data.URL) {
+		return nil, errPackageHostBlocked
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ticket.Data.URL, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	resp, err := (&http.Client{Timeout: 2 * time.Minute}).Do(req)
+	client := &http.Client{
+		Timeout: 2 * time.Minute,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 || req == nil || req.URL == nil || catalogRepoHostBlocked(req.URL.String()) {
+				return errPackageHostBlocked
+			}
+			return nil
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil && errors.Is(err, errPackageHostBlocked) {
+		return nil, errPackageHostBlocked
+	}
 	if err != nil {
-		return errors.New("下载付费包失败")
+		return nil, errors.New("下载付费包失败")
 	}
 	defer resp.Body.Close()
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, pluginPackageMaxSize))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(payload) > 0 && payload[0] == '{' {
 		var envelope struct {
@@ -595,11 +691,22 @@ func installPaidPackage(ctx context.Context, kind, id string) error {
 			Msg  string `json:"msg"`
 		}
 		if json.Unmarshal(payload, &envelope) == nil && envelope.Code != 0 && envelope.Code != 200 {
-			if strings.TrimSpace(envelope.Msg) == "" {
-				return errors.New("下载付费包失败")
+			if strings.TrimSpace(envelope.Msg) == "" || strings.Contains(strings.ToLower(envelope.Msg), "github") {
+				return nil, errors.New("下载付费包失败")
 			}
-			return errors.New(envelope.Msg)
+			return nil, errors.New(envelope.Msg)
 		}
+	}
+	if len(payload) == 0 {
+		return nil, errors.New("下载付费包失败")
+	}
+	return payload, nil
+}
+
+func installPaidPackage(ctx context.Context, kind, id string) error {
+	payload, err := downloadPaidPackage(ctx, kind, id)
+	if err != nil {
+		return err
 	}
 	if kind == "plugin" {
 		if err := installPluginZIP(payload, pluginInfo{ID: id, Name: id, Category: "other"}); err != nil {

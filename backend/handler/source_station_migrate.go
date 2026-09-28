@@ -16,6 +16,7 @@ const (
 	sourceMigrationCatalogPrice    = "source_catalog_price_v1"
 	sourceMigrationCatalogOrigin   = "source_catalog_origin_v1"
 	sourceMigrationPaidExternal    = "source_catalog_paid_external_visible_v1"
+	sourceMigrationCatalogListing  = "source_catalog_listing_v1"
 )
 
 // ensureSourceStationMigrations 把源站的一次性 ALTER / 回填记入 schema_migrations。
@@ -41,11 +42,14 @@ func ensureSourceStationMigrations(db *sql.DB) error {
 		{sourceMigrationDeveloperAgent, migrateSourceDeveloperAgentBackfill},
 		{sourceMigrationCatalogPrice, migrateSourceCatalogPrice},
 		{sourceMigrationCatalogOrigin, migrateSourceCatalogOrigin},
+		{sourceMigrationCatalogListing, migrateSourceCatalogListing},
 		{sourceMigrationPaidExternal, migratePaidExternalVisible},
 		{sourceMigrationVersionStorage, migrateSourceCatalogVersionStorage},
+		{sourceMigrationVersionSize, migrateSourceCatalogVersionSize},
 		{storeMigrationBindings, migrateStoreBindings},
 		{storeMigrationLoginHandoff, migrateStoreLoginHandoff},
 		{storeMigrationEditions, migrateStoreEditions},
+		{storeMigrationStatusIndex, migrateStoreStatusIndexes},
 		{storeMigrationOrders, migrateStorePurchaseOrders},
 		{storeMigrationEntitlements, migratePluginEntitlements},
 		{storeMigrationRevenue, migrateStoreRevenueLedger},
@@ -53,6 +57,7 @@ func ensureSourceStationMigrations(db *sql.DB) error {
 		{storeMigrationLicenseSourcePurchase, migrateLicenseSourceStorePurchase},
 		{storeMigrationDomainChanges, migrateLicenseDomainChanges},
 		{storeMigrationDropBuyerConnection, migrateDropBuyerConnectionSettings},
+		{storeMigrationDropGitHubUpdateURL, migrateDropGitHubUpdateURL},
 	}
 	for _, step := range steps {
 		if err := runSourceStationMigration(db, step.name, step.run); err != nil {
@@ -409,6 +414,44 @@ func migrateSourceCatalogOrigin(db *sql.DB) error {
 	for _, column := range columns {
 		if err := ensureSourceStationColumn(db, column.table, column.column, column.statement); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func migrateSourceCatalogListing(db *sql.DB) error {
+	columns := []struct {
+		table, column, statement string
+	}{
+		{"source_catalog_plugins", "listing_party", "ALTER TABLE source_catalog_plugins ADD COLUMN listing_party VARCHAR(20) NOT NULL DEFAULT ''"},
+		{"source_catalog_plugins", "commercial_included", "ALTER TABLE source_catalog_plugins ADD COLUMN commercial_included TINYINT(1) NOT NULL DEFAULT 0"},
+		{"source_catalog_templates", "listing_party", "ALTER TABLE source_catalog_templates ADD COLUMN listing_party VARCHAR(20) NOT NULL DEFAULT ''"},
+		{"source_catalog_templates", "commercial_included", "ALTER TABLE source_catalog_templates ADD COLUMN commercial_included TINYINT(1) NOT NULL DEFAULT 0"},
+	}
+	for _, column := range columns {
+		exists, err := catalogTableExists(db, column.table)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			continue
+		}
+		if err := ensureSourceStationColumn(db, column.table, column.column, column.statement); err != nil {
+			return err
+		}
+	}
+	if ok, err := catalogTableExists(db, "source_catalog_plugins"); err != nil {
+		return err
+	} else if ok {
+		if err := backfillCatalogListing(db, "source_catalog_plugins", "id", sourceKindPlugin); err != nil {
+			return fmt.Errorf("backfill plugin listing: %w", err)
+		}
+	}
+	if ok, err := catalogTableExists(db, "source_catalog_templates"); err != nil {
+		return err
+	} else if ok {
+		if err := backfillCatalogListing(db, "source_catalog_templates", "template_key", sourceKindTemplate); err != nil {
+			return fmt.Errorf("backfill template listing: %w", err)
 		}
 	}
 	return nil

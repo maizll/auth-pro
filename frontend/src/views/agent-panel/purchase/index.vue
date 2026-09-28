@@ -378,7 +378,7 @@
 
           <el-alert
             class="bind-guide"
-            type="warning"
+            type="info"
             show-icon
             :closable="false"
             :title="
@@ -641,7 +641,7 @@
         }
         if (data.data?.status === 'failed' || data.data?.status === 'cancelled') {
           qrCheckout.visible = false
-          ElMessage.warning('支付未完成')
+          ElMessage.info('支付未完成')
           return
         }
       } catch {
@@ -689,7 +689,7 @@
           ElMessage.success('支付成功，授权已生成')
         } else if (status === 'failed' || status === 'cancelled' || attempts >= 20) {
           stopPurchasePoll()
-          if (status !== 'pending') ElMessage.warning('支付未完成')
+          if (status !== 'pending') ElMessage.info('支付未完成')
         }
       } catch {
         if (attempts >= 20) stopPurchasePoll()
@@ -939,7 +939,7 @@
       await navigator.clipboard.writeText(licenseNo)
       ElMessage.success('授权编号已复制')
     } catch {
-      ElMessage.warning('复制失败，请手动复制')
+      ElMessage.info('复制失败，请手动复制')
     }
   }
 
@@ -961,17 +961,17 @@
 
   function handleNext() {
     if (step.value === 1 && !formData.appId) {
-      ElMessage.warning('请先选择应用')
+      ElMessage.info('请先选择应用')
       return
     }
     if (step.value === 2) {
       if (!formData.planId) {
-        ElMessage.warning('请选择套餐')
+        ElMessage.info('请选择套餐')
         return
       }
       const targetError = getTargetError()
       if (targetError) {
-        ElMessage.warning(targetError)
+        ElMessage.info(targetError)
         return
       }
     }
@@ -996,16 +996,16 @@
   async function handlePurchase() {
     if (purchasing.value) return
     if (isOnlinePay.value && computedCost.value <= 0) {
-      ElMessage.warning('0 元套餐请使用余额或配额支付')
+      ElMessage.info('0 元套餐请使用余额或配额支付')
       return
     }
     if (payMethod.value === 'balance' && agentBalance.value < computedCost.value) {
-      ElMessage.warning('余额不足')
+      ElMessage.info('余额不足')
       return
     }
     const targetError = getTargetError()
     if (targetError) {
-      ElMessage.warning(targetError)
+      ElMessage.info(targetError)
       return
     }
     purchasing.value = true

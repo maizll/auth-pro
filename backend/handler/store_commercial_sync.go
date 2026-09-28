@@ -5,6 +5,8 @@ package handler
 import (
 	"database/sql"
 	"errors"
+	"strings"
+	"time"
 
 	"auto_pro/config"
 )
@@ -53,19 +55,19 @@ func localCommercialSnapshotStale(bindingID string) (bool, string) {
 	if err != nil {
 		return false, ""
 	}
-	var licenseStatus string
-	err = db.QueryRow(`SELECT status FROM licenses WHERE id = ?`, licenseID).Scan(&licenseStatus)
+	var licenseStatus, ownerType string
+	var ownerID, appID int64
+	err = db.QueryRow(`SELECT status, owner_type, owner_id, app_id FROM licenses WHERE id = ?`, licenseID).Scan(&licenseStatus, &ownerType, &ownerID, &appID)
 	licenseExists := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, ""
 	}
-	var editionCount int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM main_license_editions
-		WHERE license_id = ? AND edition = 'commercial' AND status = 'active'
-		  AND (expires_at IS NULL OR expires_at > NOW())`, licenseID).Scan(&editionCount); err != nil {
-		return false, ""
+	var domain string
+	_ = db.QueryRow(`SELECT domain_snapshot FROM store_bindings WHERE binding_id = ?`, bindingID).Scan(&domain)
+	_, _, _, editionActive := loadAccountCommercialEdition(db, ownerType, ownerID, appID, domain)
+	if !editionActive && licenseExists {
+		_, _, _, editionActive = loadCommercialEdition(db, licenseID)
 	}
-	editionActive := editionCount > 0
 	if !localCommercialCacheStale(true, status == "active", licenseExists, editionActive) && licenseStatus == "active" {
 		return false, ""
 	}
@@ -81,51 +83,81 @@ func localCommercialSnapshotStale(bindingID string) (bool, string) {
 	return true, "edition_revoked"
 }
 
-// revokeCommercialRightsForLicense 撤销这条授权上的商业版权益和站点绑定，并清掉本机对应快照。
+// revokeCommercialRightsForLicense 撤销这条授权上的商业版权益。
+// 站点绑定保持有效，客户站刷新后变为免费版，不必重新登录。
+// 开通时复制到同域名绑定授权上、且没有购买订单的权益一并撤回。
 func revokeCommercialRightsForLicense(db *sql.DB, licenseID, reason string) error {
-	if db == nil || licenseID == "" {
+	if db == nil || strings.TrimSpace(licenseID) == "" {
 		return errors.New("授权不正确")
 	}
-	var licenseNo string
-	_ = db.QueryRow(`SELECT license_no FROM licenses WHERE id = ?`, licenseID).Scan(&licenseNo)
-	rows, err := db.Query(`SELECT binding_id FROM store_bindings WHERE license_id = ?`, licenseID)
-	if err != nil {
-		return err
-	}
-	bindingIDs := make([]string, 0)
-	for rows.Next() {
-		var bindingID string
-		if err := rows.Scan(&bindingID); err != nil {
-			continue
-		}
-		bindingIDs = append(bindingIDs, bindingID)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
-	}
-	rows.Close()
+	_ = reason
+	var started sql.NullTime
+	_ = db.QueryRow(`SELECT started_at FROM main_license_editions
+		WHERE license_id = ? AND edition = 'commercial' AND status = 'active'
+		ORDER BY id DESC LIMIT 1`, licenseID).Scan(&started)
 	if _, err := db.Exec(`UPDATE main_license_editions SET status = 'revoked', updated_at = NOW() WHERE license_id = ? AND status = 'active'`, licenseID); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`UPDATE store_bindings SET status = 'revoked', revoked_at = NOW(), revoke_reason = ? WHERE license_id = ? AND status = 'active'`, trimStoreText(reason, 200), licenseID); err != nil {
+	if !started.Valid {
+		return nil
+	}
+	return revokeMirroredCommercialEditions(db, licenseID, started.Time)
+}
+
+// revokeMirroredCommercialEditions 撤回和这次开通同时写到绑定授权上的商业版。
+// 只动没有订单号、开通时间与本次相差不超过 3 秒的权益。客户自己购买的权益留着。
+func revokeMirroredCommercialEditions(db *sql.DB, licenseID string, started time.Time) error {
+	var ownerType string
+	var ownerID, appID, selfID int64
+	err := db.QueryRow(`SELECT id, owner_type, owner_id, app_id FROM licenses WHERE id = ?`, licenseID).Scan(&selfID, &ownerType, &ownerID, &appID)
+	if err != nil {
+		return nil
+	}
+	rows, err := db.Query(`SELECT DISTINCT l.id FROM licenses l
+		JOIN store_bindings b ON b.license_id = l.id AND b.status = 'active'
+		WHERE l.owner_type = ? AND l.owner_id = ? AND l.app_id = ? AND l.id <> ? AND l.status = 'active'`,
+		ownerType, ownerID, appID, selfID)
+	if err != nil {
 		return err
 	}
-	invalidateLocalBuyerSnapshot(licenseNo, bindingIDs, reason)
+	defer rows.Close()
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		if !licensesShareDomain(db, selfID, id) {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	from := started.Add(-3 * time.Second)
+	to := started.Add(3 * time.Second)
+	for _, id := range ids {
+		if _, err := db.Exec(`UPDATE main_license_editions SET status = 'revoked', updated_at = NOW()
+			WHERE license_id = ? AND edition = 'commercial' AND status = 'active' AND order_id IS NULL
+			  AND started_at >= ? AND started_at <= ?`, id, from, to); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func invalidateLocalBuyerSnapshot(licenseNo string, bindingIDs []string, reason string) {
-	state, ok := loadBuyerSnapshot()
-	if !ok || state.ExplicitRevoked {
-		return
+func licensesShareDomain(db *sql.DB, left, right int64) bool {
+	var domain string
+	err := db.QueryRow(`SELECT domain FROM license_domains WHERE license_id = ? ORDER BY id LIMIT 1`, left).Scan(&domain)
+	if err != nil {
+		return false
 	}
-	if !snapshotMatchesCommercialLicense(state, licenseNo, bindingIDs) {
-		return
+	var appID int64
+	if err := db.QueryRow(`SELECT app_id FROM licenses WHERE id = ?`, right).Scan(&appID); err != nil {
+		return false
 	}
-	state.ExplicitRevoked = true
-	state.RevokeReason = trimStoreText(reason, 200)
-	_ = saveBuyerSnapshot(state)
+	return boundLicenseCoversDomain(db, right, appID, domain)
 }
 
 // clearEditionOnlyRevoke 去掉「只是还没买商业版」造成的失效标记。

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"auto_pro/config"
 )
@@ -62,6 +61,13 @@ func preparePluginPriceChange(existing, next sourcePlugin) (sourcePlugin, error)
 	crossing := publicFreeBecomingPaid(existing.Status, existing.LatestVersion, existing.PriceCents, next.PriceCents)
 	reverting := existing.PriceCents > 0 && next.PriceCents <= 0
 	if !crossing && !reverting {
+		if next.PriceCents <= 0 && hostedCatalogPackage(next.DownloadURL) {
+			if strings.TrimSpace(next.DownloadURL) != strings.TrimSpace(existing.DownloadURL) {
+				return next, errors.New("必须是 https:// 外部地址，源站不保存插件或模板源码")
+			}
+			next.switchPrepared = true
+			return next, nil
+		}
 		final, ferr := finalizePluginPackage(next)
 		final.switchPrepared = true
 		return final, ferr
@@ -147,6 +153,13 @@ func prepareTemplatePriceChange(existing, next sourceTemplate) (sourceTemplate, 
 	crossing := publicFreeBecomingPaid(existing.Status, existing.LatestVersion, existing.PriceCents, next.PriceCents)
 	reverting := existing.PriceCents > 0 && next.PriceCents <= 0
 	if !crossing && !reverting {
+		if next.PriceCents <= 0 && hostedCatalogPackage(next.TemplateURL) {
+			if strings.TrimSpace(next.TemplateURL) != strings.TrimSpace(existing.TemplateURL) {
+				return next, errors.New("必须是 https:// 外部地址，源站不保存插件或模板源码")
+			}
+			next.switchPrepared = true
+			return next, nil
+		}
 		final, ferr := finalizeTemplatePackage(next)
 		final.switchPrepared = true
 		return final, ferr
@@ -250,15 +263,37 @@ func relocateCatalogLocations(kind, category, itemID, version string, locations 
 	return moves, nil
 }
 
+func hostedCatalogPackage(location string) bool {
+	return isPrivatePackageRef(location) || isGitHubPackageRef(location)
+}
+
+// keepHostedPackageOnFreeSwitch 在付费改回免费时沿用收费仓库里的托管包。
+// 管理员留空，或表单里仍是「私有仓库 …」这样的说明，都不要求再填外链。
+// 填了新的 https 地址则改用该地址。本来就是免费、又没有托管包的条目不走这里。
+func keepHostedPackageOnFreeSwitch(existingPrice int64, existingLocation, existingSHA string, nextPrice int64, submittedLocation, submittedSHA string) (string, string, error) {
+	submittedLocation = strings.TrimSpace(submittedLocation)
+	if existingPrice <= 0 || nextPrice > 0 || !hostedCatalogPackage(existingLocation) {
+		return submittedLocation, submittedSHA, nil
+	}
+	if submittedLocation == "" || submittedLocation == strings.TrimSpace(existingLocation) || hostedCatalogPackage(submittedLocation) || strings.HasPrefix(submittedLocation, "私有仓库 ") {
+		sha := strings.TrimSpace(submittedSHA)
+		if sha == "" {
+			sha = existingSHA
+		}
+		return strings.TrimSpace(existingLocation), sha, nil
+	}
+	if err := validateExternalHTTPS(submittedLocation); err != nil {
+		return "", "", err
+	}
+	return submittedLocation, submittedSHA, nil
+}
+
 func catalogLocationNeedsMove(location string, price int64) bool {
 	location = strings.TrimSpace(location)
-	if location == "" {
+	if location == "" || price <= 0 {
 		return false
 	}
-	if price > 0 {
-		return !isPrivatePackageRef(location) && !isGitHubPackageRef(location)
-	}
-	return isPrivatePackageRef(location) || isGitHubPackageRef(location)
+	return !isPrivatePackageRef(location) && !isGitHubPackageRef(location)
 }
 
 func relocateOneCatalogLocation(kind, category, itemID, version, location string, price int64) (catalogLocationMove, error) {
@@ -302,33 +337,11 @@ func releasePaidLocationToPublic(location, sha string) (string, string, error) {
 	if !isGitHubPackageRef(location) {
 		return location, sha, nil
 	}
-	driver, ok := packageStorageByName(packageStorageGitHub)
-	if !ok {
-		return "", "", errors.New("收费仓库未配置，无法把安装包放回公开地址")
-	}
-	tempURL, err := driver.SignedURL(context.Background(), classifyGitHubKey(location), 5*time.Minute)
-	if err != nil || strings.TrimSpace(tempURL) == "" {
-		return "", "", errors.New("收费仓库暂时无法读取安装包，不能改回免费")
-	}
-	payload, err := safeHTTPGet(context.Background(), tempURL, safeFetchOptions{
-		AllowPrivate: false,
-		RequireHTTPS: true,
-		MaxBytes:     pluginPackageMaxSize,
-		Timeout:      paidOriginFetchTimeout,
-		MaxRedirects: defaultSafeRedirects,
-		UserAgent:    "auth-pro-paid-import",
-		Accept:       "application/zip,*/*",
-		BaseClient:   externalPackageClient,
-	})
+	payload, err := fetchGitHubPackageBytes(context.Background(), location)
 	if err != nil || !isZipPayload(payload) {
 		return "", "", errors.New("收费仓库暂时无法读取安装包，不能改回免费")
 	}
 	return storeStationPackage(payload)
-}
-
-func classifyGitHubKey(location string) string {
-	_, key := classifyPackageRef(location)
-	return key
 }
 
 func applyPluginSwitchState(item, patch sourcePlugin) sourcePlugin {
@@ -482,6 +495,9 @@ func recordCatalogPriceSwitch(kind, itemID string, appID, developerID int64, bef
 				return 0, err
 			}
 			if normalized == catalogSwitchPurchaseOnly {
+				if err := setCatalogCommercialIncluded(db, kind, itemID, false); err != nil {
+					return 0, err
+				}
 				if _, err := db.Exec(`UPDATE plugin_entitlements
 					SET status = 'revoked', revoked_at = NOW(), revoke_reason = ?
 					WHERE item_kind = ? AND item_id = ? AND source = ? AND status = 'active'`,
@@ -489,6 +505,9 @@ func recordCatalogPriceSwitch(kind, itemID string, appID, developerID int64, bef
 					return 0, err
 				}
 			} else {
+				if err := setCatalogCommercialIncluded(db, kind, itemID, true); err != nil {
+					return 0, err
+				}
 				granted, err = grantCatalogGrandfather(db, kind, itemID, appID)
 				if err != nil {
 					return 0, err
@@ -538,6 +557,31 @@ func appendCatalogPriceSwitchAudit(kind, itemID string, crossing bool, policy, a
 		TargetType: kind, TargetID: itemID, Detail: detail,
 	})
 	return granted, nil
+}
+
+// setCatalogCommercialIncluded 在「所有人都需购买」时关掉商业版免费，老用户免费则重新打开。
+func setCatalogCommercialIncluded(db *sql.DB, kind, itemID string, included bool) error {
+	table := "source_catalog_plugins"
+	column := "id"
+	if kind == sourceKindTemplate {
+		table = "source_catalog_templates"
+		column = "template_key"
+	}
+	bit := 0
+	if included {
+		bit = 1
+	}
+	_, err := db.Exec(`UPDATE `+table+` SET commercial_included = ? WHERE `+column+` = ?`, bit, itemID)
+	if err != nil && isMissingTable(err) {
+		return nil
+	}
+	if err != nil && kind == sourceKindTemplate {
+		_, err = db.Exec(`UPDATE source_catalog_templates SET commercial_included = ? WHERE id = ?`, bit, itemID)
+		if err != nil && isMissingTable(err) {
+			return nil
+		}
+	}
+	return err
 }
 
 func isMissingTable(err error) bool {
@@ -679,16 +723,6 @@ func grantGrandfatherLicense(db *sql.DB, kind, itemID string, licenseID int64) (
 		return false, err
 	}
 	return true, nil
-}
-
-func catalogEntryPurchaseOnly(kind, itemID string, developerID, priceCents int64) bool {
-	if priceCents <= 0 {
-		return false
-	}
-	if developerID > 0 {
-		return true
-	}
-	return catalogItemPurchaseOnly(kind, itemID)
 }
 
 func catalogItemPurchaseOnly(kind, itemID string) bool {

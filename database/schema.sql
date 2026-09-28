@@ -335,6 +335,7 @@ CREATE TABLE `licenses` (
   UNIQUE KEY `uk_license_no` (`license_no`),
   KEY `idx_app` (`app_id`),
   KEY `idx_owner` (`owner_type`, `owner_id`),
+  KEY `idx_license_owner_app_status` (`owner_type`, `owner_id`, `app_id`, `status`),
   KEY `idx_status_expired` (`status`, `expired_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权表';
 
@@ -778,9 +779,6 @@ CREATE TABLE `plugin_sources` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_url` (`url`(191))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权系统插件软件源';
-
-INSERT INTO `plugin_sources` (`name`, `url`, `source_type`, `created_at`) VALUES
-('官方软件源', 'https://auth.maizll.com/software-source/app_f93896d80066_5811/index.json', 'json', NOW());
 
 DROP TABLE IF EXISTS `plugins`;
 CREATE TABLE `plugins` (

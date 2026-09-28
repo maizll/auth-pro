@@ -267,7 +267,7 @@
 
   function openAuth(mode: 'login' | 'register' = 'login') {
     if (mode === 'register' && !registrationEnabled.value) {
-      ElMessage.warning('普通用户注册已关闭，请联系管理员')
+      ElMessage.info('普通用户注册已关闭，请联系管理员')
       authMode.value = 'login'
     } else {
       authMode.value = mode
@@ -282,7 +282,7 @@
   async function sendCode() {
     const email = registerForm.email.trim().toLowerCase()
     if (!email) {
-      ElMessage.warning('请先填写邮箱')
+      ElMessage.info('请先填写邮箱')
       return
     }
     const { data } = await axios.post('/api/user-panel/register/email-code', { email })

@@ -5,9 +5,31 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestFillReleaseSizeFromPrivatePackage(t *testing.T) {
+	const name = "abcdefabcdefabcdefabcdefabcdefab.zip"
+	dir := stationPaidPackageDir()
+	path := filepath.Join(dir, name)
+	body := []byte("size-probe-package")
+	if err := os.WriteFile(path, body, 0640); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(path) })
+	rel := sourceRelease{Location: "paid:" + name}
+	fillReleaseSize(&rel)
+	if rel.SizeBytes != int64(len(body)) {
+		t.Fatalf("size = %d, want %d", rel.SizeBytes, len(body))
+	}
+	rel.SizeBytes = 12
+	fillReleaseSize(&rel)
+	if rel.SizeBytes != 12 {
+		t.Fatalf("existing size overwritten: %d", rel.SizeBytes)
+	}
+}
 
 func TestClassifyPackageRefAndStampVersion(t *testing.T) {
 	const paidName = "0123456789abcdef0123456789abcdef.zip"

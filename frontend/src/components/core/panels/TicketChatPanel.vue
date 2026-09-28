@@ -162,7 +162,7 @@
   const drawerSize = computed(() => (window.innerWidth < 640 ? '100%' : '520px'))
   const statusTagType = computed(() => {
     const map: Record<string, 'warning' | 'success' | 'info'> = {
-      pending: 'warning',
+      pending: 'info',
       replied: 'success',
       closed: 'info'
     }

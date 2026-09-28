@@ -17,7 +17,7 @@ interface BizStatusEntry {
 
 /** 入驻审核：SOURCE_APPLICATION_STATUS */
 const reviewStatus: Record<string, BizStatusEntry> = {
-  pending: { label: '待审核', type: 'warning', effect: 'light' },
+  pending: { label: '待审核', type: 'info', effect: 'light' },
   approved: { label: '已通过', type: 'success', effect: 'light' },
   rejected: { label: '已拒绝', type: 'danger', effect: 'light' },
   cancelled: { label: '已取消', type: 'info', effect: 'light' },
@@ -33,7 +33,7 @@ const adStatus: Record<string, BizStatusEntry> = { ...reviewStatus }
 /** 授权列表颜色 + 用户/代理端即将到期 */
 const licenseStatus: Record<string, BizStatusEntry> = {
   active: { label: '正常', type: 'success', effect: 'light' },
-  expiring: { label: '即将到期', type: 'warning', effect: 'light' },
+  expiring: { label: '即将到期', type: 'info', effect: 'light' },
   expired: { label: '已过期', type: 'info', effect: 'light' },
   disabled: { label: '已禁用', type: 'danger', effect: 'light' }
 }
@@ -43,7 +43,7 @@ const campaignStatus: Record<string, BizStatusEntry> = {
   active: { label: '进行中', type: 'success', effect: 'light' },
   upcoming: { label: '未开始', type: 'primary', effect: 'light' },
   ended: { label: '已结束', type: 'info', effect: 'light' },
-  disabled: { label: '已禁用', type: 'warning', effect: 'light' }
+  disabled: { label: '已禁用', type: 'info', effect: 'light' }
 }
 
 const dictionaries: Record<BizStatusDomain, Record<string, BizStatusEntry>> = {

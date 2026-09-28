@@ -43,39 +43,41 @@
       </div>
 
       <el-table :data="tableData" stripe v-loading="loading" class="licenses-table">
-        <el-table-column label="域名" :min-width="narrow ? 48 : 220" show-overflow-tooltip>
+        <el-table-column label="域名" min-width="220">
           <template #default="{ row }">
-            <div class="target-cell">
+            <div class="target-cell cell-one-line-row">
               <span v-if="!narrow" class="target-icon" :class="`target-icon-${row.type}`">
                 <iconify-icon :icon="typeIconMap[row.type] || 'ri:global-line'" width="15" />
               </span>
-              <el-tag v-if="row.bindingPending" type="warning" size="small">未绑定</el-tag>
+              <el-tag v-if="row.bindingPending" type="info" size="small">未绑定</el-tag>
               <span v-else class="target-value" :class="{ mono: row.type !== 'domain' }">{{
                 row.domain || '--'
               }}</span>
-              <span v-if="row.type === 'key'" class="bound-count list-cell-extra">
-                已绑定 {{ row.boundSites ?? 0
-                }}{{ Number(row.maxSites) ? ` / ${row.maxSites}` : '' }}
-              </span>
-              <span class="change-quota list-cell-extra">{{ freeChangeText(row) }}</span>
             </div>
           </template>
         </el-table-column>
-        <el-table-column
-          v-if="!narrow"
-          prop="appName"
-          label="应用"
-          width="110"
-          show-overflow-tooltip
-        />
-        <el-table-column v-if="!narrow" prop="typeLabel" label="类型" width="80">
+        <el-table-column label="绑定" width="120" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.type === 'key'" class="cell-one-line">
+              已绑定 {{ row.boundSites ?? 0 }}{{ Number(row.maxSites) ? ` / ${row.maxSites}` : '' }}
+            </span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="更换" width="110" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span class="cell-one-line">{{ freeChangeText(row) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="appName" label="应用" width="110" />
+        <el-table-column prop="typeLabel" label="类型" width="80">
           <template #default="{ row }">
             <el-tag :type="typeTagMap[row.type]" size="small" effect="light">{{
               row.typeLabel
             }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="statusLabel" label="状态" :width="narrow ? 72 : 90" align="center">
+        <el-table-column prop="statusLabel" label="状态" width="90" align="center">
           <template #default="{ row }">
             <BizStatusTag
               domain="license"
@@ -85,27 +87,25 @@
             />
           </template>
         </el-table-column>
-        <el-table-column :label="narrow ? '到期' : '到期时间'" :width="narrow ? 92 : 140">
-          <template #default="{ row }">{{ formatLicenseExpire(row.expireAt, narrow) }}</template>
+        <el-table-column :label="narrow ? '到期' : '到期时间'" :width="narrow ? 168 : 210">
+          <template #default="{ row }">
+            <EditionExpire :commercial="row.commercialActive">
+              {{ formatLicenseExpire(row.expireAt, narrow) }}
+            </EditionExpire>
+          </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" prop="createdAt" label="开通时间" width="130" />
-        <el-table-column v-if="!narrow" prop="source" label="来源" width="100">
+        <el-table-column prop="createdAt" label="开通时间" width="130" />
+        <el-table-column prop="source" label="来源" width="100">
           <template #default="{ row }">
             <span class="source-text">{{ row.source }}</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="!narrow" prop="amount" label="套餐原价" width="110" align="right">
+        <el-table-column prop="amount" label="套餐原价" width="110" align="right">
           <template #default="{ row }">
             <span class="amount-text">{{ formatLicenseAmount(row.amount) }}</span>
           </template>
         </el-table-column>
-        <el-table-column
-          label="操作"
-          :width="narrow ? 104 : undefined"
-          :min-width="narrow ? 104 : 220"
-          :fixed="narrow ? false : 'right'"
-          align="center"
-        >
+        <el-table-column label="操作" :min-width="narrow ? 96 : 160" fixed="right" align="left">
           <template #default="{ row }">
             <RowActions
               v-if="narrow"
@@ -253,7 +253,7 @@
       >
         <el-table-column label="类型" width="80">
           <template #default="{ row }">
-            <el-tag :type="row.targetType === 'ip' ? 'warning' : undefined" size="small">
+            <el-tag :type="row.targetType === 'ip' ? 'info' : undefined" size="small">
               {{ row.targetType === 'ip' ? 'IP' : '域名' }}
             </el-tag>
           </template>
@@ -347,7 +347,7 @@
           <el-alert
             v-else
             title="授权尚未绑定域名，请在列表中点击「绑定」。"
-            type="warning"
+            type="info"
             show-icon
             :closable="false"
           />
@@ -376,6 +376,7 @@
   import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import { licenseTargetError } from '@/utils/license-target'
   import { formatLicenseExpire } from '@/utils/license-expire'
+  import EditionExpire from '@/components/business/commercial/EditionExpire.vue'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import SiteChangePayDialog from '@/components/core/pay/SiteChangePayDialog.vue'
 
@@ -439,7 +440,7 @@
   const typeTagMap: Record<string, TagType | undefined> = {
     domain: undefined,
     wildcard: 'success',
-    ip: 'warning',
+    ip: 'info',
     key: 'info'
   }
   const typeIconMap: Record<string, string> = {
@@ -686,7 +687,7 @@
     const bound = Number(row.boundSites) || 0
     const maxSites = Number(row.maxSites) || 0
     if (intent === 'bind' && maxSites > 0 && bound >= maxSites) {
-      ElMessage.warning('授权已达到最大站点数')
+      ElMessage.info('授权已达到最大站点数')
     }
     siteDialog.licenseId = Number(row.id)
     siteDialog.licenseNo = row.licenseNo || ''
@@ -717,7 +718,7 @@
   async function replaceSite(row: any) {
     const target = (siteReplace[row.id] || '').trim()
     if (!target) {
-      ElMessage.warning('请填写新的域名或 IP')
+      ElMessage.info('请填写新的域名或 IP')
       return
     }
     const { data } = await axios.post(
@@ -785,7 +786,7 @@
     if (redeemDialog.submitting) return
     const cardCode = redeemDialog.cardCode.trim()
     if (!cardCode) {
-      ElMessage.warning('请输入卡密')
+      ElMessage.info('请输入卡密')
       return
     }
 
@@ -899,10 +900,11 @@
 
   .target-cell {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 8px;
     align-items: center;
     min-width: 0;
+    overflow: hidden;
   }
 
   .target-icon {
@@ -977,10 +979,12 @@
   }
 
   .row-actions {
-    display: flex;
-    flex-wrap: wrap;
+    display: inline-flex;
+    flex-wrap: nowrap;
     gap: 2px 8px;
-    justify-content: center;
+    align-items: center;
+    justify-content: flex-start;
+    white-space: nowrap;
   }
 
   .change-quota {

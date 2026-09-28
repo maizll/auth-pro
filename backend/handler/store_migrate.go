@@ -10,6 +10,7 @@ import (
 const (
 	storeMigrationBindings              = "store_bindings_v1"
 	storeMigrationEditions              = "store_editions_v1"
+	storeMigrationStatusIndex           = "store_status_index_v1"
 	storeMigrationOrders                = "store_purchase_orders_v1"
 	storeMigrationEntitlements          = "plugin_entitlements_v1"
 	storeMigrationRevenue               = "store_revenue_ledger_v1"
@@ -17,6 +18,7 @@ const (
 	storeMigrationLicenseSourcePurchase = "licenses_source_store_purchase_v1"
 	storeMigrationDomainChanges         = "license_domain_changes_v1"
 	storeMigrationDropBuyerConnection   = "store_drop_buyer_connection_settings_v1"
+	storeMigrationDropGitHubUpdateURL   = "drop_github_update_url_v1"
 	storeMigrationLoginHandoff          = "store_login_handoff_v1"
 )
 
@@ -125,6 +127,33 @@ func migrateStoreEditions(db *sql.DB) error {
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
 			return fmt.Errorf("store editions: %w", err)
+		}
+	}
+	return nil
+}
+
+// migrateStoreStatusIndexes 给 /api/v1/store/status 的两处查询补索引。
+// 账号下的有效授权按持有者和产品应用过滤；商业版权益按授权和版本取最新一条。
+// 表还不存在时跳过，避免半截库上的探测把迁移记成失败。
+func migrateStoreStatusIndexes(db *sql.DB) error {
+	ok, err := catalogTableExists(db, "licenses")
+	if err != nil {
+		return err
+	}
+	if ok {
+		if err := ensureSourceStationIndex(db, "licenses", "idx_license_owner_app_status",
+			"ALTER TABLE licenses ADD KEY idx_license_owner_app_status (owner_type, owner_id, app_id, status)"); err != nil {
+			return err
+		}
+	}
+	ok, err = catalogTableExists(db, "main_license_editions")
+	if err != nil {
+		return err
+	}
+	if ok {
+		if err := ensureSourceStationIndex(db, "main_license_editions", "idx_main_license_edition_lookup",
+			"ALTER TABLE main_license_editions ADD KEY idx_main_license_edition_lookup (license_id, edition, id)"); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -261,6 +290,23 @@ func migrateDropBuyerConnectionSettings(db *sql.DB) error {
 	_, err := db.Exec(`DELETE FROM system_configs WHERE ` + "`group`" + ` = 'store' AND ` + "`key`" + ` IN ('store_source_base', 'store_site_url', 'store_trust_proxy')`)
 	if err != nil {
 		return fmt.Errorf("buyer connection settings: %w", err)
+	}
+	return nil
+}
+
+// migrateDropGitHubUpdateURL 清掉旧库里保存的代码托管站更新地址。
+// 在线更新已经写死源站，这些值不再读取。匹配的是地址形态，不是某一个仓库名。
+func migrateDropGitHubUpdateURL(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'system_configs'`).Scan(&count); err != nil {
+		return fmt.Errorf("github update url: %w", err)
+	}
+	if count == 0 {
+		return nil
+	}
+	_, err := db.Exec(`DELETE FROM system_configs WHERE value LIKE '%api.github.com/repos/%' OR value LIKE '%github.com/%/releases/%' OR value LIKE '%raw.githubusercontent.com/%'`)
+	if err != nil {
+		return fmt.Errorf("github update url: %w", err)
 	}
 	return nil
 }

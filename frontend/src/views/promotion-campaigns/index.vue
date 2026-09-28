@@ -70,14 +70,12 @@
       </div>
 
       <el-table v-loading="loading" :data="tableData" row-key="id" class="campaign-table">
-        <el-table-column label="活动" min-width="190">
+        <el-table-column label="活动" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">
-            <div class="campaign-name">
-              <strong>{{ row.name }}</strong>
-              <span>{{ row.appName }}</span>
-            </div>
+            <span class="cell-one-line">{{ row.name }}</span>
           </template>
         </el-table-column>
+        <el-table-column prop="appName" label="应用" min-width="140" show-overflow-tooltip />
         <el-table-column label="适用对象" width="110">
           <template #default="{ row }">
             <el-tag effect="plain" :type="audienceTagType(row.audience)">
@@ -85,9 +83,9 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="活动套餐" min-width="260">
+        <el-table-column label="活动套餐" min-width="260" show-overflow-tooltip>
           <template #default="{ row }">
-            <div class="plan-tags">
+            <div class="plan-tags cell-one-line-row">
               <el-tag v-for="plan in row.plans" :key="plan.planId" size="small" type="info">
                 {{ plan.planName }} · {{ ruleLabel(plan) }}
                 <template v-if="row.purchaseLimitEnabled">
@@ -99,12 +97,11 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="活动时间" min-width="225">
+        <el-table-column label="活动时间" min-width="225" show-overflow-tooltip>
           <template #default="{ row }">
-            <div class="time-range">
-              <span>{{ formatDateTime(row.startsAt) }}</span>
-              <span class="time-divider">至 {{ formatDateTime(row.endsAt) }}</span>
-            </div>
+            <span class="cell-one-line">
+              {{ formatDateTime(row.startsAt) }} 至 {{ formatDateTime(row.endsAt) }}
+            </span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="100">
@@ -537,7 +534,7 @@
     ({ user: '用户', agent: '代理商', all: '全部' })[audience]
 
   const audienceTagType = (audience: PromotionAudience): TagProps['type'] =>
-    ({ user: 'primary', agent: 'warning', all: 'success' })[audience] as TagProps['type']
+    ({ user: 'primary', agent: 'primary', all: 'success' })[audience] as TagProps['type']
 
   const formatDateTime = (value: string) => {
     const date = new Date(value)
@@ -891,8 +888,6 @@
     width: 210px;
   }
 
-  .campaign-name,
-  .time-range,
   .rule-plan {
     display: flex;
     flex-direction: column;
@@ -907,7 +902,8 @@
   .plan-tags {
     display: flex;
     gap: 6px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow: hidden;
   }
 
   .time-divider,

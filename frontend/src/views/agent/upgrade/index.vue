@@ -61,18 +61,15 @@
 
             <!-- 原用户 -->
             <template #user="{ row }">
-              <div class="subject-cell">
-                <strong>{{ row.userName || row.userEmail }}</strong>
-                <span>#{{ row.userId }} · {{ row.userEmail }}</span>
-              </div>
+              <span class="cell-one-line">{{ row.userName || row.userEmail || '-' }}</span>
+            </template>
+            <template #userEmail="{ row }">
+              <span class="cell-one-line">{{ row.userEmail || '-' }}</span>
             </template>
 
             <!-- 代理等级 -->
             <template #level="{ row }">
-              <div class="subject-cell">
-                <strong>{{ row.levelName }}</strong>
-                <span>{{ row.discount }} 折</span>
-              </div>
+              <span class="cell-one-line">{{ row.levelName }} · {{ row.discount }} 折</span>
             </template>
 
             <!-- 开通费 -->
@@ -150,11 +147,10 @@
 
             <!-- 主体迁移 -->
             <template #migration="{ row }">
-              <div class="migration-cell">
-                <span>用户 #{{ row.userId }} · {{ row.userEmail }}</span>
-                <ArtSvgIcon icon="ri:arrow-right-line" class="migration-arrow" />
-                <span>代理 #{{ row.agentId }} · {{ row.agentName || row.agentEmail }}</span>
-              </div>
+              <span class="cell-one-line">
+                用户 #{{ row.userId }} · {{ row.userEmail }} → 代理 #{{ row.agentId }} ·
+                {{ row.agentName || row.agentEmail }}
+              </span>
             </template>
 
             <!-- 开通费 -->
@@ -226,7 +222,6 @@
 </template>
 
 <script setup lang="ts">
-  import ArtSvgIcon from '@/components/core/base/art-svg-icon/index.vue'
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchAgentUpgradeStats,
@@ -304,9 +299,9 @@
     return (
       (
         {
-          pending: 'warning',
+          pending: 'info',
           paid: 'primary',
-          processing: 'warning',
+          processing: 'info',
           completed: 'success',
           failed: 'danger',
           cancelled: 'info'
@@ -321,9 +316,9 @@
 
   const conversionStatusType = (status: string): TagType => {
     return (
-      (
-        { processing: 'warning', completed: 'success', failed: 'danger' } as Record<string, TagType>
-      )[status] || 'info'
+      ({ processing: 'info', completed: 'success', failed: 'danger' } as Record<string, TagType>)[
+        status
+      ] || 'info'
     )
   }
 
@@ -373,7 +368,14 @@
           showOverflowTooltip: true,
           useSlot: true
         },
-        { prop: 'user', label: '原用户', minWidth: 190, showOverflowTooltip: true, useSlot: true },
+        { prop: 'user', label: '原用户', minWidth: 140, showOverflowTooltip: true, useSlot: true },
+        {
+          prop: 'userEmail',
+          label: '邮箱',
+          minWidth: 180,
+          showOverflowTooltip: true,
+          useSlot: true
+        },
         { prop: 'level', label: '代理等级', minWidth: 130, useSlot: true },
         { prop: 'amount', label: '开通费', width: 110, align: 'right', useSlot: true },
         { prop: 'openingBonus', label: '开通赠送', width: 110, align: 'right', useSlot: true },
@@ -451,7 +453,13 @@
           showOverflowTooltip: true,
           useSlot: true
         },
-        { prop: 'migration', label: '主体迁移', minWidth: 240, useSlot: true },
+        {
+          prop: 'migration',
+          label: '主体迁移',
+          minWidth: 280,
+          showOverflowTooltip: true,
+          useSlot: true
+        },
         { prop: 'levelName', label: '代理等级', width: 120 },
         { prop: 'openingFee', label: '开通费', width: 110, align: 'right', useSlot: true },
         {
@@ -628,22 +636,6 @@
           border: none;
         }
       }
-    }
-
-    .subject-cell,
-    .migration-cell {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-
-      span {
-        font-size: 12px;
-        color: var(--el-text-color-secondary);
-      }
-    }
-
-    .migration-arrow {
-      color: var(--el-color-primary);
     }
 
     .mono {

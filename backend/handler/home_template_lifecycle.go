@@ -27,6 +27,9 @@ import (
 var homeTemplateMutationMu sync.Mutex
 
 func AdminHomeTemplateInstall(c *gin.Context) {
+	if rejectPaidTemplateEnable(c, strings.TrimSpace(c.Param("id"))) {
+		return
+	}
 	if err := applyHomeTemplate(c.Request.Context(), c.Param("id"), false); err != nil {
 		writeAppStoreError(c, err)
 		return
@@ -51,6 +54,9 @@ func AdminHomeTemplateUninstall(c *gin.Context) {
 }
 
 func AdminHomeTemplateDownload(c *gin.Context) {
+	if rejectPaidTemplateEnable(c, strings.TrimSpace(c.Param("id"))) {
+		return
+	}
 	payload, filename, contentType, err := downloadHomeTemplate(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		writeAppStoreError(c, err)
@@ -89,6 +95,11 @@ func downloadHomeTemplate(ctx context.Context, rawID string) ([]byte, string, st
 					return payload, remote.TemplateKey + "-" + remote.Version + "." + extension, contentType, nil
 				}
 			}
+		}
+	}
+	if paidID, priced := paidTemplateCatalogID(catalogID, key); priced {
+		if payload, err := downloadPaidPackage(ctx, "template", paidID); err == nil {
+			return payload, key + ".zip", "application/zip", nil
 		}
 	}
 	// An installed package stays downloadable when its source is offline or withdrawn.

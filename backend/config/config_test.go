@@ -140,14 +140,14 @@ func TestLoadDBConfigFromEnv(t *testing.T) {
 }
 
 func TestDefaultUpdateManifestURL(t *testing.T) {
-	t.Setenv("AUTO_PRO_UPDATE_URL", "")
+	t.Setenv("AUTO_PRO_UPDATE_URL", "https://mirror.example.com/latest.json")
 	if got := GetUpdateManifestURL(); got != DefaultUpdateManifestURL {
 		t.Fatalf("GetUpdateManifestURL() = %q", got)
 	}
-	if !strings.Contains(DefaultUpdateManifestURL, "github.com") || !strings.Contains(DefaultUpdateManifestURL, "/maizll/auth-pro/") {
-		t.Fatalf("default update URL must point at GitHub maizll/auth-pro, got %q", DefaultUpdateManifestURL)
+	if DefaultUpdateManifestURL != "https://auth.maizll.com/api/v1/update/latest.json" {
+		t.Fatalf("default update URL = %q", DefaultUpdateManifestURL)
 	}
-	for _, banned := range []string{"Zcy-sa", "cy70923167", "gitee.com"} {
+	for _, banned := range []string{"github.com", "gitee.com", "Zcy-sa", "cy70923167"} {
 		if strings.Contains(DefaultUpdateManifestURL, banned) {
 			t.Fatalf("default update URL still mentions %q: %s", banned, DefaultUpdateManifestURL)
 		}
@@ -177,8 +177,8 @@ func TestGetUpdateManifestURL(t *testing.T) {
 	}
 
 	t.Setenv("AUTO_PRO_UPDATE_URL", "https://mirror.example.com/latest.json")
-	if got := GetUpdateManifestURL(); got != "https://mirror.example.com/latest.json" {
-		t.Fatalf("GetUpdateManifestURL() override = %q", got)
+	if got := GetUpdateManifestURL(); got != DefaultUpdateManifestURL {
+		t.Fatalf("environment override changed the update URL: %q", got)
 	}
 }
 
