@@ -94,3 +94,5 @@ baota_prepare_backup_dir() {
 实测改到 Docker 容器内：`ubuntu:22.04`，需要时加 `--privileged`，使用容器自己的网络命名空间，不用 `--network host`。安装、Nginx、MySQL 和 `btpython` 调用都只在容器里做。宿主机只安装 Docker 引擎，不跑宝塔安装脚本。
 
 若 Docker 起不来，则只下载面板压缩包做静态分析，并标明哪些调用没有实测。
+
+2026-09-28 实测：宿主机只装了 `docker.io` 并用手动 `dockerd` 拉起（本机没有 systemd）。容器 `baota-lab` 使用 `ubuntu:22.04`、`--privileged`、默认 bridge 网络，没有 `--network host`。容器内可以访问 `https://download.bt.cn`。官方 `install_panel.sh -y --ssl-disable -P 8888` 只在该容器里执行。
