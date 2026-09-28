@@ -53,8 +53,14 @@ func TestPublicInstallRouteServesScriptFromPackage(t *testing.T) {
 	if strings.Contains(strings.ToLower(string(script)), "github.com") || strings.Contains(string(script), "githubusercontent") {
 		t.Fatal("scripts/install.sh exposes a repository address")
 	}
-	if !strings.Contains(string(script), "/api/v1/update/latest.json") || !strings.Contains(string(script), "baota-install.sh") {
+	if strings.Contains(string(script), "AUTH_PRO_UPDATE_BASE") {
+		t.Fatal("scripts/install.sh can retarget the official site")
+	}
+	if !strings.Contains(string(script), "https://auth.maizll.com/api/v1/update/latest.json") || !strings.Contains(string(script), "baota-install.sh") {
 		t.Fatal("scripts/install.sh does not download the official package or reuse baota-install.sh")
+	}
+	if !strings.Contains(string(script), "https://auth.maizll.com/api/v1/update/package/") || !installScriptPinsOfficialOrigin(script) {
+		t.Fatal("scripts/install.sh does not pin the official package URL")
 	}
 	pkg := writeGzipTar(t, map[string]string{
 		"install.sh":        string(script),
@@ -87,6 +93,60 @@ func TestPublicInstallRouteServesScriptFromPackage(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(recorder.Body.String()), "github.com") {
 		t.Fatal("response leaked a repository address")
+	}
+	rewritten := httptest.NewRequest(http.MethodGet, "/install.sh?base=https://evil.example", nil)
+	rewritten.Host = "evil.example"
+	rewritten.Header.Set("X-Forwarded-Host", "evil.example")
+	rewrittenRec := httptest.NewRecorder()
+	router.ServeHTTP(rewrittenRec, rewritten)
+	if rewrittenRec.Code != http.StatusOK || rewrittenRec.Body.String() != string(script) {
+		t.Fatal("request host or query rewrote the install script")
+	}
+	if strings.Contains(rewrittenRec.Body.String(), "evil.example") {
+		t.Fatal("request host leaked into the install script")
+	}
+}
+
+func TestInstallScriptPinsOfficialOrigin(t *testing.T) {
+	pinned := "#!/bin/sh\ncurl \"https://auth.maizll.com/api/v1/update/latest.json\"\nurl=\"https://auth.maizll.com/api/v1/update/package/${VERSION}\"\n"
+	if !installScriptPinsOfficialOrigin([]byte(pinned)) {
+		t.Fatal("a script with a fixed official origin was rejected")
+	}
+	rejected := []string{
+		"#!/bin/sh\nBASE=\"${AUTH_PRO_UPDATE_BASE:-https://auth.maizll.com}\"\ncurl \"${BASE}/api/v1/update/latest.json\"\n",
+		"#!/bin/sh\ncurl \"https://auth.maizll.com/api/v1/update/latest.json\"\ncurl \"${BASE}/api/v1/update/package/${VERSION}\"\n",
+		"#!/bin/sh\ncurl \"http://127.0.0.1/api/v1/update/latest.json\"\nurl=\"http://127.0.0.1/api/v1/update/package/${VERSION}\"\n",
+		"#!/bin/sh\n# https://auth.maizll.com/api/v1/update/latest.json\ncurl \"$BASE/api/v1/update/latest.json\"\n",
+	}
+	for _, body := range rejected {
+		if installScriptPinsOfficialOrigin([]byte(body)) {
+			t.Fatalf("accepted a script that can leave the official site: %s", body)
+		}
+	}
+}
+
+func TestPublicInstallRouteRejectsRetargetableScript(t *testing.T) {
+	resetProductUpdateStateForTest()
+	t.Cleanup(resetProductUpdateStateForTest)
+	hooked := "#!/bin/sh\nBASE=\"${AUTH_PRO_UPDATE_BASE:-https://auth.maizll.com}\"\ncurl \"${BASE}/api/v1/update/latest.json\"\n"
+	pkg := writeGzipTar(t, map[string]string{"install.sh": hooked})
+	loadProductUpdateRecords = func() ([]productUpdateRecord, error) {
+		info, err := os.Stat(pkg)
+		if err != nil {
+			return nil, err
+		}
+		return []productUpdateRecord{{Version: "1.7.4", PackagePath: pkg, FileSize: info.Size()}}, nil
+	}
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	RegisterPublicInstallRoute(router)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/install.sh", nil))
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "AUTH_PRO_UPDATE_BASE") || strings.Contains(recorder.Body.String(), "auth.maizll.com") {
+		t.Fatalf("error leaked the script: %s", recorder.Body.String())
 	}
 }
 

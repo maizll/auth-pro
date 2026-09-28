@@ -62,6 +62,24 @@ pack_payload() {
   tar -czf "$archive" -C "$dir" .
 }
 
+# 只改测试副本。成品 scripts/install.sh 里的官网地址保持写死。
+install_for_test() {
+  local dest="$1" origin="$2"
+  cp "$ROOT/scripts/install.sh" "$dest"
+  sed -i \
+    -e "s|https://auth.maizll.com|${origin}|g" \
+    -e "s|--proto '=https'|--proto '=http'|g" \
+    "$dest"
+  chmod 755 "$dest"
+  if grep -q 'AUTH_PRO_UPDATE_BASE' "$dest"; then
+    fail "测试副本仍读取 AUTH_PRO_UPDATE_BASE"
+  fi
+  if grep -q 'https://auth.maizll.com' "$dest"; then
+    fail "测试副本仍指向官网"
+  fi
+  grep -q "${origin}/api/v1/update/latest.json" "$dest" || fail "测试副本没有换成临时地址"
+}
+
 bash -n "$INSTALL" "$UPGRADE" "$LIB"
 ok "bash -n"
 
@@ -591,6 +609,15 @@ bash -n "$REMOTE"
 if grep -E -q 'github\.com|githubusercontent' "$REMOTE"; then
   fail "一条命令安装脚本露出了仓库地址"
 fi
+if grep -q 'AUTH_PRO_UPDATE_BASE' "$REMOTE"; then
+  fail "成品脚本仍读取 AUTH_PRO_UPDATE_BASE"
+fi
+grep -q 'https://auth.maizll.com/api/v1/update/latest.json' "$REMOTE" || fail "成品脚本没有写死官网清单地址"
+grep -q 'https://auth.maizll.com/api/v1/update/package/' "$REMOTE" || fail "成品脚本没有写死官网下载地址"
+grep -F -q -- "--proto '=https'" "$REMOTE" || fail "成品脚本没有锁定 https"
+if grep -E -q '\$\{[A-Za-z_][A-Za-z0-9_]*:-https?://' "$REMOTE"; then
+  fail "成品脚本用环境变量默认值拼官网地址"
+fi
 ok "一条命令安装脚本语法与帮助"
 
 REMOTE_SRC="$WORKDIR/remote-src"
@@ -655,7 +682,9 @@ class Handler(BaseHTTPRequestHandler):
 
 ThreadingHTTPServer(("127.0.0.1", int(port)), Handler).serve_forever()
 PY
-python3 "$WORKDIR/fake-update-server.py" "$WORKDIR/remote.tar.gz" "$REMOTE" "$REMOTE_PORT" ok >"$WORKDIR/fake-update.log" 2>&1 &
+GOOD_COPY="$WORKDIR/install-ok.sh"
+install_for_test "$GOOD_COPY" "http://127.0.0.1:${REMOTE_PORT}"
+python3 "$WORKDIR/fake-update-server.py" "$WORKDIR/remote.tar.gz" "$GOOD_COPY" "$REMOTE_PORT" ok >"$WORKDIR/fake-update.log" 2>&1 &
 PIDS+=("$!")
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if curl -fsS "http://127.0.0.1:${REMOTE_PORT}/install.sh" >/dev/null 2>&1; then
@@ -663,8 +692,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   fi
   sleep 0.1
 done
-AUTH_PRO_UPDATE_BASE="http://127.0.0.1:${REMOTE_PORT}" \
-  bash "$REMOTE" demo.example --site-root "$REMOTE_SITE" --port "$PORT" >"$WORKDIR/remote-install.out"
+bash "$GOOD_COPY" demo.example --site-root "$REMOTE_SITE" --port "$PORT" >"$WORKDIR/remote-install.out"
 [[ -x "$REMOTE_SITE/backend/start.sh" ]] || fail "一条命令安装没有生成 start.sh"
 grep -q 'http://demo.example' "$WORKDIR/remote-install.out" || fail "没有打印要打开的网址"
 grep -q '还要在宝塔面板里完成' "$WORKDIR/remote-install.out" || fail "没有打印剩余手工步骤"
@@ -673,8 +701,7 @@ ok "一条命令安装：下载、核对、创建目录"
 
 SUM_BEFORE="$(sha256sum "$REMOTE_SITE/index.html" | awk '{print $1}')"
 printf 'installed\n' > "$REMOTE_SITE/backend/install.lock"
-if AUTH_PRO_UPDATE_BASE="http://127.0.0.1:${REMOTE_PORT}" \
-  bash "$REMOTE" demo.example --site-root "$REMOTE_SITE" --port "$PORT" >"$WORKDIR/remote-locked.out" 2>"$WORKDIR/remote-locked.err"; then
+if bash "$GOOD_COPY" demo.example --site-root "$REMOTE_SITE" --port "$PORT" >"$WORKDIR/remote-locked.out" 2>"$WORKDIR/remote-locked.err"; then
   fail "已安装站点仍继续一条命令安装"
 fi
 grep -q '在线更新' "$WORKDIR/remote-locked.err" || fail "已安装时没有提示改用升级"
@@ -683,7 +710,9 @@ SUM_AFTER="$(sha256sum "$REMOTE_SITE/index.html" | awk '{print $1}')"
 ok "已安装站点拒绝一条命令安装"
 
 BAD_PORT="$(free_port)"
-python3 "$WORKDIR/fake-update-server.py" "$WORKDIR/remote.tar.gz" "$REMOTE" "$BAD_PORT" bad-hash >"$WORKDIR/fake-bad.log" 2>&1 &
+BAD_COPY="$WORKDIR/install-bad.sh"
+install_for_test "$BAD_COPY" "http://127.0.0.1:${BAD_PORT}"
+python3 "$WORKDIR/fake-update-server.py" "$WORKDIR/remote.tar.gz" "$BAD_COPY" "$BAD_PORT" bad-hash >"$WORKDIR/fake-bad.log" 2>&1 &
 PIDS+=("$!")
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if curl -fsS "http://127.0.0.1:${BAD_PORT}/api/v1/update/latest.json" >/dev/null 2>&1; then
@@ -692,8 +721,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   sleep 0.1
 done
 BAD_SITE="$WORKDIR/bad-hash-site"
-if AUTH_PRO_UPDATE_BASE="http://127.0.0.1:${BAD_PORT}" \
-  bash "$REMOTE" bad.example --site-root "$BAD_SITE" --port "$PORT" >"$WORKDIR/bad-hash.out" 2>"$WORKDIR/bad-hash.err"; then
+if bash "$BAD_COPY" bad.example --site-root "$BAD_SITE" --port "$PORT" >"$WORKDIR/bad-hash.out" 2>"$WORKDIR/bad-hash.err"; then
   fail "SHA256 不一致时不应安装"
 fi
 grep -q 'SHA256 不一致' "$WORKDIR/bad-hash.err" || fail "SHA256 不一致时没有拒绝"

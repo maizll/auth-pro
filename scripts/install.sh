@@ -127,18 +127,14 @@ if [[ -f "$SITE_ROOT/backend/install.lock" ]]; then
   install_die "检测到 ${SITE_ROOT}/backend/install.lock ，站点已经安装。请改用 baota-upgrade.sh ，或在后台使用「在线更新」，以免覆盖运行数据。"
 fi
 
-BASE="${AUTH_PRO_UPDATE_BASE:-https://auth.maizll.com}"
-BASE="${BASE%/}"
-if [[ ! "$BASE" =~ ^https?://[^/@]+$ ]]; then
-  install_die "更新地址不正确"
-fi
-
+# 官网地址写死。不能用环境变量、参数或配置文件改掉。
 command -v curl >/dev/null 2>&1 || install_die "缺少 curl，无法下载安装包"
 command -v python3 >/dev/null 2>&1 || install_die "缺少 python3，无法读取版本清单"
 command -v tar >/dev/null 2>&1 || install_die "缺少 tar，无法解开安装包"
 
 install_info "正在从官网获取最新版本"
-if ! MANIFEST="$(curl -fsSL --proto '=http,https' --max-time 60 "${BASE}/api/v1/update/latest.json")"; then
+# -q 放在最前，不读 curl 的配置文件。协议只允许 https。
+if ! MANIFEST="$(curl -q -fsSL --proto '=https' --max-time 60 "https://auth.maizll.com/api/v1/update/latest.json")"; then
   install_die "无法从官网获取最新版本"
 fi
 
@@ -186,7 +182,7 @@ PKG_NAME="${FIELDS[5]}"
 [[ "$SHA" =~ ^[a-f0-9]{64}$ ]] || install_die "清单里的 SHA256 不正确"
 [[ "$SIGNATURE" == "sha256:${SHA}" ]] || install_die "安装包签名与 SHA256 不一致"
 [[ "$PKG_NAME" == "auth_pro-full-v${VERSION}.tar.gz" ]] || install_die "安装包文件名与版本不一致"
-EXPECT_URL="${BASE}/api/v1/update/package/${VERSION}"
+EXPECT_URL="https://auth.maizll.com/api/v1/update/package/${VERSION}"
 [[ "$PKG_URL" == "$EXPECT_URL" ]] || install_die "清单里的下载地址不是官网更新接口"
 [[ "$SIZE" =~ ^[0-9]+$ ]] || install_die "清单里的安装包大小不正确"
 if [[ "$SIZE" -gt 536870912 ]]; then
@@ -198,7 +194,7 @@ trap 'rm -rf "$WORKDIR"' EXIT
 PKG_FILE="$WORKDIR/$PKG_NAME"
 
 install_info "最新版本 ${VERSION}，开始下载安装包"
-if ! curl -fsSL --proto '=http,https' --retry 2 --retry-delay 1 --max-time 600 -o "$PKG_FILE" "$EXPECT_URL"; then
+if ! curl -q -fsSL --proto '=https' --retry 2 --retry-delay 1 --max-time 600 -o "$PKG_FILE" "$EXPECT_URL"; then
   install_die "安装包下载失败，已停止安装"
 fi
 

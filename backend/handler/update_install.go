@@ -23,7 +23,8 @@ const (
 var errProductUpdateInstallScriptMissing = errors.New("当前发布的安装包里没有安装脚本")
 
 // RegisterPublicInstallRoute 在站点根注册 /install.sh。
-// 正文从「授权系统」当前已发布安装包里抽出，不读仓库地址，也不把脚本写死在程序里。
+// 正文原样来自「授权系统」当前已发布安装包，不按请求头、查询参数或环境变量改写。
+// 脚本里的官网地址必须是写死的 https://auth.maizll.com，带可覆盖入口的脚本不下发。
 // 安装包下载仍走 /api/v1/update/package/:version：不登录、不收令牌，只发这个应用的已发布客户端包。
 // 付费插件走软件目录的另一条下载接口，不会从这里发出去。
 func RegisterPublicInstallRoute(engine *gin.Engine) {
@@ -96,12 +97,46 @@ func readPackageInstallScript(path string) ([]byte, error) {
 		if !strings.HasPrefix(string(body), "#!") {
 			return nil, errProductUpdateUnavailable
 		}
-		// 脚本里如果夹进了仓库地址，整段不下发。
-		if productUpdateBodyLeaks(body) {
+		// 脚本里如果夹进了仓库地址，或官网地址还能被改掉，整段不下发。
+		if productUpdateBodyLeaks(body) || !installScriptPinsOfficialOrigin(body) {
 			return nil, errProductUpdateUnavailable
 		}
 		return body, nil
 	}
+}
+
+// installScriptPinsOfficialOrigin 要求更新地址是写死的官网，不能从环境变量拼出来。
+// 版本号仍可以是清单里的 ${VERSION}。注释行不参与判断。
+func installScriptPinsOfficialOrigin(body []byte) bool {
+	latest := false
+	pkg := false
+	text := string(body)
+	if strings.Contains(text, "AUTH_PRO_UPDATE_BASE") {
+		return false
+	}
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if !strings.Contains(line, "/api/v1/update/") {
+			continue
+		}
+		if !strings.Contains(line, "https://auth.maizll.com/api/v1/update/") {
+			return false
+		}
+		rest := strings.ReplaceAll(line, "${VERSION}", "")
+		if strings.Contains(rest, "${") || strings.Contains(rest, "$AUTH") || strings.Contains(rest, "$BASE") {
+			return false
+		}
+		if strings.Contains(line, "https://auth.maizll.com/api/v1/update/latest.json") {
+			latest = true
+		}
+		if strings.Contains(line, "https://auth.maizll.com/api/v1/update/package/") {
+			pkg = true
+		}
+	}
+	return latest && pkg
 }
 
 func isPackageInstallScript(name string) bool {
