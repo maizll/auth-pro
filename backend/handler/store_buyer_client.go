@@ -465,12 +465,13 @@ func persistBuyerBind(envelope map[string]any, fallbackName, fallbackRole string
 		if name != "" {
 			accountLine = name + "\n" + role
 		}
-		return saveSnapshotMap(snap, true, false, accountLine)
+		source, _ := data["editionSource"].(string)
+		return saveSnapshotMap(snap, true, false, accountLine, source)
 	}
 	return nil
 }
 
-func saveSnapshotMap(raw map[string]any, refreshOK, revoked bool, accountLine string) error {
+func saveSnapshotMap(raw map[string]any, refreshOK, revoked bool, accountLine, editionSource string) error {
 	payload, err := json.Marshal(raw)
 	if err != nil {
 		return err
@@ -499,6 +500,10 @@ func saveSnapshotMap(raw map[string]any, refreshOK, revoked bool, accountLine st
 		if len(parts) == 2 {
 			state.AccountRole = parts[1]
 		}
+	}
+	if refreshOK {
+		// 免费版刷新成功时来源是空，胶囊不再显示上一次的商业版来源。
+		state.EditionSource = strings.TrimSpace(editionSource)
 	}
 	if revoked {
 		state.RevokeReason = "revoked"
@@ -615,7 +620,8 @@ func refreshBuyerSnapshotOnce(ctx context.Context, domain string) error {
 	}
 	data, _ := payload["data"].(map[string]any)
 	snap, _ := data["snapshot"].(map[string]any)
-	return saveSnapshotMap(snap, true, false, buyerAccountLine(data["account"]))
+	source, _ := data["editionSource"].(string)
+	return saveSnapshotMap(snap, true, false, buyerAccountLine(data["account"]), source)
 }
 
 // StartStoreSnapshotRefresher 在后台定期向源站核对快照。

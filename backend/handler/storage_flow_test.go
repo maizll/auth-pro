@@ -229,6 +229,54 @@ func TestStorageObjectsMarkOrphansAndChineseProbe(t *testing.T) {
 	}
 }
 
+func TestSettlePaidZipAndImportShareStorage(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	_, _ = sourceStationRouter(t)
+	server, hits := newMemoryS3(t, nil)
+	loc := testS3Location(t, "主", storageRolePrimary, server.URL)
+	if err := saveStorageBlob(storageConfigBlob{Locations: []storageLocation{loc}}); err != nil {
+		t.Fatal(err)
+	}
+	payload := sourcePluginTestZIP(t)
+	ref, sum, local, err := settlePaidZipBytes(context.Background(), sourceKindPlugin, "demo-plugin", "1.0.0", payload)
+	if err != nil || local || !strings.HasPrefix(ref, "s3:"+loc.ID+"/") || hits.put.Load() == 0 {
+		t.Fatalf("ref=%s local=%v puts=%d err=%v", ref, local, hits.put.Load(), err)
+	}
+	got, err := readStoredPackageBytes(context.Background(), ref)
+	if err != nil || sha256SumHex(got) != sum {
+		t.Fatalf("read err=%v match=%v", err, err == nil && sha256SumHex(got) == sum)
+	}
+
+	sealed, err := sealStorageSecret("ghp_storage_import_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	githubLoc := storageLocation{
+		ID: newStorageID(), Name: "仓", Kind: packageStorageGitHub, Role: storageRolePrimary,
+		Owner: "acme", Repo: "paid-plugins", SecretSealed: sealed,
+	}
+	if err := saveStorageBlob(storageConfigBlob{Locations: []storageLocation{githubLoc}}); err != nil {
+		t.Fatal(err)
+	}
+	owner, repo, err := releaseImportRepo("plugin", "")
+	if err != nil || owner != "acme" || repo != "paid-plugins" {
+		t.Fatalf("repo=%s/%s err=%v", owner, repo, err)
+	}
+	found := false
+	for _, token := range productUpdateTokenCandidates() {
+		if token == "ghp_storage_import_token" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("import did not use the storage token")
+	}
+	sibling := siblingObjectKey(githubLoc, "acme/paid-plugins/paid-plugin-demo-1.0.0/demo.parts.json", "demo.part001")
+	if sibling != "acme/paid-plugins/paid-plugin-demo-1.0.0/demo.part001" {
+		t.Fatalf("sibling=%s", sibling)
+	}
+}
+
 type s3HitCount struct {
 	put atomic.Int32
 }

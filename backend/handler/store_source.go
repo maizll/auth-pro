@@ -859,6 +859,8 @@ func StoreStatus(c *gin.Context) {
 	storeData(c, gin.H{
 		"snapshot": snapshot,
 		"account":  gin.H{"name": storeAccountLogin(db, ownerType, ownerID), "role": ownerType},
+		// 来源不进签名快照。1.7.1 客户站按结构体重算签名，多一个字段会验签失败。
+		"editionSource": loadCommercialEditionSource(db, row.LicenseID),
 	})
 }
 

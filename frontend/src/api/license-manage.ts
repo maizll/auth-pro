@@ -324,10 +324,75 @@ export function reissueCommercialPurchases() {
   })
 }
 
-export function fetchGrantCommercialEdition(id: number) {
+export type CommercialPeriod = 'permanent' | 'yearly' | 'monthly'
+
+export function fetchGrantCommercialEdition(id: number, period: CommercialPeriod = 'permanent') {
   return request.post({
     url: `/api/v1/source/admin/store/licenses/${id}/grant`,
-    data: { period: 'permanent' },
+    data: { period },
+    showSuccessMessage: true
+  })
+}
+
+export interface LicenseEditionRecord {
+  id: number
+  periodLabel: string
+  statusLabel: string
+  source: string
+  startedAt: string
+  expireAt: string
+}
+
+export interface LicensePluginRecord {
+  id: number
+  itemKindLabel: string
+  itemId: string
+  periodLabel: string
+  sourceLabel: string
+  active: boolean
+  expireAt: string
+  grantedAt: string
+}
+
+export interface LicenseOperationRecord {
+  actionLabel: string
+  target: string
+  detail: string
+  actor: string
+  createdAt: string
+}
+
+export interface LicenseCatalogOption {
+  itemKind: string
+  itemId: string
+  label: string
+}
+
+export function fetchLicenseCommercialDetail(id: number) {
+  return request.get<{
+    licenseNo: string
+    editions: LicenseEditionRecord[]
+    plugins: LicensePluginRecord[]
+    logs: LicenseOperationRecord[]
+    catalog: LicenseCatalogOption[]
+  }>({ url: `/api/v1/source/admin/store/licenses/${id}/detail` })
+}
+
+export function fetchGiftLicensePlugin(
+  id: number,
+  data: { itemKind: string; itemId: string; period: CommercialPeriod }
+) {
+  return request.post({
+    url: `/api/v1/source/admin/store/licenses/${id}/plugins/gift`,
+    data,
+    showSuccessMessage: true
+  })
+}
+
+export function fetchRevokeLicensePlugin(id: number, entitlementId: number, reason: string) {
+  return request.post({
+    url: `/api/v1/source/admin/store/licenses/${id}/plugins/${entitlementId}/revoke`,
+    data: { reason },
     showSuccessMessage: true
   })
 }

@@ -668,41 +668,6 @@ func probeGitHubPaidAsset(ctx context.Context, location string) error {
 	return err
 }
 
-func uploadPaidZipToStationRepo(ctx context.Context, kind, id, version string, payload []byte) (string, error) {
-	owner, repo, token, err := loadGitHubPaidRepo()
-	if err != nil {
-		return "", err
-	}
-	if owner == "" || repo == "" || token == "" {
-		return "", errGitHubPaidTokenMissing
-	}
-	kind = strings.TrimSpace(kind)
-	if kind == "" {
-		kind = sourceKindPlugin
-	}
-	manifest := sourcePackageManifest{
-		ID: id, Version: version, Kind: kind, Name: id, Description: id + " " + version, Filename: id + "-" + version + ".zip",
-	}
-	settings := sourceReleaseSettings{
-		Provider: "github", Owner: owner, Repo: repo, Token: token, TagStrategy: "paid-{kind}-{id}-{version}",
-	}
-	if _, err := pushGitHubRelease(ctx, settings, manifest, payload); err != nil {
-		if strings.Contains(err.Error(), "401") {
-			return "", errGitHubPaidTokenInvalid
-		}
-		return "", errors.New("上传到收费仓库失败，请检查令牌是否具备 Contents 读写权限")
-	}
-	ref := gitHubAssetRef{
-		Owner: owner, Repo: repo,
-		Tag:   renderSourceReleaseTag(settings.TagStrategy, id, version, kind),
-		Asset: sourceReleaseAssetName(manifest),
-	}
-	if !validGitHubAssetRef(ref) {
-		return "", errors.New("收费仓库里的标签或文件名不合法")
-	}
-	return formatGitHubPackageRef(ref), nil
-}
-
 func touchGitHubPaidHealth(ctx context.Context, store sourceStationStore, kind, id, name string, price int64, location, current string) {
 	if price <= 0 || !isGitHubPackageRef(location) {
 		return

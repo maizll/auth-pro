@@ -11,6 +11,8 @@ export interface StoreAccount {
   domainMismatch: boolean
   edition: string
   editionExpireAt?: number | null
+  /** 商业版来源，如购买、后台开通。不在签名快照里，旧客户端验签不受影响。 */
+  editionSource?: string
   permanent: boolean
   features: string[]
   verifiedAt: number

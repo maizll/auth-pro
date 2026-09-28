@@ -44,13 +44,13 @@
 
 ### 付费包下载
 
-源站判断授权能否下载、签发短时票据，在 `backend/handler/store_download.go` 的 `StoreDownloadTicket`。包放在本站私有目录还是 GitHub 私有仓库，由 `paid_origin.go` 和 `github_paid.go` 决定。买家站把包装进本机插件或模板，在 `store_buyer_client.go` 的 `installPaidPackage`。应用商店页面是 `frontend/src/views/plugin-store/index.vue`。
+源站判断授权能否下载、签发短时票据，在 `backend/handler/store_download.go` 的 `StoreDownloadTicket`。收费包和从仓库导入后确认写入的插件、模板，都经过 `paid_origin.go` 的 `settlePaidZipBytes`，再进存储管理的主备和分片（`storage_flow.go`）。没有启用的存储位置时才暂存本站。买家站把包装进本机插件或模板，在 `store_buyer_client.go` 的 `installPaidPackage`。应用商店页面是 `frontend/src/views/plugin-store/index.vue`。应用「授权系统」的发布版本仍放在本站更新目录，客户更新不走这套存储位置。
 
 ### 在线更新
 
 后台页面是 `frontend/src/views/online-update/index.vue`，请求在 `frontend/src/api/update.ts`。页面不展示更新地址。
 
-客户站只向 `https://auth.maizll.com/api/v1/update/latest.json` 要清单，安装包和历史版本也走源站。实现在 `backend/handler/update.go`。源站对外提供这些清单和安装包的接口在 `backend/handler/update_distribute.go`。
+客户站只向 `https://auth.maizll.com/api/v1/update/latest.json` 要清单，安装包和历史版本也走源站。实现在 `backend/handler/update.go`。源站对外提供这些清单和安装包的接口在 `backend/handler/update_distribute.go`，数据来自应用 `app_f93896d80066_5811` 的发布版本。后台从仓库导入安装包的共用逻辑在 `backend/handler/release_import.go`。
 
 后端路由在 `backend/main.go`：客户站管理接口是 `/api/system/update/status|history|check|apply` 和 `jobs/:id`。源站公开接口是 `/api/v1/update/latest.json`、`/api/v1/update/releases.json` 和 `/api/v1/update/package/:version`。拉包、校验、解压、重启仍在 `update.go`。进程守护脚本是仓库根目录的 `guardian-start.sh`。
 

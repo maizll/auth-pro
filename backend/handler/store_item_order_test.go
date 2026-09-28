@@ -192,7 +192,7 @@ func TestStoreItemPurchaseMariaDB(t *testing.T) {
 		t.Fatalf("查单未支付: %#v", refreshData)
 	}
 	snapRaw, _ := refreshData["snapshot"].(map[string]any)
-	if err := saveSnapshotMap(snapRaw, true, false, "买家\nuser"); err != nil {
+	if err := saveSnapshotMap(snapRaw, true, false, "买家\nuser", ""); err != nil {
 		t.Fatal(err)
 	}
 	enabled := callPluginToggle(t, "epay", true)

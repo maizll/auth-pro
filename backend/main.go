@@ -338,6 +338,7 @@ func main() {
 			licenseVersions.PUT("/app/:id/versions/:versionId", handler.AppVersionUpdate)
 			licenseVersions.DELETE("/app/:id/versions/:versionId", handler.AppVersionDelete)
 			licenseVersions.POST("/app/:id/versions/:versionId/download-url", handler.AppVersionAdminDownloadURL)
+			handler.RegisterReleaseImportRoutes(licenseVersions)
 			secured.GET("/plan/list", handler.PlanList)
 			licensePlans.POST("/plan/create", handler.PlanCreate)
 			licensePlans.PUT("/plan/:id", handler.PlanUpdate)

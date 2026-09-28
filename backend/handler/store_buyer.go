@@ -142,7 +142,7 @@ func buyerAccountPayload(view buyerAccessView, conn buyerConnectionView, install
 	return gin.H{
 		"bound": view.Bound, "account": view.AccountName, "role": view.AccountRole, "licenseNo": view.LicenseNo,
 		"domain": view.Domain, "requestDomain": view.RequestDomain, "domainMismatch": view.DomainMismatch,
-		"edition": view.Edition, "editionExpireAt": view.ExpireAt, "permanent": view.Permanent,
+		"edition": view.Edition, "editionExpireAt": view.ExpireAt, "editionSource": view.EditionSource, "permanent": view.Permanent,
 		"features": view.Features, "verifiedAt": view.VerifiedAt, "graceUntil": view.GraceUntil,
 		"offlineGrace": view.OfflineGrace, "graceWarning": view.GraceWarning, "explicitRevoked": view.ExplicitRevoked,
 		"reason": view.Reason, "siteUrl": conn.SiteURL, "trustProxy": conn.TrustProxy,
@@ -487,7 +487,8 @@ func BuyerStoreOrderQuery(c *gin.Context) {
 	}
 	if data, ok := payload["data"].(map[string]any); ok {
 		if snap, ok := data["snapshot"].(map[string]any); ok {
-			_ = saveSnapshotMap(snap, true, false, "")
+			source, _ := data["editionSource"].(string)
+			_ = saveSnapshotMap(snap, true, false, "", source)
 		}
 	}
 	c.JSON(http.StatusOK, payload)

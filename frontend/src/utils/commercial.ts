@@ -179,10 +179,9 @@ export function commercialPlanLabel(plan: { name: string; priceCents: number; pe
 
 export function commercialExpireText(account?: StoreAccount | null) {
   if (!account) return '未知'
-  if (account.permanent) return '永久'
-  if (!account.editionExpireAt) return '未设置到期时间'
+  if (account.permanent || !account.editionExpireAt) return '永久'
   const date = new Date(account.editionExpireAt * 1000)
-  if (Number.isNaN(date.getTime())) return '未设置到期时间'
+  if (Number.isNaN(date.getTime())) return '永久'
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }

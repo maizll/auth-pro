@@ -127,15 +127,17 @@ func readStoredPackageWithFallback(ctx context.Context, location string) ([]byte
 func readStoredPackageDirect(ctx context.Context, location string) ([]byte, error) {
 	location = strings.TrimSpace(location)
 	switch {
-	case isGitHubPackageRef(location):
-		return fetchGitHubPackageBytes(ctx, location)
-	case isGiteePackageRef(location), isS3PackageRef(location), isWebDAVPackageRef(location):
+	case isGitHubPackageRef(location), isGiteePackageRef(location), isS3PackageRef(location), isWebDAVPackageRef(location):
 		blob, err := loadStorageBlob()
 		if err != nil {
 			return nil, err
 		}
 		loc, key, ok := locationByRef(blob.Locations, location)
 		if !ok {
+			// 旧的收费仓库引用在存储列表里对不上时，仍用已保存的令牌把这一份 GitHub 附件取回并拼合。
+			if isGitHubPackageRef(location) {
+				return fetchGitHubPackageBytes(ctx, location)
+			}
 			return nil, errCatalogPackageMissing
 		}
 		secret, err := locationSecret(loc)

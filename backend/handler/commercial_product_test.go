@@ -32,6 +32,10 @@ func TestSalePeriodAndEditionExpiry(t *testing.T) {
 	if days == nil || !days.Equal(now.AddDate(0, 0, 30)) {
 		t.Fatalf("d30=%v", days)
 	}
+	monthly := nextEditionExpiry(storePeriodMonthly, nil, now)
+	if monthly == nil || !monthly.Equal(now.AddDate(0, 1, 0)) {
+		t.Fatalf("monthly=%v", monthly)
+	}
 }
 
 type commercialFlowApp struct {

@@ -47,12 +47,20 @@ func readLocationObject(ctx context.Context, loc storageLocation, secret, key st
 }
 
 func siblingObjectKey(loc storageLocation, currentKey, partName string) string {
+	partName = strings.TrimLeft(partName, "/")
 	switch loc.Kind {
 	case packageStorageS3, packageStorageWebDAV:
 		prefix := strings.Trim(loc.KeyPrefix, "/")
-		partName = strings.TrimLeft(partName, "/")
 		if prefix != "" && !strings.HasPrefix(partName, prefix+"/") {
 			return prefix + "/" + partName
+		}
+		return partName
+	case packageStorageGitHub, packageStorageGitee:
+		// 清单里只记文件名。分片和清单在同一个标签下，键要保留所有者和标签。
+		parts := strings.Split(strings.Trim(currentKey, "/"), "/")
+		if len(parts) >= 2 {
+			parts[len(parts)-1] = partName
+			return strings.Join(parts, "/")
 		}
 		return partName
 	default:

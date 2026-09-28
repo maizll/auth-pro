@@ -1,13 +1,15 @@
-// 源站把发布清单和安装包转给客户站。
-// 客户站从 1.7.1 起只访问 https://auth.maizll.com，不再直连代码托管站，
-// 所以响应、错误信息和日志里都不能带仓库地址或令牌。
-// 令牌复用收费仓库或 Release 设置里已经保存的那一枚，不另建一套。
-// 仓库还公开时，没有令牌也能拉。仓库名只从服务器环境变量读取，不写进程序。
+// 源站把「授权系统」应用的发布版本转成客户站认识的更新清单。
+// 1.7.1 客户站只访问下面三个官网地址，响应格式不能改，也不能带仓库地址。
+// 版本和安装包来自应用 app_f93896d80066_5811 的发布记录；下载地址始终写成官网自己的地址。
+// 连接私有仓库只发生在后台「从仓库导入」，不在这个对外接口里。
 
 package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -29,14 +31,16 @@ const (
 	productUpdatePackageLimit = 6
 	productUpdateRateWindow   = time.Minute
 	productUpdateRepoEnv      = "AUTO_PRO_UPDATE_REPOSITORY"
-	// 官网从客户交付仓库的 Release 取安装包。仓库已是私有的，必须用源站已保存的令牌。
-	// 环境变量可以改成别的 owner/repo；不设时用这个默认值。
+	// 后台「从仓库导入」的默认仓库。环境变量可以改成别的 owner/repo。
+	// 客户站更新接口不读这个值，只读发布版本表。
 	productUpdateDefaultRepository = "maizll/auth-pro-client"
-	productUpdateUnavailable       = "暂时无法获取更新"
-	productUpdateRepoMissing       = "更新仓库未配置"
-	productUpdateRateLimited       = "请求过于频繁，请稍后再试"
-	productUpdatePackagePrefix     = "https://auth.maizll.com/api/v1/update/package/"
-	productUpdateReleasesURL       = "https://auth.maizll.com/api/v1/update/releases.json"
+	// 客户站系统更新只认官网这个应用的发布版本。标识写死，避免指到别的应用。
+	productUpdateAppKey        = "app_f93896d80066_5811"
+	productUpdateUnavailable   = "暂时无法获取更新"
+	productUpdateRepoMissing   = "更新仓库未配置"
+	productUpdateRateLimited   = "请求过于频繁，请稍后再试"
+	productUpdatePackagePrefix = "https://auth.maizll.com/api/v1/update/package/"
+	productUpdateReleasesURL   = "https://auth.maizll.com/api/v1/update/releases.json"
 )
 
 var (
@@ -89,9 +93,24 @@ var (
 		body      []byte
 		expiresAt time.Time
 	}
-	productUpdatePackageMu   sync.Mutex
-	productUpdatePackageLock = map[string]*sync.Mutex{}
 )
+
+// productUpdateRecord 是一条已经发布、可以交给客户站的版本。
+// SHA256 和大小以安装包文件为准，清单里的签名必须和文件对得上。
+type productUpdateRecord struct {
+	Version     string
+	Title       string
+	Changelog   string
+	PublishedAt time.Time
+	PackagePath string
+	FileSize    int64
+	SHA256      string
+	Force       bool
+	MinVersion  string
+}
+
+// loadProductUpdateRecords 读取授权系统应用的发布版本。测试可以换成固定数据。
+var loadProductUpdateRecords = loadProductUpdateRecordsFromDB
 
 // RegisterProductUpdateRoutes 注册不登录也能用的更新分发接口。
 // 免费版客户也要能更新，所以这里不查授权；用限流挡住批量拉取。
@@ -176,7 +195,7 @@ func productUpdateJSON(c *gin.Context, body []byte) {
 	c.Data(http.StatusOK, "application/json; charset=utf-8", body)
 }
 
-func productUpdateLatestBody(ctx context.Context, force bool) ([]byte, error) {
+func productUpdateLatestBody(_ context.Context, force bool) ([]byte, error) {
 	productUpdateCacheMu.Lock()
 	if !force && len(productUpdateLatestCache.body) > 0 && time.Now().Before(productUpdateLatestCache.expiresAt) {
 		body := append([]byte(nil), productUpdateLatestCache.body...)
@@ -185,11 +204,12 @@ func productUpdateLatestBody(ctx context.Context, force bool) ([]byte, error) {
 	}
 	productUpdateCacheMu.Unlock()
 
-	raw, err := productUpdateFetchReleaseAsset(ctx, "latest", "latest.json")
-	if err != nil {
-		return nil, err
+	records, err := loadProductUpdateRecords()
+	if err != nil || len(records) == 0 {
+		return nil, errProductUpdateUnavailable
 	}
-	body, err := rewriteProductUpdateManifest(raw)
+	latest := productUpdateHighest(records)
+	body, err := buildProductUpdateManifest(latest)
 	if err != nil {
 		return nil, errProductUpdateUnavailable
 	}
@@ -200,7 +220,7 @@ func productUpdateLatestBody(ctx context.Context, force bool) ([]byte, error) {
 	return body, nil
 }
 
-func productUpdateReleasesBody(ctx context.Context, force bool) ([]byte, error) {
+func productUpdateReleasesBody(_ context.Context, force bool) ([]byte, error) {
 	productUpdateCacheMu.Lock()
 	if !force && len(productUpdateReleasesCache.body) > 0 && time.Now().Before(productUpdateReleasesCache.expiresAt) {
 		body := append([]byte(nil), productUpdateReleasesCache.body...)
@@ -209,11 +229,11 @@ func productUpdateReleasesBody(ctx context.Context, force bool) ([]byte, error) 
 	}
 	productUpdateCacheMu.Unlock()
 
-	raw, err := productUpdateFetchReleaseAsset(ctx, "latest", "releases.json")
-	if err != nil {
-		return nil, err
+	records, err := loadProductUpdateRecords()
+	if err != nil || len(records) == 0 {
+		return nil, errProductUpdateUnavailable
 	}
-	body, err := rewriteProductUpdateReleases(raw)
+	body, err := buildProductUpdateReleases(records)
 	if err != nil {
 		return nil, errProductUpdateUnavailable
 	}
@@ -236,53 +256,209 @@ func productUpdateCachedManifest(ctx context.Context) (*onlineUpdateManifest, er
 	return &manifest, nil
 }
 
-func productUpdatePackageFile(ctx context.Context, version string) (string, string, error) {
+func productUpdatePackageFile(_ context.Context, version string) (string, string, error) {
 	fileName, err := onlineUpdatePackageFileName(version)
 	if err != nil {
 		return "", "", err
 	}
-	target := filepath.Join(productUpdatePackageCacheDir(version), fileName)
-	if info, statErr := os.Stat(target); statErr == nil && info.Size() > 0 {
-		return target, fileName, nil
-	}
-
-	lock := productUpdateLockFor(version)
-	lock.Lock()
-	defer lock.Unlock()
-	if info, statErr := os.Stat(target); statErr == nil && info.Size() > 0 {
-		return target, fileName, nil
-	}
-	payload, err := productUpdateFetchReleaseAsset(ctx, "tags/v"+version, fileName)
+	records, err := loadProductUpdateRecords()
 	if err != nil {
-		return "", "", err
-	}
-	if int64(len(payload)) > maxOnlineUpdatePackageSize {
 		return "", "", errProductUpdateUnavailable
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+	record, ok := productUpdateFindVersion(records, version)
+	if !ok {
 		return "", "", errProductUpdateUnavailable
 	}
-	temp := target + ".partial"
-	if err := os.WriteFile(temp, payload, 0644); err != nil {
+	path := productUpdateResolvePackage(record.PackagePath)
+	info, statErr := os.Stat(path)
+	if statErr != nil || info.IsDir() || info.Size() <= 0 {
 		return "", "", errProductUpdateUnavailable
 	}
-	if err := os.Rename(temp, target); err != nil {
-		return "", "", errProductUpdateUnavailable
-	}
-	return target, fileName, nil
+	return path, fileName, nil
 }
 
-func productUpdatePackageCacheDir(version string) string {
-	return filepath.Join(config.GetDataDir(), "update-cache", version)
+// buildProductUpdateManifest 用发布记录生成 1.7.1 客户站认识的 latest.json。
+// 下载地址固定写成官网，签名是 sha256: 加上安装包哈希，文件名带版本号。
+func buildProductUpdateManifest(record productUpdateRecord) ([]byte, error) {
+	version := strings.TrimPrefix(strings.TrimSpace(record.Version), "v")
+	fileName, err := onlineUpdatePackageFileName(version)
+	if err != nil {
+		return nil, err
+	}
+	sum, size, err := productUpdateFileDigest(record)
+	if err != nil {
+		return nil, err
+	}
+	released := record.PublishedAt
+	if released.IsZero() {
+		released = time.Now()
+	}
+	manifest := onlineUpdateManifest{
+		Version: version, Channel: "stable", MinVersion: strings.TrimSpace(record.MinVersion),
+		Force: record.Force, ReleasedAt: released.UTC().Format(time.RFC3339),
+		ReleasesURL: productUpdateReleasesURL,
+		Package: onlineUpdatePackage{
+			OS: "linux", Arch: "amd64", FileName: fileName,
+			URL: productUpdatePackagePrefix + version, SHA256: sum, Size: size,
+			Signature: "sha256:" + sum,
+		},
+		Actions: onlineUpdateActions{UpdateFrontend: true, UpdateBackend: true, RestartBackend: true, BackupDatabase: true},
+		Notes:   productUpdateNotes(record),
+	}
+	manifest.URL = manifest.Package.URL
+	manifest.SHA256 = sum
+	manifest.Size = size
+	body, err := json.Marshal(manifest)
+	if err != nil || productUpdateBodyLeaks(body) {
+		return nil, errProductUpdateUnavailable
+	}
+	return body, nil
 }
 
-func productUpdateLockFor(version string) *sync.Mutex {
-	productUpdatePackageMu.Lock()
-	defer productUpdatePackageMu.Unlock()
-	if productUpdatePackageLock[version] == nil {
-		productUpdatePackageLock[version] = &sync.Mutex{}
+func buildProductUpdateReleases(records []productUpdateRecord) ([]byte, error) {
+	list := make([]onlineUpdateRelease, 0, len(records))
+	for _, record := range records {
+		version := strings.TrimPrefix(strings.TrimSpace(record.Version), "v")
+		if _, ok := parseOnlineUpdateVersion(version); !ok {
+			continue
+		}
+		released := record.PublishedAt
+		if released.IsZero() {
+			released = time.Now()
+		}
+		list = append(list, onlineUpdateRelease{
+			Version: version, Channel: "stable",
+			ReleasedAt: released.UTC().Format(time.RFC3339),
+			Notes:      productUpdateNotes(record),
+		})
 	}
-	return productUpdatePackageLock[version]
+	if len(list) == 0 {
+		return nil, errProductUpdateUnavailable
+	}
+	body, err := json.Marshal(onlineUpdateReleases{Releases: list})
+	if err != nil || productUpdateBodyLeaks(body) {
+		return nil, errProductUpdateUnavailable
+	}
+	return body, nil
+}
+
+func productUpdateNotes(record productUpdateRecord) []string {
+	lines := make([]string, 0)
+	if title := strings.TrimSpace(record.Title); title != "" {
+		lines = append(lines, title)
+	}
+	for _, line := range strings.Split(record.Changelog, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return filterProductUpdateNotes(lines)
+}
+
+func productUpdateHighest(records []productUpdateRecord) productUpdateRecord {
+	best := records[0]
+	for _, record := range records[1:] {
+		cmp, ok := compareOnlineUpdateVersions(record.Version, best.Version)
+		if ok && cmp > 0 {
+			best = record
+		}
+	}
+	return best
+}
+
+func productUpdateFindVersion(records []productUpdateRecord, version string) (productUpdateRecord, bool) {
+	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
+	for _, record := range records {
+		if strings.TrimPrefix(strings.TrimSpace(record.Version), "v") == version {
+			return record, true
+		}
+	}
+	return productUpdateRecord{}, false
+}
+
+func productUpdateResolvePackage(stored string) string {
+	stored = strings.TrimSpace(stored)
+	if stored == "" {
+		return ""
+	}
+	if filepath.IsAbs(stored) {
+		return stored
+	}
+	return filepath.Join(config.GetAppReleaseDir(), filepath.FromSlash(stored))
+}
+
+// productUpdateFileDigest 用安装包文件的真实哈希和大小生成清单。
+// 后台表单里的 MD5 可以改，客户站核对的是这份 SHA256，所以不能用改过的数字代替文件。
+func productUpdateFileDigest(record productUpdateRecord) (string, int64, error) {
+	path := productUpdateResolvePackage(record.PackagePath)
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() || info.Size() <= 0 || info.Size() > maxOnlineUpdatePackageSize {
+		return "", 0, errProductUpdateUnavailable
+	}
+	if isHexSHA256(record.SHA256) && record.FileSize == info.Size() {
+		return strings.ToLower(record.SHA256), info.Size(), nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", 0, errProductUpdateUnavailable
+	}
+	defer file.Close()
+	hash := sha256.New()
+	written, err := io.Copy(hash, file)
+	if err != nil || written != info.Size() {
+		return "", 0, errProductUpdateUnavailable
+	}
+	return hex.EncodeToString(hash.Sum(nil)), written, nil
+}
+
+// loadProductUpdateRecordsFromDB 只取「授权系统」应用已发布的版本。
+// 没有这个应用、还没发版本或读库失败，对外都说暂时无法获取更新，不暴露内部原因。
+func loadProductUpdateRecordsFromDB() ([]productUpdateRecord, error) {
+	db, err := config.DB()
+	if err != nil {
+		return nil, err
+	}
+	if err := EnsureAppVersionsTable(db); err != nil {
+		return nil, err
+	}
+	var appID int64
+	err = db.QueryRow(`SELECT id FROM apps WHERE app_key = ? LIMIT 1`, productUpdateAppKey).Scan(&appID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`
+		SELECT version, title, changelog, published_at, package_path, file_size_bytes, file_sha256, force_update, min_version
+		FROM app_versions WHERE app_id = ? ORDER BY published_at DESC, id DESC`, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	list := make([]productUpdateRecord, 0)
+	for rows.Next() {
+		var record productUpdateRecord
+		var published sql.NullTime
+		var force int
+		if err := rows.Scan(&record.Version, &record.Title, &record.Changelog, &published, &record.PackagePath, &record.FileSize, &record.SHA256, &force, &record.MinVersion); err != nil {
+			return nil, err
+		}
+		if published.Valid {
+			record.PublishedAt = published.Time
+		}
+		record.Force = force == 1
+		list = append(list, record)
+	}
+	return list, rows.Err()
+}
+
+// invalidateProductUpdateCache 发布或修改授权系统版本后清掉清单缓存，客户站不用等缓存过期。
+func invalidateProductUpdateCache() {
+	productUpdateCacheMu.Lock()
+	productUpdateLatestCache.body = nil
+	productUpdateLatestCache.expiresAt = time.Time{}
+	productUpdateReleasesCache.body = nil
+	productUpdateReleasesCache.expiresAt = time.Time{}
+	productUpdateCacheMu.Unlock()
 }
 
 // rewriteProductUpdateManifest 把下载地址改成源站，摘要和签名原样留下。
@@ -302,21 +478,6 @@ func rewriteProductUpdateManifest(raw []byte) ([]byte, error) {
 	manifest.ReleasesURL = productUpdateReleasesURL
 	manifest.Notes = filterProductUpdateNotes(manifest.Notes)
 	body, err := json.Marshal(manifest)
-	if err != nil || productUpdateBodyLeaks(body) {
-		return nil, errProductUpdateUnavailable
-	}
-	return body, nil
-}
-
-func rewriteProductUpdateReleases(raw []byte) ([]byte, error) {
-	var payload onlineUpdateReleases
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil, err
-	}
-	for index := range payload.Releases {
-		payload.Releases[index].Notes = filterProductUpdateNotes(payload.Releases[index].Notes)
-	}
-	body, err := json.Marshal(payload)
 	if err != nil || productUpdateBodyLeaks(body) {
 		return nil, errProductUpdateUnavailable
 	}
@@ -349,14 +510,6 @@ func productUpdateNoteVisible(note string) bool {
 func productUpdateBodyLeaks(body []byte) bool {
 	lower := strings.ToLower(string(body))
 	return strings.Contains(lower, "github.com") || strings.Contains(lower, "githubusercontent")
-}
-
-func productUpdateFetchReleaseAsset(ctx context.Context, releaseRef, assetName string) ([]byte, error) {
-	owner, repo, err := productUpdateRepository()
-	if err != nil {
-		return nil, err
-	}
-	return fetchGitHubReleaseAsset(ctx, owner, repo, releaseRef, assetName)
 }
 
 // fetchGitHubReleaseAsset 用已保存的令牌读取某个 Release 附件。
@@ -483,6 +636,18 @@ func productUpdateTokenCandidates() []string {
 	if token, err := loadGitHubPaidToken(); err == nil {
 		add(token)
 	}
+	// 存储管理里的 GitHub 令牌。从仓库导入列出 Release 时和旧的收费仓库令牌是同一批凭证。
+	if blob, blobErr := loadStorageBlob(); blobErr == nil {
+		for _, loc := range enabledStorageLocations(blob.Locations) {
+			if loc.Kind != packageStorageGitHub {
+				continue
+			}
+			secret, secretErr := locationSecret(loc)
+			if secretErr == nil {
+				add(secret)
+			}
+		}
+	}
 	if settings, err := currentSourceStationStore().GetReleaseSettings(); err == nil {
 		settings = normalizeReleaseSettings(settings)
 		if settings.Provider == "github" {
@@ -503,4 +668,5 @@ func resetProductUpdateStateForTest() {
 	productUpdateJSONLimiter = newProductUpdateRateLimiter(productUpdateJSONLimit, productUpdateRateWindow)
 	productUpdatePackageLimiter = newProductUpdateRateLimiter(productUpdatePackageLimit, productUpdateRateWindow)
 	productUpdateGitHubAPI = "https://api.github.com"
+	loadProductUpdateRecords = loadProductUpdateRecordsFromDB
 }

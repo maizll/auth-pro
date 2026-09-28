@@ -190,8 +190,8 @@ func TestPaidExternalURLRejected(t *testing.T) {
 	}
 	yearly := `{"appId":1,"id":"yearly-plugin","name":"年付","version":"1.0.0","description":"x","category":"other","priceCents":100,"billing":"yearly","downloadUrl":"","sha256":""}`
 	yearRec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins", dev, yearly)
-	if sourceBodyCode(t, yearRec) != 400 || !strings.Contains(yearRec.Body.String(), "年付尚未开放") {
-		t.Fatalf("yearly=%s", yearRec.Body.String())
+	if strings.Contains(yearRec.Body.String(), "年付尚未开放") {
+		t.Fatalf("yearly billing should be accepted, got %s", yearRec.Body.String())
 	}
 }
 
