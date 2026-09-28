@@ -14,28 +14,46 @@
     <div v-if="releases.length" class="release-import__table-wrap">
       <ElTable
         :data="releases"
+        row-key="tag"
         size="small"
         highlight-current-row
+        :current-row-key="picked"
+        :row-class-name="rowClass"
         class="release-import__table"
         @row-click="choose"
       >
         <ElTableColumn label="版本" width="120">
           <template #default="{ row }">
-            <button type="button" class="cell-copy" @click.stop="copy(row.tag)">{{
-              row.tag
-            }}</button>
+            <button
+              type="button"
+              class="cell-copy"
+              :title="row.tag"
+              @click.stop="pick(row, row.tag)"
+            >
+              {{ row.tag }}
+            </button>
           </template>
         </ElTableColumn>
         <ElTableColumn label="标题" min-width="140">
           <template #default="{ row }">
-            <button type="button" class="cell-copy" @click.stop="copy(row.title)">{{
-              row.title
-            }}</button>
+            <button
+              type="button"
+              class="cell-copy"
+              :title="row.title"
+              @click.stop="pick(row, row.title)"
+            >
+              {{ row.title }}
+            </button>
           </template>
         </ElTableColumn>
         <ElTableColumn label="说明" min-width="180">
           <template #default="{ row }">
-            <button type="button" class="cell-copy" @click.stop="copy(row.changelog)">
+            <button
+              type="button"
+              class="cell-copy"
+              :title="row.changelog"
+              @click.stop="pick(row, row.changelog)"
+            >
               {{ row.changelog || '—' }}
             </button>
           </template>
@@ -82,6 +100,11 @@
   const listing = ref(false)
   const listed = ref(false)
   const loadingTag = ref('')
+  const picked = ref('')
+
+  function rowClass({ row }: { row: ReleaseImportItem }) {
+    return row.tag === picked.value ? 'is-picked' : ''
+  }
 
   async function loadReleases() {
     listing.value = true
@@ -96,8 +119,14 @@
     }
   }
 
+  function pick(row: ReleaseImportItem, text: string) {
+    void copy(text, true)
+    void choose(row)
+  }
+
   async function choose(row: ReleaseImportItem) {
     if (!row?.tag || loadingTag.value) return
+    picked.value = row.tag
     loadingTag.value = row.tag
     try {
       const filled = await fetchReleaseAsset(props.apiBase, {
@@ -113,14 +142,14 @@
     }
   }
 
-  async function copy(text: string) {
+  async function copy(text: string, quiet = false) {
     const value = (text || '').trim()
     if (!value) return
     try {
       await navigator.clipboard.writeText(value)
-      ElMessage.success('已复制')
+      if (!quiet) ElMessage.success('已复制')
     } catch {
-      ElMessage.info(value)
+      if (!quiet) ElMessage.info(value)
     }
   }
 </script>
@@ -150,6 +179,19 @@
 
   .release-import__table {
     min-width: 560px;
+  }
+
+  .release-import__table :deep(.el-table__body tr.is-picked > td) {
+    color: var(--el-color-primary);
+    background: var(--el-color-primary-light-8) !important;
+  }
+
+  .release-import__table :deep(.el-table__body tr.is-picked > td:first-child) {
+    box-shadow: inset 3px 0 0 var(--el-color-primary);
+  }
+
+  .release-import__table :deep(.el-table__body tr.is-picked .cell-copy) {
+    font-weight: 600;
   }
 
   .cell-copy {
