@@ -101,8 +101,9 @@ auth_pro_migrate_old_backups() {
       auth_pro_move_backup "$old" "$root/rename" || true
     fi
   done
-  data_backups="$DATA_DIR/updates/backups"
-  if [ -d "$data_backups" ]; then
+  # DATA_DIR 由更新脚本传入。交给守护后的 handoff 若没带上这个变量，不能让 set -u 把已经健康的进程打退。
+  if [ -n "${DATA_DIR:-}" ] && [ -d "$DATA_DIR/updates/backups" ]; then
+    data_backups="$DATA_DIR/updates/backups"
     for old in "$data_backups"/baota-upgrade-*; do
       if [ -d "$old" ]; then
         auth_pro_move_backup "$old" "$root/upgrade" || true
@@ -132,7 +133,7 @@ auth_pro_prune_backups() {
   fi
   auth_pro_prune_paths "$parent/$site_name".overlay-backup.* || true
   auth_pro_prune_paths "$parent/$site_name".backup.* || true
-  if [ -d "$DATA_DIR/updates/backups" ]; then
+  if [ -n "${DATA_DIR:-}" ] && [ -d "$DATA_DIR/updates/backups" ]; then
     auth_pro_prune_paths "$DATA_DIR/updates/backups"/baota-upgrade-* || true
   fi
   return 0
@@ -673,6 +674,7 @@ write_pending_handoff() {
     printf 'PENDING_DIR=%s\n' "$(sq "$pending")"
     printf 'FRONTEND_MODE=%s\n' "$(sq "$FRONTEND_MODE")"
     printf 'FRONTEND_CURRENT=%s\n' "$(sq "$FRONTEND_CURRENT")"
+    printf 'DATA_DIR=%s\n' "$(sq "$DATA_DIR")"
     printf 'FRONTEND_BACKUP=%s\n' "$(sq "$FRONTEND_BACKUP")"
     printf 'PREV_FRONTEND_TARGET=%s\n' "$(sq "$PREV_FRONTEND_TARGET")"
     printf 'OVERLAY_MOVED=%s\n' "$(sq "$OVERLAY_MOVED")"

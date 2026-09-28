@@ -794,15 +794,24 @@ PY
 }
 
 # 中央备份目录。没有 /www，或目录建不出来时返回非 0，调用方改回原来的路径，更新不能因此中断。
+# 宝塔的 /www/backup 通常是 700。在线更新由网站用户 www 执行，必须能进入本站这一份备份并删掉旧的。
+# 只给 /www/backup 加执行位，不开放列目录，其它备份子目录仍按原权限。
 baota_central_backup_root() {
   local name root
   [[ -d /www ]] || return 1
   name="$(basename "$BAOTA_SITE_ROOT")"
   [[ -n "$name" && "$name" != "." && "$name" != ".." ]] || return 1
+  if [[ -d /www/backup ]]; then
+    chmod a+x /www/backup 2>/dev/null || true
+  fi
   root="/www/backup/auth-pro/${name}"
   if ! mkdir -p "$root" 2>/dev/null; then
     baota_warn "无法创建 ${root}，备份仍放在原来的位置，更新继续"
     return 1
+  fi
+  chmod a+x /www/backup/auth-pro 2>/dev/null || true
+  if id www >/dev/null 2>&1; then
+    chown -R www:www "$root" 2>/dev/null || baota_warn "无法把 ${root} 交给 www。在线更新可能删不掉这里的旧备份。"
   fi
   printf '%s\n' "$root"
 }
