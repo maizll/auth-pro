@@ -194,8 +194,8 @@ func TestAppVersionMatchesVERSIONFile(t *testing.T) {
 	if AppVersion != want {
 		t.Fatalf("AppVersion=%q, VERSION file=%q", AppVersion, want)
 	}
-	if !strings.HasPrefix(AppVersion, "1.7.") {
-		t.Fatalf("repo default AppVersion should be on the 1.7.x line, got %q", AppVersion)
+	if !strings.HasPrefix(AppVersion, "1.8.") {
+		t.Fatalf("repo default AppVersion should be on the 1.8.x line, got %q", AppVersion)
 	}
 }
 

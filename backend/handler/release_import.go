@@ -275,14 +275,10 @@ func listReleaseImportReleases(ctx context.Context, owner, repo string) ([]relea
 			continue
 		}
 		asset := chooseReleaseAsset(release.Assets)
-		version := releaseImportVersion(release.TagName)
-		title := strings.TrimSpace(release.Name)
-		if title == "" {
-			title = "v" + version
-		}
+		title, changelog := releaseImportDescribe(ctx, owner, repo, release.TagName, release.Name, release.Body)
 		list = append(list, releaseImportListItem{
 			Tag: release.TagName, Title: title,
-			Changelog: releaseImportChangelog(release.Body), AssetName: asset,
+			Changelog: changelog, AssetName: asset,
 			PublishedAt: release.PublishedAt,
 		})
 	}
@@ -378,19 +374,102 @@ func releaseImportVersion(tag string) string {
 	return strings.TrimSpace(tag)
 }
 
-func releaseImportChangelog(body string) string {
-	lines := make([]string, 0)
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || !productUpdateNoteVisible(line) {
-			continue
-		}
-		lines = append(lines, line)
-		if len(lines) >= 8 {
-			break
+// releaseImportDescribe 优先用 Release 附件 latest.json 的 notes 填标题和更新内容。
+// 私有仓库走已经保存的令牌。没有 notes 时才退回 Release 正文，并丢掉自动生成的变更模板。
+func releaseImportDescribe(ctx context.Context, owner, repo, tag, name, body string) (string, string) {
+	if title, changelog, ok := releaseImportLatestNotes(ctx, owner, repo, tag); ok {
+		return title, changelog
+	}
+	title := strings.TrimSpace(name)
+	if title == "" || releaseImportTitleIsTag(title, tag) {
+		title = "v" + releaseImportVersion(tag)
+	}
+	return title, releaseImportChangelog(body)
+}
+
+func releaseImportTitleIsTag(title, tag string) bool {
+	title = strings.TrimSpace(title)
+	version := releaseImportVersion(tag)
+	return strings.EqualFold(title, tag) || strings.EqualFold(title, "v"+version) || title == version
+}
+
+func releaseImportLatestNotes(ctx context.Context, owner, repo, tag string) (string, string, bool) {
+	ref := strings.TrimSpace(tag)
+	if ref == "" {
+		return "", "", false
+	}
+	if !strings.Contains(ref, "/") {
+		ref = "tags/" + ref
+	}
+	payload, err := fetchGitHubReleaseAsset(ctx, owner, repo, ref, "latest.json")
+	if err != nil || len(payload) == 0 {
+		return "", "", false
+	}
+	var manifest struct {
+		Notes []string `json:"notes"`
+	}
+	if json.Unmarshal(payload, &manifest) != nil {
+		return "", "", false
+	}
+	return releaseImportTitleAndChangelog(manifest.Notes)
+}
+
+func releaseImportTitleAndChangelog(notes []string) (string, string, bool) {
+	lines := releaseImportVisibleNotes(notes)
+	if len(lines) == 0 {
+		return "", "", false
+	}
+	title := strings.TrimSpace(strings.TrimLeft(lines[0], "-"))
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return "", "", false
+	}
+	body := lines
+	// 第一行是短标题、后面还有条目时，更新内容只保留后面的条目。
+	if len(lines) > 1 && !strings.HasPrefix(strings.TrimSpace(lines[0]), "-") && len([]rune(title)) <= 40 {
+		body = lines[1:]
+	}
+	if len([]rune(title)) > 80 {
+		title = string([]rune(title)[:80])
+	}
+	return title, strings.Join(body, "\n"), true
+}
+
+func releaseImportVisibleNotes(notes []string) []string {
+	lines := make([]string, 0, len(notes))
+	for _, note := range notes {
+		for _, line := range strings.Split(note, "\n") {
+			if !releaseImportLineKept(line) {
+				continue
+			}
+			lines = append(lines, strings.TrimSpace(line))
+			if len(lines) >= 8 {
+				return lines
+			}
 		}
 	}
-	return strings.Join(lines, "\n")
+	return lines
+}
+
+func releaseImportChangelog(body string) string {
+	return strings.Join(releaseImportVisibleNotes([]string{body}), "\n")
+}
+
+// releaseImportLineKept 丢掉托管站链接，以及自动生成的变更说明模板。
+func releaseImportLineKept(line string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" || !productUpdateNoteVisible(line) {
+		return false
+	}
+	trimmed := strings.Trim(line, "#*_ \t")
+	lower := strings.ToLower(trimmed)
+	if lower == "what's changed" || lower == "whats changed" || lower == "what’s changed" {
+		return false
+	}
+	if strings.Contains(lower, "full changelog") || strings.HasPrefix(lower, "new contributors") {
+		return false
+	}
+	return true
 }
 
 func releaseImportGet(ctx context.Context, rawURL, accept string) ([]byte, error) {
