@@ -49,9 +49,9 @@ func TestInstallDocUsesPublishedBaotaCommands(t *testing.T) {
 	for _, snippet := range []string{
 		"curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com",
 		"curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com --port 19127 --site-root /www/wwwroot/example.com",
-		"cd /www/wwwroot/example.com\ntar -xzf auth_pro-full-vX.Y.Z.tar.gz\nbash baota-install.sh",
-		"AUTH_PRO_YES=1 AUTH_PRO_START=0 \\\nbash baota-install.sh \\\n  --site-root /www/wwwroot/example.com \\\n  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz",
-		"bash baota-upgrade.sh \\\n  --site-root /www/wwwroot/example.com \\\n  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \\\n  --no-start",
+		"cd /www/wwwroot/example.com\ntar -xzf auth_pro-full-vX.Y.Z.tar.gz\nbash install.sh",
+		"AUTH_PRO_YES=1 AUTH_PRO_START=0 \\\nbash install.sh \\\n  --site-root /www/wwwroot/example.com \\\n  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz",
+		"bash install.sh upgrade \\\n  --site-root /www/wwwroot/example.com \\\n  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \\\n  --no-start",
 		"https://auth.maizll.com/api/v1/update/latest.json",
 		"检查更新",
 		"立即更新",

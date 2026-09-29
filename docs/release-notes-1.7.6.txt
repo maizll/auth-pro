@@ -11,3 +11,4 @@ auth-pro 1.7.6
 - 自动生成的管理员密码改为 8 位数字，并提示登录后在后台修改；数据库密码仍是随机强密码，凭据文件仍只给 root 读。
 - 管理员账号或密码没送到安装接口时直接拒绝，不再把空密码写成安装成功。
 - 已装站点由 root 在本机执行 curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --reset-admin-password 域名 ，重设管理员密码并打印新密码。
+- 安装、升级、修复和重设密码合并为同一个 install.sh，升级用子命令 upgrade。发布包只带 install.sh、baota-panel.py 和 guardian-start.sh。

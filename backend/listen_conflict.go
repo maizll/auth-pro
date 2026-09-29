@@ -29,7 +29,7 @@ func describeListenConflict(addr string) string {
 	for _, item := range occupants {
 		lines = append(lines, fmt.Sprintf("占用者 PID=%d PPID=%d 程序=%s 命令=%s", item.pid, item.ppid, item.exe, item.cmd))
 	}
-	lines = append(lines, "处理：先在宝塔进程守护中停止本站点，再确认该端口不再被本站 backend/auth_pro 监听。占用者如果是本站目录里的 auth_pro（包括父进程为 1 的孤儿），由在线更新或 baota-upgrade.sh 在停守护之后结束它。占用者如果是其它程序或其它站点的 auth_pro，不要结束，改检查是不是端口配重了。")
+	lines = append(lines, "处理：先在宝塔进程守护中停止本站点，再确认该端口不再被本站 backend/auth_pro 监听。占用者如果是本站目录里的 auth_pro（包括父进程为 1 的孤儿），由在线更新或 install.sh upgrade 在停守护之后结束它。占用者如果是其它程序或其它站点的 auth_pro，不要结束，改检查是不是端口配重了。")
 	return strings.Join(lines, "\n")
 }
 

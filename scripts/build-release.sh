@@ -59,9 +59,10 @@ mkdir -p "$PACKAGE_DIR/backend" "$PACKAGES_DIR" "$BACKEND_DIR/static"
 rm -rf "$BACKEND_DIR/static"/*
 cp -R "$FRONTEND_DIR/dist"/. "$PACKAGE_DIR"/
 cp -R "$FRONTEND_DIR/dist"/. "$BACKEND_DIR/static"/
-for baota_script in baota-install.sh baota-upgrade.sh baota-lib.sh install.sh baota-panel.py; do
-  cp "$ROOT_DIR/scripts/$baota_script" "$PACKAGE_DIR/$baota_script"
-  chmod 755 "$PACKAGE_DIR/$baota_script"
+# 客户包只带唯一入口、面板内部辅助和进程守护模板。构建与测试脚本不打进去。
+for packaged_script in install.sh baota-panel.py; do
+  cp "$ROOT_DIR/scripts/$packaged_script" "$PACKAGE_DIR/$packaged_script"
+  chmod 755 "$PACKAGE_DIR/$packaged_script"
 done
 cp "$ROOT_DIR/backend/handler/guardian_start.sh" "$PACKAGE_DIR/guardian-start.sh"
 chmod 755 "$PACKAGE_DIR/guardian-start.sh"
@@ -85,7 +86,7 @@ printf '[5/5] Creating tar.gz package and latest.json...\n'
 rm -f "$PACKAGE_PATH"
 tar -czf "$PACKAGE_PATH" -C "$PACKAGE_DIR" .
 
-forbidden="$(tar -tzf "$PACKAGE_PATH" | grep -E '(^|/)([^/]*_test\.go|[^/]*\.test\.(ts|js|mjs)|[^/]*\.spec\.ts|commercial_mysql_e2e\.py|/tests/|/e2e/|__pycache__/)' || true)"
+forbidden="$(tar -tzf "$PACKAGE_PATH" | grep -E '(^|/)([^/]*_test\.go|[^/]*\.test\.(ts|js|mjs)|[^/]*\.spec\.ts|commercial_mysql_e2e\.py|/tests/|/e2e/|__pycache__/|baota-install\.sh|baota-upgrade\.sh|baota-lib\.sh|quality-check\.sh|build-release\.sh|test-baota-scripts\.sh|simulate-supervised-update\.sh|restart-backend\.sh|smoke-client-sdk\.sh|publish-gitee-release\.(sh|ps1)|check-unused-exports\.mjs|write-release-manifests\.mjs)' || true)"
 if [[ -n "$forbidden" ]]; then
   printf '发布包包含测试或调试文件:\n%s\n' "$forbidden" >&2
   exit 1

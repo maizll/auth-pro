@@ -3,9 +3,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INSTALL="$ROOT/scripts/baota-install.sh"
-UPGRADE="$ROOT/scripts/baota-upgrade.sh"
-LIB="$ROOT/scripts/baota-lib.sh"
+INSTALL="$ROOT/scripts/install.sh"
+# 升级和安装是同一个入口，用子命令区分。
+run_upgrade() { "$INSTALL" upgrade "$@"; }
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/auth-pro-baota-test.XXXXXX")"
 PIDS=()
 
@@ -54,7 +54,7 @@ make_payload() {
   printf 'asset-%s\n' "$marker" > "$dir/assets/app.js"
   printf 'binary-%s\n' "$marker" > "$dir/backend/auth_pro"
   chmod 644 "$dir/backend/auth_pro"
-  cp "$INSTALL" "$UPGRADE" "$LIB" "$ROOT/scripts/baota-panel.py" "$dir/"
+  cp "$INSTALL" "$ROOT/scripts/baota-panel.py" "$dir/"
 }
 
 pack_payload() {
@@ -80,7 +80,7 @@ install_for_test() {
   grep -q "${origin}/api/v1/update/latest.json" "$dest" || fail "测试副本没有换成临时地址"
 }
 
-bash -n "$INSTALL" "$UPGRADE" "$LIB"
+bash -n "$INSTALL"
 ok "bash -n"
 
 help_out="$("$INSTALL" --help)"
@@ -92,25 +92,24 @@ printf '%s\n' "$help_out" | grep -q -- '--repair-guardian' || fail "安装脚本
 printf '%s\n' "$help_out" | grep -q -- '--reset-admin-password' || fail "安装脚本 --help 缺少 --reset-admin-password"
 "$ROOT/scripts/install.sh" --help | grep -q -- '--reset-admin-password' || fail "一条命令安装 --help 缺少 --reset-admin-password"
 "$ROOT/scripts/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- --reset-admin-password' || fail "一条命令安装 --help 没有写死重设密码命令"
-grep -q 'baota_random_digits 8' "$LIB" || fail "管理员密码没有改成 8 位数字"
-grep -q 'baota_random_alnum 20 mixed' "$LIB" || fail "数据库密码不再是原来的随机强密码"
-grep -q '登录后请在后台修改密码' "$LIB" || fail "打印凭据时没有提示登录后修改密码"
-grep -q '/root/auth-pro-' "$LIB" || fail "凭据文件路径变了"
-grep -q 'chmod 600' "$LIB" || fail "凭据文件没有收紧为仅所有者可读"
-"$UPGRADE" --help | grep -q -- '--skip-mysql' || fail "升级脚本 --help 缺少 --skip-mysql"
+grep -q 'baota_random_digits 8' "$INSTALL" || fail "管理员密码没有改成 8 位数字"
+grep -q 'baota_random_alnum 20 mixed' "$INSTALL" || fail "数据库密码不再是原来的随机强密码"
+grep -q '登录后请在后台修改密码' "$INSTALL" || fail "打印凭据时没有提示登录后修改密码"
+grep -q '/root/auth-pro-' "$INSTALL" || fail "凭据文件路径变了"
+grep -q 'chmod 600' "$INSTALL" || fail "凭据文件没有收紧为仅所有者可读"
+run_upgrade --help | grep -q -- '--skip-mysql' || fail "升级脚本 --help 缺少 --skip-mysql"
 if grep -q 'plugin/supervisor/config.py' "$ROOT/scripts/baota-panel.py"; then
   fail "面板辅助脚本不能调用会清空主配置的整理脚本"
 fi
-grep -q '拒绝 nohup' "$LIB" || fail "面板安装失败时没有拒绝 nohup"
-"$LIB" >/tmp/baota-lib-direct.out 2>/tmp/baota-lib-direct.err && fail "直接执行 baota-lib.sh 应该失败" || true
-grep -q 'baota-install.sh' /tmp/baota-lib-direct.err || fail "直接执行 baota-lib.sh 没有提示入口脚本"
-ok "--help 与拒绝直接执行 lib"
+grep -q '拒绝 nohup' "$INSTALL" || fail "面板安装失败时没有拒绝 nohup"
+[[ ! -e "$ROOT/scripts/baota-install.sh" && ! -e "$ROOT/scripts/baota-upgrade.sh" && ! -e "$ROOT/scripts/baota-lib.sh" ]] || fail "旧的安装入口脚本还在"
+ok "--help 与单一安装入口"
 
 (
   set -euo pipefail
   SCRIPT_DIR="$ROOT/scripts"
   # shellcheck source=/dev/null
-  source "$LIB"
+  source "$INSTALL"
   digits="$(baota_random_digits 8)"
   [[ "$digits" =~ ^[0-9]{8}$ ]] || exit 1
   mixed="$(baota_random_alnum 20 mixed)"
@@ -173,14 +172,13 @@ EOF
   ok "root 本机重设管理员密码"
 fi
 
-grep -q 'baota-install.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制安装脚本"
-grep -q 'baota-upgrade.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制升级脚本"
-grep -q 'baota-lib.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制共用脚本"
-grep -F -q 'baota-lib.sh install.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制一条命令安装脚本"
-grep -F -q 'baota-panel.py' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制面板辅助脚本"
-grep -q 'baota-install.sh' "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未复制安装脚本"
-grep -q 'baota-upgrade.sh' "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未复制升级脚本"
+grep -F -q 'for packaged_script in install.sh baota-panel.py' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未只复制安装入口和面板辅助脚本"
+grep -F -q 'guardian-start.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制进程守护模板"
 grep -F -q "'install.sh'" "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未复制一条命令安装脚本"
+grep -F -q 'baota-panel.py' "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未复制面板辅助脚本"
+if grep -E -q 'baota-install\.sh|baota-upgrade\.sh|baota-lib\.sh' "$ROOT/scripts/build-release.ps1"; then
+  fail "build-release.ps1 仍会把旧入口打进发布包"
+fi
 ok "发布脚本会带上宝塔脚本"
 
 if "$INSTALL" --yes --dry-run --site-root /tmp >/dev/null 2>"$WORKDIR/deny.err"; then
@@ -254,7 +252,7 @@ DRY_NEW="$WORKDIR/dry-auto-site"
 grep -q '将创建网站目录' "$WORKDIR/dry-auto.out" || fail "预演没有说明将创建目录"
 ok "预演不创建网站目录"
 
-if "$UPGRADE" --yes --no-start --skip-mysql \
+if run_upgrade --yes --no-start --skip-mysql \
   --site-root "$WORKDIR/no-such-upgrade-site" \
   --source "$PKG_V1" >"$WORKDIR/up-missing.out" 2>"$WORKDIR/up-missing.err"; then
   fail "升级不应创建缺失的网站目录"
@@ -271,7 +269,7 @@ printf 'installed\n' > "$SITE/backend/install.lock"
 if "$INSTALL" --yes --no-start --site-root "$SITE" --source "$PKG_V1" >"$WORKDIR/locked.out" 2>"$WORKDIR/locked.err"; then
   fail "已有 install.lock 时安装脚本不应继续"
 fi
-grep -q 'baota-upgrade.sh' "$WORKDIR/locked.err" || fail "拒绝安装时没有指向升级脚本"
+grep -q 'install.sh upgrade' "$WORKDIR/locked.err" || fail "拒绝安装时没有指向升级命令"
 ok "已安装站点拒绝再次全新安装"
 
 printf '{"host":"127.0.0.1","port":"3306","database":"auth_pro","username":"auth_user","password":"secret-pass"}\n' > "$SITE/backend/db.json"
@@ -289,8 +287,8 @@ PKG_V2="$WORKDIR/payload-v2"
 make_payload "$PKG_V2" "v2"
 tar -czf "$WORKDIR/v2.tar.gz" -C "$PKG_V2" .
 
-"$UPGRADE" --help >/dev/null
-"$UPGRADE" --yes --dry-run --no-start --skip-mysql \
+run_upgrade --help >/dev/null
+run_upgrade --yes --dry-run --no-start --skip-mysql \
   --site-root "$SITE" \
   --package "$WORKDIR/v2.tar.gz" >"$WORKDIR/upgrade-dry.out"
 grep -q '预演' "$WORKDIR/upgrade-dry.out" || fail "升级 dry-run 没有预演说明"
@@ -314,7 +312,7 @@ chmod 755 "$FAKE_BIN/mysqldump"
 
 AUTH_PRO_DUMP_LOG="$WORKDIR/dump-args.txt"
 export AUTH_PRO_DUMP_LOG
-PATH="$FAKE_BIN:$PATH" "$UPGRADE" --yes --no-start \
+PATH="$FAKE_BIN:$PATH" run_upgrade --yes --no-start \
   --site-root "$SITE" \
   --package "$WORKDIR/v2.tar.gz" >"$WORKDIR/upgrade.out"
 unset AUTH_PRO_DUMP_LOG
@@ -380,7 +378,7 @@ cp "$SITE/backend/auth_pro" "$WORKDIR/auth-before-refuse"
 # 让升级脚本看到这个端口被别人占用：临时改 baota.env，跑完再改回。
 sed -i "s/^PORT=.*/PORT=${OTHER_PORT}/" "$SITE/backend/baota.env"
 set +e
-"$UPGRADE" --yes --no-start --stop-port --skip-mysql \
+run_upgrade --yes --no-start --stop-port --skip-mysql \
   --site-root "$SITE" \
   --source "$PKG_V2" >"$WORKDIR/refuse.out" 2>"$WORKDIR/refuse.err"
 refuse_status=$?
@@ -435,7 +433,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 curl -fsS "http://127.0.0.1:${LISTEN_PORT}/" >/dev/null || fail "自检监听进程没有起来"
 make_payload "$WORKDIR/payload-listen-v2" "listen-v2"
-"$UPGRADE" --yes --no-start --skip-mysql \
+run_upgrade --yes --no-start --skip-mysql \
   --site-root "$LISTEN_SITE" \
   --source "$WORKDIR/payload-listen-v2" >"$WORKDIR/stopped.out"
 for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -523,7 +521,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 curl -fsS "http://127.0.0.1:${OTHER_PORT}/" >/dev/null || fail "其它站点的 auth_pro 没有起来"
 make_payload "$WORKDIR/payload-hung-v2" "hung-new"
-AUTH_PRO_TERM_WAIT=2 "$UPGRADE" --yes --no-start --skip-mysql \
+AUTH_PRO_TERM_WAIT=2 run_upgrade --yes --no-start --skip-mysql \
   --site-root "$HUNG_SITE" \
   --source "$WORKDIR/payload-hung-v2" >"$WORKDIR/hung.out"
 kill -0 "$hung_pid" 2>/dev/null && fail "不响应的本站孤儿还在"
@@ -652,7 +650,7 @@ EOF
 chmod 755 "$WORKDIR/nginx-ok"
 : > "$NGINX_LOG"
 AUTH_PRO_NGINX_BIN="$WORKDIR/nginx-ok" AUTH_PRO_NGINX_VHOST_DIR="$NGINX_ROOT" \
-  "$UPGRADE" --yes --no-start --skip-mysql \
+  run_upgrade --yes --no-start --skip-mysql \
   --site-root "$SITE" \
   --source "$PKG_V2" >"$WORKDIR/nginx-upgrade.out"
 grep -q 'BEGIN AUTH_PRO_BACKEND_UNAVAILABLE' "$NGINX_ROOT/site.conf" || fail "没有写入 Nginx error_page"
@@ -661,7 +659,7 @@ grep -c 'location = /backend-unavailable.html' "$NGINX_ROOT/site.conf" | grep -q
 grep -q -- '-t' "$NGINX_LOG" || fail "写入前没有 nginx -t"
 grep -q -- '-s reload' "$NGINX_LOG" || fail "nginx -t 通过后没有 reload"
 AUTH_PRO_NGINX_BIN="$WORKDIR/nginx-ok" AUTH_PRO_NGINX_VHOST_DIR="$NGINX_ROOT" \
-  "$UPGRADE" --yes --no-start --skip-mysql \
+  run_upgrade --yes --no-start --skip-mysql \
   --site-root "$SITE" \
   --source "$PKG_V2" >"$WORKDIR/nginx-upgrade-again.out"
 grep -c 'location = /backend-unavailable.html' "$NGINX_ROOT/site.conf" | grep -qx 1 || fail "重复升级写了多段 error_page"
@@ -679,7 +677,7 @@ EOF
 chmod 755 "$WORKDIR/nginx-bad"
 : > "$NGINX_LOG"
 AUTH_PRO_NGINX_BIN="$WORKDIR/nginx-bad" AUTH_PRO_NGINX_VHOST_DIR="$NGINX_ROOT" \
-  "$UPGRADE" --yes --no-start --skip-mysql \
+  run_upgrade --yes --no-start --skip-mysql \
   --site-root "$SITE" \
   --source "$PKG_V2" >"$WORKDIR/nginx-bad.out"
 cmp -s "$NGINX_ROOT/site.conf" "$WORKDIR/nginx-before-ok.conf" || fail "nginx -t 失败后没有还原配置"
@@ -836,7 +834,7 @@ ok "安装包 SHA256 不一致时停止"
 bash -c '
 set -euo pipefail
 SCRIPT_DIR="$1"
-source "$SCRIPT_DIR/baota-lib.sh"
+source "$SCRIPT_DIR/install.sh"
 tmp=$(mktemp -d)
 site="$tmp/wwwroot/demo.example"
 mkdir -p "$site/backend/updates/backups/baota-upgrade-old"
@@ -891,7 +889,7 @@ PANEL_ERR="$WORKDIR/panel-run.err"
 PATH="$FAKE_BIN:$PATH" bash -c '
 set -euo pipefail
 SCRIPT_DIR="$1"
-source "$SCRIPT_DIR/baota-lib.sh"
+source "$SCRIPT_DIR/install.sh"
 baota_panel_run preflight
 printf "RESULT=%s\n" "$BAOTA_PANEL_RESULT"
 printf "PROGRAM=%s\n" "$BAOTA_PANEL_PROGRAM"

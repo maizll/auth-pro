@@ -26,21 +26,21 @@ curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com --no-star
 
 ## 已经拿到发布包
 
-发布包只提供 Linux amd64，文件名是 `auth_pro-full-vX.Y.Z.tar.gz`。包里带有 `baota-install.sh` 和 `baota-upgrade.sh`。
+发布包只提供 Linux amd64，文件名是 `auth_pro-full-vX.Y.Z.tar.gz`。客户执行的脚本只有包里的 `install.sh`。
 
 在面板里执行时，同样会自动建站和完成安装向导。包已经放到网站目录时：
 
 ```bash
 cd /www/wwwroot/example.com
 tar -xzf auth_pro-full-vX.Y.Z.tar.gz
-bash baota-install.sh
+bash install.sh
 ```
 
 包放在 `/tmp`、只放文件不启动时：
 
 ```bash
 AUTH_PRO_YES=1 AUTH_PRO_START=0 \
-bash baota-install.sh \
+bash install.sh \
   --site-root /www/wwwroot/example.com \
   --package /tmp/auth_pro-full-vX.Y.Z.tar.gz
 ```
@@ -48,7 +48,7 @@ bash baota-install.sh \
 要同时启动并完成向导：
 
 ```bash
-bash baota-install.sh \
+bash install.sh \
   --yes \
   --site-root /www/wwwroot/example.com \
   --package /tmp/auth_pro-full-vX.Y.Z.tar.gz
@@ -60,10 +60,10 @@ bash baota-install.sh \
 
 ## 升级
 
-不要把新压缩包直接解压覆盖正在运行的站点。把包留在 `/tmp`，运行新版本包里的 `baota-upgrade.sh`，不要用站点上旧的脚本。升级会沿用原来的端口，不会重新找端口。
+不要把新压缩包直接解压覆盖正在运行的站点。把包留在 `/tmp`，运行新版本包里的 `install.sh upgrade`，不要用站点上旧的脚本。升级会沿用原来的端口，不会重新找端口。
 
 ```bash
-bash baota-upgrade.sh \
+bash install.sh upgrade \
   --site-root /www/wwwroot/example.com \
   --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \
   --no-start
