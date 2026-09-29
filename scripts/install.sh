@@ -307,6 +307,7 @@ sys.stdout.write("\n".join([version, sha, sig, str(size), url, name]) + "\n")
     return 0
   fi
   export AUTH_PRO_ONECLICK=1
+  BAOTA_ACTION="install"
   install_info "开始安装到 ${SITE_ROOT}"
   baota_cmd_install "${ARGS[@]}"
 }
