@@ -82,6 +82,8 @@ curl -fsSL https://auth.maizll.com/install.sh | bash -s -- upgrade example.com
 
 要求数据目录里已有 `db.json` 或 `install.lock`。
 
+不带参数运行 `curl -fsSL https://auth.maizll.com/install.sh | bash` 会打开编号菜单。查看状态、启停、备份恢复、改端口和卸载的命令见 `docs/install.md`。启停只通过进程守护，不另起进程。
+
 ### 升级会备份和核对的内容
 
 替换前把运行数据拷到：
