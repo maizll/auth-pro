@@ -820,6 +820,8 @@ ok "没有面板时修复命令失败且不改网站文件"
 
 printf 'old-install-sh\n' > "$REMOTE_SITE/install.sh"
 printf 'old-baota-install\n' > "$REMOTE_SITE/baota-install.sh"
+printf 'old-panel\n' > "$REMOTE_SITE/baota-panel.py"
+printf 'old-guardian\n' > "$REMOTE_SITE/guardian-start.sh"
 UPGRADE_DB="$(sha256sum "$REMOTE_SITE/backend/db.json" | awk '{print $1}')"
 UPGRADE_LOCK="$(sha256sum "$REMOTE_SITE/backend/install.lock" | awk '{print $1}')"
 if ! bash "$GOOD_COPY" upgrade demo.example --no-start --skip-mysql --site-root "$REMOTE_SITE" >"$WORKDIR/remote-upgrade.out" 2>"$WORKDIR/remote-upgrade.err"; then
@@ -827,7 +829,7 @@ if ! bash "$GOOD_COPY" upgrade demo.example --no-start --skip-mysql --site-root 
 fi
 grep -q '正在核对 SHA256' "$WORKDIR/remote-upgrade.out" || fail "upgrade 没有核对安装包"
 grep -q '升级完成' "$WORKDIR/remote-upgrade.out" || fail "upgrade 没有完成"
-[[ ! -e "$REMOTE_SITE/install.sh" && ! -e "$REMOTE_SITE/baota-install.sh" ]] || fail "升级后网站根还留着旧脚本"
+[[ ! -e "$REMOTE_SITE/install.sh" && ! -e "$REMOTE_SITE/baota-install.sh" && ! -e "$REMOTE_SITE/baota-panel.py" && ! -e "$REMOTE_SITE/guardian-start.sh" ]] || fail "升级后网站根还留着旧脚本"
 [[ "$(sha256sum "$REMOTE_SITE/backend/db.json" | awk '{print $1}')" == "$UPGRADE_DB" ]] || fail "upgrade 改了 db.json"
 [[ "$(sha256sum "$REMOTE_SITE/backend/install.lock" | awk '{print $1}')" == "$UPGRADE_LOCK" ]] || fail "upgrade 改了 install.lock"
 grep -q 'remote' "$REMOTE_SITE/index.html" || fail "upgrade 没有换上发布包里的页面"

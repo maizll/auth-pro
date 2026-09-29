@@ -92,7 +92,7 @@ backend/updates/backups/baota-upgrade-<时间>-<pid>/
 
 能连上 MySQL 时用 `mysqldump` 导出 `db.sql`。口令只放在 `MYSQL_PWD` 环境变量里，不放进命令参数。没有客户端或暂时不能连库时加 `--skip-mysql`（或 `AUTH_PRO_SKIP_MYSQL=1`），`db.json` 文件副本仍会备份。
 
-只替换页面、`assets/`、`backend/auth_pro` 和 `backend/start.sh`。网站根上旧的 `install.sh`、`baota-install.sh`、`baota-upgrade.sh`、`baota-lib.sh` 会删掉。替换后核对下列路径的 SHA256 与替换前一致：
+只替换页面、`assets/`、`backend/auth_pro` 和 `backend/start.sh`。网站根上旧的 `install.sh`、`baota-install.sh`、`baota-upgrade.sh`、`baota-lib.sh`、`baota-panel.py`、`guardian-start.sh` 会删掉。替换后核对下列路径的 SHA256 与替换前一致：
 
 - 文件：`db.json`、`install.lock`、`jwt.secret`、`auto_pro.log`、`auto_pro.pid`
 - 目录：`plugins/`、`home-templates/`、`software-source-cache/`、`updates/`（不含本次 `backups/`）、`app-releases/`、`logs/`、`advertisement-images/`、`source-packages/`

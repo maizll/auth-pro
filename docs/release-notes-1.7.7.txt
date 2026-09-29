@@ -1,5 +1,5 @@
 auth-pro 1.7.7
 
 - 安装脚本只从官网 /install.sh 下载，不再放进客户发布包。
-- 升级改为 curl -fsSL https://auth.maizll.com/install.sh | bash -s -- upgrade 域名 ，脚本从官网下载最新包并核对 SHA256 后再升级，运行数据备份仍只留最近 3 份。
+- 升级改为 curl -fsSL https://auth.maizll.com/install.sh | bash -s -- upgrade 域名 ，脚本从官网下载最新包并核对 SHA256 后再升级，运行数据备份仍只留最近 3 份，并删除网站根残留脚本。
 - 发布包只保留 baota-panel.py 和 guardian-start.sh，安装、升级、修复和重设密码都从包里取出面板辅助脚本。

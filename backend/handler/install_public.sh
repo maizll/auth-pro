@@ -343,7 +343,7 @@ upgrade 从官网取最新包，替换页面和 backend/auth_pro，保留 db.jso
   --skip-mysql      升级时不导出数据库（仍会备份 db.json）
   --yes, -y         不再询问
   --dry-run         只打印步骤，不改网站文件
-  --repair-guardian 只修复本站点的进程守护。不停其它站点，不改数据库、网站文件和 Nginx
+  --repair-guardian 只修复本站点的进程守护。不停其它站点，不改数据库、站点程序和 Nginx
   --reset-admin-password
                     本机 root 重设已装站点的管理员密码，并打印新的 8 位数字密码
   --reset-binary FILE
@@ -1671,7 +1671,8 @@ baota_chmod_binary() {
 # 网站根只留页面和 backend/。安装入口不复制到站点里，旧包留下的脚本删掉。
 baota_install_scripts() {
   local name
-  for name in install.sh baota-install.sh baota-upgrade.sh baota-lib.sh; do
+  # 网站根不留安装入口，也不留发布包里的辅助脚本。启动模板的正式副本在 backend/start.sh。
+  for name in install.sh baota-install.sh baota-upgrade.sh baota-lib.sh baota-panel.py guardian-start.sh; do
     [[ -f "$BAOTA_SITE_ROOT/$name" ]] || continue
     if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
       baota_info "将删除过时的网站根脚本 $name"
@@ -2655,7 +2656,8 @@ baota_reset_admin_password() {
   baota_info "登录后请在后台修改密码。没有改动网站文件、Nginx、数据库密码和其它站点。"
 }
 
-# 给 1.7.5 已装好、进程脱管的站点用。只停本站脱管进程并重新登记守护，不改数据库、网站文件和 Nginx。
+# 给已经装好、进程脱管的站点用。只停本站脱管进程并重新登记守护，不改数据库、站点程序和 Nginx。
+# 成功后清掉网站根残留的安装脚本和发布包辅助脚本。失败时不删。
 baota_repair_guardian() {
   local data port command sum_before
   if [[ -z "$BAOTA_SITE_ROOT" ]]; then
@@ -2674,7 +2676,7 @@ baota_repair_guardian() {
   if [[ -f "$BAOTA_SITE_ROOT/index.html" ]]; then
     sum_before="$(sha256sum "$BAOTA_SITE_ROOT/index.html" | awk '{print $1}')"
   fi
-  baota_info "修复 ${BAOTA_SITE_ROOT} 的进程守护，端口 ${port}。不改数据库、网站文件和 Nginx。"
+  baota_info "修复 ${BAOTA_SITE_ROOT} 的进程守护，端口 ${port}。不改数据库、站点程序和 Nginx。"
   baota_find_supervisor || true
   baota_supervisor_stop_ours
   if baota_port_is_open "$port"; then
@@ -2708,7 +2710,8 @@ baota_repair_guardian() {
     sum_after="$(sha256sum "$BAOTA_SITE_ROOT/index.html" | awk '{print $1}')"
     [[ "$sum_before" == "$sum_after" ]] || baota_die "修复过程中网站首页被改动，已停止。请检查 ${BAOTA_SITE_ROOT}/index.html 。"
   fi
-  baota_info "进程守护已修复。面板列表里有本站点，状态为 RUNNING。没有改动数据库、网站文件和 Nginx，也没有动其它站点的守护项。"
+  baota_install_scripts
+  baota_info "进程守护已修复。面板列表里有本站点，状态为 RUNNING。没有改动数据库、站点程序和 Nginx，也没有动其它站点的守护项。"
 }
 
 baota_cmd_install() {
