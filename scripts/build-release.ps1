@@ -64,7 +64,7 @@ Write-Host "[2/5] Preparing package directories..."
 $PackageBackendDir = Join-Path $PackageDir 'backend'
 New-Item -ItemType Directory -Force -Path $PackageBackendDir | Out-Null
 Copy-Item -Path (Join-Path $FrontendDist '*') -Destination $PackageDir -Recurse -Force
-foreach ($PackagedScript in @('install.sh', 'baota-panel.py')) {
+foreach ($PackagedScript in @('baota-panel.py')) {
   $PackagedSource = Join-Path $Root "scripts/$PackagedScript"
   if (-not (Test-Path -LiteralPath $PackagedSource)) {
     throw "Missing packaged script: $PackagedSource"
@@ -84,6 +84,8 @@ if ($BackendStaticDir -notlike "$Root*") {
 New-Item -ItemType Directory -Force -Path $BackendStaticDir | Out-Null
 Get-ChildItem -LiteralPath $BackendStaticDir -Force | Remove-Item -Recurse -Force
 Copy-Item -Path (Join-Path $FrontendDist '*') -Destination $BackendStaticDir -Recurse -Force
+
+# 安装脚本的唯一源是 backend/handler/install.sh，由 go:embed 直接下发，这里不再复制。
 
 Write-Host "[3/5] Building Linux backend..."
 $BuildTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")

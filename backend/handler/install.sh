@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
-# 客户唯一入口。一条命令、本机安装、升级、修复进程守护、重设管理员密码都走这个文件。
-# 官网 /install.sh 下发的就是发布包里的这一份。官网地址写死，不能用环境变量改掉。
+# 客户唯一入口，仓库里也只有这一份：backend/handler/install.sh。
+# 服务端用 go:embed 原样下发为官网 /install.sh，构建不再复制第二份。
+# 发布包里没有本文件。面板辅助脚本和启动模板从官网安装包里取。官网地址写死，不能用环境变量改掉。
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 管道执行（curl | bash -s）时没有脚本文件，BASH_SOURCE 为空。面板辅助脚本改从安装包取。
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+  SCRIPT_DIR=""
+fi
 
 install_die() {
   printf '[错误] %s\n' "$1" >&2
@@ -27,7 +33,7 @@ install_sha256() {
   install_die "缺少 sha256sum，无法核对安装包"
 }
 
-# 带域名、又没有安装包路径时，先从官网下载再执行包里的这一份脚本。
+# 带域名、又没有 --package / --source 时，从官网下载安装包，再用当前这份脚本继续。
 # 已经拿着 --package / --source，或只写了本机 --site-root，就直接安装或升级。
 install_should_download() {
   local arg prev="" domain=""
@@ -59,8 +65,39 @@ install_should_download() {
   [[ -n "$domain" ]]
 }
 
-install_download_and_reexec() {
-  local DOMAIN="" SITE_ROOT="" PORT="" START_FLAG="--start" REPAIR_GUARDIAN=0 RESET_ADMIN=0
+# 官网下载的临时目录。退出时由 baota_cleanup 删掉，一条命令中途失败也不会留下。
+INSTALL_DOWNLOAD_DIR=""
+
+# 发布包成员名只认根上的普通路径，不认子目录里的同名文件。
+install_package_has() {
+  local listing="$1" name="$2"
+  printf '%s\n' "$listing" | grep -qx "${name}" && return 0
+  printf '%s\n' "$listing" | grep -qx "./${name}"
+}
+
+install_extract_member() {
+  local archive="$1" dest="$2" listing="$3" name="$4"
+  if printf '%s\n' "$listing" | grep -qx "./${name}"; then
+    tar -xzf "$archive" -C "$dest" "./${name}"
+    return 0
+  fi
+  if printf '%s\n' "$listing" | grep -qx "${name}"; then
+    tar -xzf "$archive" -C "$dest" "${name}"
+    return 0
+  fi
+  install_die "安装包里缺少 ${name}"
+}
+
+# 下载并核对官网安装包，然后用当前这份脚本安装或升级。
+# 不执行包里的 install.sh。baota-panel.py 和 guardian-start.sh 从包里取出。
+install_download_and_continue() {
+  local action="$1"
+  shift
+  local DOMAIN="" SITE_ROOT="" PORT="" START_FLAG="--start" REPAIR_GUARDIAN=0 RESET_ADMIN=0 SKIP_MYSQL=0
+  case "$action" in
+    repair) REPAIR_GUARDIAN=1 ;;
+    reset-admin-password) RESET_ADMIN=1 ;;
+  esac
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -h|--help)
@@ -91,6 +128,10 @@ install_download_and_reexec() {
         ;;
       --no-start)
         START_FLAG="--no-start"
+        shift
+        ;;
+      --skip-mysql)
+        SKIP_MYSQL=1
         shift
         ;;
       --)
@@ -137,8 +178,8 @@ install_download_and_reexec() {
   if [[ "$RESET_ADMIN" == "1" && "$(id -u)" -ne 0 ]]; then
     install_die "只有 root 能在服务器本机重设管理员密码"
   fi
-  if [[ -f "$SITE_ROOT/backend/install.lock" && "$REPAIR_GUARDIAN" != "1" && "$RESET_ADMIN" != "1" ]]; then
-    install_die "检测到 ${SITE_ROOT}/backend/install.lock ，站点已经安装。请改用 install.sh upgrade，或在后台使用「在线更新」，以免覆盖运行数据。若只是进程没进宝塔进程守护，请改用 --repair-guardian。若要重设管理员密码，请改用 --reset-admin-password。"
+  if [[ "$action" != "upgrade" && -f "$SITE_ROOT/backend/install.lock" && "$REPAIR_GUARDIAN" != "1" && "$RESET_ADMIN" != "1" ]]; then
+    install_die "检测到 ${SITE_ROOT}/backend/install.lock ，站点已经安装。请改用 curl -fsSL https://auth.maizll.com/install.sh | bash -s -- upgrade ${DOMAIN} ，或在后台使用「在线更新」，以免覆盖运行数据。若只是进程没进宝塔进程守护，请改用 --repair-guardian。若要重设管理员密码，请改用 --reset-admin-password。"
   fi
   if [[ "$REPAIR_GUARDIAN" == "1" && ! -f "$SITE_ROOT/backend/install.lock" ]]; then
     install_die "没有 ${SITE_ROOT}/backend/install.lock 。修复命令只处理已经装好的站点，请去掉 --repair-guardian 再安装。"
@@ -152,7 +193,7 @@ install_download_and_reexec() {
   command -v tar >/dev/null 2>&1 || install_die "缺少 tar，无法解开安装包"
 
   local MANIFEST PARSED VERSION SHA SIGNATURE SIZE PKG_URL PKG_NAME EXPECT_URL WORKDIR PKG_FILE
-  local ACTUAL_SIZE ACTUAL_SHA LISTING name
+  local ACTUAL_SIZE ACTUAL_SHA LISTING HELPERS ARGS
   install_info "正在从官网获取最新版本"
   if ! MANIFEST="$(curl -q -fsSL --proto '=https' --max-time 60 "https://auth.maizll.com/api/v1/update/latest.json")"; then
     install_die "无法从官网获取最新版本"
@@ -208,7 +249,7 @@ sys.stdout.write("\n".join([version, sha, sig, str(size), url, name]) + "\n")
   fi
 
   WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/auth-pro-install.XXXXXX")"
-  trap 'rm -rf "$WORKDIR"' EXIT
+  INSTALL_DOWNLOAD_DIR="$WORKDIR"
   PKG_FILE="$WORKDIR/$PKG_NAME"
   install_info "最新版本 ${VERSION}，开始下载安装包"
   if ! curl -q -fsSL --proto '=https' --retry 2 --retry-delay 1 --max-time 600 -o "$PKG_FILE" "$EXPECT_URL"; then
@@ -226,69 +267,71 @@ sys.stdout.write("\n".join([version, sha, sig, str(size), url, name]) + "\n")
   [[ "$ACTUAL_SHA" == "$SHA" ]] || install_die "安装包 SHA256 不一致，已停止安装"
 
   LISTING="$(tar -tzf "$PKG_FILE")"
-  for name in install.sh baota-panel.py guardian-start.sh; do
-    if printf '%s\n' "$LISTING" | grep -qx "./${name}"; then
-      tar -xzf "$PKG_FILE" -C "$WORKDIR" "./${name}"
-    elif printf '%s\n' "$LISTING" | grep -qx "${name}"; then
-      tar -xzf "$PKG_FILE" -C "$WORKDIR" "${name}"
-    else
-      install_die "安装包里缺少 ${name}"
-    fi
-  done
-  [[ -f "$WORKDIR/install.sh" && -f "$WORKDIR/baota-panel.py" ]] || install_die "安装包里缺少安装脚本"
-  chmod 755 "$WORKDIR/install.sh" "$WORKDIR/guardian-start.sh"
+  install_package_has "$LISTING" "baota-panel.py" || install_die "安装包里缺少 baota-panel.py"
+  install_package_has "$LISTING" "guardian-start.sh" || install_die "安装包里缺少 guardian-start.sh"
+  install_package_has "$LISTING" "backend/auth_pro" || install_die "安装包里缺少 backend/auth_pro"
+  # 发布包不带安装脚本。这里只取出面板辅助脚本和启动模板，不执行包内的 install.sh。
+  HELPERS="$WORKDIR/helpers"
+  mkdir -p "$HELPERS"
+  install_extract_member "$PKG_FILE" "$HELPERS" "$LISTING" "baota-panel.py"
+  install_extract_member "$PKG_FILE" "$HELPERS" "$LISTING" "guardian-start.sh"
+  chmod 755 "$HELPERS/guardian-start.sh"
+  BAOTA_PAYLOAD="$HELPERS"
 
   if [[ -n "$DOMAIN" ]]; then
     export AUTH_PRO_PUBLIC_HOST="$DOMAIN"
   fi
-  export AUTH_PRO_ONECLICK=1
   if [[ "$RESET_ADMIN" == "1" ]]; then
-    if printf '%s\n' "$LISTING" | grep -qx "./backend/auth_pro"; then
-      tar -xzf "$PKG_FILE" -C "$WORKDIR" "./backend/auth_pro"
-    elif printf '%s\n' "$LISTING" | grep -qx "backend/auth_pro"; then
-      tar -xzf "$PKG_FILE" -C "$WORKDIR" "backend/auth_pro"
-    else
-      install_die "安装包里缺少 backend/auth_pro，无法重设管理员密码"
-    fi
-    [[ -f "$WORKDIR/backend/auth_pro" ]] || install_die "安装包里缺少 backend/auth_pro，无法重设管理员密码"
-    chmod 755 "$WORKDIR/backend/auth_pro"
+    install_extract_member "$PKG_FILE" "$HELPERS" "$LISTING" "backend/auth_pro"
+    [[ -f "$HELPERS/backend/auth_pro" ]] || install_die "安装包里缺少 backend/auth_pro，无法重设管理员密码"
+    chmod 755 "$HELPERS/backend/auth_pro"
     install_info "开始重设 ${SITE_ROOT} 的管理员密码，不覆盖网站文件和 Nginx"
-    bash "$WORKDIR/install.sh" --reset-admin-password --yes --site-root "$SITE_ROOT" --reset-binary "$WORKDIR/backend/auth_pro"
-    exit 0
+    baota_cmd_install --reset-admin-password --yes --site-root "$SITE_ROOT" --reset-binary "$HELPERS/backend/auth_pro"
+    return 0
   fi
   if [[ "$REPAIR_GUARDIAN" == "1" ]]; then
     install_info "开始修复 ${SITE_ROOT} 的进程守护，不覆盖网站文件和数据库"
-    bash "$WORKDIR/install.sh" --repair-guardian --yes --site-root "$SITE_ROOT"
-    exit 0
+    baota_cmd_install --repair-guardian --yes --site-root "$SITE_ROOT"
+    return 0
   fi
-  install_info "开始安装到 ${SITE_ROOT}"
-  local ARGS
   ARGS=(--yes --site-root "$SITE_ROOT" --package "$PKG_FILE" "$START_FLAG")
   if [[ -n "$PORT" ]]; then
     ARGS+=(--port "$PORT")
   fi
-  bash "$WORKDIR/install.sh" "${ARGS[@]}"
+  if [[ "$SKIP_MYSQL" == "1" ]]; then
+    ARGS+=(--skip-mysql)
+  fi
+  if [[ "$action" == "upgrade" ]]; then
+    install_info "开始升级 ${SITE_ROOT}"
+    BAOTA_ACTION="upgrade"
+    baota_cmd_upgrade "${ARGS[@]}"
+    return 0
+  fi
+  export AUTH_PRO_ONECLICK=1
+  BAOTA_ACTION="install"
+  install_info "开始安装到 ${SITE_ROOT}"
+  baota_cmd_install "${ARGS[@]}"
 }
 
 baota_print_help() {
   cat <<'EOF'
 用法：
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- 域名
-  bash install.sh --site-root 目录 --package 发布包
-  bash install.sh upgrade --site-root 目录 --package 发布包
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- upgrade 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --repair-guardian 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --reset-admin-password 域名
 
-这是安装、升级、修复进程守护和重设管理员密码的唯一入口。
-一条命令会从官网下载已发布的安装包，核对 SHA256 和签名后再安装。
+这是安装、升级、修复进程守护和重设管理员密码的唯一入口。脚本只从官网下载，不在发布包里。
+一条命令会从官网下载已发布的安装包，核对 SHA256 和签名后再安装或升级。
 需要本机已经装好宝塔面板，并且软件商店里已经安装 Nginx 和 MySQL。脚本不会替你安装 MySQL。
 网站目录默认是 /www/wwwroot/域名。未写 --port 时从 19127 起自动找空闲端口。
 已经有 backend/install.lock 时，安装会停下来。请改用 upgrade，或在后台使用「在线更新」。
 
-upgrade 替换页面和 backend/auth_pro，保留 db.json、install.lock 和运行数据。
-不要把新压缩包直接解压覆盖正在运行的站点。请运行新版本包里的 install.sh upgrade。
-进程已由宝塔进程守护或 systemd 托管时加上 --start。脚本不停止守护，替换后只结束本站进程。
+upgrade 从官网取最新包，替换页面和 backend/auth_pro，保留 db.json、install.lock 和运行数据。
+不要把新压缩包直接解压覆盖正在运行的站点。
+进程已由宝塔进程守护或 systemd 托管时，upgrade 默认在替换后只结束本站进程，由守护拉起。
 --no-start 在守护仍托管时会拒绝。--skip-mysql 不导出数据库，仍会备份 db.json。
+已经把发布包放在本机时，可以加上 --package，不再从官网下载。
 
 选项：
   --site-root DIR   网站根
@@ -301,7 +344,7 @@ upgrade 替换页面和 backend/auth_pro，保留 db.json、install.lock 和运�
   --skip-mysql      升级时不导出数据库（仍会备份 db.json）
   --yes, -y         不再询问
   --dry-run         只打印步骤，不改网站文件
-  --repair-guardian 只修复本站点的进程守护。不停其它站点，不改数据库、网站文件和 Nginx
+  --repair-guardian 只修复本站点的进程守护。不停其它站点，不改数据库、站点程序和 Nginx
   --reset-admin-password
                     本机 root 重设已装站点的管理员密码，并打印新的 8 位数字密码
   --reset-binary FILE
@@ -311,15 +354,16 @@ upgrade 替换页面和 backend/auth_pro，保留 db.json、install.lock 和运�
 示例：
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com --port 19127 --site-root /www/wwwroot/example.com
-  bash install.sh --yes --site-root /www/wwwroot/example.com --package /tmp/auth_pro-full-vX.Y.Z.tar.gz
-  bash install.sh upgrade --yes --site-root /www/wwwroot/example.com --package /tmp/auth_pro-full-vX.Y.Z.tar.gz --no-start
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- upgrade example.com
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --repair-guardian example.com
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --reset-admin-password example.com
+  bash install.sh --yes --site-root /www/wwwroot/example.com --package /tmp/auth_pro-full-vX.Y.Z.tar.gz
+  bash install.sh upgrade --yes --site-root /www/wwwroot/example.com --package /tmp/auth_pro-full-vX.Y.Z.tar.gz --no-start
 EOF
 }
 
-# 安装、升级、修复和重设密码的实现。只由同文件前面的 install.sh 入口调用。
-: "${SCRIPT_DIR:?SCRIPT_DIR 未设置}"
+# 安装、升级、修复和重设密码的实现。只由同文件前面的入口调用。
+# 管道执行时 SCRIPT_DIR 为空，baota-panel.py 必须从下载的发布包里取。
 
 # 这些路径相对数据目录（默认是网站根下的 backend/）。
 # 与后端 getDataDir() 一致：db.json、install.lock、jwt.secret，
@@ -391,12 +435,15 @@ baota_cleanup() {
   if [[ -n "$BAOTA_STAGING_ASSETS" && -d "$BAOTA_STAGING_ASSETS" ]]; then
     rm -rf "$BAOTA_STAGING_ASSETS"
   fi
-  if [[ ${#BAOTA_TMP_DIRS[@]} -eq 0 ]]; then
-    return 0
+  if [[ ${#BAOTA_TMP_DIRS[@]} -gt 0 ]]; then
+    for dir in "${BAOTA_TMP_DIRS[@]}"; do
+      rm -rf "$dir"
+    done
   fi
-  for dir in "${BAOTA_TMP_DIRS[@]}"; do
-    rm -rf "$dir"
-  done
+  # 官网下载的临时目录。一条命令失败退出时也要删掉。
+  if [[ -n "${INSTALL_DOWNLOAD_DIR:-}" && -d "$INSTALL_DOWNLOAD_DIR" ]]; then
+    rm -rf "$INSTALL_DOWNLOAD_DIR"
+  fi
 }
 trap baota_cleanup EXIT
 
@@ -1114,8 +1161,13 @@ baota_panel_script() {
     printf '%s\n' "$BAOTA_PAYLOAD/baota-panel.py"
     return 0
   fi
-  if [[ -f "$SCRIPT_DIR/baota-panel.py" ]]; then
+  if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/baota-panel.py" ]]; then
     printf '%s\n' "$SCRIPT_DIR/baota-panel.py"
+    return 0
+  fi
+  # 本文件在 backend/handler。仓库里的面板辅助脚本仍是 scripts/baota-panel.py。
+  if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/../../scripts/baota-panel.py" ]]; then
+    printf '%s\n' "$SCRIPT_DIR/../../scripts/baota-panel.py"
     return 0
   fi
   return 1
@@ -1625,7 +1677,8 @@ baota_chmod_binary() {
 # 网站根只留页面和 backend/。安装入口不复制到站点里，旧包留下的脚本删掉。
 baota_install_scripts() {
   local name
-  for name in baota-install.sh baota-upgrade.sh baota-lib.sh; do
+  # 网站根不留安装入口，也不留发布包里的辅助脚本。启动模板的正式副本在 backend/start.sh。
+  for name in install.sh baota-install.sh baota-upgrade.sh baota-lib.sh baota-panel.py guardian-start.sh; do
     [[ -f "$BAOTA_SITE_ROOT/$name" ]] || continue
     if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
       baota_info "将删除过时的网站根脚本 $name"
@@ -1675,12 +1728,13 @@ baota_guardian_start_template() {
     printf '%s\n' "$BAOTA_PAYLOAD/guardian-start.sh"
     return 0
   fi
-  if [[ -f "$SCRIPT_DIR/guardian-start.sh" ]]; then
+  if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/guardian-start.sh" ]]; then
     printf '%s\n' "$SCRIPT_DIR/guardian-start.sh"
     return 0
   fi
-  if [[ -f "$SCRIPT_DIR/../backend/handler/guardian_start.sh" ]]; then
-    printf '%s\n' "$SCRIPT_DIR/../backend/handler/guardian_start.sh"
+  # 启动模板的唯一源与本文件放在同一目录。
+  if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/guardian_start.sh" ]]; then
+    printf '%s\n' "$SCRIPT_DIR/guardian_start.sh"
     return 0
   fi
   return 1
@@ -1727,6 +1781,7 @@ baota_write_nginx_snippet() {
 # }
 
 location ^~ /backend/ { return 404; }
+location = /install.sh { return 404; }
 location = /baota-install.sh { return 404; }
 location = /baota-upgrade.sh { return 404; }
 location = /baota-lib.sh { return 404; }
@@ -2608,7 +2663,8 @@ baota_reset_admin_password() {
   baota_info "登录后请在后台修改密码。没有改动网站文件、Nginx、数据库密码和其它站点。"
 }
 
-# 给 1.7.5 已装好、进程脱管的站点用。只停本站脱管进程并重新登记守护，不改数据库、网站文件和 Nginx。
+# 给已经装好、进程脱管的站点用。只停本站脱管进程并重新登记守护，不改数据库、站点程序和 Nginx。
+# 成功后清掉网站根残留的安装脚本和发布包辅助脚本。失败时不删。
 baota_repair_guardian() {
   local data port command sum_before
   if [[ -z "$BAOTA_SITE_ROOT" ]]; then
@@ -2627,7 +2683,7 @@ baota_repair_guardian() {
   if [[ -f "$BAOTA_SITE_ROOT/index.html" ]]; then
     sum_before="$(sha256sum "$BAOTA_SITE_ROOT/index.html" | awk '{print $1}')"
   fi
-  baota_info "修复 ${BAOTA_SITE_ROOT} 的进程守护，端口 ${port}。不改数据库、网站文件和 Nginx。"
+  baota_info "修复 ${BAOTA_SITE_ROOT} 的进程守护，端口 ${port}。不改数据库、站点程序和 Nginx。"
   baota_find_supervisor || true
   baota_supervisor_stop_ours
   if baota_port_is_open "$port"; then
@@ -2661,7 +2717,8 @@ baota_repair_guardian() {
     sum_after="$(sha256sum "$BAOTA_SITE_ROOT/index.html" | awk '{print $1}')"
     [[ "$sum_before" == "$sum_after" ]] || baota_die "修复过程中网站首页被改动，已停止。请检查 ${BAOTA_SITE_ROOT}/index.html 。"
   fi
-  baota_info "进程守护已修复。面板列表里有本站点，状态为 RUNNING。没有改动数据库、网站文件和 Nginx，也没有动其它站点的守护项。"
+  baota_install_scripts
+  baota_info "进程守护已修复。面板列表里有本站点，状态为 RUNNING。没有改动数据库、站点程序和 Nginx，也没有动其它站点的守护项。"
 }
 
 baota_cmd_install() {
@@ -2698,7 +2755,7 @@ baota_cmd_install() {
   data="$(baota_data_dir)"
   port="$(baota_effective_port)"
   if [[ -f "$data/install.lock" ]]; then
-    baota_die "检测到 ${data}/install.lock ，站点已经安装。请改用 install.sh upgrade ，以免覆盖运行数据。"
+    baota_die "检测到 ${data}/install.lock ，站点已经安装。请改用 curl -fsSL https://auth.maizll.com/install.sh | bash -s -- upgrade <域名> ，以免覆盖运行数据。"
   fi
   if [[ -f "$data/db.json" ]]; then
     baota_warn "已存在 ${data}/db.json 。安装不会删除它；若向导已经完成，请改用升级脚本。"
@@ -2826,7 +2883,7 @@ baota_cmd_upgrade() {
   data="$(baota_data_dir)"
   port="$(baota_effective_port)"
   if [[ ! -f "$data/install.lock" && ! -f "$data/db.json" ]]; then
-    baota_die "在 ${data} 未找到 db.json 或 install.lock 。这像是新站点，请改用 install.sh 。"
+    baota_die "在 ${data} 未找到 db.json 或 install.lock 。这像是新站点，请改用 curl -fsSL https://auth.maizll.com/install.sh | bash -s -- <域名> 。"
   fi
   if [[ ! -f "$data/install.lock" ]]; then
     baota_warn "没有 install.lock ，仍会按升级处理并保留已有 db.json 。若安装向导还没做完，请先完成向导。"
@@ -2887,13 +2944,13 @@ install_main() {
       set -- --reset-admin-password "$@"
       ;;
   esac
+  if install_should_download "$@"; then
+    install_download_and_continue "$cmd" "$@"
+    return
+  fi
   if [[ "$cmd" == "upgrade" ]]; then
     BAOTA_ACTION="upgrade"
     baota_cmd_upgrade "$@"
-    return
-  fi
-  if install_should_download "$@"; then
-    install_download_and_reexec "$@"
     return
   fi
   if [[ $# -eq 0 ]]; then
@@ -2904,6 +2961,7 @@ install_main() {
   baota_cmd_install "$@"
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+# 直接执行，或 curl | bash -s 时运行入口。被 source 时 BASH_SOURCE 指向本文件，不跑入口。
+if [[ -z "${BASH_SOURCE[0]:-}" || "${BASH_SOURCE[0]}" == "$0" ]]; then
   install_main "$@"
 fi

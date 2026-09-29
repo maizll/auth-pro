@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INSTALL="$ROOT/scripts/install.sh"
+INSTALL="$ROOT/backend/handler/install.sh"
 # 升级和安装是同一个入口，用子命令区分。
 run_upgrade() { "$INSTALL" upgrade "$@"; }
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/auth-pro-baota-test.XXXXXX")"
@@ -54,7 +54,8 @@ make_payload() {
   printf 'asset-%s\n' "$marker" > "$dir/assets/app.js"
   printf 'binary-%s\n' "$marker" > "$dir/backend/auth_pro"
   chmod 644 "$dir/backend/auth_pro"
-  cp "$INSTALL" "$ROOT/scripts/baota-panel.py" "$dir/"
+  cp "$ROOT/scripts/baota-panel.py" "$ROOT/backend/handler/guardian_start.sh" "$dir/"
+  mv "$dir/guardian_start.sh" "$dir/guardian-start.sh"
 }
 
 pack_payload() {
@@ -62,10 +63,10 @@ pack_payload() {
   tar -czf "$archive" -C "$dir" .
 }
 
-# 只改测试副本。成品 scripts/install.sh 里的官网地址保持写死。
+# 只改测试副本。成品 backend/handler/install.sh 里的官网地址保持写死。
 install_for_test() {
   local dest="$1" origin="$2"
-  cp "$ROOT/scripts/install.sh" "$dest"
+  cp "$ROOT/backend/handler/install.sh" "$dest"
   sed -i \
     -e "s|https://auth.maizll.com|${origin}|g" \
     -e "s|--proto '=https'|--proto '=http'|g" \
@@ -87,11 +88,12 @@ help_out="$("$INSTALL" --help)"
 printf '%s\n' "$help_out" | grep -q -- '--site-root' || fail "安装脚本 --help 缺少 --site-root"
 printf '%s\n' "$help_out" | grep -q 'install.lock' || fail "安装脚本 --help 未说明 install.lock"
 printf '%s\n' "$help_out" | grep -q -- '--repair-guardian' || fail "安装脚本 --help 缺少 --repair-guardian"
-"$ROOT/scripts/install.sh" --help | grep -q -- '--repair-guardian' || fail "一条命令安装 --help 缺少 --repair-guardian"
-"$ROOT/scripts/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- --repair-guardian' || fail "一条命令安装 --help 没有写死修复命令"
+"$ROOT/backend/handler/install.sh" --help | grep -q -- '--repair-guardian' || fail "一条命令安装 --help 缺少 --repair-guardian"
+"$ROOT/backend/handler/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- --repair-guardian' || fail "一条命令安装 --help 没有写死修复命令"
+"$ROOT/backend/handler/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- upgrade' || fail "一条命令安装 --help 没有写死升级命令"
 printf '%s\n' "$help_out" | grep -q -- '--reset-admin-password' || fail "安装脚本 --help 缺少 --reset-admin-password"
-"$ROOT/scripts/install.sh" --help | grep -q -- '--reset-admin-password' || fail "一条命令安装 --help 缺少 --reset-admin-password"
-"$ROOT/scripts/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- --reset-admin-password' || fail "一条命令安装 --help 没有写死重设密码命令"
+"$ROOT/backend/handler/install.sh" --help | grep -q -- '--reset-admin-password' || fail "一条命令安装 --help 缺少 --reset-admin-password"
+"$ROOT/backend/handler/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- --reset-admin-password' || fail "一条命令安装 --help 没有写死重设密码命令"
 grep -q 'baota_random_digits 8' "$INSTALL" || fail "管理员密码没有改成 8 位数字"
 grep -q 'baota_random_alnum 20 mixed' "$INSTALL" || fail "数据库密码不再是原来的随机强密码"
 grep -q '登录后请在后台修改密码' "$INSTALL" || fail "打印凭据时没有提示登录后修改密码"
@@ -103,6 +105,7 @@ if grep -q 'plugin/supervisor/config.py' "$ROOT/scripts/baota-panel.py"; then
 fi
 grep -q '拒绝 nohup' "$INSTALL" || fail "面板安装失败时没有拒绝 nohup"
 [[ ! -e "$ROOT/scripts/baota-install.sh" && ! -e "$ROOT/scripts/baota-upgrade.sh" && ! -e "$ROOT/scripts/baota-lib.sh" ]] || fail "旧的安装入口脚本还在"
+[[ ! -e "$ROOT/scripts/install.sh" && ! -e "$ROOT/backend/handler/install_public.sh" ]] || fail "安装脚本还有第二份"
 ok "--help 与单一安装入口"
 
 (
@@ -172,10 +175,18 @@ EOF
   ok "root 本机重设管理员密码"
 fi
 
-grep -F -q 'for packaged_script in install.sh baota-panel.py' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未只复制安装入口和面板辅助脚本"
+grep -F -q 'for packaged_script in baota-panel.py' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未只把面板辅助脚本打进发布包"
 grep -F -q 'guardian-start.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制进程守护模板"
-grep -F -q "'install.sh'" "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未复制一条命令安装脚本"
-grep -F -q 'baota-panel.py' "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未复制面板辅助脚本"
+if grep -E -q 'packaged_script in .*install\.sh|cp .*scripts/install\.sh" "\$PACKAGE_DIR' "$ROOT/scripts/build-release.sh"; then
+  fail "build-release.sh 仍会把 install.sh 打进发布包"
+fi
+if grep -E -q 'install_public\.sh|scripts/install\.sh' "$ROOT/scripts/build-release.sh" "$ROOT/scripts/build-release.ps1"; then
+  fail "构建脚本仍在复制第二份 install.sh"
+fi
+grep -F -q "@('baota-panel.py')" "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未只复制面板辅助脚本"
+if grep -F -q "@('install.sh'" "$ROOT/scripts/build-release.ps1" || grep -F -q "'install.sh'," "$ROOT/scripts/build-release.ps1"; then
+  fail "build-release.ps1 仍会把 install.sh 打进发布包"
+fi
 if grep -E -q 'baota-install\.sh|baota-upgrade\.sh|baota-lib\.sh' "$ROOT/scripts/build-release.ps1"; then
   fail "build-release.ps1 仍会把旧入口打进发布包"
 fi
@@ -269,7 +280,7 @@ printf 'installed\n' > "$SITE/backend/install.lock"
 if "$INSTALL" --yes --no-start --site-root "$SITE" --source "$PKG_V1" >"$WORKDIR/locked.out" 2>"$WORKDIR/locked.err"; then
   fail "已有 install.lock 时安装脚本不应继续"
 fi
-grep -q 'install.sh upgrade' "$WORKDIR/locked.err" || fail "拒绝安装时没有指向升级命令"
+grep -q 'bash -s -- upgrade' "$WORKDIR/locked.err" || fail "拒绝安装时没有指向升级命令"
 ok "已安装站点拒绝再次全新安装"
 
 printf '{"host":"127.0.0.1","port":"3306","database":"auth_pro","username":"auth_user","password":"secret-pass"}\n' > "$SITE/backend/db.json"
@@ -684,7 +695,7 @@ cmp -s "$NGINX_ROOT/site.conf" "$WORKDIR/nginx-before-ok.conf" || fail "nginx -t
 grep -q -- '-s reload' "$NGINX_LOG" && fail "nginx -t 失败后仍然 reload"
 ok "nginx -t 失败时还原配置并且不 reload"
 
-REMOTE="$ROOT/scripts/install.sh"
+REMOTE="$ROOT/backend/handler/install.sh"
 bash -n "$REMOTE"
 "$REMOTE" --help | grep -q 'auth.maizll.com/install.sh' || fail "安装入口 --help 没有官网地址"
 if grep -E -q 'github\.com|githubusercontent' "$REMOTE"; then
@@ -703,9 +714,9 @@ ok "一条命令安装脚本语法与帮助"
 
 REMOTE_SRC="$WORKDIR/remote-src"
 make_payload "$REMOTE_SRC" "remote"
-cp "$ROOT/scripts/install.sh" "$REMOTE_SRC/install.sh"
+# 发布包不带 install.sh。面板辅助脚本和启动模板在包里，安装脚本由测试副本自己执行。
 cp "$ROOT/backend/handler/guardian_start.sh" "$REMOTE_SRC/guardian-start.sh"
-chmod 755 "$REMOTE_SRC/install.sh" "$REMOTE_SRC/guardian-start.sh"
+chmod 755 "$REMOTE_SRC/guardian-start.sh"
 tar -czf "$WORKDIR/remote.tar.gz" -C "$REMOTE_SRC" .
 REMOTE_PORT="$(free_port)"
 REMOTE_SITE="$WORKDIR/remote-site"
@@ -811,6 +822,23 @@ DB_AFTER="$(sha256sum "$REMOTE_SITE/backend/db.json" | awk '{print $1}')"
 [[ "$DB_BEFORE" == "$DB_AFTER" ]] || fail "修复失败时改了 db.json"
 ok "没有面板时修复命令失败且不改网站文件"
 
+printf 'old-install-sh\n' > "$REMOTE_SITE/install.sh"
+printf 'old-baota-install\n' > "$REMOTE_SITE/baota-install.sh"
+printf 'old-panel\n' > "$REMOTE_SITE/baota-panel.py"
+printf 'old-guardian\n' > "$REMOTE_SITE/guardian-start.sh"
+UPGRADE_DB="$(sha256sum "$REMOTE_SITE/backend/db.json" | awk '{print $1}')"
+UPGRADE_LOCK="$(sha256sum "$REMOTE_SITE/backend/install.lock" | awk '{print $1}')"
+if ! bash "$GOOD_COPY" upgrade demo.example --no-start --skip-mysql --site-root "$REMOTE_SITE" >"$WORKDIR/remote-upgrade.out" 2>"$WORKDIR/remote-upgrade.err"; then
+  fail "官网 upgrade 失败：$(cat "$WORKDIR/remote-upgrade.err")"
+fi
+grep -q '正在核对 SHA256' "$WORKDIR/remote-upgrade.out" || fail "upgrade 没有核对安装包"
+grep -q '升级完成' "$WORKDIR/remote-upgrade.out" || fail "upgrade 没有完成"
+[[ ! -e "$REMOTE_SITE/install.sh" && ! -e "$REMOTE_SITE/baota-install.sh" && ! -e "$REMOTE_SITE/baota-panel.py" && ! -e "$REMOTE_SITE/guardian-start.sh" ]] || fail "升级后网站根还留着旧脚本"
+[[ "$(sha256sum "$REMOTE_SITE/backend/db.json" | awk '{print $1}')" == "$UPGRADE_DB" ]] || fail "upgrade 改了 db.json"
+[[ "$(sha256sum "$REMOTE_SITE/backend/install.lock" | awk '{print $1}')" == "$UPGRADE_LOCK" ]] || fail "upgrade 改了 install.lock"
+grep -q 'remote' "$REMOTE_SITE/index.html" || fail "upgrade 没有换上发布包里的页面"
+ok "官网 upgrade 核对后升级，保留运行数据并删掉网站根旧脚本"
+
 BAD_PORT="$(free_port)"
 BAD_COPY="$WORKDIR/install-bad.sh"
 install_for_test "$BAD_COPY" "http://127.0.0.1:${BAD_PORT}"
@@ -871,7 +899,7 @@ if baota_move_backup "$tmp/wwwroot/other.example.backup.20260101120002" "$tmp/no
 fi
 [[ -d "$tmp/wwwroot/other.example.backup.20260101120002" ]]
 rm -rf "$tmp"
-' bash "$ROOT/scripts"
+' bash "$ROOT/backend/handler"
 ok "旧备份只迁移本站点，失败时不删除，每类可只留 3 份"
 
 # 面板返回值只进变量。标准输出里不能出现 AUTH_PRO_*。
@@ -893,7 +921,7 @@ source "$SCRIPT_DIR/install.sh"
 baota_panel_run preflight
 printf "RESULT=%s\n" "$BAOTA_PANEL_RESULT"
 printf "PROGRAM=%s\n" "$BAOTA_PANEL_PROGRAM"
-' bash "$ROOT/scripts" >"$PANEL_OUT" 2>"$PANEL_ERR"
+' bash "$ROOT/backend/handler" >"$PANEL_OUT" 2>"$PANEL_ERR"
 grep -q '^RESULT=ok$' "$PANEL_OUT" || fail "没有读到面板返回值"
 grep -q '^PROGRAM=auth_pro_demo$' "$PANEL_OUT" || fail "没有读到进程守护名称"
 if grep -q 'AUTH_PRO_' "$PANEL_OUT"; then

@@ -107,14 +107,17 @@ jobs:
             ./manifest.json \
             ./backend/auth_pro \
             ./index.html \
-            ./install.sh \
             ./baota-panel.py \
             ./guardian-start.sh
           file "$VERIFY_DIR/backend/auth_pro" | grep -Eq 'ELF 64-bit.*x86-64'
-          bash -n "$VERIFY_DIR/install.sh" "$VERIFY_DIR/guardian-start.sh"
+          bash -n "$VERIFY_DIR/guardian-start.sh"
           python3 -m py_compile "$VERIFY_DIR/baota-panel.py"
           grep -q 'auth-pro-guardian-start' "$VERIFY_DIR/guardian-start.sh"
-          test -x "$VERIFY_DIR/install.sh"
+          test ! -e "$VERIFY_DIR/install.sh"
+          if tar -tzf "$PACKAGE" | grep -Eq '(^|/)install\.sh$'; then
+            echo "客户发布包里不能有 install.sh" >&2
+            exit 1
+          fi
           test ! -e "$VERIFY_DIR/baota-install.sh"
           test ! -e "$VERIFY_DIR/baota-upgrade.sh"
           test ! -e "$VERIFY_DIR/baota-lib.sh"

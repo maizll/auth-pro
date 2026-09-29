@@ -46,35 +46,28 @@ func writeGzipTar(t *testing.T, files map[string]string) string {
 func TestPublicInstallRouteServesScriptFromPackage(t *testing.T) {
 	resetProductUpdateStateForTest()
 	t.Cleanup(resetProductUpdateStateForTest)
-	script, err := os.ReadFile(filepath.Join("..", "..", "scripts", "install.sh"))
+	script, err := os.ReadFile("install.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(strings.ToLower(string(script)), "github.com") || strings.Contains(string(script), "githubusercontent") {
-		t.Fatal("scripts/install.sh exposes a repository address")
+		t.Fatal("backend/handler/install.sh exposes a repository address")
 	}
 	if strings.Contains(string(script), "AUTH_PRO_UPDATE_BASE") {
-		t.Fatal("scripts/install.sh can retarget the official site")
+		t.Fatal("backend/handler/install.sh can retarget the official site")
 	}
-	if !strings.Contains(string(script), "https://auth.maizll.com/api/v1/update/latest.json") || !strings.Contains(string(script), `bash "$WORKDIR/install.sh"`) {
-		t.Fatal("scripts/install.sh does not download the official package or re-exec the packaged install.sh")
+	if !strings.Contains(string(script), "https://auth.maizll.com/api/v1/update/latest.json") || strings.Contains(string(script), `bash "$WORKDIR/install.sh"`) {
+		t.Fatal("backend/handler/install.sh does not download the official package, or it still runs install.sh from the package")
+	}
+	if !strings.Contains(string(script), "baota-panel.py") || !strings.Contains(string(script), "guardian-start.sh") {
+		t.Fatal("backend/handler/install.sh does not take the panel helper from the package")
 	}
 	if !strings.Contains(string(script), "https://auth.maizll.com/api/v1/update/package/") || !installScriptPinsOfficialOrigin(script) {
-		t.Fatal("scripts/install.sh does not pin the official package URL")
+		t.Fatal("backend/handler/install.sh does not pin the official package URL")
 	}
-	pkg := writeGzipTar(t, map[string]string{
-		"install.sh":        string(script),
-		"nested/install.sh": "#!/bin/sh\necho nested\n",
-		"note.txt":          "https://github.com/example/hidden",
-	})
 	loadProductUpdateRecords = func() ([]productUpdateRecord, error) {
-		info, statErr := os.Stat(pkg)
-		if statErr != nil {
-			return nil, statErr
-		}
-		return []productUpdateRecord{{
-			Version: "1.7.4", PackagePath: pkg, FileSize: info.Size(),
-		}}, nil
+		t.Fatal("install.sh must not be read from a published package")
+		return nil, nil
 	}
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -86,7 +79,10 @@ func TestPublicInstallRouteServesScriptFromPackage(t *testing.T) {
 		t.Fatalf("status %d body %s", recorder.Code, recorder.Body.String())
 	}
 	if recorder.Body.String() != string(script) {
-		t.Fatal("served script is not the copy inside the published package")
+		t.Fatal("served script is not backend/handler/install.sh")
+	}
+	if string(productInstallScript) != string(script) {
+		t.Fatal("embedded install script drifted from backend/handler/install.sh")
 	}
 	if !strings.Contains(recorder.Header().Get("Content-Type"), "text/x-shellscript") {
 		t.Fatalf("content type %s", recorder.Header().Get("Content-Type"))
@@ -125,75 +121,35 @@ func TestInstallScriptPinsOfficialOrigin(t *testing.T) {
 	}
 }
 
-func TestPublicInstallRouteRejectsRetargetableScript(t *testing.T) {
-	resetProductUpdateStateForTest()
-	t.Cleanup(resetProductUpdateStateForTest)
-	hooked := "#!/bin/sh\nBASE=\"${AUTH_PRO_UPDATE_BASE:-https://auth.maizll.com}\"\ncurl \"${BASE}/api/v1/update/latest.json\"\n"
-	pkg := writeGzipTar(t, map[string]string{"install.sh": hooked})
-	loadProductUpdateRecords = func() ([]productUpdateRecord, error) {
-		info, err := os.Stat(pkg)
-		if err != nil {
-			return nil, err
-		}
-		return []productUpdateRecord{{Version: "1.7.4", PackagePath: pkg, FileSize: info.Size()}}, nil
-	}
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	RegisterPublicInstallRoute(router)
-	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/install.sh", nil))
-	if recorder.Code != http.StatusBadGateway {
-		t.Fatalf("status %d body %s", recorder.Code, recorder.Body.String())
-	}
-	if strings.Contains(recorder.Body.String(), "AUTH_PRO_UPDATE_BASE") || strings.Contains(recorder.Body.String(), "auth.maizll.com") {
-		t.Fatalf("error leaked the script: %s", recorder.Body.String())
-	}
-}
-
-func TestPublicInstallRouteRejectsScriptThatLeaksRepository(t *testing.T) {
+func TestPublicInstallRouteIgnoresPackageScript(t *testing.T) {
 	resetProductUpdateStateForTest()
 	t.Cleanup(resetProductUpdateStateForTest)
 	pkg := writeGzipTar(t, map[string]string{
 		"install.sh": "#!/bin/sh\ncurl https://github.com/acme/widgets/releases/latest\n",
+		"readme.txt": "no official script",
 	})
 	loadProductUpdateRecords = func() ([]productUpdateRecord, error) {
+		t.Fatal("install.sh must not be read from a published package")
 		info, err := os.Stat(pkg)
 		if err != nil {
 			return nil, err
 		}
-		return []productUpdateRecord{{Version: "1.7.4", PackagePath: pkg, FileSize: info.Size()}}, nil
+		return []productUpdateRecord{{Version: "1.7.7", PackagePath: pkg, FileSize: info.Size()}}, nil
+	}
+	script, err := os.ReadFile("install.sh")
+	if err != nil {
+		t.Fatal(err)
 	}
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	RegisterPublicInstallRoute(router)
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/install.sh", nil))
-	if recorder.Code != http.StatusBadGateway {
-		t.Fatalf("status %d body %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusOK || recorder.Body.String() != string(script) {
+		t.Fatalf("status %d", recorder.Code)
 	}
-	if strings.Contains(strings.ToLower(recorder.Body.String()), "github") || strings.Contains(recorder.Body.String(), "acme/widgets") {
-		t.Fatalf("error leaked: %s", recorder.Body.String())
-	}
-}
-
-func TestPublicInstallRouteMissingScript(t *testing.T) {
-	resetProductUpdateStateForTest()
-	t.Cleanup(resetProductUpdateStateForTest)
-	pkg := writeGzipTar(t, map[string]string{"readme.txt": "no script"})
-	loadProductUpdateRecords = func() ([]productUpdateRecord, error) {
-		info, err := os.Stat(pkg)
-		if err != nil {
-			return nil, err
-		}
-		return []productUpdateRecord{{Version: "1.7.4", PackagePath: pkg, FileSize: info.Size()}}, nil
-	}
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	RegisterPublicInstallRoute(router)
-	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/install.sh", nil))
-	if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), "没有安装脚本") {
-		t.Fatalf("status %d body %s", recorder.Code, recorder.Body.String())
+	if strings.Contains(strings.ToLower(recorder.Body.String()), "github.com/acme") {
+		t.Fatal("response used the script packed inside the release archive")
 	}
 }
 

@@ -26,32 +26,16 @@ curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com --no-star
 
 ## 已经拿到发布包
 
-发布包只提供 Linux amd64，文件名是 `auth_pro-full-vX.Y.Z.tar.gz`。客户执行的脚本只有包里的 `install.sh`。
+发布包只提供 Linux amd64，文件名是 `auth_pro-full-vX.Y.Z.tar.gz`。包里没有安装脚本。安装脚本只从官网 `https://auth.maizll.com/install.sh` 下载。
 
-在面板里执行时，同样会自动建站和完成安装向导。包已经放到网站目录时：
-
-```bash
-cd /www/wwwroot/example.com
-tar -xzf auth_pro-full-vX.Y.Z.tar.gz
-bash install.sh
-```
-
-包放在 `/tmp`、只放文件不启动时：
+包已经在本机、只放文件不启动时，先把官网脚本存下来再带上 `--package`：
 
 ```bash
-AUTH_PRO_YES=1 AUTH_PRO_START=0 \
-bash install.sh \
+curl -fsSL https://auth.maizll.com/install.sh -o /tmp/install.sh
+bash /tmp/install.sh \
   --site-root /www/wwwroot/example.com \
-  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz
-```
-
-要同时启动并完成向导：
-
-```bash
-bash install.sh \
-  --yes \
-  --site-root /www/wwwroot/example.com \
-  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz
+  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \
+  --no-start
 ```
 
 没有宝塔面板时，这个脚本只把文件放到网站目录，并说明还要在面板里做的步骤。
@@ -60,16 +44,23 @@ bash install.sh \
 
 ## 升级
 
-不要把新压缩包直接解压覆盖正在运行的站点。把包留在 `/tmp`，运行新版本包里的 `install.sh upgrade`，不要用站点上旧的脚本。升级会沿用原来的端口，不会重新找端口。
+不要把新压缩包直接解压覆盖正在运行的站点。升级和安装一样从官网执行。脚本自己下载最新包，核对 SHA256 后再替换程序，并保留原来的运行数据。升级会沿用原来的端口，不会重新找端口。
 
 ```bash
-bash install.sh upgrade \
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- upgrade example.com
+```
+
+进程已经由宝塔进程守护或 systemd 托管时，这条命令会替换文件后只结束本站进程，由守护按 `start.sh` 拉起。已经把包放在本机、并且要先停守护再升级时：
+
+```bash
+curl -fsSL https://auth.maizll.com/install.sh -o /tmp/install.sh
+bash /tmp/install.sh upgrade \
   --site-root /www/wwwroot/example.com \
   --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \
   --no-start
 ```
 
-进程已经由宝塔进程守护或 systemd 托管时，把上面的 `--no-start` 换成 `--start`。脚本不会去停守护，而是替换文件后只结束本站进程，由守护按 `start.sh` 拉起。守护还开着时，`--no-start` 会拒绝执行，请先在面板里停止守护。
+守护还开着时，`--no-start` 会拒绝执行，请先在面板里停止守护。
 
 新的升级备份写到 `/www/backup/auth-pro/example.com/upgrade/`。健康检查通过后，每一类备份只保留最近 3 份。机器上没有 `/www` 时，备份仍放在原来的数据目录里。
 
