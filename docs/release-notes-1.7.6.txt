@@ -1,14 +1,10 @@
 auth-pro 1.7.6
 
-- 宝塔进程守护插件已安装时，安装会走插件的 AddProcess，由面板正在用的 supervisord 拉起，并出现在进程守护列表里。
-- 安装不再调用会把主配置换成空文件的整理脚本；只在丢了 profile 包含行时用插件样例补回，不删其它站点的 ini，也不再 nohup 脱管进程。
-- 列表里没有本站点、supervisorctl 不是 RUNNING，或监听进程的父进程不是 supervisord，就报错并打印手工添加说明，不再显示安装完成。
-- 面板用 python 解释器启动 supervisord 时，父进程命令行里的 supervisord 也算已被守护拉起。
-- 安装失败回滚时只卸下本站点的守护项，不改其它站点的 ini。
-- 插件没装时改为由脚本自己的 supervisord 拉起，同样不允许两个进程抢同一个端口。
-- 已经装好的站点执行 curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --repair-guardian 域名 ，只重登记本站点守护，不改数据库、网站文件和 Nginx。
-- 安装打印管理后台地址 /admin；首页用户登录查的是用户表，用管理员密码会提示账号或密码错误。
-- 自动生成的管理员密码改为 8 位数字，并提示登录后在后台修改；数据库密码仍是随机强密码，凭据文件仍只给 root 读。
-- 管理员账号或密码没送到安装接口时直接拒绝，不再把空密码写成安装成功。
-- 已装站点由 root 在本机执行 curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --reset-admin-password 域名 ，重设管理员密码并打印新密码。
-- 安装、升级、修复和重设密码合并为同一个 install.sh，升级用子命令 upgrade。发布包只带 install.sh、baota-panel.py 和 guardian-start.sh。
+- 宝塔已装进程守护插件时，安装通过插件登记本站点，由面板的 supervisord 拉起并显示在进程守护列表里。
+- 安装不再清空 supervisord 主配置，也不删除其它站点的守护配置或留下脱管进程。
+- 守护没有真正拉起本站点时直接报错并给出手工添加说明，不再显示安装完成。
+- 已装站点可用 install.sh --repair-guardian 只修复本站点守护，不改数据库、网站文件和 Nginx。
+- 安装结束打印管理后台 /admin 地址，自动生成的管理员密码改为 8 位数字并提示登录后修改。
+- 管理员账号或密码为空时安装直接失败，不再写入空密码。
+- 已装站点可由 root 执行 install.sh --reset-admin-password 重设管理员密码。
+- 安装、升级、修复和重设密码合并为一个 install.sh，发布包只带 install.sh、baota-panel.py 和 guardian-start.sh。
