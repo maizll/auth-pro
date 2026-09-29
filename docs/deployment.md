@@ -31,23 +31,16 @@ go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出
 
 客户在宝塔终端安装时，用 [安装部署](install.md) 里的一条命令。机器上已有宝塔面板、Nginx 和 MySQL 时，脚本会建站、建库、反代、进程守护，并完成本地安装向导。没有面板时只放文件。
 
-下面是已经拿到发布包时的步骤。
+安装脚本不在发布包里，只从官网下载。已有 `backend/install.lock` 时安装会拒绝，应改走升级。
 
-已有 `backend/install.lock` 时安装脚本会拒绝，应改走升级。
-
-```bash
-cd /www/wwwroot/example.com
-tar -xzf auth_pro-full-vX.Y.Z.tar.gz
-bash install.sh
-```
-
-非交互、包留在 `/tmp`、先不启动：
+包已经在本机、先不启动：
 
 ```bash
-AUTH_PRO_YES=1 AUTH_PRO_START=0 \
-bash install.sh \
+curl -fsSL https://auth.maizll.com/install.sh -o /tmp/install.sh
+bash /tmp/install.sh \
   --site-root /www/wwwroot/example.com \
-  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz
+  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \
+  --no-start
 ```
 
 ### 安装脚本会做的事
@@ -79,16 +72,12 @@ bash install.sh \
 
 ## 宝塔：升级
 
-不要先把新 tar 解压覆盖正在运行的站点。把包留在 `/tmp`，用新包里的 `install.sh upgrade`，`--package` 指向它。
+不要先把新 tar 解压覆盖正在运行的站点。升级从官网执行，脚本自己下载最新包并核对 SHA256。
 
-进程没有被守护托管时，脚本会先停本站进程并确认端口空闲。进程已经由宝塔进程守护或 systemd 托管时，加上 `--start`：脚本不停止守护，替换文件后只结束本站进程，由守护按 `start.sh` 拉起。`--no-start` 在守护仍托管时会拒绝执行，需要先在面板里停止该站点。
+进程没有被守护托管时，脚本会先停本站进程并确认端口空闲。进程已经由宝塔进程守护或 systemd 托管时，这条命令不停止守护，替换文件后只结束本站进程，由守护按 `start.sh` 拉起。`--no-start` 在守护仍托管时会拒绝执行，需要先在面板里停止该站点。
 
 ```bash
-tar -xzf /tmp/auth_pro-full-vX.Y.Z.tar.gz -C /tmp/auth-pro-vX.Y.Z
-bash /tmp/auth-pro-vX.Y.Z/install.sh upgrade \
-  --site-root /www/wwwroot/example.com \
-  --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \
-  --start --yes
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- upgrade example.com
 ```
 
 要求数据目录里已有 `db.json` 或 `install.lock`。
@@ -103,7 +92,7 @@ backend/updates/backups/baota-upgrade-<时间>-<pid>/
 
 能连上 MySQL 时用 `mysqldump` 导出 `db.sql`。口令只放在 `MYSQL_PWD` 环境变量里，不放进命令参数。没有客户端或暂时不能连库时加 `--skip-mysql`（或 `AUTH_PRO_SKIP_MYSQL=1`），`db.json` 文件副本仍会备份。
 
-只替换页面、`assets/`、`backend/auth_pro` 和 `backend/start.sh`。网站根上旧的 `baota-install.sh`、`baota-upgrade.sh`、`baota-lib.sh` 会删掉。替换后核对下列路径的 SHA256 与替换前一致：
+只替换页面、`assets/`、`backend/auth_pro` 和 `backend/start.sh`。网站根上旧的 `install.sh`、`baota-install.sh`、`baota-upgrade.sh`、`baota-lib.sh` 会删掉。替换后核对下列路径的 SHA256 与替换前一致：
 
 - 文件：`db.json`、`install.lock`、`jwt.secret`、`auto_pro.log`、`auto_pro.pid`
 - 目录：`plugins/`、`home-templates/`、`software-source-cache/`、`updates/`（不含本次 `backups/`）、`app-releases/`、`logs/`、`advertisement-images/`、`source-packages/`
@@ -114,7 +103,7 @@ backend/updates/backups/baota-upgrade-<时间>-<pid>/
 
 守护的启动命令用安装脚本生成的 `backend/start.sh`，运行目录用 `backend/`（与 `start.sh` 所在目录相同）。没有待验证更新时，`start.sh` 加载同目录的 `baota.env` 后直接执行 `./auth_pro`。在线更新留下 `backend/updates/pending-restart/handoff.sh` 时，`start.sh` 先做健康检查，失败则还原备份再执行旧程序。说明写在 `backend/baota-guardian.txt`。
 
-手工替换程序或 `--no-start` 升级之前，先在守护里停止此项。守护开着时在外面杀进程，会被立刻拉起。1.5.7 的在线更新和 `install.sh upgrade --start` 不会去停守护。
+手工替换程序或 `--no-start` 升级之前，先在守护里停止此项。守护开着时在外面杀进程，会被立刻拉起。1.5.7 的在线更新和官网 `install.sh` 的 `upgrade` 不会去停守护。
 
 ## Nginx 与 SSL
 
@@ -124,6 +113,7 @@ backend/updates/backups/baota-upgrade-<时间>-<pid>/
 
 ```nginx
 location ^~ /backend/ { return 404; }
+location = /install.sh { return 404; }
 location = /baota-install.sh { return 404; }
 location = /baota-upgrade.sh { return 404; }
 location = /baota-lib.sh { return 404; }
@@ -186,7 +176,7 @@ location / {
 
 没有守护，或端口上是父进程为 1 的本站孤儿时，仍先停本站进程并确认端口空闲，再替换、再启动。能连上指向本站 `start.sh` 的 supervisor 配置时由守护启动，否则在端口空闲后自行拉起。其它程序或其它站点的 `auth_pro` 不会被结束。健康检查失败会回滚。二进制备份 `auth_pro.backup.<时间>` 只留最近 3 份。后端自己若发现端口已被占用，会在日志里写明占用者的 PID、父进程、程序路径和处理办法。
 
-在线更新不能代替 `install.sh upgrade` 那份运行数据备份。
+在线更新不能代替官网 `upgrade` 那份运行数据备份。
 
 ## 回滚
 

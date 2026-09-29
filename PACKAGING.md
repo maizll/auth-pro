@@ -17,12 +17,11 @@ auth_pro-full-v1.5.0.tar.gz
 ├── backend/
 │   └── auth_pro
 ├── manifest.json
-├── install.sh
 ├── baota-panel.py
 └── guardian-start.sh
 ```
 
-`install.sh` 打在包根，供官网从当前已发布的安装包里读出并挂在 `/install.sh`。它是客户唯一入口：安装、`upgrade`、`--repair-guardian`、`--reset-admin-password` 都走这一份。`baota-panel.py` 只由 `install.sh` 调用，用来登记宝塔进程守护。`guardian-start.sh` 是启动模板，安装时写成网站目录里的 `backend/start.sh`。构建、检查和发布脚本不打进这个包。客户站点安装时不会把 `install.sh` 复制到网站根；若把压缩包直接解压在网站根，Nginx 片段会拦截这几个脚本地址。
+客户安装脚本不在这个包里。官网 `/install.sh` 下发构建时嵌入的仓库 `scripts/install.sh`。安装、`upgrade`、`--repair-guardian`、`--reset-admin-password` 都走官网这一份。`baota-panel.py` 只由 `install.sh` 从发布包里取出并调用，用来登记宝塔进程守护。`guardian-start.sh` 是启动模板，安装时写成网站目录里的 `backend/start.sh`。构建、检查和发布脚本不打进这个包。若把压缩包直接解压在网站根，Nginx 片段会拦截这两个脚本地址。
 
 ## 必须遵守
 
@@ -47,7 +46,6 @@ auth_pro-full-v1.5.0.tar.gz
 ├── backend/
 │   └── auth_pro
 ├── manifest.json
-├── install.sh
 ├── baota-panel.py
 └── guardian-start.sh
 ```
@@ -58,20 +56,25 @@ auth_pro-full-v1.5.0.tar.gz
 
 ## 宝塔一键安装 / 升级
 
-脚本在发布包根目录，解压后和 `index.html` 同级。面板里的建站、空库、SSL、进程守护开关和 Nginx 保存仍要手工做。仓库里可跑 `bash scripts/test-baota-scripts.sh` 检查权限、端口冲突、配置文件和升级备份；真实面板上的守护拉起和反代需要人工再看一遍。
+安装脚本从官网下载，不在发布包里。包根只有 `baota-panel.py` 和 `guardian-start.sh`。仓库里可跑 `bash scripts/test-baota-scripts.sh` 检查权限、端口冲突、配置文件和升级备份；真实面板上的守护拉起和反代需要人工再看一遍。
 
 全新安装（站点目录还没有 `backend/install.lock`）：
 
 ```bash
-cd /www/wwwroot/example.com
-tar -xzf auth_pro-full-vX.Y.Z.tar.gz
-bash install.sh
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com
 ```
 
-已有站点升级。不要先把新包解压覆盖正在运行的目录。1.5.7 起，守护仍在托管本进程时用新包里的脚本加 `--start`，脚本会替换文件后只结束本站进程。也可以先在「进程守护」里停止本站点，再执行 `--no-start`：
+已有站点升级。不要先把新包解压覆盖正在运行的目录。升级同样从官网执行，脚本下载最新包并核对后再替换，守护仍在托管时只结束本站进程：
 
 ```bash
-bash install.sh upgrade \
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- upgrade example.com
+```
+
+包已经在本机时，先保存官网脚本再加 `--package`：
+
+```bash
+curl -fsSL https://auth.maizll.com/install.sh -o /tmp/install.sh
+bash /tmp/install.sh upgrade \
   --site-root /www/wwwroot/example.com \
   --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \
   --no-start
@@ -92,7 +95,7 @@ Nginx 反代到 `127.0.0.1:19127`，并把 `backend/baota-nginx.snippet.conf` �
 
 ## 版本号单一信源
 
-仓库根目录 `VERSION`（当前 `1.7.6`）是产品线默认版本：
+仓库根目录 `VERSION`（当前 `1.7.7`）是产品线默认版本：
 
 - 后端 `auto_pro/config.AppVersion` 仓库默认与 `VERSION` 一致；`./scripts/build-release.sh` / `.ps1` 无参数时读该文件，并用 `-ldflags` 注入 `AppVersion` / `BuildTime`。
 - 前端 `VITE_VERSION` 与 `vite.config.ts` 的 `version.json` 同样对齐 `VERSION`；发布脚本会把参数版本写入 `VITE_VERSION`。

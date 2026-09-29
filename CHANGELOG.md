@@ -1,5 +1,12 @@
 # 更新日志
 
+## [v1.7.7] 2026-09-29 — 安装脚本只从官网下载
+
+- 客户安装脚本改为只从官网 `/install.sh` 下载，不再打进发布包。
+- 升级与安装、修复使用同一条官网命令：`curl -fsSL https://auth.maizll.com/install.sh | bash -s -- upgrade 域名`。脚本从官网拉取最新包并核对 SHA256 后再升级，仍备份运行数据且只留最近 3 份。
+- 发布包只保留 `baota-panel.py` 和 `guardian-start.sh`。安装、升级、修复和重设密码都从这份包里取面板辅助脚本。
+- 根目录 `VERSION` / `AppVersion` / `VITE_VERSION` 默认 `1.7.7`。发布说明见 `docs/release-notes-1.7.7.txt`。
+
 ## [v1.7.6] 2026-09-29 — 宝塔进程守护真正托管
 
 - 宝塔已装进程守护插件时，安装通过插件登记本站点，由面板的 supervisord 拉起并显示在进程守护列表里。

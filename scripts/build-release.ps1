@@ -64,7 +64,7 @@ Write-Host "[2/5] Preparing package directories..."
 $PackageBackendDir = Join-Path $PackageDir 'backend'
 New-Item -ItemType Directory -Force -Path $PackageBackendDir | Out-Null
 Copy-Item -Path (Join-Path $FrontendDist '*') -Destination $PackageDir -Recurse -Force
-foreach ($PackagedScript in @('install.sh', 'baota-panel.py')) {
+foreach ($PackagedScript in @('baota-panel.py')) {
   $PackagedSource = Join-Path $Root "scripts/$PackagedScript"
   if (-not (Test-Path -LiteralPath $PackagedSource)) {
     throw "Missing packaged script: $PackagedSource"
@@ -84,6 +84,9 @@ if ($BackendStaticDir -notlike "$Root*") {
 New-Item -ItemType Directory -Force -Path $BackendStaticDir | Out-Null
 Get-ChildItem -LiteralPath $BackendStaticDir -Force | Remove-Item -Recurse -Force
 Copy-Item -Path (Join-Path $FrontendDist '*') -Destination $BackendStaticDir -Recurse -Force
+
+# 官网 /install.sh 嵌入的是仓库里的 scripts/install.sh，不是发布包里的文件。
+Copy-Item -LiteralPath (Join-Path $Root 'scripts/install.sh') -Destination (Join-Path $BackendDir 'handler/install_public.sh') -Force
 
 Write-Host "[3/5] Building Linux backend..."
 $BuildTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")

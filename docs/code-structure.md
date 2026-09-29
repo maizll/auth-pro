@@ -52,7 +52,7 @@
 
 客户站只向 `https://auth.maizll.com/api/v1/update/latest.json` 要清单，安装包和历史版本也走源站。实现在 `backend/handler/update.go`。源站对外提供这些清单和安装包的接口在 `backend/handler/update_distribute.go`，数据来自应用 `app_f93896d80066_5811` 的发布版本。后台从仓库导入安装包的共用逻辑在 `backend/handler/release_import.go`。
 
-后端路由在 `backend/main.go`：客户站管理接口是 `/api/system/update/status|history|check|apply` 和 `jobs/:id`。源站公开接口是 `/api/v1/update/latest.json`、`/api/v1/update/releases.json` 和 `/api/v1/update/package/:version`。拉包、校验、解压、重启仍在 `update.go`。进程守护启动模板是 `backend/handler/guardian_start.sh`，打包时复制为发布包根目录的 `guardian-start.sh`。
+后端路由在 `backend/main.go`：客户站管理接口是 `/api/system/update/status|history|check|apply` 和 `jobs/:id`。源站公开接口是 `/api/v1/update/latest.json`、`/api/v1/update/releases.json` 和 `/api/v1/update/package/:version`。拉包、校验、解压、重启仍在 `update.go`。进程守护启动模板是 `backend/handler/guardian_start.sh`，打包时复制为发布包根目录的 `guardian-start.sh`。官网 `/install.sh` 下发构建时嵌入的 `scripts/install.sh`，不从发布包读取。
 
 ## 同一功能只留一处
 

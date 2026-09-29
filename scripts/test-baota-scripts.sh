@@ -54,7 +54,8 @@ make_payload() {
   printf 'asset-%s\n' "$marker" > "$dir/assets/app.js"
   printf 'binary-%s\n' "$marker" > "$dir/backend/auth_pro"
   chmod 644 "$dir/backend/auth_pro"
-  cp "$INSTALL" "$ROOT/scripts/baota-panel.py" "$dir/"
+  cp "$ROOT/scripts/baota-panel.py" "$ROOT/backend/handler/guardian_start.sh" "$dir/"
+  mv "$dir/guardian_start.sh" "$dir/guardian-start.sh"
 }
 
 pack_payload() {
@@ -89,6 +90,7 @@ printf '%s\n' "$help_out" | grep -q 'install.lock' || fail "安装脚本 --help 
 printf '%s\n' "$help_out" | grep -q -- '--repair-guardian' || fail "安装脚本 --help 缺少 --repair-guardian"
 "$ROOT/scripts/install.sh" --help | grep -q -- '--repair-guardian' || fail "一条命令安装 --help 缺少 --repair-guardian"
 "$ROOT/scripts/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- --repair-guardian' || fail "一条命令安装 --help 没有写死修复命令"
+"$ROOT/scripts/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- upgrade' || fail "一条命令安装 --help 没有写死升级命令"
 printf '%s\n' "$help_out" | grep -q -- '--reset-admin-password' || fail "安装脚本 --help 缺少 --reset-admin-password"
 "$ROOT/scripts/install.sh" --help | grep -q -- '--reset-admin-password' || fail "一条命令安装 --help 缺少 --reset-admin-password"
 "$ROOT/scripts/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- --reset-admin-password' || fail "一条命令安装 --help 没有写死重设密码命令"
@@ -172,10 +174,15 @@ EOF
   ok "root 本机重设管理员密码"
 fi
 
-grep -F -q 'for packaged_script in install.sh baota-panel.py' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未只复制安装入口和面板辅助脚本"
+grep -F -q 'for packaged_script in baota-panel.py' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未只把面板辅助脚本打进发布包"
 grep -F -q 'guardian-start.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制进程守护模板"
-grep -F -q "'install.sh'" "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未复制一条命令安装脚本"
-grep -F -q 'baota-panel.py' "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未复制面板辅助脚本"
+if grep -E -q 'packaged_script in .*install\.sh|cp .*scripts/install\.sh" "\$PACKAGE_DIR' "$ROOT/scripts/build-release.sh"; then
+  fail "build-release.sh 仍会把 install.sh 打进发布包"
+fi
+grep -F -q "@('baota-panel.py')" "$ROOT/scripts/build-release.ps1" || fail "build-release.ps1 未只复制面板辅助脚本"
+if grep -F -q "@('install.sh'" "$ROOT/scripts/build-release.ps1" || grep -F -q "'install.sh'," "$ROOT/scripts/build-release.ps1"; then
+  fail "build-release.ps1 仍会把 install.sh 打进发布包"
+fi
 if grep -E -q 'baota-install\.sh|baota-upgrade\.sh|baota-lib\.sh' "$ROOT/scripts/build-release.ps1"; then
   fail "build-release.ps1 仍会把旧入口打进发布包"
 fi
@@ -269,7 +276,7 @@ printf 'installed\n' > "$SITE/backend/install.lock"
 if "$INSTALL" --yes --no-start --site-root "$SITE" --source "$PKG_V1" >"$WORKDIR/locked.out" 2>"$WORKDIR/locked.err"; then
   fail "已有 install.lock 时安装脚本不应继续"
 fi
-grep -q 'install.sh upgrade' "$WORKDIR/locked.err" || fail "拒绝安装时没有指向升级命令"
+grep -q 'bash -s -- upgrade' "$WORKDIR/locked.err" || fail "拒绝安装时没有指向升级命令"
 ok "已安装站点拒绝再次全新安装"
 
 printf '{"host":"127.0.0.1","port":"3306","database":"auth_pro","username":"auth_user","password":"secret-pass"}\n' > "$SITE/backend/db.json"
@@ -703,9 +710,9 @@ ok "一条命令安装脚本语法与帮助"
 
 REMOTE_SRC="$WORKDIR/remote-src"
 make_payload "$REMOTE_SRC" "remote"
-cp "$ROOT/scripts/install.sh" "$REMOTE_SRC/install.sh"
+# 发布包不带 install.sh。面板辅助脚本和启动模板在包里，安装脚本由测试副本自己执行。
 cp "$ROOT/backend/handler/guardian_start.sh" "$REMOTE_SRC/guardian-start.sh"
-chmod 755 "$REMOTE_SRC/install.sh" "$REMOTE_SRC/guardian-start.sh"
+chmod 755 "$REMOTE_SRC/guardian-start.sh"
 tar -czf "$WORKDIR/remote.tar.gz" -C "$REMOTE_SRC" .
 REMOTE_PORT="$(free_port)"
 REMOTE_SITE="$WORKDIR/remote-site"
@@ -810,6 +817,21 @@ DB_AFTER="$(sha256sum "$REMOTE_SITE/backend/db.json" | awk '{print $1}')"
 [[ "$SUM_BEFORE" == "$SUM_REPAIR" ]] || fail "修复失败时改了网站首页"
 [[ "$DB_BEFORE" == "$DB_AFTER" ]] || fail "修复失败时改了 db.json"
 ok "没有面板时修复命令失败且不改网站文件"
+
+printf 'old-install-sh\n' > "$REMOTE_SITE/install.sh"
+printf 'old-baota-install\n' > "$REMOTE_SITE/baota-install.sh"
+UPGRADE_DB="$(sha256sum "$REMOTE_SITE/backend/db.json" | awk '{print $1}')"
+UPGRADE_LOCK="$(sha256sum "$REMOTE_SITE/backend/install.lock" | awk '{print $1}')"
+if ! bash "$GOOD_COPY" upgrade demo.example --no-start --skip-mysql --site-root "$REMOTE_SITE" >"$WORKDIR/remote-upgrade.out" 2>"$WORKDIR/remote-upgrade.err"; then
+  fail "官网 upgrade 失败：$(cat "$WORKDIR/remote-upgrade.err")"
+fi
+grep -q '正在核对 SHA256' "$WORKDIR/remote-upgrade.out" || fail "upgrade 没有核对安装包"
+grep -q '升级完成' "$WORKDIR/remote-upgrade.out" || fail "upgrade 没有完成"
+[[ ! -e "$REMOTE_SITE/install.sh" && ! -e "$REMOTE_SITE/baota-install.sh" ]] || fail "升级后网站根还留着旧脚本"
+[[ "$(sha256sum "$REMOTE_SITE/backend/db.json" | awk '{print $1}')" == "$UPGRADE_DB" ]] || fail "upgrade 改了 db.json"
+[[ "$(sha256sum "$REMOTE_SITE/backend/install.lock" | awk '{print $1}')" == "$UPGRADE_LOCK" ]] || fail "upgrade 改了 install.lock"
+grep -q 'remote' "$REMOTE_SITE/index.html" || fail "upgrade 没有换上发布包里的页面"
+ok "官网 upgrade 核对后升级，保留运行数据并删掉网站根旧脚本"
 
 BAD_PORT="$(free_port)"
 BAD_COPY="$WORKDIR/install-bad.sh"

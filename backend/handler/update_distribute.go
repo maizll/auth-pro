@@ -182,10 +182,6 @@ func productUpdateAllow(c *gin.Context, limiter *productUpdateRateLimiter) bool 
 func productUpdateFail(c *gin.Context, err error) {
 	status := http.StatusBadGateway
 	msg := productUpdateUnavailable
-	if errors.Is(err, errProductUpdateInstallScriptMissing) {
-		c.String(http.StatusServiceUnavailable, err.Error())
-		return
-	}
 	if errors.Is(err, errProductUpdateRepoMissing) {
 		status = http.StatusServiceUnavailable
 		msg = productUpdateRepoMissing
