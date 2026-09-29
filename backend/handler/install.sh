@@ -1451,6 +1451,17 @@ baota_prune_backup_dir_glob() {
   done < <(ls -1dt "$@" 2>/dev/null || true)
 }
 
+# 同一秒、同一次菜单里连续备份时，目录名加上序号，避免盖掉刚选中的那份。
+baota_unique_backup_path() {
+  local dir="$1" action="$2" ts="$3" path n=0
+  path="${dir}/baota-${action}-${ts}-$$"
+  while [[ -e "$path" ]]; do
+    n=$((n + 1))
+    path="${dir}/baota-${action}-${ts}-$$-${n}"
+  done
+  printf '%s\n' "$path"
+}
+
 baota_prepare_backup_dir() {
   local data ts root kind
   data="$(baota_data_dir)"
@@ -1463,13 +1474,13 @@ baota_prepare_backup_dir() {
       *) kind="install" ;;
     esac
     if mkdir -p "$root/$kind" 2>/dev/null; then
-      BAOTA_BACKUP_DIR="${root}/${kind}/baota-${BAOTA_ACTION}-${ts}-$$"
+      BAOTA_BACKUP_DIR="$(baota_unique_backup_path "$root/$kind" "$BAOTA_ACTION" "$ts")"
     else
       baota_warn "无法创建 ${root}/${kind}，备份仍放在数据目录"
     fi
   fi
   if [[ -z "$BAOTA_BACKUP_DIR" ]]; then
-    BAOTA_BACKUP_DIR="${data}/updates/backups/baota-${BAOTA_ACTION}-${ts}-$$"
+    BAOTA_BACKUP_DIR="$(baota_unique_backup_path "${data}/updates/backups" "$BAOTA_ACTION" "$ts")"
   fi
   if [[ "$BAOTA_DRY_RUN" == "1" ]]; then
     baota_info "将创建备份：$BAOTA_BACKUP_DIR"
