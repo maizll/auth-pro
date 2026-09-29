@@ -683,6 +683,28 @@ baota_supervisor_start_ours() {
   baota_supervisorctl start "$(baota_supervisor_target "$BAOTA_SUP_PROGRAM")"
 }
 
+# 安装失败回滚时只卸下本站点的守护。ini 的 command 必须指向本站，其它站点的配置不动。
+baota_drop_our_supervisor() {
+  local program ini
+  baota_find_supervisor || return 0
+  program="${BAOTA_SUP_PROGRAM:-}"
+  [[ -n "$program" ]] || return 0
+  baota_supervisor_stop_ours
+  for ini in \
+    "/www/server/panel/plugin/supervisor/profile/${program}.ini" \
+    "/etc/supervisor/auth-pro.d/${program}.ini"
+  do
+    [[ -f "$ini" ]] || continue
+    if [[ "$(baota_supervisor_name_in_file "$ini" "$BAOTA_SITE_ROOT")" == "$program" ]]; then
+      rm -f -- "$ini"
+      baota_info "已卸下本站点的守护配置 ${ini}"
+    fi
+  done
+  if [[ -n "${BAOTA_SUP_CONF:-}" ]]; then
+    baota_supervisorctl update >/dev/null 2>&1 || true
+  fi
+}
+
 # 先让进程守护停止，再清本站残留（含 PPID=1 的孤儿）。端口空闲才返回。
 # 占用者不是本站 auth_pro 时直接失败，不杀进程、不替换文件。
 baota_stop_and_reclaim() {
@@ -1656,18 +1678,30 @@ baota_health_body() {
   wget -qO- -T 2 "$url" 2>/dev/null || true
 }
 
+# 宝塔 systemd 单元是「面板 python 解释器 + supervisord 脚本」，/proc/comm 只有 python。
+# 直接执行 supervisord 可执行文件时 comm 才是 supervisord。两种都算被守护拉起。
+baota_parent_is_supervisord() {
+  local ppid="$1" comm cmd
+  [[ "$ppid" =~ ^[0-9]+$ ]] || return 1
+  [[ "$ppid" -gt 1 ]] || return 1
+  comm="$(tr -d ' \n' < "/proc/$ppid/comm" 2>/dev/null || true)"
+  if [[ "$comm" == "supervisord" ]]; then
+    return 0
+  fi
+  cmd="$(tr '\0' ' ' < "/proc/$ppid/cmdline" 2>/dev/null || true)"
+  [[ "$cmd" == *supervisord* ]]
+}
+
 # 监听者必须是本站 auth_pro，且直接父进程是 supervisord。父进程为 1 的是脱管进程。
 baota_listener_supervised() {
-  local port="$1" site="$2" pid count root ppid comm
+  local port="$1" site="$2" pid count root ppid
   count="$(baota_pids_for_port "$port" | wc -l | tr -d ' ')"
   [[ "$count" == "1" ]] || return 1
   pid="$(baota_pids_for_port "$port" | head -n 1)"
   root="$(baota_our_root "$pid" "$site" || true)"
   [[ -n "$root" ]] || return 1
   ppid="$(awk '/^PPid:/ {print $2}' "/proc/$root/status" 2>/dev/null || true)"
-  [[ "$ppid" =~ ^[0-9]+$ ]] || return 1
-  comm="$(tr -d ' \n' < "/proc/$ppid/comm" 2>/dev/null || true)"
-  [[ "$comm" == "supervisord" ]]
+  baota_parent_is_supervisord "$ppid"
 }
 
 baota_guardian_manual() {
@@ -1718,10 +1752,15 @@ baota_verify_guardian() {
     root="$(baota_pids_for_port "$port" | head -n 1)"
     ppid="$(awk '/^PPid:/ {print $2}' "/proc/${root:-0}/status" 2>/dev/null || true)"
     comm="$(tr -d ' \n' < "/proc/${ppid:-0}/comm" 2>/dev/null || true)"
+    cmd="$(tr '\0' ' ' < "/proc/${ppid:-0}/cmdline" 2>/dev/null || true)"
     baota_guardian_manual
-    baota_die "端口 ${port} 的进程 PID ${root:-无} 父进程是 ${ppid:-无}（${comm:-无}），不是 supervisord。这是脱管进程，崩溃后不会被拉起。"
+    baota_die "端口 ${port} 的进程 PID ${root:-无} 父进程是 ${ppid:-无}（${comm:-无}，命令 ${cmd:-无}），不是 supervisord。这是脱管进程，崩溃后不会被拉起。"
   fi
-  baota_info "进程守护核验通过：列表包含 ${program}，状态 RUNNING，监听进程的父进程是 supervisord"
+  if [[ "${BAOTA_PANEL_PLUGIN:-}" == "yes" ]]; then
+    baota_info "进程守护核验通过：面板列表包含 ${program}，supervisorctl 为 RUNNING，监听进程的父进程是 supervisord"
+  else
+    baota_info "进程守护核验通过：插件未安装，supervisorctl 为 RUNNING，监听进程的父进程是 supervisord"
+  fi
 }
 
 baota_start_backend() {
@@ -1860,6 +1899,7 @@ baota_oneclick_rollback() {
     return 0
   fi
   baota_warn "正在撤掉本次新建的站点或数据库，不会动其它站点"
+  baota_drop_our_supervisor || true
   local args=(rollback --domain "$domain" --path "$BAOTA_SITE_ROOT")
   if [[ "$BAOTA_CREATED_SITE" == "1" ]]; then
     args+=(--remove-site)

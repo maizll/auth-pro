@@ -4,7 +4,7 @@
 
 - 进程守护插件已安装时，安装改为调用插件的 AddProcess，由面板正在使用的 supervisord 拉起，条目出现在「进程守护管理器」列表里。
 - 不再调用会把 supervisord 主配置换成空文件的整理脚本。主配置丢了 profile 包含行时，只用插件样例补回这一份，不删除其它站点的 ini，也不再 nohup 出父进程为 1 的脱管进程。
-- 安装结束会核验面板列表、supervisorctl 的 RUNNING 和监听进程的父进程。核验不过就报错并给出手工添加说明，不再打印「安装完成」。
+- 安装结束会核验面板列表、supervisorctl 的 RUNNING 和监听进程的父进程。面板用 python 解释器启动 supervisord 时，父进程命令行里的 supervisord 也算通过。核验不过就报错并给出手工添加说明，不再打印「安装完成」。失败回滚只卸下本站点的守护项。
 - 插件未安装时仍用面板 Python 安装 supervisor 并直接拉起，同样核验父进程，不另起一份抢端口。
 - 已装好的站点可用 `curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --repair-guardian 域名` 只修复本站点守护，不改数据库、网站文件、Nginx 和其它站点。
 - 根目录 `VERSION` / `AppVersion` / `VITE_VERSION` 默认 `1.7.6`。发布说明见 `docs/release-notes-1.7.6.txt`。
