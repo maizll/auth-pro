@@ -26,6 +26,10 @@ baota_print_help() {
   --yes, -y         不再询问
   --dry-run         只打印步骤，不改网站文件
   --repair-guardian 只修复本站点的进程守护。不停其它站点，不改数据库、网站文件和 Nginx
+  --reset-admin-password
+                    本机 root 重设已装站点的管理员密码，并打印新的 8 位数字密码。不改网站文件、Nginx 和数据库密码
+  --reset-binary FILE
+                    带 reset-admin-password 子命令的 auth_pro。不写则用网站目录里的那一份
   -h, --help        显示本说明
 
 环境变量：
@@ -45,6 +49,9 @@ baota_print_help() {
     --package /tmp/auth_pro-full-vX.Y.Z.tar.gz
 
   bash baota-install.sh --repair-guardian --yes \
+    --site-root /www/wwwroot/example.com
+
+  bash baota-install.sh --reset-admin-password --yes \
     --site-root /www/wwwroot/example.com
 EOF
 }

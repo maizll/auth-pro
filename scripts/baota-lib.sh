@@ -35,6 +35,8 @@ BAOTA_YES=0
 BAOTA_START=""
 BAOTA_STOP_PORT=0
 BAOTA_REPAIR_GUARDIAN=0
+BAOTA_RESET_ADMIN=0
+BAOTA_RESET_BINARY=""
 BAOTA_SKIP_MYSQL=0
 BAOTA_PORT_SET=0
 BAOTA_SITE_ROOT="${AUTH_PRO_SITE_ROOT:-}"
@@ -114,6 +116,15 @@ baota_parse_args() {
       --repair-guardian)
         BAOTA_REPAIR_GUARDIAN=1
         shift
+        ;;
+      --reset-admin-password)
+        BAOTA_RESET_ADMIN=1
+        shift
+        ;;
+      --reset-binary)
+        [[ $# -ge 2 ]] || baota_die "--reset-binary 需要 auth_pro 路径"
+        BAOTA_RESET_BINARY="$2"
+        shift 2
         ;;
       --skip-mysql)
         BAOTA_SKIP_MYSQL=1
@@ -903,6 +914,18 @@ baota_select_install_port() {
     return 0
   done
   baota_die "从 19127 到 19227 没有空闲端口。已停止。本次没有新建站点或数据库。"
+}
+
+# 管理员初始密码只要 8 位数字。数据库密码仍走 baota_random_alnum，不在这里生成。
+baota_random_digits() {
+  python3 - "$1" <<'PY'
+import secrets
+import sys
+length = int(sys.argv[1])
+if length < 1:
+    raise SystemExit(2)
+sys.stdout.write("".join(secrets.choice("0123456789") for _ in range(length)))
+PY
 }
 
 # kind=lower 只生成小写，给数据库名用；kind=mixed 给密码用。长度含第一个字符。
@@ -2001,7 +2024,8 @@ baota_run_wizard() {
     baota_print_db_hint "$domain" "$port" "$db_name" "$db_user" "$db_pass"
     return 0
   fi
-  admin_pass="$(baota_random_alnum 24 mixed)"
+  admin_pass="$(baota_random_digits 8)"
+  [[ "$admin_pass" =~ ^[0-9]{8}$ ]] || baota_die "没有生成 8 位数字管理员密码，已停止。没有写入凭据。"
   body="$(baota_wizard_body "$db_name" "$db_user" "$db_pass" "admin" "$admin_pass")"
   set +e
   baota_post_install "$port" "/api/install/create-admin" "$body"
@@ -2046,9 +2070,11 @@ baota_write_credentials() {
   fi
   umask 077
   cat > "$dest" <<EOF
-网址: ${scheme}://${domain}/
+管理后台: ${scheme}://${domain}/admin
 管理员账号: admin
 管理员密码: ${admin_pass}
+登录后请在后台修改密码
+网址: ${scheme}://${domain}/
 后端端口: ${port}
 数据库主机: 127.0.0.1
 数据库端口: 3306
@@ -2065,9 +2091,11 @@ baota_print_credentials() {
   cat <<EOF
 
 安装完成。
-网址: ${scheme}://${domain}/
+管理后台: ${scheme}://${domain}/admin
 管理员账号: admin
 管理员密码: ${admin_pass}
+登录后请在后台修改密码
+网址: ${scheme}://${domain}/
 后端端口: ${port}
 数据库主机: 127.0.0.1
 数据库端口: 3306
@@ -2076,6 +2104,68 @@ baota_print_credentials() {
 数据库密码: ${db_pass}
 凭据文件: ${dest}
 EOF
+}
+
+# 安装向导创建的是 admins 表里的管理员。用户端首页查的是 users 表，用这份密码会提示账号或密码错误。
+# 凭据文件只更新管理员密码这一段，数据库密码原样保留。
+baota_store_admin_password() {
+  local domain="$1" admin_user="$2" admin_pass="$3" dest scheme
+  [[ "$admin_pass" =~ ^[0-9]{8}$ ]] || baota_die "拒绝把非 8 位数字写入凭据文件"
+  domain="$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]')"
+  dest="/root/auth-pro-${domain}.txt"
+  if [[ ! -d /root || ! -w /root ]]; then
+    baota_warn "无法写入 ${dest}。新密码只打印在上面，请立刻抄下。"
+    return 0
+  fi
+  scheme="http"
+  if [[ -f "$dest" ]] && grep -q '^网址: https://' "$dest"; then
+    scheme="https"
+  fi
+  umask 077
+  DEST="$dest" ADMIN_USER="$admin_user" ADMIN_PASS="$admin_pass" SCHEME="$scheme" DOMAIN="$domain" python3 - <<'PY'
+import os
+path = os.environ["DEST"]
+user = os.environ["ADMIN_USER"]
+password = os.environ["ADMIN_PASS"]
+scheme = os.environ["SCHEME"]
+domain = os.environ["DOMAIN"]
+hint = "登录后请在后台修改密码"
+backend = "管理后台: %s://%s/admin" % (scheme, domain)
+lines = []
+if os.path.exists(path):
+    with open(path, encoding="utf-8") as handle:
+        lines = handle.read().splitlines()
+
+def upsert(prefix, value, rows):
+    found = False
+    output = []
+    for line in rows:
+        if line.startswith(prefix):
+            output.append(value)
+            found = True
+        else:
+            output.append(line)
+    if not found:
+        output.append(value)
+    return output
+
+if not lines:
+    lines = [backend, "管理员账号: %s" % user, "管理员密码: %s" % password, hint]
+else:
+    lines = upsert("管理后台:", backend, lines)
+    lines = upsert("管理员账号:", "管理员账号: %s" % user, lines)
+    lines = upsert("管理员密码:", "管理员密码: %s" % password, lines)
+    if hint not in lines:
+        lines.append(hint)
+temporary = path + ".tmp"
+with open(temporary, "w", encoding="utf-8") as handle:
+    handle.write("\n".join(lines) + "\n")
+os.chmod(temporary, 0o600)
+os.replace(temporary, path)
+os.chmod(path, 0o600)
+PY
+  chmod 600 "$dest" || baota_warn "无法把 ${dest} 收紧为仅所有者可读"
+  printf '%s\n' "$dest"
 }
 
 # 面板已安装时的全新安装：建站、建库、反代、守护、向导。任一步失败只撤本次新建的对象。
@@ -2173,6 +2263,52 @@ baota_oneclick_install() {
   baota_info "一条命令安装结束。"
 }
 
+# 已装站点的管理员密码只能由 root 在本机重设。程序从本站 db.json 连库，不监听端口。
+# 不替换网站文件，不改 Nginx，也不改数据库密码和其它业务数据。
+baota_reset_admin_password() {
+  local data bin out errfile admin_user admin_pass dest domain
+  [[ "$(id -u)" -eq 0 ]] || baota_die "只有 root 能在服务器本机重设管理员密码。没有改动数据库。"
+  if [[ "$BAOTA_REPAIR_GUARDIAN" == "1" ]]; then
+    baota_die "重设管理员密码和修复进程守护请分开执行"
+  fi
+  if [[ -z "$BAOTA_SITE_ROOT" ]]; then
+    baota_die "重设管理员密码需要 --site-root"
+  fi
+  BAOTA_SITE_ROOT="${BAOTA_SITE_ROOT%/}"
+  baota_assert_safe_dir "$BAOTA_SITE_ROOT" "网站根目录"
+  baota_reject_dotdot "$BAOTA_SITE_ROOT" "网站根目录"
+  data="$(baota_data_dir)"
+  [[ -f "$data/install.lock" ]] || baota_die "没有 ${data}/install.lock。重设命令只处理已经装好的站点，没有改动网站文件。"
+  [[ -f "$data/db.json" ]] || baota_die "没有 ${data}/db.json，无法连接本站数据库。没有改动网站文件。"
+  bin="${BAOTA_RESET_BINARY:-$data/auth_pro}"
+  [[ -f "$bin" ]] || baota_die "找不到 ${bin}。没有改动数据库和网站文件。"
+  domain="$(baota_site_domain)"
+  baota_info "重设 ${BAOTA_SITE_ROOT} 的管理员密码。不改网站文件、Nginx 和数据库密码。"
+  errfile="$(mktemp)"
+  set +e
+  out="$(AUTO_PRO_DATA_DIR="$data" "$bin" reset-admin-password 2>"$errfile")"
+  local code=$?
+  set -e
+  if [[ "$code" -ne 0 ]]; then
+    cat "$errfile" >&2 || true
+    rm -f "$errfile"
+    baota_die "重设管理员密码失败。没有改动网站文件和 Nginx。"
+  fi
+  rm -f "$errfile"
+  printf '%s\n' "$out"
+  admin_user="$(printf '%s\n' "$out" | sed -n 's/^管理员账号: //p' | head -n 1)"
+  admin_pass="$(printf '%s\n' "$out" | sed -n 's/^管理员密码: //p' | head -n 1)"
+  if [[ ! "$admin_pass" =~ ^[0-9]{8}$ || -z "$admin_user" ]]; then
+    baota_die "上面如果已经打印了新密码，请立刻抄下。凭据文件没有更新。"
+  fi
+  dest="$(baota_store_admin_password "$domain" "$admin_user" "$admin_pass")"
+  baota_info "管理后台: http://${domain}/admin"
+  if [[ -n "$dest" ]]; then
+    baota_info "凭据文件: ${dest}"
+  fi
+  baota_info "登录后请在后台修改密码。没有改动网站文件、Nginx、数据库密码和其它站点。"
+}
+
 # 给 1.7.5 已装好、进程脱管的站点用。只停本站脱管进程并重新登记守护，不改数据库、网站文件和 Nginx。
 baota_repair_guardian() {
   local data port command sum_before
@@ -2231,6 +2367,13 @@ baota_repair_guardian() {
 
 baota_cmd_install() {
   baota_parse_args "$@"
+  if [[ "$BAOTA_RESET_ADMIN" == "1" && "$BAOTA_REPAIR_GUARDIAN" == "1" ]]; then
+    baota_die "重设管理员密码和修复进程守护请分开执行"
+  fi
+  if [[ "$BAOTA_RESET_ADMIN" == "1" ]]; then
+    baota_reset_admin_password
+    return
+  fi
   if [[ "$BAOTA_REPAIR_GUARDIAN" == "1" ]]; then
     baota_repair_guardian
     return

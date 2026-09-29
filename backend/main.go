@@ -26,6 +26,7 @@ var staticFS embed.FS
 
 func main() {
 	handler.DispatchStoreKeygen(os.Args[1:])
+	handler.DispatchResetAdminPassword(os.Args[1:])
 
 	// 历史安装可能把数据库口令写成 0644。进程起来先收紧，不等到下次保存配置。
 	if err := config.EnsureDBConfigPermissions(); err != nil {

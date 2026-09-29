@@ -30,11 +30,14 @@ install_print_help() {
   --start           安装后启动并完成安装向导（默认）
   --no-start        只建站放文件，不启动、不创建管理员
   --repair-guardian 修复已经装好的站点：停掉脱管进程，重新登记进程守护并拉起。不改数据库、网站文件和 Nginx
+  --reset-admin-password
+                    本机 root 重设已装站点的管理员密码，打印新的 8 位数字密码。不改网站文件、Nginx 和数据库密码
   -h, --help        显示本说明
 
 示例：
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --repair-guardian example.com
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --reset-admin-password example.com
 EOF
 }
 
@@ -56,6 +59,7 @@ SITE_ROOT=""
 PORT=""
 START_FLAG="--start"
 REPAIR_GUARDIAN=0
+RESET_ADMIN=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -65,6 +69,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --repair-guardian)
       REPAIR_GUARDIAN=1
+      shift
+      ;;
+    --reset-admin-password)
+      RESET_ADMIN=1
       shift
       ;;
     --site-root)
@@ -129,12 +137,21 @@ if [[ -n "$PORT" ]]; then
   fi
 fi
 
-# 先看安装锁，避免为已安装站点下载整包。修复守护是例外：它只重新登记进程，不覆盖文件。
-if [[ -f "$SITE_ROOT/backend/install.lock" && "$REPAIR_GUARDIAN" != "1" ]]; then
-  install_die "检测到 ${SITE_ROOT}/backend/install.lock ，站点已经安装。请改用 baota-upgrade.sh ，或在后台使用「在线更新」，以免覆盖运行数据。若只是进程没进宝塔进程守护，请改用 --repair-guardian。"
+# 先看安装锁，避免为已安装站点下载整包。修复守护和重设密码都不覆盖网站文件。
+if [[ "$REPAIR_GUARDIAN" == "1" && "$RESET_ADMIN" == "1" ]]; then
+  install_die "请分开执行 --repair-guardian 和 --reset-admin-password"
+fi
+if [[ "$RESET_ADMIN" == "1" && "$(id -u)" -ne 0 ]]; then
+  install_die "只有 root 能在服务器本机重设管理员密码"
+fi
+if [[ -f "$SITE_ROOT/backend/install.lock" && "$REPAIR_GUARDIAN" != "1" && "$RESET_ADMIN" != "1" ]]; then
+  install_die "检测到 ${SITE_ROOT}/backend/install.lock ，站点已经安装。请改用 baota-upgrade.sh ，或在后台使用「在线更新」，以免覆盖运行数据。若只是进程没进宝塔进程守护，请改用 --repair-guardian。若要重设管理员密码，请改用 --reset-admin-password。"
 fi
 if [[ "$REPAIR_GUARDIAN" == "1" && ! -f "$SITE_ROOT/backend/install.lock" ]]; then
   install_die "没有 ${SITE_ROOT}/backend/install.lock 。修复命令只处理已经装好的站点，请去掉 --repair-guardian 再安装。"
+fi
+if [[ "$RESET_ADMIN" == "1" && ! -f "$SITE_ROOT/backend/install.lock" ]]; then
+  install_die "没有 ${SITE_ROOT}/backend/install.lock 。重设密码只处理已经装好的站点，请去掉 --reset-admin-password 再安装。"
 fi
 
 # 官网地址写死。不能用环境变量、参数或配置文件改掉。
@@ -236,6 +253,22 @@ chmod 755 "$WORKDIR/baota-install.sh" "$WORKDIR/baota-upgrade.sh" "$WORKDIR/guar
 
 if [[ -n "$DOMAIN" ]]; then
   export AUTH_PRO_PUBLIC_HOST="$DOMAIN"
+fi
+
+if [[ "$RESET_ADMIN" == "1" ]]; then
+  if printf '%s\n' "$LISTING" | grep -qx "./backend/auth_pro"; then
+    tar -xzf "$PKG_FILE" -C "$WORKDIR" "./backend/auth_pro"
+  elif printf '%s\n' "$LISTING" | grep -qx "backend/auth_pro"; then
+    tar -xzf "$PKG_FILE" -C "$WORKDIR" "backend/auth_pro"
+  else
+    install_die "安装包里缺少 backend/auth_pro，无法重设管理员密码"
+  fi
+  [[ -f "$WORKDIR/backend/auth_pro" ]] || install_die "安装包里缺少 backend/auth_pro，无法重设管理员密码"
+  chmod 755 "$WORKDIR/backend/auth_pro"
+  install_info "开始重设 ${SITE_ROOT} 的管理员密码，不覆盖网站文件和 Nginx"
+  export AUTH_PRO_ONECLICK=1
+  bash "$WORKDIR/baota-install.sh" --reset-admin-password --yes --site-root "$SITE_ROOT" --reset-binary "$WORKDIR/backend/auth_pro"
+  exit 0
 fi
 
 if [[ "$REPAIR_GUARDIAN" == "1" ]]; then

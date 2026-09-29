@@ -7,6 +7,10 @@
 - 安装结束会核验面板列表、supervisorctl 的 RUNNING 和监听进程的父进程。面板用 python 解释器启动 supervisord 时，父进程命令行里的 supervisord 也算通过。核验不过就报错并给出手工添加说明，不再打印「安装完成」。失败回滚只卸下本站点的守护项。
 - 插件未安装时仍用面板 Python 安装 supervisor 并直接拉起，同样核验父进程，不另起一份抢端口。
 - 已装好的站点可用 `curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --repair-guardian 域名` 只修复本站点守护，不改数据库、网站文件、Nginx 和其它站点。
+- 一条命令安装打印的是管理后台 `/admin`。站点首页会进入用户登录，用户表里没有这个管理员，所以用凭据文件里的密码会提示账号或密码错误。
+- 自动生成的管理员密码改为 8 位数字，打印和凭据文件都会提示登录后在后台修改；数据库密码仍是原来的随机强密码，凭据文件仍是仅 root 可读的 `/root/auth-pro-<域名>.txt`。
+- 创建管理员时账号或密码为空会直接拒绝，不再把空密码哈希写成安装成功。
+- 已装站点可由 root 在本机执行 `curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --reset-admin-password 域名` 重设管理员密码并打印新密码，不改网站文件、Nginx 和数据库密码。
 - 根目录 `VERSION` / `AppVersion` / `VITE_VERSION` 默认 `1.7.6`。发布说明见 `docs/release-notes-1.7.6.txt`。
 
 ## [v1.7.5] 2026-09-28 — 宝塔一条命令装完

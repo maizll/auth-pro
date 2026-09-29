@@ -89,6 +89,14 @@ printf '%s\n' "$help_out" | grep -q 'install.lock' || fail "安装脚本 --help 
 printf '%s\n' "$help_out" | grep -q -- '--repair-guardian' || fail "安装脚本 --help 缺少 --repair-guardian"
 "$ROOT/scripts/install.sh" --help | grep -q -- '--repair-guardian' || fail "一条命令安装 --help 缺少 --repair-guardian"
 "$ROOT/scripts/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- --repair-guardian' || fail "一条命令安装 --help 没有写死修复命令"
+printf '%s\n' "$help_out" | grep -q -- '--reset-admin-password' || fail "安装脚本 --help 缺少 --reset-admin-password"
+"$ROOT/scripts/install.sh" --help | grep -q -- '--reset-admin-password' || fail "一条命令安装 --help 缺少 --reset-admin-password"
+"$ROOT/scripts/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- --reset-admin-password' || fail "一条命令安装 --help 没有写死重设密码命令"
+grep -q 'baota_random_digits 8' "$LIB" || fail "管理员密码没有改成 8 位数字"
+grep -q 'baota_random_alnum 20 mixed' "$LIB" || fail "数据库密码不再是原来的随机强密码"
+grep -q '登录后请在后台修改密码' "$LIB" || fail "打印凭据时没有提示登录后修改密码"
+grep -q '/root/auth-pro-' "$LIB" || fail "凭据文件路径变了"
+grep -q 'chmod 600' "$LIB" || fail "凭据文件没有收紧为仅所有者可读"
 "$UPGRADE" --help | grep -q -- '--skip-mysql' || fail "升级脚本 --help 缺少 --skip-mysql"
 if grep -q 'plugin/supervisor/config.py' "$ROOT/scripts/baota-panel.py"; then
   fail "面板辅助脚本不能调用会清空主配置的整理脚本"
@@ -97,6 +105,73 @@ grep -q '拒绝 nohup' "$LIB" || fail "面板安装失败时没有拒绝 nohup"
 "$LIB" >/tmp/baota-lib-direct.out 2>/tmp/baota-lib-direct.err && fail "直接执行 baota-lib.sh 应该失败" || true
 grep -q 'baota-install.sh' /tmp/baota-lib-direct.err || fail "直接执行 baota-lib.sh 没有提示入口脚本"
 ok "--help 与拒绝直接执行 lib"
+
+(
+  set -euo pipefail
+  SCRIPT_DIR="$ROOT/scripts"
+  # shellcheck source=/dev/null
+  source "$LIB"
+  digits="$(baota_random_digits 8)"
+  [[ "$digits" =~ ^[0-9]{8}$ ]] || exit 1
+  mixed="$(baota_random_alnum 20 mixed)"
+  [[ "$mixed" =~ ^[A-Za-z][A-Za-z0-9]{19}$ ]] || exit 1
+  body="$(baota_wizard_body 'dbname' 'dbuser' 'db-pass' 'admin' "$digits")"
+  python3 - "$body" "$digits" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data["adminUsername"] == "admin", data
+assert data["adminPassword"] == sys.argv[2], data
+assert data["password"] == "db-pass", data
+assert "adminPassword" in data and data["username"] == "dbuser"
+PY
+  printed="$(baota_print_credentials example.com 19127 dbname dbuser 'db-pass' "$digits" http /root/auth-pro-example.com.txt)"
+  printf '%s\n' "$printed" | grep -F -q "管理后台: http://example.com/admin"
+  printf '%s\n' "$printed" | grep -F -q "管理员密码: ${digits}"
+  printf '%s\n' "$printed" | grep -F -q '登录后请在后台修改密码'
+)
+ok "管理员密码为 8 位数字，向导字段与登录后台地址一致"
+
+RESET_SITE="$WORKDIR/reset-admin-site"
+mkdir -p "$RESET_SITE/backend"
+printf 'keep-reset-page\n' > "$RESET_SITE/index.html"
+printf 'lock\n' > "$RESET_SITE/backend/install.lock"
+printf '{"keep":true}\n' > "$RESET_SITE/backend/db.json"
+RESET_PAGE="$(sha256sum "$RESET_SITE/index.html" | awk '{print $1}')"
+RESET_DB="$(sha256sum "$RESET_SITE/backend/db.json" | awk '{print $1}')"
+if [[ "$(id -u)" -ne 0 ]]; then
+  if "$INSTALL" --reset-admin-password --yes --site-root "$RESET_SITE" >"$WORKDIR/reset-admin.out" 2>"$WORKDIR/reset-admin.err"; then
+    fail "非 root 重设了管理员密码"
+  fi
+  grep -q '只有 root' "$WORKDIR/reset-admin.err" || fail "非 root 没有拒绝重设密码"
+  [[ "$(sha256sum "$RESET_SITE/index.html" | awk '{print $1}')" == "$RESET_PAGE" ]] || fail "拒绝重设时改了网站首页"
+  [[ "$(sha256sum "$RESET_SITE/backend/db.json" | awk '{print $1}')" == "$RESET_DB" ]] || fail "拒绝重设时改了 db.json"
+  ok "非 root 不能重设管理员密码"
+else
+  RESET_BIN="$WORKDIR/reset-admin-bin"
+  cat > "$RESET_BIN" <<'EOF'
+#!/bin/sh
+if [ "$1" != "reset-admin-password" ]; then
+  echo "unexpected args" >&2
+  exit 1
+fi
+if [ -z "$AUTO_PRO_DATA_DIR" ] || [ ! -f "$AUTO_PRO_DATA_DIR/db.json" ]; then
+  echo "missing data dir" >&2
+  exit 1
+fi
+printf '%s\n' '管理员账号: admin' '管理员密码: 13572468' '登录后请在后台修改密码'
+EOF
+  chmod 755 "$RESET_BIN"
+  AUTH_PRO_PUBLIC_HOST=reset.example.com "$INSTALL" --reset-admin-password --yes --site-root "$RESET_SITE" --reset-binary "$RESET_BIN" >"$WORKDIR/reset-admin.out" 2>"$WORKDIR/reset-admin.err" || fail "root 重设管理员密码失败：$(cat "$WORKDIR/reset-admin.err")"
+  grep -F -q '管理员密码: 13572468' "$WORKDIR/reset-admin.out" || fail "没有打印新的管理员密码"
+  grep -F -q '登录后请在后台修改密码' "$WORKDIR/reset-admin.out" || fail "重设时没有提示登录后修改密码"
+  [[ "$(sha256sum "$RESET_SITE/index.html" | awk '{print $1}')" == "$RESET_PAGE" ]] || fail "重设密码时改了网站首页"
+  [[ "$(sha256sum "$RESET_SITE/backend/db.json" | awk '{print $1}')" == "$RESET_DB" ]] || fail "重设密码时改了 db.json"
+  [[ -f /root/auth-pro-reset.example.com.txt ]] || fail "没有写入凭据文件"
+  grep -F -q '管理员密码: 13572468' /root/auth-pro-reset.example.com.txt || fail "凭据文件没有新密码"
+  [[ "$(stat -c '%a' /root/auth-pro-reset.example.com.txt)" == "600" ]] || fail "凭据文件不是仅所有者可读"
+  rm -f /root/auth-pro-reset.example.com.txt
+  ok "root 本机重设管理员密码"
+fi
 
 grep -q 'baota-install.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制安装脚本"
 grep -q 'baota-upgrade.sh' "$ROOT/scripts/build-release.sh" || fail "build-release.sh 未复制升级脚本"
