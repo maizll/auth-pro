@@ -3,7 +3,12 @@
 # 发布包里没有本文件。面板辅助脚本和启动模板从官网安装包里取。官网地址写死，不能用环境变量改掉。
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 管道执行（curl | bash -s）时没有脚本文件，BASH_SOURCE 为空。面板辅助脚本改从安装包取。
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+  SCRIPT_DIR=""
+fi
 
 install_die() {
   printf '[错误] %s\n' "$1" >&2
@@ -355,8 +360,8 @@ upgrade 从官网取最新包，替换页面和 backend/auth_pro，保留 db.jso
 EOF
 }
 
-# 安装、升级、修复和重设密码的实现。只由同文件前面的 install.sh 入口调用。
-: "${SCRIPT_DIR:?SCRIPT_DIR 未设置}"
+# 安装、升级、修复和重设密码的实现。只由同文件前面的入口调用。
+# 管道执行时 SCRIPT_DIR 为空，baota-panel.py 必须从下载的发布包里取。
 
 # 这些路径相对数据目录（默认是网站根下的 backend/）。
 # 与后端 getDataDir() 一致：db.json、install.lock、jwt.secret，
@@ -2945,6 +2950,7 @@ install_main() {
   baota_cmd_install "$@"
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+# 直接执行，或 curl | bash -s 时运行入口。被 source 时 BASH_SOURCE 指向本文件，不跑入口。
+if [[ -z "${BASH_SOURCE[0]:-}" || "${BASH_SOURCE[0]}" == "$0" ]]; then
   install_main "$@"
 fi
