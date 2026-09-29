@@ -21,6 +21,7 @@ type adminAccount struct {
 }
 
 // DispatchResetAdminPassword 处理 auth_pro reset-admin-password。
+// main 必须在解析前端目录之前调用。临时目录里没有 index.html 也能重设。
 // 命令在监听端口之前结束，不会把重设做成可远程调用的接口。
 func DispatchResetAdminPassword(args []string) {
 	if len(args) == 0 || args[0] != "reset-admin-password" {

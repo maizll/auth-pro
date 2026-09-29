@@ -280,18 +280,21 @@ install_download_and_continue() {
     install_die "没有 ${SITE_ROOT}/backend/install.lock 。重设密码只处理已经装好的站点，请去掉 --reset-admin-password 再安装。"
   fi
 
+  # 重设密码只用站点目录里已经装好的 auth_pro，不下载安装包，也不运行临时目录里的程序。
+  # 临时目录没有 index.html，旧程序会在重设前因找不到前端目录失败。
+  if [[ "$RESET_ADMIN" == "1" ]]; then
+    if [[ -n "$DOMAIN" ]]; then
+      export AUTH_PRO_PUBLIC_HOST="$DOMAIN"
+    fi
+    install_info "开始重设 ${SITE_ROOT} 的管理员密码。使用站点已安装的程序，不下载安装包，不覆盖网站文件和 Nginx"
+    baota_cmd_install --reset-admin-password --yes --site-root "$SITE_ROOT"
+    return 0
+  fi
+
   install_fetch_helpers
   local ARGS
   if [[ -n "$DOMAIN" ]]; then
     export AUTH_PRO_PUBLIC_HOST="$DOMAIN"
-  fi
-  if [[ "$RESET_ADMIN" == "1" ]]; then
-    install_extract_member "$PKG_FILE" "$HELPERS" "$LISTING" "backend/auth_pro"
-    [[ -f "$HELPERS/backend/auth_pro" ]] || install_die "安装包里缺少 backend/auth_pro，无法重设管理员密码"
-    chmod 755 "$HELPERS/backend/auth_pro"
-    install_info "开始重设 ${SITE_ROOT} 的管理员密码，不覆盖网站文件和 Nginx"
-    baota_cmd_install --reset-admin-password --yes --site-root "$SITE_ROOT" --reset-binary "$HELPERS/backend/auth_pro"
-    return 0
   fi
   if [[ "$REPAIR_GUARDIAN" == "1" ]]; then
     install_info "开始修复 ${SITE_ROOT} 的进程守护，不覆盖网站文件和数据库"
@@ -361,9 +364,9 @@ upgrade 从官网取最新包，替换页面和 backend/auth_pro，保留 db.jso
   --dry-run         只打印步骤，不改网站文件
   --repair-guardian 只修复本站点的进程守护。不停其它站点，不改数据库、站点程序和 Nginx
   --reset-admin-password
-                    本机 root 重设已装站点的管理员密码，并打印新的 8 位数字密码
+                    本机 root 重设已装站点的管理员密码。有重设命令的程序直接运行，并带上网站根作为前端目录；1.7.5 这类旧程序改为直接更新数据库。不下载安装包，也不替换站点程序
   --reset-binary FILE
-                    带 reset-admin-password 子命令的 auth_pro。不写则用网站目录里的那一份
+                    仅在明确指定时改用这份 auth_pro。不写则用网站目录 backend/auth_pro
   --status          查看已装站点的版本、端口和守护是否 RUNNING
   --show-admin      查看管理后台地址和初始账号
   --start           作为第一个参数时，通过进程守护启动该站点
@@ -389,8 +392,9 @@ upgrade 从官网取最新包，替换页面和 backend/auth_pro，保留 db.jso
 EOF
 }
 
-# 安装、升级、修复和重设密码的实现。只由同文件前面的入口调用。
-# 管道执行时 SCRIPT_DIR 为空，baota-panel.py 必须从下载的发布包里取。
+# 安装、升级和修复的实现。只由同文件前面的入口调用。
+# 重设密码用站点自己的 auth_pro，不下载安装包。
+# 管道执行时 SCRIPT_DIR 为空。改端口、卸载和修复需要的 baota-panel.py 从发布包里取，这些操作不运行 auth_pro。
 
 # 这些路径相对数据目录（默认是网站根下的 backend/）。
 # 与后端 getDataDir() 一致：db.json、install.lock、jwt.secret，
@@ -1228,6 +1232,7 @@ baota_panel_run() {
   BAOTA_PANEL_PLUGIN=""
   BAOTA_PANEL_LIST=""
   BAOTA_PANEL_CTL=""
+  BAOTA_PANEL_SITES=()
   set +e
   "$py" "$script" "$@" >"$capture"
   code=$?
@@ -1243,6 +1248,7 @@ baota_panel_run() {
       AUTH_PRO_PLUGIN=*) BAOTA_PANEL_PLUGIN="${line#AUTH_PRO_PLUGIN=}" ;;
       AUTH_PRO_LIST=*) BAOTA_PANEL_LIST="${line#AUTH_PRO_LIST=}" ;;
       AUTH_PRO_CTL=*) BAOTA_PANEL_CTL="${line#AUTH_PRO_CTL=}" ;;
+      AUTH_PRO_SITE=*) BAOTA_PANEL_SITES+=("${line#AUTH_PRO_SITE=}") ;;
     esac
   done < "$capture"
   rm -f "$capture"
@@ -2669,10 +2675,136 @@ baota_oneclick_install() {
   baota_info "一条命令安装结束。"
 }
 
+# 带 reset-admin-password 的程序在子命令里改密码。工作目录和前端目录都指到网站根，
+# 这样先找 index.html 的旧构建也能找到站点页面，而不会去找临时目录。
+# 监听地址固定到本站已占用的端口：万一旧程序忽略子命令去启动，会因端口占用马上退出，不会占到别的站点。
+baota_invoke_reset_binary() {
+  local bin="$1" data="$2" port runner=()
+  port="$(baota_effective_port)"
+  if command -v timeout >/dev/null 2>&1; then
+    runner=(timeout -k 5 30)
+  fi
+  (
+    cd "$BAOTA_SITE_ROOT" || exit 1
+    # 有首页时带上前端目录。1.7.6 会在找前端之前结束；更早的构建如果先找首页，也能落在网站根。
+    if [[ -f "$BAOTA_SITE_ROOT/index.html" ]]; then
+      env AUTO_PRO_DATA_DIR="$data" AUTO_PRO_FRONTEND_DIR="$BAOTA_SITE_ROOT" HOST=127.0.0.1 PORT="$port" GIN_MODE=release \
+        "${runner[@]}" "$bin" reset-admin-password
+    else
+      env AUTO_PRO_DATA_DIR="$data" HOST=127.0.0.1 PORT="$port" GIN_MODE=release \
+        "${runner[@]}" "$bin" reset-admin-password
+    fi
+  )
+}
+
+# 1.7.5 没有重设密码子命令。运行它会启动网站，所以改为用面板 Python 写数据库。
+# 选择账号的规则与 backend/handler/admin_reset.go 相同：优先唯一的 admin，否则只有一个管理员才改。
+baota_reset_admin_in_database() {
+  local data="$1" py
+  py="$(baota_panel_python 2>/dev/null || true)"
+  if [[ -z "$py" ]] || ! "$py" -c 'import bcrypt,pymysql' >/dev/null 2>&1; then
+    if python3 -c 'import bcrypt,pymysql' >/dev/null 2>&1; then
+      py="$(command -v python3)"
+    else
+      printf '%s\n' "站点程序没有重设密码子命令，本机也无法生成密码哈希。没有改动数据库和网站文件。" >&2
+      return 1
+    fi
+  fi
+  "$py" - "$data/db.json" <<'PY'
+import datetime
+import json
+import os
+import sys
+
+import bcrypt
+import pymysql
+
+cfg = json.load(open(sys.argv[1], encoding="utf-8"))
+host = str(cfg.get("host") or "")
+port = str(cfg.get("port") or "3306")
+database = str(cfg.get("database") or "")
+user = str(cfg.get("username") or "")
+password = str(cfg.get("password") or "")
+if not database or not user:
+    sys.stderr.write("db.json 缺少数据库名或用户名。没有改动数据库。\n")
+    sys.exit(1)
+
+connect = {"user": user, "password": password, "database": database, "charset": "utf8mb4", "autocommit": False}
+if host.startswith("unix:"):
+    connect["unix_socket"] = host[len("unix:"):]
+else:
+    connect["host"] = host or "127.0.0.1"
+    connect["port"] = int(port or "3306")
+
+try:
+    conn = pymysql.connect(**connect)
+except Exception as exc:
+    sys.stderr.write("连接本站数据库失败: %s\n" % exc)
+    sys.exit(1)
+
+try:
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, username FROM admins ORDER BY id ASC")
+        rows = list(cur.fetchall())
+        named = [row for row in rows if row[1] == "admin"]
+        if len(named) == 1:
+            target = named[0]
+        elif len(named) > 1:
+            sys.stderr.write("存在多个用户名为 admin 的管理员，已拒绝修改\n")
+            sys.exit(1)
+        elif len(rows) == 1:
+            target = rows[0]
+        elif not rows:
+            sys.stderr.write("没有管理员账号，无法重设密码\n")
+            sys.exit(1)
+        else:
+            sys.stderr.write("没有用户名为 admin 的管理员，且存在多个管理员，已拒绝修改\n")
+            sys.exit(1)
+        raw = os.urandom(8)
+        new_password = "".join(str(b % 10) for b in raw)
+        hashed = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt(rounds=10)).decode("utf-8")
+        cur.execute(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'admins' AND COLUMN_NAME = 'password_changed_at'"
+        )
+        if cur.fetchone()[0] == 0:
+            cur.execute(
+                "ALTER TABLE admins ADD COLUMN password_changed_at DATETIME DEFAULT NULL "
+                "COMMENT '密码最后变更时间，早于该时刻签发的 token 失效' AFTER password_hash"
+            )
+        stamp = datetime.datetime.now().replace(microsecond=0)
+        cur.execute(
+            "UPDATE admins SET password_hash = %s, password_changed_at = %s WHERE id = %s",
+            (hashed, stamp, target[0]),
+        )
+        if cur.rowcount != 1:
+            conn.rollback()
+            sys.stderr.write("新密码没有写入数据库，已停止\n")
+            sys.exit(1)
+        cur.execute("SELECT password_hash FROM admins WHERE id = %s", (target[0],))
+        stored = cur.fetchone()[0]
+        if isinstance(stored, str):
+            stored = stored.encode("utf-8")
+        if not bcrypt.checkpw(new_password.encode("utf-8"), stored):
+            conn.rollback()
+            sys.stderr.write("新密码与库里的哈希不一致，已停止\n")
+            sys.exit(1)
+    conn.commit()
+except Exception as exc:
+    conn.rollback()
+    sys.stderr.write("写入新密码失败: %s\n" % exc)
+    sys.exit(1)
+finally:
+    conn.close()
+
+sys.stdout.write("管理员账号: %s\n管理员密码: %s\n登录后请在后台修改密码\n" % (target[1], new_password))
+PY
+}
+
 # 已装站点的管理员密码只能由 root 在本机重设。程序从本站 db.json 连库，不监听端口。
 # 不替换网站文件，不改 Nginx，也不改数据库密码和其它业务数据。
 baota_reset_admin_password() {
-  local data bin out errfile admin_user admin_pass dest domain
+  local data bin out errfile admin_user admin_pass dest domain code
   [[ "$(id -u)" -eq 0 ]] || baota_die "只有 root 能在服务器本机重设管理员密码。没有改动数据库。"
   if [[ "$BAOTA_REPAIR_GUARDIAN" == "1" ]]; then
     baota_die "重设管理员密码和修复进程守护请分开执行"
@@ -2689,11 +2821,16 @@ baota_reset_admin_password() {
   bin="${BAOTA_RESET_BINARY:-$data/auth_pro}"
   [[ -f "$bin" ]] || baota_die "找不到 ${bin}。没有改动数据库和网站文件。"
   domain="$(baota_site_domain)"
-  baota_info "重设 ${BAOTA_SITE_ROOT} 的管理员密码。不改网站文件、Nginx 和数据库密码。"
   errfile="$(mktemp)"
   set +e
-  out="$(AUTO_PRO_DATA_DIR="$data" "$bin" reset-admin-password 2>"$errfile")"
-  local code=$?
+  if grep -a -q -F 'reset-admin-password' "$bin"; then
+    baota_info "重设 ${BAOTA_SITE_ROOT} 的管理员密码。使用 ${bin}，工作目录和前端目录都是网站根。不改网站文件、Nginx 和数据库密码。"
+    out="$(baota_invoke_reset_binary "$bin" "$data" 2>"$errfile")"
+  else
+    baota_info "站点程序没有重设密码子命令，直接更新本站数据库。不替换程序，不启动服务，不下载安装包。"
+    out="$(baota_reset_admin_in_database "$data" 2>"$errfile")"
+  fi
+  code=$?
   set -e
   if [[ "$code" -ne 0 ]]; then
     cat "$errfile" >&2 || true
@@ -3009,16 +3146,81 @@ menu_valid_domain() {
   [[ "$1" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$ ]]
 }
 
-# 扫描 /www/wwwroot 下带 install.lock 和 auth_pro 的目录。其它网站不列入。
+# 备份目录：名称里单独一段是 bak、bak 加数字、old、backup、orig、copy，或末尾是 ~。
+# foo.bake.com 这种合法域名不会被当成备份。
+menu_is_backup_dirname() {
+  local name="$1"
+  [[ "$name" == *~ ]] && return 0
+  [[ "$name" =~ (^|[.])bak([.]|$) ]] && return 0
+  [[ "$name" =~ (^|[.])bak[0-9]+([.]|$) ]] && return 0
+  [[ "$name" =~ (^|[.])(old|backup|orig|copy)([.]|$) ]] && return 0
+  return 1
+}
+
+menu_normalize_dir() {
+  local dir="${1%/}"
+  if command -v readlink >/dev/null 2>&1; then
+    readlink -f "$dir" 2>/dev/null || printf '%s\n' "$dir"
+    return 0
+  fi
+  printf '%s\n' "$dir"
+}
+
+# 面板网站列表读得到时，后面只保留这些路径。读不到时保持关闭，改用安装记录。
+menu_load_panel_sites() {
+  local path code errfile
+  MENU_PANEL_PATHS=()
+  MENU_PANEL_FILTER=0
+  baota_panel_available || return 0
+  errfile="$(mktemp)"
+  set +e
+  baota_panel_run list-sites 2>"$errfile"
+  code=$?
+  set -e
+  rm -f "$errfile"
+  [[ "$code" -eq 0 ]] || return 0
+  [[ ${#BAOTA_PANEL_SITES[@]} -eq 0 ]] && return 0
+  for path in "${BAOTA_PANEL_SITES[@]}"; do
+    [[ -n "$path" ]] || continue
+    MENU_PANEL_PATHS+=("$(menu_normalize_dir "$path")")
+  done
+  [[ ${#MENU_PANEL_PATHS[@]} -gt 0 ]] && MENU_PANEL_FILTER=1
+}
+
+menu_path_in_panel() {
+  local real path
+  real="$(menu_normalize_dir "$1")"
+  for path in "${MENU_PANEL_PATHS[@]}"; do
+    [[ "$path" == "$real" ]] && return 0
+  done
+  return 1
+}
+
+# 安装记录是 backend/install.lock 加 backend/auth_pro。目录名必须是域名，且不是备份目录。
+# 面板列表可用时，还要求这个目录就是面板里的站点路径。
+menu_site_dir_ok() {
+  local dir="$1" name
+  [[ -d "$dir" ]] || return 1
+  [[ -f "$dir/backend/install.lock" && -f "$dir/backend/auth_pro" ]] || return 1
+  name="$(basename "$dir")"
+  menu_is_backup_dirname "$name" && return 1
+  menu_valid_domain "$name" || return 1
+  if [[ "$MENU_PANEL_FILTER" == "1" ]]; then
+    menu_path_in_panel "$dir" || return 1
+  fi
+  return 0
+}
+
+# 扫描 /www/wwwroot。只列入真正由 auth-pro 安装的站点，不列入 .bak 等备份目录。
 menu_list_sites() {
   local dir
   MENU_SITE_ROOTS=()
   MENU_SITE_DOMAINS=()
+  menu_load_panel_sites
   [[ -d /www/wwwroot ]] || return 0
   shopt -s nullglob
   for dir in /www/wwwroot/*; do
-    [[ -d "$dir" ]] || continue
-    [[ -f "$dir/backend/install.lock" && -f "$dir/backend/auth_pro" ]] || continue
+    menu_site_dir_ok "$dir" || continue
     MENU_SITE_ROOTS+=("$dir")
     MENU_SITE_DOMAINS+=("$(basename "$dir")")
   done
@@ -3366,7 +3568,7 @@ menu_uninstall_site() {
 
 menu_render() {
   menu_tty_print "$(menu_blue "========================================")"
-  menu_tty_print "$(menu_blue "  auth-pro 1.7.8")"
+  menu_tty_print "$(menu_blue "  auth-pro 1.7.9")"
   menu_tty_print "$(menu_blue "========================================")"
   menu_tty_print "  $(menu_green "1")  安装新站点"
   menu_tty_print "  $(menu_green "2")  升级站点"
