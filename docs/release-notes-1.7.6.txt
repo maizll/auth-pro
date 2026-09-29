@@ -2,6 +2,8 @@ auth-pro 1.7.6
 
 - 宝塔进程守护插件已安装时，安装会走插件的 AddProcess，由面板正在用的 supervisord 拉起，并出现在进程守护列表里。
 - 安装不再调用会把主配置换成空文件的整理脚本；只在丢了 profile 包含行时用插件样例补回，不删其它站点的 ini，也不再 nohup 脱管进程。
-- 列表里没有本站点、supervisorctl 不是 RUNNING，或监听进程的父进程不是 supervisord，就报错并打印手工添加说明，不再显示安装完成。面板用 python 启动的 supervisord 也算通过。失败时只卸下本站点的守护项。
+- 列表里没有本站点、supervisorctl 不是 RUNNING，或监听进程的父进程不是 supervisord，就报错并打印手工添加说明，不再显示安装完成。
+- 面板用 python 解释器启动 supervisord 时，父进程命令行里的 supervisord 也算已被守护拉起。
+- 安装失败回滚时只卸下本站点的守护项，不改其它站点的 ini。
 - 插件没装时改为由脚本自己的 supervisord 拉起，同样不允许两个进程抢同一个端口。
 - 已经装好的站点执行 curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --repair-guardian 域名 ，只重登记本站点守护，不改数据库、网站文件和 Nginx。
