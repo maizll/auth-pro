@@ -582,7 +582,7 @@ case "$dest" in
     echo "copy into live frontend failed" >&2
     exit 1
     ;;
-  "$live".staging.*)
+  "$live".staging.*|*/updates/frontend-staging.*)
     /bin/cp "$@"
     echo "staging copy failed" >&2
     exit 1
@@ -610,7 +610,7 @@ exec /bin/cp "$@"
 	if info, err := os.Lstat(liveDir); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		t.Fatalf("live frontend is no longer a directory: %v", err)
 	}
-	for _, pattern := range []string{liveDir + ".backup.*", liveDir + ".staging.*"} {
+	for _, pattern := range []string{liveDir + ".backup.*", liveDir + ".staging.*", filepath.Join(dataDir, "updates", "frontend-staging.*")} {
 		matches, err := filepath.Glob(pattern)
 		if err != nil {
 			t.Fatal(err)

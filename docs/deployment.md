@@ -1,6 +1,6 @@
 # 部署手册
 
-当前版本 **1.7.4**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
+当前版本 **1.7.5**。发布包只提供 **Linux amd64**。压缩包里有哪些文件见 [PACKAGING.md](../PACKAGING.md)。
 
 运行数据目录与进程的工作目录一致。宝塔脚本默认把它放在网站根下的 `backend/`。后端解析数据目录的顺序是：环境变量 `AUTO_PRO_DATA_DIR`，否则在当前工作目录或其子目录 `backend/` 中寻找 `install.lock`、`db.json` 或 `go.mod`，再否则用可执行文件所在目录。
 
@@ -29,7 +29,7 @@ go build -ldflags "-X auto_pro/handler.embeddedStoreSnapshotPublicKey=<打印出
 
 ## 宝塔：全新安装
 
-客户在宝塔终端安装时，用 [安装部署](install.md) 里的一条命令。脚本会创建网站目录，再调用 `baota-install.sh`（逻辑在 `baota-lib.sh`）。面板里的建站、空 MySQL、SSL 和进程守护开关仍要手工做，脚本不改面板数据库。
+客户在宝塔终端安装时，用 [安装部署](install.md) 里的一条命令。机器上已有宝塔面板、Nginx 和 MySQL 时，脚本会建站、建库、反代、进程守护，并完成本地安装向导。没有面板时只放文件。
 
 下面是已经拿到发布包时的步骤。
 
@@ -57,7 +57,7 @@ bash baota-install.sh \
 3. 把 `backend/auth_pro` 设为 `755`。
 4. 生成 `backend/baota.env`（`PORT`、`HOST=127.0.0.1`、`AUTO_PRO_DATA_DIR`）、`backend/start.sh`、`backend/baota-nginx.snippet.conf`、`backend/baota-guardian.txt`。`baota.env` 为 `600`。已有 `baota.env` 且没有用 `--port` 或 `AUTH_PRO_HOST` 覆盖时，默认保留。
 5. 安装、覆盖安装和升级都会先停旧进程：通过指向本站的进程守护停止，等待退出；端口仍被本站 `backend/auth_pro` 占用时（包括父进程为 1 的孤儿）先 SIGTERM，超时后 SIGKILL。确认端口空闲后才写文件、才启动。占用者不是本站程序时拒绝执行，不结束其它程序，也不结束同机其它站点的 `auth_pro`。
-6. `--start` 时在端口空闲后启动。`baota.env` 或本机 supervisor 配置里的 command 指向本站 `start.sh` 时，由进程守护启动，健康检查失败会把程序文件换回去。没有找到本站守护配置时才直接启动。数据库口令只在网页安装向导里填写。
+6. `--start` 时在端口空闲后启动。`baota.env` 或本机 supervisor 配置里的 command 指向本站 `start.sh` 时，由进程守护启动，健康检查失败会把程序文件换回去。没有找到本站守护配置时才直接启动。面板自动安装会在健康检查通过后调用本机安装接口创建管理员；已有安装锁或业务数据时不会覆盖。
 
 常用选项：
 
@@ -66,7 +66,7 @@ bash baota-install.sh \
 | `--site-root DIR` | 网站根 |
 | `--package FILE` | `auth_pro-full-vX.Y.Z.tar.gz` |
 | `--source DIR` | 已经解压好的发布目录 |
-| `--port PORT` | 后端端口，默认 `19127` |
+| `--port PORT` | 后端端口。不写则从 `19127` 起找空闲端口；已有 `baota.env` 时沿用其中的 `PORT` |
 | `--start` / `--no-start` | 装完是否启动。有本站进程守护时由守护启动；不启动时仍会先停本站旧进程 |
 | `--stop-port` | 兼容旧命令。现在默认就会先停本站进程 |
 | `--yes` / `-y` | 不再询问。也可用 `AUTH_PRO_YES=1` |
@@ -75,7 +75,7 @@ bash baota-install.sh \
 
 对应环境变量：`AUTH_PRO_SITE_ROOT`、`AUTH_PRO_PACKAGE`、`AUTH_PRO_SOURCE`、`AUTH_PRO_PORT`、`AUTH_PRO_START=0|1`、`AUTH_PRO_YES=1`、`AUTH_PRO_STOP_PORT=1`、`AUTH_PRO_DRY_RUN=1`、`AUTH_PRO_DATA_DIR`、`AUTH_PRO_HOST`（默认 `127.0.0.1`）。
 
-装完后用浏览器打开站点域名。没有 `install.lock` 时会进入安装向导：填写事先建好的空 MySQL，初始化表，创建超级管理员。库里已有 `admins` 或业务数据时，初始化与创建管理员会被拒绝。
+面板自动安装结束时会打印管理员账号、随机密码和数据库信息。没有走自动安装、也没有 `install.lock` 时，用浏览器打开站点会进入安装向导。库里已有 `admins` 或业务数据时，初始化与创建管理员会被拒绝。
 
 ## 宝塔：升级
 

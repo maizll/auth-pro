@@ -20,16 +20,15 @@ install_print_help() {
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- 域名 --port 端口 --site-root 目录
 
 从官网下载已发布的安装包，核对 SHA256 和签名后安装。
-网站目录默认是 /www/wwwroot/域名，不存在时会自动创建。
-已经有 backend/install.lock 时会停下来，请改用升级，不会覆盖。
-
-数据库密码不要写在命令里。装完后用浏览器打开站点，在安装向导里填写。
+需要本机已经装好宝塔面板，并且软件商店里已经安装 Nginx 和 MySQL。脚本不会替你安装 MySQL。
+网站目录默认是 /www/wwwroot/域名。未写 --port 时从 19127 起自动找空闲端口。
+装完后会创建管理员并打印账号。已经有 backend/install.lock 时会停下来，请改用升级，不会覆盖。
 
 选项：
   --site-root DIR   网站根。不写则使用 /www/wwwroot/域名
-  --port PORT       后端端口，默认 19127
-  --start           安装后尝试启动。准备用进程守护时可省略
-  --no-start        只放好文件（默认）
+  --port PORT       后端端口。不写则自动选择空闲端口
+  --start           安装后启动并完成安装向导（默认）
+  --no-start        只建站放文件，不启动、不创建管理员
   -h, --help        显示本说明
 
 示例：
@@ -53,7 +52,7 @@ install_sha256() {
 DOMAIN=""
 SITE_ROOT=""
 PORT=""
-START_FLAG="--no-start"
+START_FLAG="--start"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -107,6 +106,7 @@ if [[ -n "$DOMAIN" ]]; then
   if [[ ! "$DOMAIN" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$ ]]; then
     install_die "域名不正确：$DOMAIN"
   fi
+  DOMAIN="$(printf '%s' "$DOMAIN" | tr '[:upper:]' '[:lower:]')"
 fi
 
 if [[ -z "$SITE_ROOT" ]]; then
@@ -212,7 +212,7 @@ ACTUAL_SHA="$(install_sha256 "$PKG_FILE")"
 
 # 发布包成员可能是 baota-install.sh，也可能是 ./baota-install.sh。两种都认。
 LISTING="$(tar -tzf "$PKG_FILE")"
-for name in baota-install.sh baota-upgrade.sh baota-lib.sh guardian-start.sh; do
+for name in baota-install.sh baota-upgrade.sh baota-lib.sh baota-panel.py guardian-start.sh; do
   if printf '%s\n' "$LISTING" | grep -qx "./${name}"; then
     tar -xzf "$PKG_FILE" -C "$WORKDIR" "./${name}"
   elif printf '%s\n' "$LISTING" | grep -qx "${name}"; then
@@ -229,6 +229,7 @@ if [[ -n "$DOMAIN" ]]; then
 fi
 
 install_info "开始安装到 ${SITE_ROOT}"
+export AUTH_PRO_ONECLICK=1
 ARGS=(--yes --site-root "$SITE_ROOT" --package "$PKG_FILE" "$START_FLAG")
 if [[ -n "$PORT" ]]; then
   ARGS+=(--port "$PORT")
