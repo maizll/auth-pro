@@ -1732,11 +1732,17 @@ baota_write_env() {
     return 0
   fi
   mkdir -p "$data"
+  # 进程守护以网站目录的属主运行（宝塔上是 www）。环境文件是 600，必须交给这个用户，不能留在 root。
+  local owner="www" group="www"
   if [[ -f "$file" ]]; then
     existing_host="$(sed -n 's/^HOST=//p' "$file" | head -n 1)"
     if [[ -z "${AUTH_PRO_HOST:-}" && -n "$existing_host" ]]; then
       host="$existing_host"
     fi
+  fi
+  if [[ -d "$data" ]]; then
+    owner="$(stat -c '%U' "$data" 2>/dev/null || echo www)"
+    group="$(stat -c '%G' "$data" 2>/dev/null || echo www)"
   fi
   tmp="$file.tmp.$$"
   cat > "$tmp" <<EOF
@@ -1748,6 +1754,9 @@ AUTO_PRO_PROCESS_MANAGER=supervisor
 EOF
   chmod 600 "$tmp"
   mv -f "$tmp" "$file"
+  if [[ "$(stat -c '%U:%G' "$file" 2>/dev/null || echo '')" != "${owner}:${group}" ]]; then
+    chown "${owner}:${group}" "$file" || baota_die "无法把 ${file} 交给 ${owner}:${group}。进程守护读不到环境文件，没有继续。"
+  fi
   baota_info "已写入 $file"
 }
 
