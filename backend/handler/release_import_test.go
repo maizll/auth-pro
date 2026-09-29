@@ -2,9 +2,6 @@ package handler
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -183,65 +180,6 @@ func jsonEscape(value string) string {
 	return replacer.Replace(value)
 }
 
-func TestReleaseImportRequiresRepoWithoutSavedValue(t *testing.T) {
-	restore := SetSourceStationStoreForTest(newMemorySourceStore())
-	t.Cleanup(restore)
-	if _, _, err := releaseImportRepo("app", ""); err == nil || !strings.Contains(err.Error(), "请填写仓库") {
-		t.Fatalf("err=%v", err)
-	}
-	if officialImportRepoSeed("app") != "" || officialImportRepoSeed("catalog") != "" {
-		t.Fatal("non-official seed must be empty")
-	}
-}
-
-func TestReleaseImportRemembersRepoByPurpose(t *testing.T) {
-	restore := SetSourceStationStoreForTest(newMemorySourceStore())
-	t.Cleanup(restore)
-	rememberReleaseImportRepo("app", "acme", "widgets")
-	rememberReleaseImportRepo("plugin", "acme", "paid-widgets")
-	appOwner, appRepo, err := releaseImportRepo("app", "")
-	if err != nil || appOwner != "acme" || appRepo != "widgets" {
-		t.Fatalf("app %s/%s err=%v", appOwner, appRepo, err)
-	}
-	pluginOwner, pluginRepo, err := releaseImportRepo("plugin", "")
-	if err != nil || pluginOwner != "acme" || pluginRepo != "paid-widgets" {
-		t.Fatalf("plugin %s/%s err=%v", pluginOwner, pluginRepo, err)
-	}
-	templateOwner, templateRepo, err := releaseImportRepo("template", "")
-	if err != nil || templateOwner != "acme" || templateRepo != "paid-widgets" {
-		t.Fatalf("template %s/%s err=%v", templateOwner, templateRepo, err)
-	}
-}
-
-func TestOfficialImportMigrationSeedsDefaults(t *testing.T) {
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	previous := embeddedStoreSnapshotPublicKey
-	embeddedStoreSnapshotPublicKey = base64.StdEncoding.EncodeToString(publicKey)
-	t.Cleanup(func() { embeddedStoreSnapshotPublicKey = previous })
-	writeSnapshotKey(t, privateKey)
-	restore := SetSourceStationStoreForTest(newMemorySourceStore())
-	t.Cleanup(restore)
-	if !officialSite() {
-		t.Fatal("fixture should be the official site")
-	}
-	owner, repo, err := releaseImportRepo("app", "")
-	if err != nil || owner+"/"+repo != "maizll/auth-pro-client" {
-		t.Fatalf("app seed %s/%s err=%v", owner, repo, err)
-	}
-	owner, repo, err = releaseImportRepo("template", "")
-	if err != nil || owner+"/"+repo != "maizll/auth-pro-paid" {
-		t.Fatalf("catalog seed %s/%s err=%v", owner, repo, err)
-	}
-	rememberReleaseImportRepo("app", "acme", "kept")
-	owner, repo, err = releaseImportRepo("app", "")
-	if err != nil || owner+"/"+repo != "acme/kept" {
-		t.Fatalf("saved repo overwritten: %s/%s err=%v", owner, repo, err)
-	}
-}
-
 func TestDeveloperPageDoesNotCallReleaseImport(t *testing.T) {
 	path := filepath.Join("..", "..", "frontend", "src", "views", "developer-panel", "components", "DeveloperCatalogWorkbench.vue")
 	raw, err := os.ReadFile(path)
@@ -250,16 +188,5 @@ func TestDeveloperPageDoesNotCallReleaseImport(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "release-import") {
 		t.Fatal("developer page still calls the release import API")
-	}
-}
-
-func TestReleaseImportPlaceholderHasNoOwner(t *testing.T) {
-	path := filepath.Join("..", "..", "frontend", "src", "components", "business", "release-import", "ReleaseRepoImport.vue")
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(raw), "maizll/") {
-		t.Fatal("import placeholder still names a built-in repository")
 	}
 }

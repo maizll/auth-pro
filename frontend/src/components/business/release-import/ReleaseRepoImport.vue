@@ -5,7 +5,7 @@
       <ElInput
         v-model.trim="repo"
         class="release-import__repo"
-        placeholder="owner/repo"
+        :placeholder="placeholder"
         maxlength="120"
       />
       <ElButton :loading="listing" @click="loadReleases">列出发布</ElButton>
@@ -73,11 +73,10 @@
 </template>
 
 <script setup lang="ts">
-  import { onMounted, ref } from 'vue'
+  import { computed, ref } from 'vue'
   import { ElMessage } from 'element-plus'
   import {
     fetchReleaseAsset,
-    fetchReleaseImportPreference,
     fetchReleaseImports,
     type ReleaseImportItem,
     type ReleaseImportResult
@@ -92,6 +91,9 @@
     filled: [value: ReleaseImportResult]
   }>()
 
+  const placeholder = computed(() =>
+    props.purpose === 'app' ? 'maizll/auth-pro-client' : 'maizll/auth-pro-paid'
+  )
   const repo = ref('')
   const connectedRepo = ref('')
   const releases = ref<ReleaseImportItem[]>([])
@@ -104,20 +106,7 @@
     return row.tag === picked.value ? 'is-picked' : ''
   }
 
-  onMounted(async () => {
-    try {
-      const saved = await fetchReleaseImportPreference(props.apiBase, props.purpose)
-      if (!repo.value && saved?.repo) repo.value = saved.repo
-    } catch {
-      // 没有保存过仓库时输入框保持空白，由用户填写。
-    }
-  })
-
   async function loadReleases() {
-    if (!repo.value.trim()) {
-      ElMessage.info('请填写仓库，格式为 所有者/名称')
-      return
-    }
     listing.value = true
     listed.value = false
     try {

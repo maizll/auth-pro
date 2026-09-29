@@ -166,10 +166,11 @@ func TestProductUpdateMissingVersionDoesNotMentionHost(t *testing.T) {
 	}
 }
 
-func TestProductUpdateRepositoryRequiresConfiguration(t *testing.T) {
+func TestProductUpdateDefaultRepositoryIsClientRepo(t *testing.T) {
 	t.Setenv(productUpdateRepoEnv, "")
-	if _, _, err := productUpdateRepository(); err == nil {
-		t.Fatal("empty repository should not fall back to a built-in owner")
+	owner, repo, err := productUpdateRepository()
+	if err != nil || owner+"/"+repo != productUpdateDefaultRepository {
+		t.Fatalf("repo = %s/%s err=%v", owner, repo, err)
 	}
 }
 

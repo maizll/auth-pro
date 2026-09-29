@@ -26,10 +26,8 @@ import (
 )
 
 const (
-	releaseImportStageTTL         = 2 * time.Hour
-	releaseImportRepoAppKey       = "release_import_repo_app"
-	releaseImportRepoCatalogKey   = "release_import_repo_catalog"
-	releaseImportRepoRequiredText = "请填写仓库，格式为 所有者/名称"
+	releaseImportDefaultPaidRepo = "maizll/auth-pro-paid"
+	releaseImportStageTTL        = 2 * time.Hour
 )
 
 var releaseStageIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
@@ -59,26 +57,15 @@ type releaseImportView struct {
 // RegisterReleaseImportRoutes 挂上站长侧的导入接口。调用方自己负责登录和菜单权限。
 // 开发者路由不挂这组接口。开发者上传 ZIP 仍由存储管理用站长令牌写入收费仓库。
 func RegisterReleaseImportRoutes(group *gin.RouterGroup) {
-	group.GET("/release-import/preference", ReleaseImportPreference)
 	group.POST("/release-import/releases", ReleaseImportList)
 	group.POST("/release-import/fetch", ReleaseImportFetch)
 	group.POST("/release-import/probe-url", ReleaseImportProbeURL)
 	group.POST("/release-import/materialize", ReleaseImportMaterialize)
 }
 
-// ReleaseImportPreference 返回这个用途上次保存的仓库，供输入框自动带出。
-func ReleaseImportPreference(c *gin.Context) {
-	repo := ""
-	saved, err := ensureOfficialImportRepo(releaseImportRepoKind(c.Query("purpose")))
-	if err == nil {
-		repo = saved
-	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"repo": repo}})
-}
-
 // ReleaseImportList 列出仓库里的 Release，供后台选择。
-// 仓库留空时用本站按用途保存的地址。没有保存过就要求填写，不回落到编译进程序的默认仓库。
-// 读取私有仓库只用站长已经保存的令牌。
+// purpose 决定默认仓库：app 用客户交付仓库，plugin 和 template 用付费仓库。请求里的 repo 可以改。
+// 令牌用系统里已经保存的那一枚。连不上时返回 400，不回显令牌和仓库页面。
 func ReleaseImportList(c *gin.Context) {
 	var req struct {
 		Purpose string `json:"purpose"`
@@ -95,7 +82,6 @@ func ReleaseImportList(c *gin.Context) {
 		apiError(c, 400, "无法读取仓库发布列表，请检查已保存的令牌")
 		return
 	}
-	rememberReleaseImportRepo(req.Purpose, owner, repo)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
 		"repo": owner + "/" + repo, "releases": releases,
 	}})
@@ -124,7 +110,6 @@ func ReleaseImportFetch(c *gin.Context) {
 		apiError(c, 400, err.Error())
 		return
 	}
-	rememberReleaseImportRepo(req.Purpose, owner, repo)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": view})
 }
 
@@ -213,32 +198,22 @@ func ReleaseImportMaterialize(c *gin.Context) {
 	}})
 }
 
-func releaseImportRepoKind(purpose string) string {
-	switch strings.TrimSpace(purpose) {
-	case "plugin", "template":
-		return "catalog"
-	default:
-		return "app"
-	}
-}
-
-func releaseImportRepoSettingKey(kind string) string {
-	if kind == "catalog" {
-		return releaseImportRepoCatalogKey
-	}
-	return releaseImportRepoAppKey
-}
-
-// releaseImportRepo 解析本次要读的仓库。留空时只用本站保存的地址。
-// 非官网也不会使用编译进程序的默认仓库。
 func releaseImportRepo(purpose, raw string) (string, string, error) {
 	raw = strings.Trim(strings.TrimSpace(raw), "/")
 	if raw == "" {
-		saved, err := ensureOfficialImportRepo(releaseImportRepoKind(purpose))
-		if err != nil || strings.TrimSpace(saved) == "" {
-			return "", "", errors.New(releaseImportRepoRequiredText)
+		if purpose == "plugin" || purpose == "template" {
+			owner, repo, _, err := loadGitHubPaidRepo()
+			if err == nil && owner != "" && repo != "" {
+				return owner, repo, nil
+			}
+			if owner, repo, ok := primaryGitHubStorageRepo(); ok {
+				return owner, repo, nil
+			}
+			raw = releaseImportDefaultPaidRepo
+		} else {
+			owner, repo, err := productUpdateRepository()
+			return owner, repo, err
 		}
-		raw = saved
 	}
 	parts := strings.Split(raw, "/")
 	if len(parts) != 2 || !sourceReleaseRepoPattern.MatchString(parts[0]) || !sourceReleaseRepoPattern.MatchString(parts[1]) {
@@ -247,78 +222,23 @@ func releaseImportRepo(purpose, raw string) (string, string, error) {
 	return parts[0], parts[1], nil
 }
 
-func rememberReleaseImportRepo(purpose, owner, repo string) {
-	if owner == "" || repo == "" {
-		return
+// primaryGitHubStorageRepo 用存储管理里启用的 GitHub 位置作为插件、模板导入的默认仓库。
+func primaryGitHubStorageRepo() (string, string, bool) {
+	blob, err := loadStorageBlob()
+	if err != nil {
+		return "", "", false
 	}
-	_ = writeImportRepo(releaseImportRepoKind(purpose), owner+"/"+repo)
-}
-
-func readImportRepo(kind string) (string, error) {
-	key := releaseImportRepoSettingKey(kind)
-	switch store := currentSourceStationStore().(type) {
-	case *memorySourceStore:
-		store.mu.Lock()
-		defer store.mu.Unlock()
-		if store.importRepos == nil {
-			return "", nil
+	for _, loc := range enabledStorageLocations(blob.Locations) {
+		if loc.Kind != packageStorageGitHub {
+			continue
 		}
-		return strings.TrimSpace(store.importRepos[key]), nil
-	case mysqlSourceStore:
-		return readGitHubPaidSetting(key)
-	default:
-		return "", errors.New("读取仓库设置失败")
-	}
-}
-
-func writeImportRepo(kind, repo string) error {
-	key := releaseImportRepoSettingKey(kind)
-	repo = strings.TrimSpace(repo)
-	switch store := currentSourceStationStore().(type) {
-	case *memorySourceStore:
-		store.mu.Lock()
-		defer store.mu.Unlock()
-		if store.importRepos == nil {
-			store.importRepos = map[string]string{}
+		owner := strings.TrimSpace(loc.Owner)
+		repo := strings.TrimSpace(loc.Repo)
+		if owner != "" && repo != "" {
+			return owner, repo, true
 		}
-		store.importRepos[key] = repo
-		return nil
-	case mysqlSourceStore:
-		return writeGitHubPaidSetting(key, repo)
-	default:
-		return errors.New("保存仓库设置失败")
 	}
-}
-
-// ensureOfficialImportRepo 在官网第一次升级后，把原先写死的两个仓库写入设置。
-// 客户站 officialSite 为假时这里返回空，调用方必须让用户自己填写。
-func ensureOfficialImportRepo(kind string) (string, error) {
-	saved, err := readImportRepo(kind)
-	if err != nil || saved != "" {
-		return saved, err
-	}
-	seed := officialImportRepoSeed(kind)
-	if seed == "" {
-		return "", nil
-	}
-	if err := writeImportRepo(kind, seed); err != nil {
-		return "", err
-	}
-	return seed, nil
-}
-
-func officialImportRepoSeed(kind string) string {
-	if !officialSite() {
-		return ""
-	}
-	switch kind {
-	case "app":
-		return "maizll/auth-pro-client"
-	case "catalog":
-		return "maizll/auth-pro-paid"
-	default:
-		return ""
-	}
+	return "", "", false
 }
 
 type releaseImportListItem struct {

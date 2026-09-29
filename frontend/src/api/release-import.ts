@@ -21,14 +21,6 @@ export interface ReleaseImportResult {
   assetName: string
 }
 
-export function fetchReleaseImportPreference(apiBase: string, purpose: string) {
-  return request.get<{ repo: string }>({
-    url: `${apiBase}/preference`,
-    params: { purpose },
-    showErrorMessage: false
-  })
-}
-
 export function fetchReleaseImports(apiBase: string, purpose: string, repo: string) {
   return request.post<{ repo: string; releases: ReleaseImportItem[] }>({
     url: `${apiBase}/releases`,
