@@ -160,7 +160,8 @@ jobs:
             echo "缺少 ${NOTES_FILE}，发布说明必须以这份文件为正文" >&2
             exit 1
           fi
-          # 正文用仓库里的发布说明。不要用自动生成的变更列表，那会把仓库链接写进客户能看到的更新内容。
+          # 服务端仓库和客户端仓库共用这一份工作流（客户端由同步得到同一文件）。
+          # 正文用 docs/release-notes-X.Y.Z.txt。不要用自动生成的变更列表，那会把仓库链接写进客户能看到的更新内容。
           gh release create "$GITHUB_REF_NAME" \
             "release/packages/auth_pro-full-v${VERSION}.tar.gz" \
             release/packages/latest.json \

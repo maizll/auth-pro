@@ -375,7 +375,8 @@ func releaseImportVersion(tag string) string {
 }
 
 // releaseImportDescribe 优先用 Release 附件 latest.json 的 notes 填标题和更新内容。
-// 私有仓库走已经保存的令牌。没有 notes 时才退回 Release 正文，并丢掉自动生成的变更模板。
+// 服务端仓库和客户端仓库走同一条路径，私有仓库用已经保存的令牌。
+// 没有 notes 时才退回 Release 正文，并丢掉自动生成的变更模板。
 func releaseImportDescribe(ctx context.Context, owner, repo, tag, name, body string) (string, string) {
 	if title, changelog, ok := releaseImportLatestNotes(ctx, owner, repo, tag); ok {
 		return title, changelog
