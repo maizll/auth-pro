@@ -373,7 +373,7 @@ upgrade 从官网取最新包，替换页面和 backend/auth_pro，保留 db.jso
   --restore         从 --backup-dir 恢复。恢复前会先备份当前数据
   --backup-dir DIR  --restore 要恢复的备份目录
   --change-port     修改该站点的后台端口，需同时写 --port
-  --uninstall       卸载该站点。必须再用 --confirm 写一遍完整域名
+  --uninstall       卸载该站点。先把网站目录完整备份到网站目录之外，必须再用 --confirm 写一遍完整域名
   --confirm 域名    与 --uninstall 的域名一致才继续
   --delete-database 卸载时删除数据库。不写则保留
   -h, --help        显示本说明
@@ -3322,9 +3322,32 @@ menu_change_port() {
   baota_info "后台端口已改为 ${new_port}"
 }
 
+# 卸载会删掉整个网站目录。先把目录和数据库导出到 /www/backup，不能落在网站目录里面。
+menu_backup_before_uninstall() {
+  local root ts
+  [[ -n "${BAOTA_UNINSTALL_BACKUP_DIR:-}" ]] && return 0
+  root="$(baota_central_backup_root)" || baota_die "无法在网站目录之外创建备份，已取消卸载。没有删除站点。"
+  ts="$(date '+%Y%m%d%H%M%S')"
+  mkdir -p "$root/uninstall" || baota_die "无法创建卸载备份目录，已取消卸载。没有删除站点。"
+  BAOTA_ACTION="uninstall"
+  BAOTA_BACKUP_DIR="$(baota_unique_backup_path "$root/uninstall" "uninstall" "$ts")"
+  case "$BAOTA_BACKUP_DIR" in
+    "$BAOTA_SITE_ROOT"|"$BAOTA_SITE_ROOT"/*)
+      baota_die "备份目录在网站目录里面，已取消卸载。没有删除站点。"
+      ;;
+  esac
+  mkdir -p "$BAOTA_BACKUP_DIR" || baota_die "无法创建卸载备份，已取消卸载。没有删除站点。"
+  cp -a "$BAOTA_SITE_ROOT" "$BAOTA_BACKUP_DIR/site" || baota_die "完整备份没有写好，已取消卸载。没有删除站点。"
+  [[ -f "$BAOTA_BACKUP_DIR/site/backend/install.lock" ]] || baota_die "完整备份里没有安装锁，已取消卸载。没有删除站点。"
+  baota_mysql_backup
+  BAOTA_UNINSTALL_BACKUP_DIR="$BAOTA_BACKUP_DIR"
+  baota_info "卸载前已完整备份到 ${BAOTA_BACKUP_DIR}"
+}
+
 menu_uninstall_site() {
   local confirm="$1" delete_db="$2" db_name="" data
   [[ "$confirm" == "$MENU_PICK_DOMAIN" ]] || baota_die "确认域名不一致，已取消卸载。没有删除站点。"
+  menu_backup_before_uninstall
   data="$(baota_data_dir)"
   if [[ -f "$data/db.json" ]]; then
     db_name="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("database") or "")' "$data/db.json")"
@@ -3332,13 +3355,13 @@ menu_uninstall_site() {
   menu_ensure_helpers
   if [[ "$delete_db" == "1" ]]; then
     baota_info "将删除数据库 ${db_name:-（未记录）}"
-    baota_panel_run uninstall --domain "$MENU_PICK_DOMAIN" --path "$BAOTA_SITE_ROOT" --remove-db --db-name "$db_name" || baota_die "卸载失败"
+    baota_panel_run uninstall --domain "$MENU_PICK_DOMAIN" --path "$BAOTA_SITE_ROOT" --remove-db --db-name "$db_name" || baota_die "卸载失败。备份仍在 ${BAOTA_UNINSTALL_BACKUP_DIR}"
   else
     baota_info "数据库默认保留"
-    baota_panel_run uninstall --domain "$MENU_PICK_DOMAIN" --path "$BAOTA_SITE_ROOT" --db-name "$db_name" || baota_die "卸载失败"
+    baota_panel_run uninstall --domain "$MENU_PICK_DOMAIN" --path "$BAOTA_SITE_ROOT" --db-name "$db_name" || baota_die "卸载失败。备份仍在 ${BAOTA_UNINSTALL_BACKUP_DIR}"
   fi
-  [[ "${BAOTA_PANEL_RESULT:-}" == "ok" ]] || baota_die "卸载没有完成"
-  baota_info "已卸载 ${MENU_PICK_DOMAIN}。守护、面板站点和程序目录已删除。"
+  [[ "${BAOTA_PANEL_RESULT:-}" == "ok" ]] || baota_die "卸载没有完成。备份仍在 ${BAOTA_UNINSTALL_BACKUP_DIR}"
+  baota_info "已卸载 ${MENU_PICK_DOMAIN}。网站目录和运行数据已删除。备份在 ${BAOTA_UNINSTALL_BACKUP_DIR}"
 }
 
 menu_render() {
@@ -3420,7 +3443,10 @@ menu_action_uninstall() {
   local typed answer delete_db=0
   menu_pick_site || return 0
   menu_bind_site "$MENU_PICK_DOMAIN" "$MENU_PICK_ROOT"
-  menu_tty_print "$(menu_red "卸载将删除守护、反向代理、面板站点和程序目录。")"
+  BAOTA_UNINSTALL_BACKUP_DIR=""
+  menu_backup_before_uninstall
+  menu_tty_print "$(menu_red "已自动备份到 ${BAOTA_UNINSTALL_BACKUP_DIR}")"
+  menu_tty_print "$(menu_red "卸载将删除网站目录和运行数据（含 db.json、上传文件）。")"
   menu_read typed "请输入完整域名以确认卸载: "
   typed="$(printf '%s' "$typed" | tr '[:upper:]' '[:lower:]')"
   menu_read answer "是否删除数据库？直接回车表示保留 [y/N] "

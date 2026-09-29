@@ -90,7 +90,7 @@ curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --change-port example
 curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --uninstall example.com --confirm example.com
 ```
 
-`--backup` 把运行数据和数据库导出到 `/www/backup/auth-pro/example.com/backup/`，只留最近 3 份。`--restore` 会先备份当前数据，再从 `--backup-dir` 恢复，然后核验进程守护为 RUNNING。`--change-port` 会检查端口空闲，并同步反代和守护配置。`--uninstall` 删除守护、反向代理、面板站点和程序；`--confirm` 必须是同一个完整域名。不写 `--delete-database` 时数据库保留。
+`--backup` 把运行数据和数据库导出到 `/www/backup/auth-pro/example.com/backup/`，只留最近 3 份。`--restore` 会先备份当前数据，再从 `--backup-dir` 恢复，然后核验进程守护为 RUNNING。`--change-port` 会检查端口空闲，并同步反代和守护配置。`--uninstall` 先把网站目录完整备份到 `/www/backup/auth-pro/example.com/uninstall/`，再删除守护、反向代理、面板站点和网站目录（含运行数据）。`--confirm` 必须是同一个完整域名。不写 `--delete-database` 时数据库保留。
 
 ## 在线更新
 

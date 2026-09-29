@@ -30,6 +30,39 @@ def info(text):
     print("[信息] " + text, file=sys.stderr, flush=True)
 
 
+def panel_msg(result):
+    """只取面板返回里的一句说明。成功时不要把整份字典打给操作者。"""
+    if isinstance(result, dict):
+        for key in ("msg", "message"):
+            value = result.get(key)
+            if value is None:
+                continue
+            text = str(value).replace("\r", " ").replace("\n", " ").strip()
+            if text:
+                return text
+        return ""
+    if result is None:
+        return ""
+    text = str(result).replace("\r", " ").replace("\n", " ").strip()
+    if text.startswith("{") or text.startswith("["):
+        return ""
+    return text
+
+
+def panel_ok(result):
+    if not isinstance(result, dict):
+        return False
+    return bool(result.get("siteStatus") or result.get("status"))
+
+
+def die_panel(sentence, result, code=1):
+    """失败时才把面板的 msg 接在中文结果后面。"""
+    msg = panel_msg(result)
+    if msg:
+        die("%s。%s" % (sentence.rstrip("。"), msg), code)
+    die(sentence, code)
+
+
 def die(text, code=1):
     """失败即停。调用方根据退出码决定要不要撤掉本次新建的资源。"""
     print("[错误] " + text, file=sys.stderr, flush=True)
@@ -160,14 +193,13 @@ def add_site(args):
             "原因：%s" % exc,
         ])
         die("建站失败，没有继续建库和反代")
-    info("AddSite 返回：%s" % result)
-    if not isinstance(result, dict) or not (result.get("siteStatus") or result.get("status")):
+    if not panel_ok(result):
         manual("建站失败。请在面板网站里手动添加纯静态站点，不要勾选 FTP 和数据库。", [
             "域名 %s" % domain,
             "根目录 %s" % path,
-            "返回值：%s" % result,
         ])
-        die("建站失败，没有继续建库和反代")
+        die_panel("建站失败，没有继续建库和反代", result)
+    info("已创建面板站点 %s" % domain)
     os.makedirs(path, exist_ok=True)
     marker = os.path.join(path, OWNER_FILE)
     with open(marker, "w", encoding="utf-8") as handle:
@@ -204,13 +236,12 @@ def add_database(args):
             "原因：%s" % exc,
         ])
         die("建库失败")
-    info("AddDatabase 返回：%s" % result)
-    if not isinstance(result, dict) or not result.get("status"):
+    if not panel_ok(result):
         manual("建库失败。请在面板数据库里手动建库，字符集 utf8mb4，访问权限 127.0.0.1。", [
             "库名 %s 用户 %s" % (name, user),
-            "返回值：%s" % result,
         ])
-        die("建库失败")
+        die_panel("建库失败", result)
+    info("已创建数据库 %s" % name)
     emit("AUTH_PRO_RESULT", "ok")
 
 
@@ -237,18 +268,21 @@ def rollback(args):
     if args.remove_db and args.db_name:
         row = public.M("databases").where("name=?", (args.db_name,)).find()
         if isinstance(row, dict) and row.get("id"):
-            info("正在撤掉本次新建的数据库 %s" % args.db_name)
             try:
                 import database
 
                 result = database.database().DeleteDatabase(obj(id=str(row["id"]), name=args.db_name))
-                info("撤库结果：%s" % result)
+                if panel_ok(result):
+                    info("已撤掉本次新建的数据库 %s" % args.db_name)
+                else:
+                    manual("自动撤库失败，请在面板数据库里删除本次新建的库 %s（不要删其它库）。" % args.db_name, [
+                        panel_msg(result) or "面板没有说明原因",
+                    ])
             except Exception as exc:
                 manual("自动撤库失败，请在面板数据库里删除本次新建的库 %s（不要删其它库）。" % args.db_name, [str(exc)])
     if args.remove_site:
         row = public.M("sites").where("name=?", (domain,)).find()
         if isinstance(row, dict) and row.get("id"):
-            info("正在撤掉本次新建的站点 %s" % domain)
             try:
                 import panelSite
 
@@ -259,7 +293,12 @@ def rollback(args):
                     database="0",
                     path=row.get("path") or args.path,
                 ))
-                info("撤站结果：%s" % result)
+                if panel_ok(result):
+                    info("已撤掉本次新建的站点 %s" % domain)
+                else:
+                    manual("自动撤站失败，请在面板网站里删除本次新建的站点 %s（不要删其它站点）。" % domain, [
+                        panel_msg(result) or "面板没有说明原因",
+                    ])
             except Exception as exc:
                 manual("自动撤站失败，请在面板网站里删除本次新建的站点 %s（不要删其它站点）。" % domain, [str(exc)])
         if args.path and os.path.isdir(args.path):
@@ -342,12 +381,10 @@ def create_proxy(args):
     except Exception as exc:
         manual("反向代理失败。请在面板里把站点 %s 反代到 http://127.0.0.1:%s 。" % (domain, args.port), [str(exc)])
         die("反向代理失败")
-    info("CreateProxy 返回：%s" % result)
-    if not isinstance(result, dict) or not result.get("status"):
-        manual("反向代理失败。请在面板里把站点 %s 反代到 http://127.0.0.1:%s 。" % (domain, args.port), [
-            "返回值：%s" % result,
-        ])
-        die("反向代理失败")
+    if not panel_ok(result):
+        manual("反向代理失败。请在面板里把站点 %s 反代到 http://127.0.0.1:%s 。" % (domain, args.port), [])
+        die_panel("反向代理失败", result)
+    info("已添加反向代理")
     ok, detail = insert_snippet(domain, args.snippet)
     if not ok:
         manual("反代已添加，但自定义 Nginx 片段没有留在配置里（失败时已还原该站点配置）。请把下面这个文件合并进站点 server。", [
@@ -552,7 +589,7 @@ def panel_process_rows():
         return None, str(exc)
     if isinstance(result, list):
         return result, ""
-    return None, str(result)
+    return None, panel_msg(result)
 
 
 def wait_running(program):
@@ -619,11 +656,9 @@ def register_with_plugin(args):
             ps="auth-pro",
         ))
     except Exception as exc:
-        fail_guardian(program, workdir, command, "AddProcess 异常：%s" % exc)
-    info("AddProcess 返回：%s" % result)
-    ok = isinstance(result, dict) and result.get("status")
+        fail_guardian(program, workdir, command, "登记进程守护失败：%s" % exc)
     text = str(result)
-    if not ok and ("已存在" in text or "已被使用" in text):
+    if not panel_ok(result) and ("已存在" in text or "已被使用" in text):
         # 并发或漏删时再清一次本站点，不碰其它名称。
         drop_our_registration(program, command, workdir)
         try:
@@ -636,11 +671,10 @@ def register_with_plugin(args):
                 ps="auth-pro",
             ))
         except Exception as exc:
-            fail_guardian(program, workdir, command, "AddProcess 异常：%s" % exc)
-        info("AddProcess 重试返回：%s" % result)
-        ok = isinstance(result, dict) and result.get("status")
-    if not ok:
-        fail_guardian(program, workdir, command, "返回值：%s" % result)
+            fail_guardian(program, workdir, command, "登记进程守护失败：%s" % exc)
+    if not panel_ok(result):
+        fail_guardian(program, workdir, command, panel_msg(result) or "面板没有接受进程守护")
+    info("已登记进程守护")
     # 插件自己的 update 不带 -c。当前目录在面板根目录时，它会按默认顺序找配置，
     # 连不上正在跑的守护进程，报错分支还会把 supervisord 杀掉。
     # ini 已经写好之后，再用面板这份主配置显式 reread/update，条目才会进面板正在用的进程表。
@@ -649,9 +683,9 @@ def register_with_plugin(args):
     run_ctl("reread")
     run_ctl("update")
     status = start_group(program)
-    info("supervisorctl 状态：%s" % status)
     if "RUNNING" not in status:
         fail_guardian(program, workdir, command, "状态不是 RUNNING。错误日志：%s" % (log_tail(program) or "无"))
+    info("进程守护已在运行")
     rows, err = panel_process_rows()
     names = []
     if isinstance(rows, list):
@@ -772,9 +806,9 @@ def register_without_plugin(args):
     run_ctl("reread")
     run_ctl("update")
     status = start_group(program)
-    info("supervisorctl 状态：%s" % status)
     if "RUNNING" not in status:
         fail_guardian(program, workdir, command, "状态不是 RUNNING。错误日志：%s" % (log_tail(program) or "无"))
+    info("进程守护已在运行")
     emit("AUTH_PRO_RESULT", "ok")
     emit("AUTH_PRO_PROGRAM", program)
     emit("AUTH_PRO_SUP_CONF", SUP_CONF)
@@ -844,7 +878,7 @@ def supervisor_check(args):
             emit("AUTH_PRO_RESULT", "running")
             return
         if err:
-            info("面板列表接口：%s" % err)
+            info("没有读到进程守护列表。%s" % err)
         emit("AUTH_PRO_RESULT", "missing" if program not in names else "stopped")
         return
     emit("AUTH_PRO_PLUGIN", "no")
@@ -1037,22 +1071,23 @@ def uninstall_site(args):
     if args.remove_db and args.db_name:
         row = public.M("databases").where("name=?", (args.db_name,)).find()
         if isinstance(row, dict) and row.get("id"):
-            info("正在删除数据库 %s" % args.db_name)
             try:
                 import database
 
                 result = database.database().DeleteDatabase(obj(id=str(row["id"]), name=args.db_name))
-                info("删库结果：%s" % result)
+                if not panel_ok(result):
+                    manual("删除数据库失败。请在面板里只删除 %s ，不要删其它库。" % args.db_name, [
+                        panel_msg(result) or "面板没有说明原因",
+                    ])
+                    die_panel("删除数据库失败", result)
+                info("已删除数据库 %s" % args.db_name)
             except Exception as exc:
                 manual("删除数据库失败。请在面板里只删除 %s ，不要删其它库。" % args.db_name, [str(exc)])
                 die("删除数据库失败")
         else:
             info("面板里没有名为 %s 的数据库，跳过删库" % args.db_name)
-    else:
-        info("按默认保留数据库")
     row = public.M("sites").where("name=?", (domain,)).find()
     if isinstance(row, dict) and row.get("id"):
-        info("正在删除面板站点 %s" % domain)
         try:
             import panelSite
 
@@ -1063,7 +1098,12 @@ def uninstall_site(args):
                 database="0",
                 path=row.get("path") or path,
             ))
-            info("删站结果：%s" % result)
+            if not panel_ok(result):
+                manual("删除面板站点失败。请在面板里只删除 %s ，不要删其它站点。" % domain, [
+                    panel_msg(result) or "面板没有说明原因",
+                ])
+                die_panel("删除面板站点失败", result)
+            info("已删除面板站点 %s" % domain)
         except Exception as exc:
             manual("删除面板站点失败。请在面板里只删除 %s ，不要删其它站点。" % domain, [str(exc)])
             die("删除面板站点失败")
