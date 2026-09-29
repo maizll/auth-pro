@@ -517,6 +517,7 @@ type memorySourceStore struct {
 	githubPaidToken  string
 	githubPaidOwner  string
 	githubPaidRepo   string
+	importRepos      map[string]string
 	storageBlob      *storageConfigBlob
 	categoryExtras   []sourceCatalogCategory
 	catalogApps      map[int64]sourceCatalogApp
@@ -542,6 +543,7 @@ func newMemorySourceStore() *memorySourceStore {
 			2: {ID: 2, AppKey: "app-b", Name: "应用B", Enabled: true},
 		},
 		sourceAliases: map[string]int64{},
+		importRepos:   map[string]string{},
 		nextAppID:     1,
 		nextDevID:     1,
 		nextAdAppID:   1,

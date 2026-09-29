@@ -35,9 +35,8 @@ func TestOfficialUpdateUsesAuthProNotClientRepo(t *testing.T) {
 	if err != nil || owner+"/"+repo != officialUpdateDefaultRepository {
 		t.Fatalf("official repo = %s/%s err=%v", owner, repo, err)
 	}
-	clientOwner, clientRepo, err := productUpdateRepository()
-	if err != nil || clientOwner+"/"+clientRepo != productUpdateDefaultRepository {
-		t.Fatalf("distribution repo = %s/%s err=%v", clientOwner, clientRepo, err)
+	if _, _, err := productUpdateRepository(); err == nil {
+		t.Fatal("import no longer has a built-in client repository")
 	}
 
 	sum := strings.Repeat("ab", 32)

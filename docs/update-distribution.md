@@ -34,7 +34,7 @@ https://auth.maizll.com/api/v1/update/package/<版本号>
 
 `latest.json` 和 `releases.json` 缓存大约 3 分钟，保存发布版本后清掉。同一 IP 每分钟最多 30 次清单请求、6 次安装包下载。
 
-后台「发布版本」里的「从仓库导入」才连接私有仓库。默认是 `maizll/auth-pro-client`，可用 `AUTO_PRO_UPDATE_REPOSITORY` 改成别的 `owner/repo`。这个变量不改变客户站请求的地址，也不拿去改官网自己的更新来源。
+后台「发布版本」里的「从仓库导入」才连接私有仓库。1.8.0 起客户站不再内置默认仓库，留空必须填写，填过的地址按应用、插件模板分开记住。官网第一次升级时，仅在本机被识别为官网后，把原来的 `maizll/auth-pro-client` 和 `maizll/auth-pro-paid` 写入这两项设置。开发者端导入不能使用站长保存的令牌。
 
 ## 老客户怎么升上来
 

@@ -5,8 +5,18 @@
       <ElInput
         v-model.trim="repo"
         class="release-import__repo"
-        :placeholder="placeholder"
+        placeholder="owner/repo"
         maxlength="120"
+      />
+      <ElInput
+        v-if="actor === 'developer'"
+        v-model="token"
+        class="release-import__token"
+        type="password"
+        show-password
+        placeholder="访问令牌，公开仓库可留空"
+        maxlength="200"
+        autocomplete="off"
       />
       <ElButton :loading="listing" @click="loadReleases">列出发布</ElButton>
     </div>
@@ -73,28 +83,31 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, ref } from 'vue'
+  import { onMounted, ref } from 'vue'
   import { ElMessage } from 'element-plus'
   import {
     fetchReleaseAsset,
+    fetchReleaseImportPreference,
     fetchReleaseImports,
     type ReleaseImportItem,
     type ReleaseImportResult
   } from '@/api/release-import'
 
-  const props = defineProps<{
-    apiBase: string
-    purpose: 'app' | 'plugin' | 'template'
-  }>()
+  const props = withDefaults(
+    defineProps<{
+      apiBase: string
+      purpose: 'app' | 'plugin' | 'template'
+      actor?: 'site' | 'developer'
+    }>(),
+    { actor: 'site' }
+  )
 
   const emit = defineEmits<{
     filled: [value: ReleaseImportResult]
   }>()
 
-  const placeholder = computed(() =>
-    props.purpose === 'app' ? 'maizll/auth-pro-client' : 'maizll/auth-pro-paid'
-  )
   const repo = ref('')
+  const token = ref('')
   const connectedRepo = ref('')
   const releases = ref<ReleaseImportItem[]>([])
   const listing = ref(false)
@@ -106,11 +119,30 @@
     return row.tag === picked.value ? 'is-picked' : ''
   }
 
+  onMounted(async () => {
+    if (props.actor === 'developer') return
+    try {
+      const saved = await fetchReleaseImportPreference(props.apiBase, props.purpose)
+      if (!repo.value && saved?.repo) repo.value = saved.repo
+    } catch {
+      // 没有保存过仓库时输入框保持空白，由用户填写。
+    }
+  })
+
   async function loadReleases() {
+    if (!repo.value.trim()) {
+      ElMessage.info('请填写仓库，格式为 所有者/名称')
+      return
+    }
     listing.value = true
     listed.value = false
     try {
-      const data = await fetchReleaseImports(props.apiBase, props.purpose, repo.value)
+      const data = await fetchReleaseImports(
+        props.apiBase,
+        props.purpose,
+        repo.value,
+        props.actor === 'developer' ? token.value : ''
+      )
       releases.value = data?.releases || []
       connectedRepo.value = data?.repo || repo.value
       listed.value = true
@@ -133,7 +165,8 @@
         purpose: props.purpose,
         repo: connectedRepo.value || repo.value,
         tag: row.tag,
-        assetName: row.assetName
+        assetName: row.assetName,
+        token: props.actor === 'developer' ? token.value : ''
       })
       emit('filled', filled)
       ElMessage.success('已填入发布信息，确认前仍可修改')
@@ -161,7 +194,8 @@
     align-items: center;
   }
 
-  .release-import__repo {
+  .release-import__repo,
+  .release-import__token {
     flex: 1;
     min-width: 0;
   }

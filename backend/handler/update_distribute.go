@@ -31,9 +31,6 @@ const (
 	productUpdatePackageLimit = 6
 	productUpdateRateWindow   = time.Minute
 	productUpdateRepoEnv      = "AUTO_PRO_UPDATE_REPOSITORY"
-	// 后台「从仓库导入」的默认仓库。环境变量可以改成别的 owner/repo。
-	// 客户站更新接口不读这个值，只读发布版本表。
-	productUpdateDefaultRepository = "maizll/auth-pro-client"
 	// 客户站系统更新只认官网这个应用的发布版本。标识写死，避免指到别的应用。
 	productUpdateAppKey        = "app_f93896d80066_5811"
 	productUpdateUnavailable   = "暂时无法获取更新"
@@ -520,6 +517,9 @@ func fetchGitHubReleaseAsset(ctx context.Context, owner, repo, releaseRef, asset
 	}
 	releaseURL := strings.TrimRight(productUpdateGitHubAPI, "/") + "/repos/" + owner + "/" + repo + "/releases/" + releaseRef
 	tokens := productUpdateTokenCandidates()
+	if override, ok := releaseImportTokenOverride(ctx); ok {
+		tokens = override
+	}
 	var lastErr error
 	for _, token := range tokens {
 		body, fetchErr := productUpdateFetch(ctx, releaseURL, token, "application/vnd.github+json")
@@ -609,8 +609,7 @@ func productUpdateFetch(ctx context.Context, rawURL, token, accept string) ([]by
 func productUpdateRepository() (string, string, error) {
 	raw := strings.Trim(strings.TrimSpace(os.Getenv(productUpdateRepoEnv)), "/")
 	if raw == "" {
-		// 官网默认从客户交付用的私有仓库取包，不从本仓库或官网仓库取。
-		raw = productUpdateDefaultRepository
+		return "", "", errProductUpdateRepoMissing
 	}
 	parts := strings.Split(raw, "/")
 	if len(parts) != 2 || !sourceReleaseRepoPattern.MatchString(parts[0]) || !sourceReleaseRepoPattern.MatchString(parts[1]) {

@@ -24,6 +24,9 @@ const (
 )
 
 func officialUpdateRepository() (string, string, error) {
+	if !officialSite() {
+		return "", "", errProductUpdateRepoMissing
+	}
 	raw := strings.Trim(strings.TrimSpace(os.Getenv(officialUpdateRepoEnv)), "/")
 	if raw == "" {
 		raw = officialUpdateDefaultRepository

@@ -1,11 +1,19 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestReleaseImportVersionAndChangelog(t *testing.T) {
@@ -80,11 +88,11 @@ func TestReleaseImportPrefersLatestNotes(t *testing.T) {
 // 服务端 v1.7.9 和客户端 v1.7.8 的 Release 正文都是自动生成的变更列表。
 // 导入必须改读各自 latest.json 的 notes，表单用的就是拉取安装包时返回的标题和更新日志。
 func TestReleaseImportFillsServerAndClientNotes(t *testing.T) {
-	serverOwner, serverRepo, err := releaseImportRepo("app", "maizll/auth-pro")
+	serverOwner, serverRepo, err := releaseImportRepo(releaseImportActorSite, "app", "maizll/auth-pro")
 	if err != nil || serverOwner != "maizll" || serverRepo != "auth-pro" {
 		t.Fatalf("server repo owner=%s repo=%s err=%v", serverOwner, serverRepo, err)
 	}
-	clientOwner, clientRepo, err := releaseImportRepo("app", "maizll/auth-pro-client")
+	clientOwner, clientRepo, err := releaseImportRepo(releaseImportActorSite, "app", "maizll/auth-pro-client")
 	if err != nil || clientOwner != "maizll" || clientRepo != "auth-pro-client" {
 		t.Fatalf("client repo owner=%s repo=%s err=%v", clientOwner, clientRepo, err)
 	}
@@ -176,4 +184,150 @@ func writeReleaseAssets(w http.ResponseWriter, latestURL, packageURL, packageNam
 func jsonEscape(value string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`)
 	return replacer.Replace(value)
+}
+
+func TestReleaseImportRequiresRepoWithoutSavedValue(t *testing.T) {
+	restore := SetSourceStationStoreForTest(newMemorySourceStore())
+	t.Cleanup(restore)
+	if _, _, err := releaseImportRepo(releaseImportActorSite, "app", ""); err == nil || !strings.Contains(err.Error(), "请填写仓库") {
+		t.Fatalf("err=%v", err)
+	}
+	if _, _, err := releaseImportRepo(releaseImportActorDeveloper, "plugin", ""); err == nil || !strings.Contains(err.Error(), "请填写仓库") {
+		t.Fatalf("developer err=%v", err)
+	}
+	if officialImportRepoSeed("app") != "" || officialImportRepoSeed("catalog") != "" {
+		t.Fatal("non-official seed must be empty")
+	}
+}
+
+func TestReleaseImportRemembersRepoByPurpose(t *testing.T) {
+	restore := SetSourceStationStoreForTest(newMemorySourceStore())
+	t.Cleanup(restore)
+	rememberReleaseImportRepo(releaseImportActorSite, "app", "acme", "widgets")
+	rememberReleaseImportRepo(releaseImportActorSite, "plugin", "acme", "paid-widgets")
+	rememberReleaseImportRepo(releaseImportActorDeveloper, "template", "evil", "overwrite")
+	appOwner, appRepo, err := releaseImportRepo(releaseImportActorSite, "app", "")
+	if err != nil || appOwner != "acme" || appRepo != "widgets" {
+		t.Fatalf("app %s/%s err=%v", appOwner, appRepo, err)
+	}
+	pluginOwner, pluginRepo, err := releaseImportRepo(releaseImportActorSite, "plugin", "")
+	if err != nil || pluginOwner != "acme" || pluginRepo != "paid-widgets" {
+		t.Fatalf("plugin %s/%s err=%v", pluginOwner, pluginRepo, err)
+	}
+	templateOwner, templateRepo, err := releaseImportRepo(releaseImportActorSite, "template", "")
+	if err != nil || templateOwner != "acme" || templateRepo != "paid-widgets" {
+		t.Fatalf("template %s/%s err=%v", templateOwner, templateRepo, err)
+	}
+	if _, _, err := releaseImportRepo(releaseImportActorDeveloper, "plugin", ""); err == nil {
+		t.Fatal("developer should not reuse the site repository")
+	}
+}
+
+func TestOfficialImportMigrationSeedsDefaults(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := embeddedStoreSnapshotPublicKey
+	embeddedStoreSnapshotPublicKey = base64.StdEncoding.EncodeToString(publicKey)
+	t.Cleanup(func() { embeddedStoreSnapshotPublicKey = previous })
+	writeSnapshotKey(t, privateKey)
+	restore := SetSourceStationStoreForTest(newMemorySourceStore())
+	t.Cleanup(restore)
+	if !officialSite() {
+		t.Fatal("fixture should be the official site")
+	}
+	owner, repo, err := releaseImportRepo(releaseImportActorSite, "app", "")
+	if err != nil || owner+"/"+repo != "maizll/auth-pro-client" {
+		t.Fatalf("app seed %s/%s err=%v", owner, repo, err)
+	}
+	owner, repo, err = releaseImportRepo(releaseImportActorSite, "template", "")
+	if err != nil || owner+"/"+repo != "maizll/auth-pro-paid" {
+		t.Fatalf("catalog seed %s/%s err=%v", owner, repo, err)
+	}
+	rememberReleaseImportRepo(releaseImportActorSite, "app", "acme", "kept")
+	owner, repo, err = releaseImportRepo(releaseImportActorSite, "app", "")
+	if err != nil || owner+"/"+repo != "acme/kept" {
+		t.Fatalf("saved repo overwritten: %s/%s err=%v", owner, repo, err)
+	}
+}
+
+func TestDeveloperImportDoesNotUseSiteToken(t *testing.T) {
+	store := newMemorySourceStore()
+	store.releaseSettings.Token = "site-owner-secret"
+	store.releaseSettings.Provider = "github"
+	restore := SetSourceStationStoreForTest(store)
+	t.Cleanup(restore)
+
+	var gotAuth []string
+	var upstream *httptest.Server
+	upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = append(gotAuth, r.Header.Get("Authorization"))
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/asset/pkg"):
+			_, _ = w.Write([]byte("pkg"))
+		case strings.HasSuffix(r.URL.Path, "/asset/latest.json"):
+			_, _ = w.Write([]byte(`{"notes":["auth-pro 1.0.0","- 修复登录。"]}`))
+		case strings.Contains(r.URL.Path, "/releases/tags/"):
+			_, _ = w.Write([]byte(`{"assets":[{"id":7,"name":"latest.json","url":"` + upstream.URL + `/asset/latest.json"},{"id":8,"name":"auth_pro-full-v1.0.0.tar.gz","url":"` + upstream.URL + `/asset/pkg"}]}`))
+		default:
+			_, _ = w.Write([]byte(`[{"tag_name":"v1.0.0","name":"v1.0.0","body":"## What's Changed\n* note https://github.com/acme/widgets/pull/1","draft":false,"assets":[{"name":"latest.json","size":10},{"name":"auth_pro-full-v1.0.0.tar.gz","size":3}]}]`))
+		}
+	}))
+	defer upstream.Close()
+	previous := productUpdateGitHubAPI
+	productUpdateGitHubAPI = upstream.URL
+	t.Cleanup(func() { productUpdateGitHubAPI = previous })
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	RegisterDeveloperReleaseImportRoutes(router.Group("/developer"))
+	body := []byte(`{"purpose":"plugin","repo":"acme/widgets","token":"dev-owner-secret"}`)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/developer/release-import/releases", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "auth-pro 1.0.0") || !strings.Contains(recorder.Body.String(), "修复登录") {
+		t.Fatalf("status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "site-owner-secret") || strings.Contains(recorder.Body.String(), "github.com") || strings.Contains(recorder.Body.String(), "What's Changed") {
+		t.Fatalf("response leaked: %s", recorder.Body.String())
+	}
+	if len(gotAuth) == 0 {
+		t.Fatal("upstream was not called")
+	}
+	for _, header := range gotAuth {
+		if header != "Bearer dev-owner-secret" {
+			t.Fatalf("authorization=%q", header)
+		}
+		if strings.Contains(header, "site-owner-secret") {
+			t.Fatalf("site token used: %q", header)
+		}
+	}
+
+	gotAuth = nil
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/developer/release-import/releases", bytes.NewReader([]byte(`{"purpose":"plugin","repo":"acme/widgets"}`)))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("anonymous status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	for _, header := range gotAuth {
+		if header != "" {
+			t.Fatalf("anonymous request sent %q", header)
+		}
+	}
+}
+
+func TestReleaseImportPlaceholderHasNoOwner(t *testing.T) {
+	path := filepath.Join("..", "..", "frontend", "src", "components", "business", "release-import", "ReleaseRepoImport.vue")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "maizll/") {
+		t.Fatal("import placeholder still names a built-in repository")
+	}
 }

@@ -26,9 +26,23 @@ import (
 )
 
 const (
-	releaseImportDefaultPaidRepo = "maizll/auth-pro-paid"
-	releaseImportStageTTL        = 2 * time.Hour
+	releaseImportStageTTL         = 2 * time.Hour
+	releaseImportActorSite        = "site"
+	releaseImportActorDeveloper   = "developer"
+	releaseImportRepoAppKey       = "release_import_repo_app"
+	releaseImportRepoCatalogKey   = "release_import_repo_catalog"
+	releaseImportRepoRequiredText = "请填写仓库，格式为 所有者/名称"
+	releaseImportActorContextKey  = "releaseImportActor"
 )
+
+// releaseImportCreds 把这一次导入用谁的令牌记在上下文里。
+// 开发者端只允许请求里自带的令牌，或匿名访问公开仓库，不能落到站长保存的令牌。
+type releaseImportCreds struct {
+	actor string
+	token string
+}
+
+type releaseImportCredsKey struct{}
 
 var releaseStageIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
@@ -54,34 +68,64 @@ type releaseImportView struct {
 	AssetName     string `json:"assetName"`
 }
 
-// RegisterReleaseImportRoutes 挂上列出 Release、拉取附件和按地址补全校验值的接口。
-// 调用方自己负责登录和菜单权限。三个入口（应用发布、目录工作台、开发者端）共用处理函数。
+// RegisterReleaseImportRoutes 挂上站长侧的导入接口。调用方自己负责登录和菜单权限。
 func RegisterReleaseImportRoutes(group *gin.RouterGroup) {
+	registerReleaseImportRoutes(group, releaseImportActorSite)
+}
+
+// RegisterDeveloperReleaseImportRoutes 挂上开发者端导入。令牌只认本次请求里填写的那一枚。
+func RegisterDeveloperReleaseImportRoutes(group *gin.RouterGroup) {
+	registerReleaseImportRoutes(group, releaseImportActorDeveloper)
+}
+
+func registerReleaseImportRoutes(group *gin.RouterGroup, actor string) {
+	group.Use(func(c *gin.Context) {
+		c.Set(releaseImportActorContextKey, actor)
+		c.Next()
+	})
+	group.GET("/release-import/preference", ReleaseImportPreference)
 	group.POST("/release-import/releases", ReleaseImportList)
 	group.POST("/release-import/fetch", ReleaseImportFetch)
 	group.POST("/release-import/probe-url", ReleaseImportProbeURL)
 	group.POST("/release-import/materialize", ReleaseImportMaterialize)
 }
 
+// ReleaseImportPreference 返回这个用途上次保存的仓库，供输入框自动带出。
+// 开发者端始终为空，避免把站长的私有仓库名交给开发者。
+func ReleaseImportPreference(c *gin.Context) {
+	repo := ""
+	if releaseImportActorFrom(c) == releaseImportActorSite {
+		saved, err := ensureOfficialImportRepo(releaseImportRepoKind(c.Query("purpose")))
+		if err == nil {
+			repo = saved
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"repo": repo}})
+}
+
 // ReleaseImportList 列出仓库里的 Release，供后台选择。
-// purpose 决定默认仓库：app 用客户交付仓库，plugin 和 template 用付费仓库。请求里的 repo 可以改。
-// 令牌用系统里已经保存的那一枚。连不上时返回 400，不回显令牌和仓库页面。
+// 仓库留空时用本站按用途保存的地址。没有保存过就要求填写，不回落到编译进程序的默认仓库。
+// 站长侧用已经保存的令牌。开发者侧只用本次填写的令牌，公开仓库可以不填。
 func ReleaseImportList(c *gin.Context) {
 	var req struct {
 		Purpose string `json:"purpose"`
 		Repo    string `json:"repo"`
+		Token   string `json:"token"`
 	}
 	_ = c.ShouldBindJSON(&req)
-	owner, repo, err := releaseImportRepo(req.Purpose, req.Repo)
+	actor := releaseImportActorFrom(c)
+	owner, repo, err := releaseImportRepo(actor, req.Purpose, req.Repo)
 	if err != nil {
 		apiError(c, 400, err.Error())
 		return
 	}
-	releases, err := listReleaseImportReleases(c.Request.Context(), owner, repo)
+	ctx := releaseImportContext(c, req.Token)
+	releases, err := listReleaseImportReleases(ctx, owner, repo)
 	if err != nil {
-		apiError(c, 400, "无法读取仓库发布列表，请检查已保存的令牌")
+		apiError(c, 400, releaseImportConnectError(actor))
 		return
 	}
+	rememberReleaseImportRepo(actor, req.Purpose, owner, repo)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
 		"repo": owner + "/" + repo, "releases": releases,
 	}})
@@ -95,21 +139,24 @@ func ReleaseImportFetch(c *gin.Context) {
 		Repo      string `json:"repo"`
 		Tag       string `json:"tag"`
 		AssetName string `json:"assetName"`
+		Token     string `json:"token"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Tag) == "" {
 		apiError(c, 400, "请选择要导入的发布")
 		return
 	}
-	owner, repo, err := releaseImportRepo(req.Purpose, req.Repo)
+	actor := releaseImportActorFrom(c)
+	owner, repo, err := releaseImportRepo(actor, req.Purpose, req.Repo)
 	if err != nil {
 		apiError(c, 400, err.Error())
 		return
 	}
-	view, err := fetchReleaseImportAsset(c.Request.Context(), owner, repo, strings.TrimSpace(req.Tag), strings.TrimSpace(req.AssetName))
+	view, err := fetchReleaseImportAsset(releaseImportContext(c, req.Token), owner, repo, strings.TrimSpace(req.Tag), strings.TrimSpace(req.AssetName))
 	if err != nil {
 		apiError(c, 400, err.Error())
 		return
 	}
+	rememberReleaseImportRepo(actor, req.Purpose, owner, repo)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": view})
 }
 
@@ -198,22 +245,72 @@ func ReleaseImportMaterialize(c *gin.Context) {
 	}})
 }
 
-func releaseImportRepo(purpose, raw string) (string, string, error) {
+func releaseImportActorFrom(c *gin.Context) string {
+	if c == nil {
+		return releaseImportActorSite
+	}
+	if actor := strings.TrimSpace(c.GetString(releaseImportActorContextKey)); actor != "" {
+		return actor
+	}
+	return releaseImportActorSite
+}
+
+func releaseImportContext(c *gin.Context, token string) context.Context {
+	creds := releaseImportCreds{actor: releaseImportActorFrom(c), token: strings.TrimSpace(token)}
+	return context.WithValue(c.Request.Context(), releaseImportCredsKey{}, creds)
+}
+
+func releaseImportTokenOverride(ctx context.Context) ([]string, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	creds, ok := ctx.Value(releaseImportCredsKey{}).(releaseImportCreds)
+	if !ok || creds.actor != releaseImportActorDeveloper {
+		return nil, false
+	}
+	token := strings.TrimSpace(creds.token)
+	if token == "" {
+		return []string{""}, true
+	}
+	return []string{token}, true
+}
+
+func releaseImportConnectError(actor string) string {
+	if actor == releaseImportActorDeveloper {
+		return "无法读取仓库发布列表，请检查填写的令牌"
+	}
+	return "无法读取仓库发布列表，请检查已保存的令牌"
+}
+
+func releaseImportRepoKind(purpose string) string {
+	switch strings.TrimSpace(purpose) {
+	case "plugin", "template":
+		return "catalog"
+	default:
+		return "app"
+	}
+}
+
+func releaseImportRepoSettingKey(kind string) string {
+	if kind == "catalog" {
+		return releaseImportRepoCatalogKey
+	}
+	return releaseImportRepoAppKey
+}
+
+// releaseImportRepo 解析本次要读的仓库。留空时只用本站保存的地址。
+// 开发者端不读取站长保存的仓库。非官网也不会使用编译进程序的默认仓库。
+func releaseImportRepo(actor, purpose, raw string) (string, string, error) {
 	raw = strings.Trim(strings.TrimSpace(raw), "/")
 	if raw == "" {
-		if purpose == "plugin" || purpose == "template" {
-			owner, repo, _, err := loadGitHubPaidRepo()
-			if err == nil && owner != "" && repo != "" {
-				return owner, repo, nil
-			}
-			if owner, repo, ok := primaryGitHubStorageRepo(); ok {
-				return owner, repo, nil
-			}
-			raw = releaseImportDefaultPaidRepo
-		} else {
-			owner, repo, err := productUpdateRepository()
-			return owner, repo, err
+		if actor == releaseImportActorDeveloper {
+			return "", "", errors.New(releaseImportRepoRequiredText)
 		}
+		saved, err := ensureOfficialImportRepo(releaseImportRepoKind(purpose))
+		if err != nil || strings.TrimSpace(saved) == "" {
+			return "", "", errors.New(releaseImportRepoRequiredText)
+		}
+		raw = saved
 	}
 	parts := strings.Split(raw, "/")
 	if len(parts) != 2 || !sourceReleaseRepoPattern.MatchString(parts[0]) || !sourceReleaseRepoPattern.MatchString(parts[1]) {
@@ -222,23 +319,78 @@ func releaseImportRepo(purpose, raw string) (string, string, error) {
 	return parts[0], parts[1], nil
 }
 
-// primaryGitHubStorageRepo 用存储管理里启用的 GitHub 位置作为插件、模板导入的默认仓库。
-func primaryGitHubStorageRepo() (string, string, bool) {
-	blob, err := loadStorageBlob()
-	if err != nil {
-		return "", "", false
+func rememberReleaseImportRepo(actor, purpose, owner, repo string) {
+	if actor != releaseImportActorSite || owner == "" || repo == "" {
+		return
 	}
-	for _, loc := range enabledStorageLocations(blob.Locations) {
-		if loc.Kind != packageStorageGitHub {
-			continue
+	_ = writeImportRepo(releaseImportRepoKind(purpose), owner+"/"+repo)
+}
+
+func readImportRepo(kind string) (string, error) {
+	key := releaseImportRepoSettingKey(kind)
+	switch store := currentSourceStationStore().(type) {
+	case *memorySourceStore:
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		if store.importRepos == nil {
+			return "", nil
 		}
-		owner := strings.TrimSpace(loc.Owner)
-		repo := strings.TrimSpace(loc.Repo)
-		if owner != "" && repo != "" {
-			return owner, repo, true
-		}
+		return strings.TrimSpace(store.importRepos[key]), nil
+	case mysqlSourceStore:
+		return readGitHubPaidSetting(key)
+	default:
+		return "", errors.New("读取仓库设置失败")
 	}
-	return "", "", false
+}
+
+func writeImportRepo(kind, repo string) error {
+	key := releaseImportRepoSettingKey(kind)
+	repo = strings.TrimSpace(repo)
+	switch store := currentSourceStationStore().(type) {
+	case *memorySourceStore:
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		if store.importRepos == nil {
+			store.importRepos = map[string]string{}
+		}
+		store.importRepos[key] = repo
+		return nil
+	case mysqlSourceStore:
+		return writeGitHubPaidSetting(key, repo)
+	default:
+		return errors.New("保存仓库设置失败")
+	}
+}
+
+// ensureOfficialImportRepo 在官网第一次升级后，把原先写死的两个仓库写入设置。
+// 客户站 officialSite 为假时这里返回空，调用方必须让用户自己填写。
+func ensureOfficialImportRepo(kind string) (string, error) {
+	saved, err := readImportRepo(kind)
+	if err != nil || saved != "" {
+		return saved, err
+	}
+	seed := officialImportRepoSeed(kind)
+	if seed == "" {
+		return "", nil
+	}
+	if err := writeImportRepo(kind, seed); err != nil {
+		return "", err
+	}
+	return seed, nil
+}
+
+func officialImportRepoSeed(kind string) string {
+	if !officialSite() {
+		return ""
+	}
+	switch kind {
+	case "app":
+		return "maizll/auth-pro-client"
+	case "catalog":
+		return "maizll/auth-pro-paid"
+	default:
+		return ""
+	}
 }
 
 type releaseImportListItem struct {
@@ -307,6 +459,9 @@ func fetchReleaseImportAsset(ctx context.Context, owner, repo, tag, assetName st
 	}
 	payload, err := fetchGitHubReleaseAsset(ctx, owner, repo, ref, assetName)
 	if err != nil {
+		if _, developer := releaseImportTokenOverride(ctx); developer {
+			return releaseImportView{}, errors.New("无法下载所选安装包，请检查填写的令牌")
+		}
 		return releaseImportView{}, errors.New("无法下载所选安装包，请检查已保存的令牌")
 	}
 	version := releaseImportVersion(tag)
@@ -475,7 +630,11 @@ func releaseImportLineKept(line string) bool {
 
 func releaseImportGet(ctx context.Context, rawURL, accept string) ([]byte, error) {
 	var last error
-	for _, token := range productUpdateTokenCandidates() {
+	tokens := productUpdateTokenCandidates()
+	if override, ok := releaseImportTokenOverride(ctx); ok {
+		tokens = override
+	}
+	for _, token := range tokens {
 		body, err := productUpdateFetch(ctx, rawURL, token, accept)
 		if err == nil {
 			return body, nil

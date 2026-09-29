@@ -21,17 +21,25 @@ export interface ReleaseImportResult {
   assetName: string
 }
 
-export function fetchReleaseImports(apiBase: string, purpose: string, repo: string) {
+export function fetchReleaseImportPreference(apiBase: string, purpose: string) {
+  return request.get<{ repo: string }>({
+    url: `${apiBase}/preference`,
+    params: { purpose },
+    showErrorMessage: false
+  })
+}
+
+export function fetchReleaseImports(apiBase: string, purpose: string, repo: string, token = '') {
   return request.post<{ repo: string; releases: ReleaseImportItem[] }>({
     url: `${apiBase}/releases`,
-    data: { purpose, repo },
+    data: { purpose, repo, token },
     showSuccessMessage: false
   })
 }
 
 export function fetchReleaseAsset(
   apiBase: string,
-  data: { purpose: string; repo: string; tag: string; assetName: string }
+  data: { purpose: string; repo: string; tag: string; assetName: string; token?: string }
 ) {
   return request.post<ReleaseImportResult>({
     url: `${apiBase}/fetch`,

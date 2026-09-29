@@ -338,6 +338,7 @@
           <el-form-item label="从仓库导入">
             <ReleaseRepoImport
               api-base="/api/v1/source/developer/release-import"
+              actor="developer"
               :purpose="kind === 'template' ? 'template' : 'plugin'"
               @filled="applyVersionImport"
             />
