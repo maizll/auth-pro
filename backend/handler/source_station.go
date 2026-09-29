@@ -54,7 +54,6 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		developer.POST("/ad-applications", SourceDeveloperCreateAdApplication)
 		developer.POST("/advertisements/image", SourceDeveloperAdvertisementImageUpload)
 		developer.POST("/packages/upload", SourceDeveloperPackageUpload)
-		RegisterDeveloperReleaseImportRoutes(developer)
 		developer.POST("/plugins/:id/pull", SourceDeveloperPullPlugin)
 		developer.POST("/templates/:id/pull", SourceDeveloperPullTemplate)
 		developer.GET("/starter.zip", SourceDeveloperStarterZIP)

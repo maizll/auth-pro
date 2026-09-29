@@ -8,16 +8,6 @@
         placeholder="owner/repo"
         maxlength="120"
       />
-      <ElInput
-        v-if="actor === 'developer'"
-        v-model="token"
-        class="release-import__token"
-        type="password"
-        show-password
-        placeholder="访问令牌，公开仓库可留空"
-        maxlength="200"
-        autocomplete="off"
-      />
       <ElButton :loading="listing" @click="loadReleases">列出发布</ElButton>
     </div>
     <p v-if="connectedRepo" class="release-import__hint">已连接 {{ connectedRepo }}</p>
@@ -93,21 +83,16 @@
     type ReleaseImportResult
   } from '@/api/release-import'
 
-  const props = withDefaults(
-    defineProps<{
-      apiBase: string
-      purpose: 'app' | 'plugin' | 'template'
-      actor?: 'site' | 'developer'
-    }>(),
-    { actor: 'site' }
-  )
+  const props = defineProps<{
+    apiBase: string
+    purpose: 'app' | 'plugin' | 'template'
+  }>()
 
   const emit = defineEmits<{
     filled: [value: ReleaseImportResult]
   }>()
 
   const repo = ref('')
-  const token = ref('')
   const connectedRepo = ref('')
   const releases = ref<ReleaseImportItem[]>([])
   const listing = ref(false)
@@ -120,7 +105,6 @@
   }
 
   onMounted(async () => {
-    if (props.actor === 'developer') return
     try {
       const saved = await fetchReleaseImportPreference(props.apiBase, props.purpose)
       if (!repo.value && saved?.repo) repo.value = saved.repo
@@ -137,12 +121,7 @@
     listing.value = true
     listed.value = false
     try {
-      const data = await fetchReleaseImports(
-        props.apiBase,
-        props.purpose,
-        repo.value,
-        props.actor === 'developer' ? token.value : ''
-      )
+      const data = await fetchReleaseImports(props.apiBase, props.purpose, repo.value)
       releases.value = data?.releases || []
       connectedRepo.value = data?.repo || repo.value
       listed.value = true
@@ -165,8 +144,7 @@
         purpose: props.purpose,
         repo: connectedRepo.value || repo.value,
         tag: row.tag,
-        assetName: row.assetName,
-        token: props.actor === 'developer' ? token.value : ''
+        assetName: row.assetName
       })
       emit('filled', filled)
       ElMessage.success('已填入发布信息，确认前仍可修改')
@@ -194,8 +172,7 @@
     align-items: center;
   }
 
-  .release-import__repo,
-  .release-import__token {
+  .release-import__repo {
     flex: 1;
     min-width: 0;
   }

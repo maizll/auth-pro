@@ -29,17 +29,17 @@ export function fetchReleaseImportPreference(apiBase: string, purpose: string) {
   })
 }
 
-export function fetchReleaseImports(apiBase: string, purpose: string, repo: string, token = '') {
+export function fetchReleaseImports(apiBase: string, purpose: string, repo: string) {
   return request.post<{ repo: string; releases: ReleaseImportItem[] }>({
     url: `${apiBase}/releases`,
-    data: { purpose, repo, token },
+    data: { purpose, repo },
     showSuccessMessage: false
   })
 }
 
 export function fetchReleaseAsset(
   apiBase: string,
-  data: { purpose: string; repo: string; tag: string; assetName: string; token?: string }
+  data: { purpose: string; repo: string; tag: string; assetName: string }
 ) {
   return request.post<ReleaseImportResult>({
     url: `${apiBase}/fetch`,

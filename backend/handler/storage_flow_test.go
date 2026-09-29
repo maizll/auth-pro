@@ -258,10 +258,10 @@ func TestSettlePaidZipAndImportShareStorage(t *testing.T) {
 	if err := saveStorageBlob(storageConfigBlob{Locations: []storageLocation{githubLoc}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := releaseImportRepo(releaseImportActorSite, "plugin", ""); err == nil || !strings.Contains(err.Error(), "请填写仓库") {
+	if _, _, err := releaseImportRepo("plugin", ""); err == nil || !strings.Contains(err.Error(), "请填写仓库") {
 		t.Fatalf("empty import repo err=%v", err)
 	}
-	owner, repo, err := releaseImportRepo(releaseImportActorSite, "plugin", "acme/paid-plugins")
+	owner, repo, err := releaseImportRepo("plugin", "acme/paid-plugins")
 	if err != nil || owner != "acme" || repo != "paid-plugins" {
 		t.Fatalf("repo=%s/%s err=%v", owner, repo, err)
 	}

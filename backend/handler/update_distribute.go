@@ -517,9 +517,6 @@ func fetchGitHubReleaseAsset(ctx context.Context, owner, repo, releaseRef, asset
 	}
 	releaseURL := strings.TrimRight(productUpdateGitHubAPI, "/") + "/repos/" + owner + "/" + repo + "/releases/" + releaseRef
 	tokens := productUpdateTokenCandidates()
-	if override, ok := releaseImportTokenOverride(ctx); ok {
-		tokens = override
-	}
 	var lastErr error
 	for _, token := range tokens {
 		body, fetchErr := productUpdateFetch(ctx, releaseURL, token, "application/vnd.github+json")

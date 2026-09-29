@@ -335,15 +335,6 @@
         destroy-on-close
       >
         <el-form :model="versionForm" label-width="118px" :label-position="formLabelPosition">
-          <el-form-item label="从仓库导入">
-            <ReleaseRepoImport
-              api-base="/api/v1/source/developer/release-import"
-              actor="developer"
-              :purpose="kind === 'template' ? 'template' : 'plugin'"
-              @filled="applyVersionImport"
-            />
-            <p v-if="versionDigest" class="field-help">{{ versionDigest }}</p>
-          </el-form-item>
           <el-form-item label="版本" required>
             <el-input v-model="versionForm.version" placeholder="1.0.1" />
           </el-form-item>
@@ -355,9 +346,7 @@
               <el-radio value="upload">上传压缩包</el-radio>
               <el-radio value="public">公开地址</el-radio>
             </el-radio-group>
-            <p v-if="versionBlockReason && !versionStagingId" class="field-help">{{
-              versionBlockReason
-            }}</p>
+            <p v-if="versionBlockReason" class="field-help">{{ versionBlockReason }}</p>
           </el-form-item>
           <el-form-item v-if="versionForm.packageSource === 'upload'" label="压缩包">
             <el-upload
@@ -387,15 +376,14 @@
                 placeholder="64 位十六进制"
               />
               <el-button
-                v-if="versionForm.packageSource === 'public'"
+                v-if="versionForm.packageSource === 'public' && (currentItem?.priceCents || 0) <= 0"
                 :disabled="!canAutoHash(versionForm.location)"
                 :loading="hashing === 'version'"
-                @click="probeVersionAddress"
+                @click="handleAutoHash('version')"
               >
-                计算大小和校验
+                自动计算
               </el-button>
             </div>
-            <p v-if="versionDigest" class="field-help">{{ versionDigest }}</p>
             <p class="field-help">
               {{
                 versionForm.packageSource === 'upload' || (currentItem?.priceCents || 0) > 0
@@ -418,7 +406,7 @@
           <el-button
             type="primary"
             :loading="versionSaving"
-            :disabled="Boolean(versionBlockReason) && !versionStagingId"
+            :disabled="Boolean(versionBlockReason)"
             @click="handleAddVersion"
           >
             保存草稿
@@ -460,12 +448,6 @@
   import type { FormInstance, FormRules, UploadFile } from 'element-plus'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
-  import ReleaseRepoImport from '@/components/business/release-import/ReleaseRepoImport.vue'
-  import {
-    materializeRelease,
-    probeReleaseUrl,
-    type ReleaseImportResult
-  } from '@/api/release-import'
   import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import CatalogPriceSwitchDialog from '@/views/source-station/components/CatalogPriceSwitchDialog.vue'
   import { SOURCE_ITEM_STATUS, SOURCE_VERSION_STATUS } from '@/api/source-station'
@@ -577,8 +559,6 @@
     authorName: '',
     changelog: ''
   })
-  const versionStagingId = ref('')
-  const versionDigest = ref('')
   const versionForm = reactive({
     version: '',
     location: '',
@@ -1073,10 +1053,6 @@
     if (bucket.packageSource !== 'public') return
     bucket.location = value
     bucket.storedBySite = false
-    if (target === 'version') {
-      versionStagingId.value = ''
-      versionDigest.value = ''
-    }
   }
 
   function sourceLabel(row: {
@@ -1402,67 +1378,19 @@
     }
   }
 
-  function describeReleaseFile(result: ReleaseImportResult) {
-    const size = result.fileSizeBytes > 0 ? `${result.fileSizeBytes} 字节` : ''
-    const md5 = result.fileMd5 ? `MD5 ${result.fileMd5}` : ''
-    return [size, md5].filter(Boolean).join('，')
-  }
-
-  function applyVersionImport(result: ReleaseImportResult) {
-    versionStagingId.value = result.stagingId
-    if (result.version) versionForm.version = result.version
-    if (result.changelog) versionForm.changelog = result.changelog
-    if (result.fileSha256) versionForm.sha256 = result.fileSha256
-    versionForm.packageSource = 'public'
-    versionDigest.value = describeReleaseFile(result)
-  }
-
-  async function probeVersionAddress() {
-    const location = versionForm.location.trim()
-    if (!isHttpsLocation(location)) {
-      ElMessage.info('请先填写 https 下载地址')
-      return
-    }
-    hashing.value = 'version'
-    try {
-      const result = await probeReleaseUrl('/api/v1/source/developer/release-import', location)
-      versionStagingId.value = result.stagingId
-      if (result.fileSha256) versionForm.sha256 = result.fileSha256
-      versionDigest.value = describeReleaseFile(result)
-      ElMessage.success('已填入大小和校验值，保存前仍可修改')
-    } finally {
-      hashing.value = ''
-    }
-  }
-
   async function handleAddVersion() {
     if (!currentItem.value) return
     if (!versionForm.version.trim()) {
       ElMessage.info('请填写版本')
       return
     }
-    if (!versionStagingId.value && versionBlockReason.value) {
+    if (versionBlockReason.value) {
       ElMessage.info(versionBlockReason.value)
       return
     }
-    let location = packageLocationToSave(versionForm)
+    const location = packageLocationToSave(versionForm)
     versionSaving.value = true
     try {
-      if (versionStagingId.value && currentItem.value) {
-        const cents = Number(currentItem.value.priceCents || 0)
-        const stored = await materializeRelease('/api/v1/source/developer/release-import', {
-          stagingId: versionStagingId.value,
-          kind: props.kind,
-          itemId: currentItem.value.id,
-          version: versionForm.version.trim(),
-          priceCents: cents
-        })
-        location = stored.location
-        versionForm.location = stored.location
-        versionForm.sha256 = versionForm.sha256.trim() || stored.sha256
-        versionForm.storedBySite = true
-        versionStagingId.value = ''
-      }
       const payload =
         props.kind === 'template'
           ? {
@@ -1497,7 +1425,6 @@
       versionForm.changelog = ''
       versionForm.packageSource = 'public'
       versionForm.storedBySite = false
-      versionDigest.value = ''
       await openVersions(currentItem.value)
     } finally {
       versionSaving.value = false

@@ -123,6 +123,8 @@ func dropUnusedStationPackage(location, kind, itemID string) {
 	_ = os.Remove(filepath.Join(stationPackageDir(), name))
 }
 
+// fetchPaidOriginZIP 只从公开 https 下载外链，请求里不附带站长令牌。
+// 下载成功后写入收费仓库仍由 settlePaidZipBytes 使用站长已保存的令牌。
 func fetchPaidOriginZIP(ctx context.Context, rawURL string) ([]byte, error) {
 	if ctx == nil {
 		ctx = context.Background()

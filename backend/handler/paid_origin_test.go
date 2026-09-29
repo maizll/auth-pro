@@ -322,6 +322,62 @@ func TestPaidOriginHealthDoesNotUnpublish(t *testing.T) {
 	}
 }
 
+func TestPaidOriginDownloadOmitsOwnerToken(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	const pat = "github_pat_owner_must_not_travel"
+	store := newMemorySourceStore()
+	store.releaseSettings.Provider = "github"
+	store.releaseSettings.Token = pat
+	t.Cleanup(SetSourceStationStoreForTest(store))
+	sealed, err := sealGitHubPaidToken(pat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGitHubPaidTokenSealed(sealed); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, token := range productUpdateTokenCandidates() {
+		if token == pat {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("owner token was not available to release import")
+	}
+	payload := sourcePluginTestZIP(t)
+	var gotAuth []string
+	var gotAgent []string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = append(gotAuth, r.Header.Get("Authorization"))
+		gotAgent = append(gotAgent, r.Header.Get("User-Agent"))
+		if strings.Contains(r.Header.Get("Authorization"), pat) || strings.Contains(r.URL.RawQuery, pat) || strings.Contains(r.URL.Path, pat) {
+			t.Errorf("origin request carried the owner token")
+		}
+		_, _ = w.Write(payload)
+	}))
+	t.Cleanup(server.Close)
+	rawURL := pinHostToServer(t, "origin.example.com", server, server)
+	if !strings.HasPrefix(rawURL, "https://") {
+		t.Fatalf("url=%s", rawURL)
+	}
+	body, err := fetchPaidOriginZIP(context.Background(), rawURL)
+	if err != nil || len(body) != len(payload) {
+		t.Fatalf("fetch err=%v len=%d", err, len(body))
+	}
+	if len(gotAuth) == 0 {
+		t.Fatal("origin server was not called")
+	}
+	for i, header := range gotAuth {
+		if header != "" || strings.Contains(header, pat) {
+			t.Fatalf("authorization=%q", header)
+		}
+		if gotAgent[i] != "auth-pro-paid-import" {
+			t.Fatalf("user agent=%q", gotAgent[i])
+		}
+	}
+}
+
 func TestPaidImportDoesNotReadBodyOnPrivateDial(t *testing.T) {
 	hits := 0
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
