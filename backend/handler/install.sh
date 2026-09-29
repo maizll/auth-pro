@@ -475,6 +475,10 @@ baota_cleanup() {
 trap baota_cleanup EXIT
 
 baota_parse_args() {
+  # 菜单会在同一个进程里连续执行。上一次的修复或重设不能带到下一次。
+  BAOTA_REPAIR_GUARDIAN=0
+  BAOTA_RESET_ADMIN=0
+  BAOTA_RESET_BINARY=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -h|--help)
