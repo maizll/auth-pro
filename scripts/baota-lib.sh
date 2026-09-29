@@ -34,6 +34,7 @@ BAOTA_DRY_RUN=0
 BAOTA_YES=0
 BAOTA_START=""
 BAOTA_STOP_PORT=0
+BAOTA_REPAIR_GUARDIAN=0
 BAOTA_SKIP_MYSQL=0
 BAOTA_PORT_SET=0
 BAOTA_SITE_ROOT="${AUTH_PRO_SITE_ROOT:-}"
@@ -108,6 +109,10 @@ baota_parse_args() {
         ;;
       --stop-port)
         BAOTA_STOP_PORT=1
+        shift
+        ;;
+      --repair-guardian)
+        BAOTA_REPAIR_GUARDIAN=1
         shift
         ;;
       --skip-mysql)
@@ -536,40 +541,101 @@ baota_supervisor_command_is_ours() {
   return 1
 }
 
+# 插件把本站写在 profile/*.ini，主配置只有 include。只扫主配置里的 [program:] 会找不到，接着就会 nohup。
+baota_supervisor_name_in_file() {
+  local file="$1" site="$2"
+  [[ -f "$file" ]] || return 0
+  awk -v site="$site" '
+    /^\[program:/ {
+      name = $0
+      sub(/^\[program:/, "", name)
+      sub(/\]$/, "", name)
+      next
+    }
+    /^command=/ && name != "" {
+      cmd = substr($0, 9)
+      gsub(/^[ \t]+|[ \t]+$/, "", cmd)
+      if (cmd == site "/backend/start.sh" || cmd == site "/backend/auth_pro") {
+        print name
+        exit
+      }
+    }
+    /^\[/ && $0 !~ /^\[program:/ { name = "" }
+  ' "$file"
+}
+
+baota_supervisor_include_files() {
+  local conf="$1" line glob match
+  [[ -f "$conf" ]] || return 0
+  line="$(awk '
+    $0 == "[include]" { inside = 1; next }
+    inside && /^\[/ { exit }
+    inside && /^[ \t]*files[ \t]*=/ {
+      sub(/^[ \t]*files[ \t]*=[ \t]*/, "")
+      print
+      exit
+    }
+  ' "$conf")"
+  [[ -n "$line" ]] || return 0
+  shopt -s nullglob
+  for glob in $line; do
+    for match in $glob; do
+      printf '%s\n' "$match"
+    done
+  done
+  shopt -u nullglob
+}
+
 # 只选用 command 指向本站 start.sh / auth_pro 的守护项，避免停掉同机其它站点。
 baota_find_supervisor() {
   BAOTA_SUP_CONF=""
   BAOTA_SUP_PROGRAM=""
-  local site conf program candidate
+  local site conf program candidate file included
   site="$BAOTA_SITE_ROOT"
   conf="$(baota_env_get AUTO_PRO_SUPERVISOR_CONF)"
   program="$(baota_env_get AUTO_PRO_SUPERVISOR_PROGRAM)"
-  [[ -n "$program" ]] || program="${AUTH_PRO_SUPERVISOR_PROGRAM:-auth_pro}"
-  if baota_supervisor_command_is_ours "$conf" "$program" "$site"; then
+  [[ -n "$program" ]] || program="${AUTH_PRO_SUPERVISOR_PROGRAM:-}"
+  if [[ -n "$conf" && -n "$program" ]] && baota_supervisor_command_is_ours "$conf" "$program" "$site"; then
     BAOTA_SUP_CONF="$conf"
     BAOTA_SUP_PROGRAM="$program"
     return 0
   fi
+  if [[ -n "$conf" && -n "$program" ]]; then
+    for file in \
+      "/www/server/panel/plugin/supervisor/profile/${program}.ini" \
+      "/etc/supervisor/auth-pro.d/${program}.ini"
+    do
+      if [[ "$(baota_supervisor_name_in_file "$file" "$site")" == "$program" ]]; then
+        BAOTA_SUP_CONF="$conf"
+        BAOTA_SUP_PROGRAM="$program"
+        return 0
+      fi
+    done
+  fi
   for candidate in /etc/supervisor/supervisord.conf /etc/supervisord.conf; do
     [[ -f "$candidate" ]] || continue
-    program="$(awk -v site="$site" '
-      /^\[program:/ {
-        name = $0
-        sub(/^\[program:/, "", name)
-        sub(/\]$/, "", name)
-        next
-      }
-      /^command=/ && name != "" {
-        cmd = substr($0, 9)
-        if (cmd == site "/backend/start.sh" || cmd == site "/backend/auth_pro") {
-          print name
-          exit
-        }
-      }
-      /^\[/ && $0 !~ /^\[program:/ { name = "" }
-    ' "$candidate")"
+    program="$(baota_supervisor_name_in_file "$candidate" "$site")"
     if [[ -n "$program" ]]; then
       BAOTA_SUP_CONF="$candidate"
+      BAOTA_SUP_PROGRAM="$program"
+      return 0
+    fi
+    while IFS= read -r included; do
+      [[ -n "$included" ]] || continue
+      program="$(baota_supervisor_name_in_file "$included" "$site")"
+      if [[ -n "$program" ]]; then
+        BAOTA_SUP_CONF="$candidate"
+        BAOTA_SUP_PROGRAM="$program"
+        return 0
+      fi
+    done < <(baota_supervisor_include_files "$candidate")
+  done
+  # 主配置一度被清空时，include 行没了，但本站 ini 还在。ctl 仍指向面板这份主配置。
+  for file in /www/server/panel/plugin/supervisor/profile/*.ini /etc/supervisor/auth-pro.d/*.ini; do
+    [[ -f "$file" ]] || continue
+    program="$(baota_supervisor_name_in_file "$file" "$site")"
+    if [[ -n "$program" && -f /etc/supervisor/supervisord.conf ]]; then
+      BAOTA_SUP_CONF="/etc/supervisor/supervisord.conf"
       BAOTA_SUP_PROGRAM="$program"
       return 0
     fi
@@ -577,10 +643,44 @@ baota_find_supervisor() {
   return 1
 }
 
+# 插件的 ini 带 numprocs，进程名是 program_00，组名才是 program。启动和停止要用组名。
+baota_supervisor_target() {
+  local program="$1" ini
+  for ini in \
+    "/www/server/panel/plugin/supervisor/profile/${program}.ini" \
+    "/etc/supervisor/auth-pro.d/${program}.ini"
+  do
+    if [[ -f "$ini" ]] && grep -q '^numprocs=' "$ini"; then
+      printf '%s:\n' "$program"
+      return 0
+    fi
+  done
+  printf '%s\n' "$program"
+}
+
 baota_supervisorctl() {
-  [[ -n "${BAOTA_SUP_CONF:-}" && -n "${BAOTA_SUP_PROGRAM:-}" ]] || return 127
-  command -v supervisorctl >/dev/null 2>&1 || return 127
-  supervisorctl -c "$BAOTA_SUP_CONF" "$@"
+  local ctl
+  [[ -n "${BAOTA_SUP_CONF:-}" ]] || return 127
+  if [[ -x /www/server/panel/pyenv/bin/supervisorctl ]]; then
+    ctl=/www/server/panel/pyenv/bin/supervisorctl
+  elif command -v supervisorctl >/dev/null 2>&1; then
+    ctl="$(command -v supervisorctl)"
+  else
+    return 127
+  fi
+  "$ctl" -c "$BAOTA_SUP_CONF" "$@"
+}
+
+baota_supervisor_stop_ours() {
+  baota_find_supervisor || return 0
+  [[ -n "${BAOTA_SUP_PROGRAM:-}" ]] || return 0
+  baota_supervisorctl stop "$(baota_supervisor_target "$BAOTA_SUP_PROGRAM")" >/dev/null 2>&1 || true
+}
+
+baota_supervisor_start_ours() {
+  baota_find_supervisor || return 127
+  [[ -n "${BAOTA_SUP_PROGRAM:-}" ]] || return 127
+  baota_supervisorctl start "$(baota_supervisor_target "$BAOTA_SUP_PROGRAM")"
 }
 
 # 先让进程守护停止，再清本站残留（含 PPID=1 的孤儿）。端口空闲才返回。
@@ -599,7 +699,7 @@ baota_stop_and_reclaim() {
   fi
   if [[ -n "${BAOTA_SUP_PROGRAM:-}" ]]; then
     baota_info "通过进程守护停止 ${BAOTA_SUP_PROGRAM}"
-    baota_supervisorctl stop "$BAOTA_SUP_PROGRAM" >/dev/null 2>&1 || baota_warn "进程守护停止 ${BAOTA_SUP_PROGRAM} 没有成功，继续检查端口 ${port} 上是不是本站残留进程"
+    baota_supervisor_stop_ours || baota_warn "进程守护停止 ${BAOTA_SUP_PROGRAM} 没有成功，继续检查端口 ${port} 上是不是本站残留进程"
   fi
   for i in 1 2 3; do
     baota_port_is_open "$port" || break
@@ -694,6 +794,10 @@ baota_panel_run() {
   BAOTA_PANEL_SITE_ID=""
   BAOTA_PANEL_NGINX=""
   BAOTA_PANEL_PROGRAM=""
+  BAOTA_PANEL_SUP_CONF=""
+  BAOTA_PANEL_PLUGIN=""
+  BAOTA_PANEL_LIST=""
+  BAOTA_PANEL_CTL=""
   set +e
   "$py" "$script" "$@" >"$capture"
   code=$?
@@ -705,6 +809,10 @@ baota_panel_run() {
       AUTH_PRO_SITE_ID=*) BAOTA_PANEL_SITE_ID="${line#AUTH_PRO_SITE_ID=}" ;;
       AUTH_PRO_NGINX=*) BAOTA_PANEL_NGINX="${line#AUTH_PRO_NGINX=}" ;;
       AUTH_PRO_PROGRAM=*) BAOTA_PANEL_PROGRAM="${line#AUTH_PRO_PROGRAM=}" ;;
+      AUTH_PRO_SUP_CONF=*) BAOTA_PANEL_SUP_CONF="${line#AUTH_PRO_SUP_CONF=}" ;;
+      AUTH_PRO_PLUGIN=*) BAOTA_PANEL_PLUGIN="${line#AUTH_PRO_PLUGIN=}" ;;
+      AUTH_PRO_LIST=*) BAOTA_PANEL_LIST="${line#AUTH_PRO_LIST=}" ;;
+      AUTH_PRO_CTL=*) BAOTA_PANEL_CTL="${line#AUTH_PRO_CTL=}" ;;
     esac
   done < "$capture"
   rm -f "$capture"
@@ -1524,7 +1632,7 @@ baota_rollback_programs() {
   [[ -n "${BAOTA_BACKUP_DIR:-}" && -d "$BAOTA_BACKUP_DIR" ]] || return 0
   baota_warn "健康检查未通过，正在把程序文件换回升级前的版本"
   if [[ -n "${BAOTA_SUP_PROGRAM:-}" ]]; then
-    baota_supervisorctl stop "$BAOTA_SUP_PROGRAM" >/dev/null 2>&1 || true
+    baota_supervisor_stop_ours
   fi
   if [[ -f "$BAOTA_BACKUP_DIR/auth_pro.prev" ]]; then
     cp -a "$BAOTA_BACKUP_DIR/auth_pro.prev" "$data/auth_pro"
@@ -1548,6 +1656,74 @@ baota_health_body() {
   wget -qO- -T 2 "$url" 2>/dev/null || true
 }
 
+# 监听者必须是本站 auth_pro，且直接父进程是 supervisord。父进程为 1 的是脱管进程。
+baota_listener_supervised() {
+  local port="$1" site="$2" pid count root ppid comm
+  count="$(baota_pids_for_port "$port" | wc -l | tr -d ' ')"
+  [[ "$count" == "1" ]] || return 1
+  pid="$(baota_pids_for_port "$port" | head -n 1)"
+  root="$(baota_our_root "$pid" "$site" || true)"
+  [[ -n "$root" ]] || return 1
+  ppid="$(awk '/^PPid:/ {print $2}' "/proc/$root/status" 2>/dev/null || true)"
+  [[ "$ppid" =~ ^[0-9]+$ ]] || return 1
+  comm="$(tr -d ' \n' < "/proc/$ppid/comm" 2>/dev/null || true)"
+  [[ "$comm" == "supervisord" ]]
+}
+
+baota_guardian_manual() {
+  local data port program
+  data="$(baota_data_dir)"
+  port="$(baota_effective_port)"
+  program="${BAOTA_SUP_PROGRAM:-auth_pro}"
+  cat <<EOF >&2
+[手动] 进程守护没有就绪，这次不能当作安装完成。请只添加本站点，不要改其它站点，也不要再 nohup。
+       名称：${program}
+       启动用户：www
+       运行目录：${data}
+       启动命令：${data}/start.sh
+       进程数量：1
+       后端端口：${port}
+       保存后，面板列表里要有这一项，supervisorctl 为 RUNNING，监听进程的父进程是 supervisord。
+EOF
+}
+
+baota_verify_guardian() {
+  local port site data program count root ppid comm
+  port="$(baota_effective_port)"
+  site="$BAOTA_SITE_ROOT"
+  data="$(baota_data_dir)"
+  baota_panel_run supervisor-check --domain "$(baota_site_domain)" --command "${data}/start.sh" || baota_die "无法读取进程守护状态"
+  program="${BAOTA_PANEL_PROGRAM:-}"
+  [[ -n "$program" ]] || baota_die "没有得到本站点的进程守护名称"
+  BAOTA_SUP_PROGRAM="$program"
+  if [[ -n "${BAOTA_PANEL_SUP_CONF:-}" ]]; then
+    BAOTA_SUP_CONF="$BAOTA_PANEL_SUP_CONF"
+  fi
+  if [[ "${BAOTA_PANEL_PLUGIN:-}" == "yes" ]]; then
+    if [[ " ${BAOTA_PANEL_LIST:-} " != *" ${program} "* ]]; then
+      baota_guardian_manual
+      baota_die "面板进程守护列表里没有 ${program}。当前列表：${BAOTA_PANEL_LIST:-（空）}"
+    fi
+  fi
+  if [[ "${BAOTA_PANEL_RESULT:-}" != "running" ]]; then
+    baota_guardian_manual
+    baota_die "supervisorctl 未显示 ${program} 为 RUNNING。状态：${BAOTA_PANEL_CTL:-无} 核验结果：${BAOTA_PANEL_RESULT:-无}"
+  fi
+  count="$(baota_pids_for_port "$port" | wc -l | tr -d ' ')"
+  if [[ "$count" != "1" ]]; then
+    baota_guardian_manual
+    baota_die "端口 ${port} 上有 ${count} 个监听进程。只能留 supervisord 拉起的那一个，不能有两个进程抢端口。"
+  fi
+  if ! baota_listener_supervised "$port" "$site"; then
+    root="$(baota_pids_for_port "$port" | head -n 1)"
+    ppid="$(awk '/^PPid:/ {print $2}' "/proc/${root:-0}/status" 2>/dev/null || true)"
+    comm="$(tr -d ' \n' < "/proc/${ppid:-0}/comm" 2>/dev/null || true)"
+    baota_guardian_manual
+    baota_die "端口 ${port} 的进程 PID ${root:-无} 父进程是 ${ppid:-无}（${comm:-无}），不是 supervisord。这是脱管进程，崩溃后不会被拉起。"
+  fi
+  baota_info "进程守护核验通过：列表包含 ${program}，状态 RUNNING，监听进程的父进程是 supervisord"
+}
+
 baota_start_backend() {
   local data port pid i health url started_by timeout
   [[ "$BAOTA_START" == "1" ]] || return 0
@@ -1562,22 +1738,40 @@ baota_start_backend() {
     baota_die "启动后需要 curl 或 wget 做健康检查"
   fi
   mkdir -p "$data/logs"
+  baota_find_supervisor || true
   if baota_port_is_open "$port"; then
+    if baota_listener_supervised "$port" "$BAOTA_SITE_ROOT"; then
+      baota_info "端口 ${port} 已由 supervisord 监听本站，不再另起进程"
+      started_by="supervisor"
+      pid=""
+      timeout="${AUTH_PRO_HEALTH_TIMEOUT:-30}"
+      for i in $(seq 1 "$timeout"); do
+        health="$(baota_health_body "$url")"
+        if [[ -n "$health" ]]; then
+          baota_info "后端已启动 端口=${port}"
+          baota_info "本机检查：${url}"
+          return 0
+        fi
+        sleep 1
+      done
+      baota_die "进程守护已拉起进程，但健康检查超时（${timeout}s）。请查看 ${data}/logs/auto_pro.log 。不要再 nohup 一份。"
+    fi
     baota_stop_and_reclaim "$port" "$BAOTA_SITE_ROOT"
   fi
   if baota_port_is_open "$port"; then
     baota_die "端口 ${port} 还没空闲，拒绝启动新进程。"
   fi
-  baota_find_supervisor || true
   pid=""
   started_by="direct"
   if [[ -n "${BAOTA_SUP_PROGRAM:-}" ]]; then
     baota_info "端口 ${port} 已空闲，由进程守护启动 ${BAOTA_SUP_PROGRAM}"
-    if ! baota_supervisorctl start "$BAOTA_SUP_PROGRAM"; then
+    if ! baota_supervisor_start_ours; then
       baota_rollback_programs
       baota_die "进程守护没有启动新版本，已尝试回滚程序文件。请查看守护日志。不要另外 nohup 一份。"
     fi
     started_by="supervisor"
+  elif [[ "${BAOTA_PANEL_INSTALL:-}" == "1" ]]; then
+    baota_die "面板安装必须由进程守护拉起。拒绝 nohup，避免再留下一个父进程为 1 的脱管进程。"
   else
     baota_info "未找到指向本站的进程守护配置。端口 ${port} 已确认空闲，改为直接启动。生产环境请只在宝塔进程守护里启动 backend/start.sh。"
     pid="$(
@@ -1608,13 +1802,13 @@ baota_start_backend() {
     fi
   done
   if [[ "$started_by" == "supervisor" ]]; then
-    baota_supervisorctl stop "$BAOTA_SUP_PROGRAM" >/dev/null 2>&1 || true
+    baota_supervisor_stop_ours
   elif [[ -n "$pid" ]]; then
     baota_signal_pid "$pid"
   fi
   baota_rollback_programs
   if [[ "$started_by" == "supervisor" ]] && ! baota_port_is_open "$port"; then
-    baota_supervisorctl start "$BAOTA_SUP_PROGRAM" >/dev/null 2>&1 || true
+    baota_supervisor_start_ours >/dev/null 2>&1 || true
   fi
   baota_die "健康检查超时（${timeout}s），已尝试回滚。请查看 ${data}/logs/auto_pro.log 。不要在旧进程还占着端口时再启动一份。"
 }
@@ -1896,14 +2090,28 @@ baota_oneclick_install() {
   fi
   snippet="$(baota_data_dir)/baota-nginx.snippet.conf"
   baota_panel_run proxy --domain "$domain" --port "$port" --snippet "$snippet"
-  baota_panel_run supervisor --domain "$domain" --command "$(baota_data_dir)/start.sh" --workdir "$(baota_data_dir)" || baota_warn "进程守护步骤没有完成。若上面没有打印 systemd 单元，请按 backend/baota-guardian.txt 手工添加，只添加本站点。"
+  if ! baota_panel_run supervisor --domain "$domain" --command "$(baota_data_dir)/start.sh" --workdir "$(baota_data_dir)"; then
+    baota_guardian_manual
+    baota_die "进程守护没有登记成功。请按上面的手工说明只添加本站点。本次不能当作安装完成。"
+  fi
+  if [[ "$BAOTA_PANEL_RESULT" != "ok" ]]; then
+    baota_guardian_manual
+    baota_die "进程守护没有进入运行状态（结果 ${BAOTA_PANEL_RESULT:-空}）。请按上面的手工说明处理。本次不能当作安装完成。"
+  fi
+  if [[ -n "$BAOTA_PANEL_PROGRAM" ]]; then
+    BAOTA_SUP_PROGRAM="$BAOTA_PANEL_PROGRAM"
+  fi
+  if [[ -n "$BAOTA_PANEL_SUP_CONF" ]]; then
+    BAOTA_SUP_CONF="$BAOTA_PANEL_SUP_CONF"
+  fi
   if [[ "$BAOTA_START" == "1" ]]; then
-    if ! baota_port_is_open "$port"; then
-      baota_start_backend
-    fi
+    baota_start_backend
     baota_wait_listening_health || baota_die "后端健康检查未通过。已尝试撤掉本次新建的站点和数据库。请查看 $(baota_data_dir)/logs/auto_pro.log"
+    baota_verify_guardian || baota_die "进程守护核验没有通过。本次不能当作安装完成。"
   else
-    baota_warn "已指定不启动。站点、数据库和反代已就绪，但没有创建管理员。请启动 backend/start.sh 后用浏览器打开站点完成安装向导。"
+    baota_find_supervisor || true
+    baota_supervisor_stop_ours
+    baota_warn "已指定不启动。进程守护已登记并停在停止状态，没有 nohup，也没有创建管理员。站点、数据库和反代已就绪。"
   fi
   scheme="http"
   # 证书失败时的那一句中文和日志路径由辅助脚本打印。这里只根据捕获到的结果决定网址用 http 还是 https。
@@ -1925,8 +2133,68 @@ baota_oneclick_install() {
   baota_info "一条命令安装结束。"
 }
 
+# 给 1.7.5 已装好、进程脱管的站点用。只停本站脱管进程并重新登记守护，不改数据库、网站文件和 Nginx。
+baota_repair_guardian() {
+  local data port command sum_before
+  if [[ -z "$BAOTA_SITE_ROOT" ]]; then
+    baota_die "修复进程守护需要 --site-root"
+  fi
+  BAOTA_SITE_ROOT="${BAOTA_SITE_ROOT%/}"
+  baota_assert_safe_dir "$BAOTA_SITE_ROOT" "网站根目录"
+  baota_reject_dotdot "$BAOTA_SITE_ROOT" "网站根目录"
+  data="$(baota_data_dir)"
+  [[ -f "$data/install.lock" ]] || baota_die "没有 ${data}/install.lock。修复命令只处理已经装好的站点，不会新建网站。"
+  [[ -f "$data/start.sh" && -f "$data/auth_pro" ]] || baota_die "缺少 ${data}/start.sh 或 auth_pro。没有改动网站文件。"
+  baota_panel_available || baota_die "未检测到宝塔面板或 baota-panel.py。没有改动网站文件。"
+  BAOTA_START=1
+  port="$(baota_effective_port)"
+  command="${data}/start.sh"
+  if [[ -f "$BAOTA_SITE_ROOT/index.html" ]]; then
+    sum_before="$(sha256sum "$BAOTA_SITE_ROOT/index.html" | awk '{print $1}')"
+  fi
+  baota_info "修复 ${BAOTA_SITE_ROOT} 的进程守护，端口 ${port}。不改数据库、网站文件和 Nginx。"
+  baota_find_supervisor || true
+  baota_supervisor_stop_ours
+  if baota_port_is_open "$port"; then
+    baota_stop_and_reclaim "$port" "$BAOTA_SITE_ROOT"
+  fi
+  if baota_port_is_open "$port"; then
+    baota_guardian_manual
+    baota_die "端口 ${port} 仍被占用，没有登记新的守护，也没有改网站文件。"
+  fi
+  if ! baota_panel_run supervisor --repair --domain "$(baota_site_domain)" --command "$command" --workdir "$data"; then
+    baota_guardian_manual
+    baota_die "进程守护没有登记成功。网站文件和数据库没有改动。"
+  fi
+  if [[ "$BAOTA_PANEL_RESULT" != "ok" ]]; then
+    baota_guardian_manual
+    baota_die "进程守护没有进入运行状态（结果 ${BAOTA_PANEL_RESULT:-空}）。网站文件和数据库没有改动。"
+  fi
+  if [[ -n "$BAOTA_PANEL_PROGRAM" ]]; then
+    BAOTA_SUP_PROGRAM="$BAOTA_PANEL_PROGRAM"
+  fi
+  if [[ -n "$BAOTA_PANEL_SUP_CONF" ]]; then
+    BAOTA_SUP_CONF="$BAOTA_PANEL_SUP_CONF"
+  fi
+  baota_wait_listening_health || {
+    baota_guardian_manual
+    baota_die "守护已登记，但健康检查未通过。请查看 ${data}/logs/auto_pro.log 。没有改动数据库和网站文件。"
+  }
+  baota_verify_guardian || baota_die "进程守护核验没有通过。没有改动数据库和网站文件。"
+  if [[ -n "${sum_before:-}" ]]; then
+    local sum_after
+    sum_after="$(sha256sum "$BAOTA_SITE_ROOT/index.html" | awk '{print $1}')"
+    [[ "$sum_before" == "$sum_after" ]] || baota_die "修复过程中网站首页被改动，已停止。请检查 ${BAOTA_SITE_ROOT}/index.html 。"
+  fi
+  baota_info "进程守护已修复。面板列表里有本站点，状态为 RUNNING。没有改动数据库、网站文件和 Nginx，也没有动其它站点的守护项。"
+}
+
 baota_cmd_install() {
   baota_parse_args "$@"
+  if [[ "$BAOTA_REPAIR_GUARDIAN" == "1" ]]; then
+    baota_repair_guardian
+    return
+  fi
   if [[ -z "$BAOTA_SITE_ROOT" ]]; then
     baota_resolve_site_root
   else

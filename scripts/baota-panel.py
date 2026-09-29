@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
 PANEL = "/www/server/panel"
 NGINX = "/www/server/nginx/sbin/nginx"
@@ -359,6 +360,16 @@ def create_proxy(args):
     emit("AUTH_PRO_NGINX", detail)
 
 
+PLUGIN_DIR = os.path.join(PANEL, "plugin/supervisor")
+PLUGIN_MAIN = os.path.join(PLUGIN_DIR, "supervisor_main.py")
+PLUGIN_SAMPLE = os.path.join(PLUGIN_DIR, "sample.conf")
+PLUGIN_PROFILE = os.path.join(PLUGIN_DIR, "profile")
+PLUGIN_CONFIG = os.path.join(PLUGIN_DIR, "config.json")
+SUP_CONF = "/etc/supervisor/supervisord.conf"
+STANDALONE_DIR = "/etc/supervisor/auth-pro.d"
+# 3.x 插件把进程名写成 program_00。列表用最后一个下划线切出程序名，所以名称里不能再带空格。
+
+
 def btpip():
     for candidate in (
         os.path.join(PANEL, "pyenv/bin/btpip"),
@@ -370,20 +381,404 @@ def btpip():
     return ""
 
 
-def ensure_supervisord():
-    """用面板自带的 pip 从 PyPI 装 supervisor。不用豆瓣源，也不走 panelPlugin。"""
+def program_name(domain):
+    """与 1.7.5 相同的守护名：auth_pro_ 加域名第一段。修复时要认回已经写过的 ini。"""
+    label = domain.split(".")[0].replace("-", "_")
+    program = "auth_pro_" + label
+    if len(program) > 40:
+        program = program[:40]
+    return program
+
+
+def plugin_installed():
+    return os.path.isfile(PLUGIN_MAIN)
+
+
+def ctl_bin():
+    candidate = os.path.join(PANEL, "pyenv/bin/supervisorctl")
+    if os.path.isfile(candidate):
+        return candidate
+    return "supervisorctl"
+
+
+def supervisord_bin():
+    candidate = os.path.join(PANEL, "pyenv/bin/supervisord")
+    if os.path.isfile(candidate):
+        return candidate
+    return "supervisord"
+
+
+def run_ctl(*args):
+    """必须带 -c 指向面板这份配置。不带 -c 时会先找到当前目录或 /etc/supervisord.conf，连错守护进程。"""
+    return subprocess.run(
+        [ctl_bin(), "-c", SUP_CONF, *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+
+def daemon_responds():
+    """0 表示进程都在跑，3 表示已经连上守护但有程序停着。这两种都说明连的是这块配置对应的 supervisord。"""
+    if not os.path.isfile(SUP_CONF):
+        return False
+    proc = run_ctl("status")
+    return proc.returncode in (0, 3)
+
+
+def read_ini_command(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                if line.startswith("command="):
+                    return line.split("=", 1)[1].strip()
+    except OSError:
+        return ""
+    return ""
+
+
+def command_is_ours(text, command, workdir):
+    """只认本站 start.sh 或本站二进制。同机其它站点的 ini 不能删。"""
+    got = (text or "").strip()
+    if not got:
+        return False
+    if got == command.strip():
+        return True
+    return got == os.path.join(workdir, "auth_pro")
+
+
+def panel_manual(program, workdir, command, detail):
+    manual("进程守护没有就绪。请只在宝塔「进程守护管理器」里添加本站点，不要改其它站点，也不要再 nohup 一份。", [
+        "名称：%s" % program,
+        "启动用户：www",
+        "运行目录：%s" % workdir,
+        "启动命令：%s" % command,
+        "进程数量：1",
+        "保存后列表里要有这一项，supervisorctl 状态为 RUNNING，监听进程的父进程是 supervisord。",
+        detail,
+    ])
+
+
+def fail_guardian(program, workdir, command, detail):
+    panel_manual(program, workdir, command, detail)
+    die("进程守护没有就绪，不能当作安装完成")
+
+
+def plugin_conf_ok():
+    """主配置必须把 profile/*.ini 包含进去。列表读的是这块配置拉起的 supervisord，不是 profile 目录本身。"""
+    if not os.path.isfile(SUP_CONF):
+        return False
+    try:
+        text = open(SUP_CONF, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return False
+    if "[supervisord]" not in text or "[supervisorctl]" not in text:
+        return False
+    return "/plugin/supervisor/profile/" in text
+
+
+def restore_plugin_conf():
+    """主配置丢了 include 时，用插件自带的样例补回。
+
+    插件目录里那个整理配置的脚本会把正在使用的 supervisord.conf 换成空文件并删掉原文件。
+    空配置下 supervisorctl update 连不上面板正在用的守护进程，ini 写了也不会进列表。
+    这里只在主配置不完整时覆盖这一份，不删除 profile 里其它站点的 ini。
+    """
+    if plugin_conf_ok():
+        return
+    if not os.path.isfile(PLUGIN_SAMPLE):
+        die("进程守护主配置不完整，插件也没有样例配置，无法补回。没有改动其它站点的守护项。")
+    os.makedirs("/etc/supervisor", exist_ok=True)
+    shutil.copyfile(PLUGIN_SAMPLE, SUP_CONF)
+    info("已用插件样例补回进程守护主配置，其它站点的 profile 配置没有删除")
+
+
+def ensure_daemon():
+    """已经在跑就不要再起一个。两个 supervisord 会抢同一个套接字，面板列表仍看原来那一个。"""
+    if daemon_responds():
+        return True
+    subprocess.run(["systemctl", "start", "supervisord"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if daemon_responds():
+        return True
+    binary = supervisord_bin()
+    if binary == "supervisord" and not shutil.which("supervisord"):
+        return False
+    subprocess.run([binary, "-c", SUP_CONF], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(20):
+        if daemon_responds():
+            return True
+        time.sleep(0.25)
+    return False
+
+
+def drop_our_registration(program, command, workdir):
+    """删掉本站点自己的 ini 和 config.json 条目，好让插件的 AddProcess 重新登记。其它程序保留。"""
+    ini = os.path.join(PLUGIN_PROFILE, program + ".ini")
+    if os.path.isfile(ini):
+        if not command_is_ours(read_ini_command(ini), command, workdir):
+            die("进程名 %s 已被占用，且启动命令不是本站点。没有删除该配置，也没有改其它守护项。" % program)
+        os.remove(ini)
+    if not os.path.isfile(PLUGIN_CONFIG):
+        return
+    try:
+        data = json.loads(open(PLUGIN_CONFIG, encoding="utf-8").read() or "[]")
+    except (OSError, ValueError):
+        info("进程守护的 config.json 无法解析，没有改写它")
+        return
+    if not isinstance(data, list):
+        return
+    kept = [item for item in data if not (isinstance(item, dict) and item.get("program") == program)]
+    if len(kept) == len(data):
+        return
+    tmp = PLUGIN_CONFIG + ".auth-pro-tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(kept, handle, ensure_ascii=False)
+    os.replace(tmp, PLUGIN_CONFIG)
+
+
+def panel_process_rows():
+    """和面板同一个 GetProcessList。它向 /var/run/supervisor.sock 要进程表，不扫描 profile 目录。"""
+    try:
+        bootstrap()
+        plugin_dir = os.path.dirname(PLUGIN_MAIN)
+        if plugin_dir not in sys.path:
+            sys.path.insert(0, plugin_dir)
+        import supervisor_main
+
+        result = supervisor_main.supervisor_main().GetProcessList(obj())
+    except SystemExit:
+        raise
+    except Exception as exc:
+        return None, str(exc)
+    if isinstance(result, list):
+        return result, ""
+    return None, str(result)
+
+
+def wait_running(program):
+    """startsecs=3，再加几次重试。刚 update 完立刻看状态会停在 STARTING。"""
+    last = ""
+    for _ in range(20):
+        proc = run_ctl("status", program + ":")
+        last = (proc.stdout or "").strip()
+        if "RUNNING" in last:
+            return last
+        time.sleep(1)
+    return last
+
+
+def start_group(program):
+    proc = run_ctl("start", program + ":")
+    text = proc.stdout or ""
+    if "already started" in text or "RUNNING" in text:
+        return wait_running(program)
+    return wait_running(program)
+
+
+def log_tail(program):
+    path = os.path.join(PLUGIN_DIR, "log", program + ".err.log")
+    if not os.path.isfile(path):
+        path = os.path.join("/var/log/auth-pro-supervisor", program + ".err.log")
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            lines = handle.readlines()
+    except OSError:
+        return ""
+    return "".join(lines[-20:]).strip()
+
+
+def register_with_plugin(args):
+    """插件已装时只走 AddProcess。不另起 supervisord，也不调用会清空主配置的整理脚本。"""
+    load_public()
+    domain = args.domain.strip().lower()
+    command = args.command
+    workdir = args.workdir
+    program = program_name(domain)
+    if not os.path.isdir(workdir):
+        fail_guardian(program, workdir, command, "运行目录不存在：%s" % workdir)
+    restore_plugin_conf()
+    if not ensure_daemon():
+        fail_guardian(program, workdir, command, "面板的 supervisord 没有在运行，也没有拉起来。")
+    # 已有同名 ini 时 AddProcess 直接返回「已被使用」，不会 update，列表里就不会出现。
+    # 只清本站点这一条，再交给插件重新登记。
+    drop_our_registration(program, command, workdir)
+    run_ctl("update")
+    plugin_dir = os.path.dirname(PLUGIN_MAIN)
+    if plugin_dir not in sys.path:
+        sys.path.insert(0, plugin_dir)
+    import supervisor_main
+
+    try:
+        # ps 必须带上。3.0.5/3.0.6 的 AddProcess 在写完 ini 之后读取 get.ps，缺了会抛异常，config.json 来不及写入。
+        result = supervisor_main.supervisor_main().AddProcess(obj(
+            pjname=program,
+            user="www",
+            path=workdir,
+            command=command,
+            numprocs="1",
+            ps="auth-pro",
+        ))
+    except Exception as exc:
+        fail_guardian(program, workdir, command, "AddProcess 异常：%s" % exc)
+    info("AddProcess 返回：%s" % result)
+    ok = isinstance(result, dict) and result.get("status")
+    text = str(result)
+    if not ok and ("已存在" in text or "已被使用" in text):
+        # 并发或漏删时再清一次本站点，不碰其它名称。
+        drop_our_registration(program, command, workdir)
+        try:
+            result = supervisor_main.supervisor_main().AddProcess(obj(
+                pjname=program,
+                user="www",
+                path=workdir,
+                command=command,
+                numprocs="1",
+                ps="auth-pro",
+            ))
+        except Exception as exc:
+            fail_guardian(program, workdir, command, "AddProcess 异常：%s" % exc)
+        info("AddProcess 重试返回：%s" % result)
+        ok = isinstance(result, dict) and result.get("status")
+    if not ok:
+        fail_guardian(program, workdir, command, "返回值：%s" % result)
+    # 插件自己的 update 不带 -c。当前目录在面板根目录时，它会按默认顺序找配置，
+    # 连不上正在跑的守护进程，报错分支还会把 supervisord 杀掉。
+    # ini 已经写好之后，再用面板这份主配置显式 reread/update，条目才会进面板正在用的进程表。
+    if not daemon_responds() and not ensure_daemon():
+        fail_guardian(program, workdir, command, "AddProcess 之后面板的 supervisord 没有在运行。")
+    run_ctl("reread")
+    run_ctl("update")
+    status = start_group(program)
+    info("supervisorctl 状态：%s" % status)
+    if "RUNNING" not in status:
+        fail_guardian(program, workdir, command, "状态不是 RUNNING。错误日志：%s" % (log_tail(program) or "无"))
+    rows, err = panel_process_rows()
+    names = []
+    if isinstance(rows, list):
+        names = [str(item.get("program")) for item in rows if isinstance(item, dict)]
+    if program not in names:
+        fail_guardian(program, workdir, command, "面板列表里没有 %s。列表接口：%s 当前项：%s" % (program, err or "空", " ".join(names)))
+    emit("AUTH_PRO_RESULT", "ok")
+    emit("AUTH_PRO_PROGRAM", program)
+    emit("AUTH_PRO_SUP_CONF", SUP_CONF)
+    emit("AUTH_PRO_PLUGIN", "yes")
+
+
+def ensure_supervisord_package():
+    """插件没装时才用面板的 pip 装 supervisor。插件已装时不能装，否则会盖掉插件钉死的版本。"""
     binary = os.path.join(PANEL, "pyenv/bin/supervisord")
     if os.path.isfile(binary):
         return binary
     pip = btpip()
     if not pip:
         return ""
-    info("正在用面板 Python 从 PyPI 安装 supervisor")
+    info("进程守护插件未安装，改用面板 Python 从 PyPI 安装 supervisor")
     proc = subprocess.run([pip, "install", "supervisor"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if proc.returncode != 0 or not os.path.isfile(binary):
-        info(proc.stdout[-800:])
+        info((proc.stdout or "")[-800:])
         return ""
     return binary
+
+
+def write_standalone_conf():
+    """插件未装时的配置只包含本工具自己的目录，不写进插件 profile，避免以后装插件时混进别人的列表。"""
+    os.makedirs(STANDALONE_DIR, exist_ok=True)
+    os.makedirs("/var/log", exist_ok=True)
+    marker = STANDALONE_DIR + "/*.ini"
+    if os.path.isfile(SUP_CONF):
+        try:
+            text = open(SUP_CONF, encoding="utf-8", errors="replace").read()
+        except OSError:
+            text = ""
+        if marker in text and "[supervisord]" in text:
+            return
+        if text.strip() and "[supervisord]" in text and marker not in text:
+            with open(SUP_CONF, "a", encoding="utf-8") as handle:
+                handle.write("\n[include]\nfiles = %s\n" % marker)
+            return
+    os.makedirs("/etc/supervisor", exist_ok=True)
+    with open(SUP_CONF, "w", encoding="utf-8") as handle:
+        handle.write("""[unix_http_server]
+file=/var/run/supervisor.sock
+chmod=0700
+
+[supervisord]
+logfile=/var/log/supervisord.log
+pidfile=/var/run/supervisord.pid
+nodaemon=false
+
+[rpcinterface:supervisor]
+supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+
+[supervisorctl]
+serverurl=unix:///var/run/supervisor.sock
+
+[include]
+files = %s
+""" % marker)
+
+
+def write_standalone_ini(program, user, workdir, command):
+    os.makedirs(STANDALONE_DIR, exist_ok=True)
+    os.makedirs("/var/log/auth-pro-supervisor", exist_ok=True)
+    path = os.path.join(STANDALONE_DIR, program + ".ini")
+    if os.path.isfile(path) and not command_is_ours(read_ini_command(path), command, workdir):
+        die("独立守护配置 %s 的启动命令不是本站点，已停止。没有覆盖它。" % path)
+    body = "\n".join([
+        "[program:%s]" % program,
+        "command=%s" % command,
+        "directory=%s" % workdir,
+        "autorestart=true",
+        "startsecs=3",
+        "startretries=3",
+        "stdout_logfile=/var/log/auth-pro-supervisor/%s.out.log" % program,
+        "stderr_logfile=/var/log/auth-pro-supervisor/%s.err.log" % program,
+        "stdout_logfile_maxbytes=2MB",
+        "stderr_logfile_maxbytes=2MB",
+        "user=%s" % user,
+        "priority=999",
+        "numprocs=1",
+        "process_name=%(program_name)s_%(process_num)02d",
+        "",
+    ])
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(body)
+
+
+def run_user():
+    try:
+        import pwd
+        pwd.getpwnam("www")
+        return "www"
+    except KeyError:
+        return "root"
+
+
+def register_without_plugin(args):
+    """插件未装：用面板 Python 装 supervisor，由这一份 supervisord 拉起。不再 nohup。"""
+    domain = args.domain.strip().lower()
+    command = args.command
+    workdir = args.workdir
+    program = program_name(domain)
+    if not ensure_supervisord_package():
+        manual(systemd_text(domain, workdir, command), ["面板 Python 没能装上 supervisor。"])
+        emit("AUTH_PRO_RESULT", "systemd")
+        emit("AUTH_PRO_PROGRAM", program)
+        return
+    write_standalone_conf()
+    write_standalone_ini(program, run_user(), workdir, command)
+    if not ensure_daemon():
+        fail_guardian(program, workdir, command, "supervisord 没有起来。")
+    run_ctl("reread")
+    run_ctl("update")
+    status = start_group(program)
+    info("supervisorctl 状态：%s" % status)
+    if "RUNNING" not in status:
+        fail_guardian(program, workdir, command, "状态不是 RUNNING。错误日志：%s" % (log_tail(program) or "无"))
+    emit("AUTH_PRO_RESULT", "ok")
+    emit("AUTH_PRO_PROGRAM", program)
+    emit("AUTH_PRO_SUP_CONF", SUP_CONF)
+    emit("AUTH_PRO_PLUGIN", "no")
 
 
 def systemd_text(domain, workdir, command):
@@ -408,66 +803,62 @@ WantedBy=multi-user.target
 """ % (unit, unit, domain, workdir, command)
 
 
-def start_supervisord(binary):
-    conf = "/etc/supervisor/supervisord.conf"
-    os.makedirs("/etc/supervisor", exist_ok=True)
-    if not os.path.isfile(conf):
-        echo = os.path.join(PANEL, "pyenv/bin/echo_supervisord_conf")
-        if os.path.isfile(echo):
-            with open(conf, "w", encoding="utf-8") as handle:
-                subprocess.run([echo], stdout=handle, check=False)
-    plugin_conf = os.path.join(PANEL, "plugin/supervisor/config.py")
-    if os.path.isfile(plugin_conf):
-        subprocess.run([sys.executable, plugin_conf], cwd=os.path.dirname(plugin_conf), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    if subprocess.run(["pgrep", "-f", "supervisord"], stdout=subprocess.DEVNULL).returncode != 0:
-        subprocess.run([binary, "-c", conf], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-
 def add_process(args):
-    """挂上本站 start.sh。插件或 pip 不可用时打印本站点的 systemd 单元，退出码仍为 0。"""
-    load_public()
-    domain = args.domain.strip().lower()
-    command = args.command
-    workdir = args.workdir
-    plugin = os.path.join(PANEL, "plugin/supervisor/supervisor_main.py")
-    binary = ensure_supervisord()
-    if not binary or not os.path.isfile(plugin):
-        manual(systemd_text(domain, workdir, command), [])
-        emit("AUTH_PRO_RESULT", "systemd")
+    """插件已装就走 AddProcess。未装则由本脚本拉起 supervisord。两种都不 nohup。"""
+    if getattr(args, "repair", False):
+        info("重新登记本站点的进程守护。只处理本站点的 ini，不改其它站点、数据库和 Nginx。")
+    if plugin_installed():
+        register_with_plugin(args)
         return
-    start_supervisord(binary)
-    plugin_dir = os.path.dirname(plugin)
-    if plugin_dir not in sys.path:
-        sys.path.insert(0, plugin_dir)
-    try:
-        import supervisor_main
+    register_without_plugin(args)
 
-        program = "auth_pro_" + domain.split(".")[0].replace("-", "_")
-        if len(program) > 40:
-            program = program[:40]
-        result = supervisor_main.supervisor_main().AddProcess(obj(
-            pjname=program,
-            user="www",
-            path=workdir,
-            command=command,
-            numprocs="1",
-        ))
-    except Exception as exc:
-        manual(systemd_text(domain, workdir, command), [str(exc)])
-        emit("AUTH_PRO_RESULT", "systemd")
+
+def supervisor_check(args):
+    """给安装脚本核验用。标准输出仍只有 AUTH_PRO_*。"""
+    domain = args.domain.strip().lower()
+    program = program_name(domain)
+    emit("AUTH_PRO_PROGRAM", program)
+    emit("AUTH_PRO_SUP_CONF", SUP_CONF)
+    if plugin_installed():
+        emit("AUTH_PRO_PLUGIN", "yes")
+        if not daemon_responds():
+            emit("AUTH_PRO_RESULT", "stopped")
+            emit("AUTH_PRO_LIST", "")
+            emit("AUTH_PRO_CTL", "")
+            return
+        rows, err = panel_process_rows()
+        names = []
+        hit = ""
+        if isinstance(rows, list):
+            for item in rows:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("program") or "")
+                names.append(name)
+                if name == program:
+                    hit = str(item.get("runStatus") or "")
+        emit("AUTH_PRO_LIST", " ".join(names))
+        proc = run_ctl("status", program + ":")
+        emit("AUTH_PRO_CTL", (proc.stdout or "").strip())
+        if program in names and "RUNNING" in (proc.stdout or "") and hit == "RUNNING":
+            emit("AUTH_PRO_RESULT", "running")
+            return
+        if err:
+            info("面板列表接口：%s" % err)
+        emit("AUTH_PRO_RESULT", "missing" if program not in names else "stopped")
         return
-    info("AddProcess 返回：%s" % result)
-    if isinstance(result, dict) and result.get("status"):
-        emit("AUTH_PRO_RESULT", "ok")
-        emit("AUTH_PRO_PROGRAM", program)
+    emit("AUTH_PRO_PLUGIN", "no")
+    emit("AUTH_PRO_LIST", "")
+    if not daemon_responds():
+        emit("AUTH_PRO_RESULT", "stopped")
+        emit("AUTH_PRO_CTL", "")
         return
-    text = str(result)
-    if "已存在" in text or "exist" in text.lower():
-        emit("AUTH_PRO_RESULT", "ok")
-        emit("AUTH_PRO_PROGRAM", program)
+    proc = run_ctl("status", program + ":")
+    emit("AUTH_PRO_CTL", (proc.stdout or "").strip())
+    if "RUNNING" in (proc.stdout or ""):
+        emit("AUTH_PRO_RESULT", "running")
         return
-    manual(systemd_text(domain, workdir, command), ["返回值：%s" % result])
-    emit("AUTH_PRO_RESULT", "systemd")
+    emit("AUTH_PRO_RESULT", "stopped")
 
 
 def append_install_log(path, text):
@@ -568,7 +959,13 @@ def build_parser():
     proc.add_argument("--domain", required=True)
     proc.add_argument("--command", required=True)
     proc.add_argument("--workdir", required=True)
+    proc.add_argument("--repair", action="store_true")
     proc.set_defaults(func=add_process)
+
+    check = sub.add_parser("supervisor-check")
+    check.add_argument("--domain", required=True)
+    check.add_argument("--command", required=True)
+    check.set_defaults(func=supervisor_check)
 
     cert = sub.add_parser("cert")
     cert.add_argument("--domain", required=True)

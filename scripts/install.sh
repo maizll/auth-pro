@@ -29,10 +29,12 @@ install_print_help() {
   --port PORT       后端端口。不写则自动选择空闲端口
   --start           安装后启动并完成安装向导（默认）
   --no-start        只建站放文件，不启动、不创建管理员
+  --repair-guardian 修复已经装好的站点：停掉脱管进程，重新登记进程守护并拉起。不改数据库、网站文件和 Nginx
   -h, --help        显示本说明
 
 示例：
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --repair-guardian example.com
 EOF
 }
 
@@ -53,12 +55,17 @@ DOMAIN=""
 SITE_ROOT=""
 PORT=""
 START_FLAG="--start"
+REPAIR_GUARDIAN=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)
       install_print_help
       exit 0
+      ;;
+    --repair-guardian)
+      REPAIR_GUARDIAN=1
+      shift
       ;;
     --site-root)
       [[ $# -ge 2 ]] || install_die "--site-root 需要网站根目录"
@@ -122,9 +129,12 @@ if [[ -n "$PORT" ]]; then
   fi
 fi
 
-# 先看安装锁，避免为已安装站点下载整包。真正拒绝覆盖的逻辑在 baota-install.sh。
-if [[ -f "$SITE_ROOT/backend/install.lock" ]]; then
-  install_die "检测到 ${SITE_ROOT}/backend/install.lock ，站点已经安装。请改用 baota-upgrade.sh ，或在后台使用「在线更新」，以免覆盖运行数据。"
+# 先看安装锁，避免为已安装站点下载整包。修复守护是例外：它只重新登记进程，不覆盖文件。
+if [[ -f "$SITE_ROOT/backend/install.lock" && "$REPAIR_GUARDIAN" != "1" ]]; then
+  install_die "检测到 ${SITE_ROOT}/backend/install.lock ，站点已经安装。请改用 baota-upgrade.sh ，或在后台使用「在线更新」，以免覆盖运行数据。若只是进程没进宝塔进程守护，请改用 --repair-guardian。"
+fi
+if [[ "$REPAIR_GUARDIAN" == "1" && ! -f "$SITE_ROOT/backend/install.lock" ]]; then
+  install_die "没有 ${SITE_ROOT}/backend/install.lock 。修复命令只处理已经装好的站点，请去掉 --repair-guardian 再安装。"
 fi
 
 # 官网地址写死。不能用环境变量、参数或配置文件改掉。
@@ -226,6 +236,13 @@ chmod 755 "$WORKDIR/baota-install.sh" "$WORKDIR/baota-upgrade.sh" "$WORKDIR/guar
 
 if [[ -n "$DOMAIN" ]]; then
   export AUTH_PRO_PUBLIC_HOST="$DOMAIN"
+fi
+
+if [[ "$REPAIR_GUARDIAN" == "1" ]]; then
+  install_info "开始修复 ${SITE_ROOT} 的进程守护，不覆盖网站文件和数据库"
+  export AUTH_PRO_ONECLICK=1
+  bash "$WORKDIR/baota-install.sh" --repair-guardian --yes --site-root "$SITE_ROOT"
+  exit 0
 fi
 
 install_info "开始安装到 ${SITE_ROOT}"

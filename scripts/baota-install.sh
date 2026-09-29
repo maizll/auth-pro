@@ -25,6 +25,7 @@ baota_print_help() {
   --stop-port       兼容旧参数。现在安装和升级都会先停本站进程，不必再加
   --yes, -y         不再询问
   --dry-run         只打印步骤，不改网站文件
+  --repair-guardian 只修复本站点的进程守护。不停其它站点，不改数据库、网站文件和 Nginx
   -h, --help        显示本说明
 
 环境变量：
@@ -42,6 +43,9 @@ baota_print_help() {
   bash baota-install.sh \
     --site-root /www/wwwroot/example.com \
     --package /tmp/auth_pro-full-vX.Y.Z.tar.gz
+
+  bash baota-install.sh --repair-guardian --yes \
+    --site-root /www/wwwroot/example.com
 EOF
 }
 

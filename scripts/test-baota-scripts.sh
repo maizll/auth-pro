@@ -86,7 +86,14 @@ ok "bash -n"
 help_out="$("$INSTALL" --help)"
 printf '%s\n' "$help_out" | grep -q -- '--site-root' || fail "安装脚本 --help 缺少 --site-root"
 printf '%s\n' "$help_out" | grep -q 'install.lock' || fail "安装脚本 --help 未说明 install.lock"
+printf '%s\n' "$help_out" | grep -q -- '--repair-guardian' || fail "安装脚本 --help 缺少 --repair-guardian"
+"$ROOT/scripts/install.sh" --help | grep -q -- '--repair-guardian' || fail "一条命令安装 --help 缺少 --repair-guardian"
+"$ROOT/scripts/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- --repair-guardian' || fail "一条命令安装 --help 没有写死修复命令"
 "$UPGRADE" --help | grep -q -- '--skip-mysql' || fail "升级脚本 --help 缺少 --skip-mysql"
+if grep -q 'plugin/supervisor/config.py' "$ROOT/scripts/baota-panel.py"; then
+  fail "面板辅助脚本不能调用会清空主配置的整理脚本"
+fi
+grep -q '拒绝 nohup' "$LIB" || fail "面板安装失败时没有拒绝 nohup"
 "$LIB" >/tmp/baota-lib-direct.out 2>/tmp/baota-lib-direct.err && fail "直接执行 baota-lib.sh 应该失败" || true
 grep -q 'baota-install.sh' /tmp/baota-lib-direct.err || fail "直接执行 baota-lib.sh 没有提示入口脚本"
 ok "--help 与拒绝直接执行 lib"
@@ -711,7 +718,25 @@ fi
 grep -q '在线更新' "$WORKDIR/remote-locked.err" || fail "已安装时没有提示改用升级"
 SUM_AFTER="$(sha256sum "$REMOTE_SITE/index.html" | awk '{print $1}')"
 [[ "$SUM_BEFORE" == "$SUM_AFTER" ]] || fail "已安装时覆盖了站点文件"
+grep -q 'repair-guardian' "$WORKDIR/remote-locked.err" || fail "已安装时没有提示改用 --repair-guardian"
 ok "已安装站点拒绝一条命令安装"
+
+printf '#!/bin/sh\nexec sleep 3600\n' > "$REMOTE_SITE/backend/start.sh"
+chmod 755 "$REMOTE_SITE/backend/start.sh"
+cp "$REMOTE_SITE/backend/start.sh" "$REMOTE_SITE/backend/auth_pro"
+printf 'PORT=19127\nHOST=127.0.0.1\n' > "$REMOTE_SITE/backend/baota.env"
+printf '{"keep":true}\n' > "$REMOTE_SITE/backend/db.json"
+DB_BEFORE="$(sha256sum "$REMOTE_SITE/backend/db.json" | awk '{print $1}')"
+if bash "$GOOD_COPY" --repair-guardian demo.example --site-root "$REMOTE_SITE" >"$WORKDIR/remote-repair.out" 2>"$WORKDIR/remote-repair.err"; then
+  fail "没有宝塔面板时修复命令不应成功"
+fi
+grep -q '未检测到宝塔面板' "$WORKDIR/remote-repair.err" || fail "没有面板时修复命令没有说明原因"
+grep -q '安装完成' "$WORKDIR/remote-repair.out" && fail "修复失败时仍打印了安装完成"
+SUM_REPAIR="$(sha256sum "$REMOTE_SITE/index.html" | awk '{print $1}')"
+DB_AFTER="$(sha256sum "$REMOTE_SITE/backend/db.json" | awk '{print $1}')"
+[[ "$SUM_BEFORE" == "$SUM_REPAIR" ]] || fail "修复失败时改了网站首页"
+[[ "$DB_BEFORE" == "$DB_AFTER" ]] || fail "修复失败时改了 db.json"
+ok "没有面板时修复命令失败且不改网站文件"
 
 BAD_PORT="$(free_port)"
 BAD_COPY="$WORKDIR/install-bad.sh"
