@@ -18,8 +18,8 @@ func TestGitHubPaidTokenIsEncryptedAndNotEchoed(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
 	const secret = "github_pat_super_secret_value"
-	detected := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/settings/github-paid", admin, `{"token":"`+secret+`"}`)
-	if sourceBodyCode(t, detected) != 200 || !strings.Contains(detected.Body.String(), `"owner":"station"`) || !strings.Contains(detected.Body.String(), `"repo":"auth-pro-paid"`) || strings.Contains(detected.Body.String(), secret) {
+	detected := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/settings/github-paid", admin, `{"token":"`+secret+`","repo":"paid-plugins"}`)
+	if sourceBodyCode(t, detected) != 200 || !strings.Contains(detected.Body.String(), `"owner":"station"`) || !strings.Contains(detected.Body.String(), `"repo":"paid-plugins"`) || strings.Contains(detected.Body.String(), secret) {
 		t.Fatalf("token-only save: %s", detected.Body.String())
 	}
 	saved := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/settings/github-paid", admin, `{"token":"`+secret+`","owner":"station","repo":"paid-plugins"}`)
@@ -381,6 +381,10 @@ func TestDeveloperPaidPackagesUseStationRepo(t *testing.T) {
 	if err != nil || item.DeveloperID != idA || item.DownloadURL != "github:station/paid-plugins/paid-plugin-demo-plugin-1.0.0/demo-plugin-1.0.0.zip" || len(item.SHA256) != 64 {
 		t.Fatalf("plugin=%#v err=%v", item, err)
 	}
+	useAppRepoMemoryForTest(t)
+	if err := saveAppRepo(appRepoRow{AppID: 1, AppKey: "app-1", Owner: "station", Repo: "paid-plugins", Status: appRepoStatusReady, Private: true}); err != nil {
+		t.Fatal(err)
+	}
 	uploaded := sourceMultipart(t, router, "/api/v1/source/developer/packages/upload", tokenB, "demo-plugin.zip", pluginZIP, map[string]string{
 		"kind": "plugin", "category": "other", "priceCents": "800",
 	})
@@ -490,13 +494,13 @@ func TestPaidSaveFallsBackWithoutStationRepo(t *testing.T) {
 	dev := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins", devToken, `{
 		"appId":1,"id":"other-plugin","name":"另一个","version":"1.0.0","category":"other","priceCents":100,
 		"downloadUrl":"`+publicURL+`"}`)
-	if sourceBodyCode(t, dev) != 200 || !strings.Contains(dev.Body.String(), "插件草稿已保存") || strings.Contains(dev.Body.String(), "尚未配置收费仓库") || strings.Contains(dev.Body.String(), "githubOwner") {
+	if sourceBodyCode(t, dev) == 200 || !strings.Contains(dev.Body.String(), appRepoUnboundText) || strings.Contains(dev.Body.String(), "githubOwner") {
 		t.Fatalf("developer fallback: %s", dev.Body.String())
 	}
-	other, err := store.GetPlugin("other-plugin")
-	if err != nil || other.DeveloperID != devID || !strings.HasPrefix(other.DownloadURL, "paid:") {
-		t.Fatalf("developer fallback item=%#v err=%v", other, err)
+	if _, err := store.GetPlugin("other-plugin"); err == nil {
+		t.Fatal("unbound app still saved a package")
 	}
+	_ = devID
 }
 
 func TestGitHubReleaseAssetURLParse(t *testing.T) {

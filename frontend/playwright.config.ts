@@ -9,7 +9,10 @@ export default defineConfig({
   reporter: 'list',
   use: {
     baseURL: 'http://127.0.0.1:4175',
-    trace: 'retain-on-failure'
+    trace: 'retain-on-failure',
+    launchOptions: process.env.CHROME_PATH
+      ? { executablePath: process.env.CHROME_PATH, args: ['--no-sandbox'] }
+      : undefined
   },
   projects: [
     {

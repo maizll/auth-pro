@@ -367,9 +367,10 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import { ref, reactive, onMounted, computed } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
   import LicenseVersionsDialog from '@/components/core/panels/LicenseVersionsDialog.vue'
@@ -630,11 +631,11 @@
 
   async function unbindDomain(row: any) {
     try {
-      await ElMessageBox.confirm(
-        `确定解绑「${row.domain}」？解绑后需要重新绑定才能使用。`,
-        '解绑域名',
-        { type: 'warning', confirmButtonText: '解绑', cancelButtonText: '取消' }
-      )
+      await appConfirm(`确定解绑「${row.domain}」？解绑后需要重新绑定才能使用。`, '解绑域名', {
+        type: 'warning',
+        confirmButtonText: '解绑',
+        cancelButtonText: '取消'
+      })
       const { data } = await axios.put(
         `/api/user-panel/licenses/${row.id}/target`,
         { unbind: true },
@@ -746,7 +747,7 @@
 
   async function handleUnbindSite(row: any) {
     try {
-      await ElMessageBox.confirm(`确定解绑站点「${row.target}」？解绑后名额立即释放。`, '提示', {
+      await appConfirm(`确定解绑站点「${row.target}」？解绑后名额立即释放。`, '提示', {
         type: 'warning'
       })
       const { data } = await axios.delete(

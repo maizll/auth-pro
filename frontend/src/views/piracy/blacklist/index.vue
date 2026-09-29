@@ -133,8 +133,9 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import { ref, reactive, computed, onMounted } from 'vue'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import request from '@/utils/http'
   import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import RowActions from '@/components/business/row-actions/index.vue'
@@ -243,7 +244,7 @@
   }
 
   function handleRemove(row: any) {
-    ElMessageBox.confirm(
+    appConfirm(
       `确定从黑名单移除「${row.value}」？移除后该域名/IP的请求将不再自动阻断`,
       '移除确认',
       { type: 'warning' }
@@ -255,7 +256,7 @@
   }
 
   function handleBatchRemove() {
-    ElMessageBox.confirm(`确定移除选中的 ${selectedRows.value.length} 条黑名单？`, '批量移除', {
+    appConfirm(`确定移除选中的 ${selectedRows.value.length} 条黑名单？`, '批量移除', {
       type: 'warning'
     }).then(async () => {
       const ids = selectedRows.value.map((r) => r.id)

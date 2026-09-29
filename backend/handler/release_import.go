@@ -26,8 +26,7 @@ import (
 )
 
 const (
-	releaseImportDefaultPaidRepo = "maizll/auth-pro-paid"
-	releaseImportStageTTL        = 2 * time.Hour
+	releaseImportStageTTL = 2 * time.Hour
 )
 
 var releaseStageIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
@@ -52,6 +51,7 @@ type releaseImportView struct {
 	FileMd5       string `json:"fileMd5"`
 	FileSha256    string `json:"fileSha256"`
 	AssetName     string `json:"assetName"`
+	Location      string `json:"location,omitempty"`
 }
 
 // RegisterReleaseImportRoutes 挂上站长侧的导入接口。调用方自己负责登录和菜单权限。
@@ -68,22 +68,38 @@ func RegisterReleaseImportRoutes(group *gin.RouterGroup) {
 // 令牌用系统里已经保存的那一枚。连不上时返回 400，不回显令牌和仓库页面。
 func ReleaseImportList(c *gin.Context) {
 	var req struct {
-		Purpose string `json:"purpose"`
-		Repo    string `json:"repo"`
+		Purpose    string `json:"purpose"`
+		AppID      int64  `json:"appId"`
+		PriceCents int64  `json:"priceCents"`
 	}
 	_ = c.ShouldBindJSON(&req)
-	owner, repo, err := releaseImportRepo(req.Purpose, req.Repo)
+	kind := req.Purpose
+	if kind == "app" {
+		kind = "client"
+	}
+	row, prefix, err := bindingForImport(req.AppID, kind, req.PriceCents > 0 || kind == "client")
 	if err != nil {
 		apiError(c, 400, err.Error())
 		return
 	}
-	releases, err := listReleaseImportReleases(c.Request.Context(), owner, repo)
+	if appRepoBusyNow(req.AppID) {
+		apiError(c, 409, appRepoImportBusyText)
+		return
+	}
+	releases, err := listReleaseImportReleases(c.Request.Context(), row.Owner, row.Repo)
 	if err != nil {
-		apiError(c, 400, "无法读取仓库发布列表，请检查已保存的令牌")
+		apiError(c, 400, appRepoListFailText)
+		return
+	}
+	releases = filterReleasesByPrefix(releases, prefix)
+	if len(releases) == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
+			"repo": row.Owner + "/" + row.Repo, "prefix": prefix, "releases": releases, "empty": appRepoNoReleaseText,
+		}})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
-		"repo": owner + "/" + repo, "releases": releases,
+		"repo": row.Owner + "/" + row.Repo, "prefix": prefix, "releases": releases,
 	}})
 }
 
@@ -91,26 +107,61 @@ func ReleaseImportList(c *gin.Context) {
 // 返回版本号、标题、说明、大小、MD5 和 SHA256，发布前仍可改。暂存编号在保存版本时交给对应的发布接口。
 func ReleaseImportFetch(c *gin.Context) {
 	var req struct {
-		Purpose   string `json:"purpose"`
-		Repo      string `json:"repo"`
-		Tag       string `json:"tag"`
-		AssetName string `json:"assetName"`
+		Purpose    string `json:"purpose"`
+		AppID      int64  `json:"appId"`
+		PriceCents int64  `json:"priceCents"`
+		Tag        string `json:"tag"`
+		AssetName  string `json:"assetName"`
+		AppKey     string `json:"appKey"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Tag) == "" {
 		apiError(c, 400, "请选择要导入的发布")
 		return
 	}
-	owner, repo, err := releaseImportRepo(req.Purpose, req.Repo)
+	kind := req.Purpose
+	if kind == "app" {
+		kind = "client"
+	}
+	row, prefix, err := bindingForImport(req.AppID, kind, req.PriceCents > 0 || kind == "client")
 	if err != nil {
 		apiError(c, 400, err.Error())
 		return
 	}
-	view, err := fetchReleaseImportAsset(c.Request.Context(), owner, repo, strings.TrimSpace(req.Tag), strings.TrimSpace(req.AssetName))
+	if !strings.HasPrefix(strings.TrimSpace(req.Tag), prefix) {
+		apiError(c, 400, appRepoNoReleaseText)
+		return
+	}
+	if err := requireImportAppKey(c.Request.Context(), row, req.Tag, req.AppKey); err != nil {
+		apiError(c, 400, err.Error())
+		return
+	}
+	view, err := fetchReleaseImportAsset(c.Request.Context(), row.Owner, row.Repo, strings.TrimSpace(req.Tag), strings.TrimSpace(req.AssetName))
 	if err != nil {
 		apiError(c, 400, err.Error())
 		return
 	}
+	view.Location = formatGitHubPackageRef(gitHubAssetRef{Owner: row.Owner, Repo: row.Repo, Tag: strings.TrimSpace(req.Tag), Asset: view.AssetName})
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": view})
+}
+
+func requireImportAppKey(ctx context.Context, row appRepoRow, tag, appKey string) error {
+	body, err := fetchGitHubReleaseAsset(ctx, row.Owner, row.Repo, "tags/"+urlPathTag(tag), "latest.json")
+	if err != nil {
+		if strings.HasPrefix(tag, appRepoPrefixClient) {
+			return errors.New(appRepoAppKeyMissingText)
+		}
+		return nil
+	}
+	var doc struct {
+		AppKey string `json:"appKey"`
+	}
+	if json.Unmarshal(body, &doc) != nil || strings.TrimSpace(doc.AppKey) == "" {
+		return errors.New(appRepoAppKeyMissingText)
+	}
+	if appKey != "" && doc.AppKey != appKey {
+		return errors.New(appRepoAppKeyMismatchText)
+	}
+	return nil
 }
 
 // ReleaseImportProbeURL 按填写的 https 地址下载安装包，算出大小和校验值。
@@ -201,23 +252,12 @@ func ReleaseImportMaterialize(c *gin.Context) {
 func releaseImportRepo(purpose, raw string) (string, string, error) {
 	raw = strings.Trim(strings.TrimSpace(raw), "/")
 	if raw == "" {
-		if purpose == "plugin" || purpose == "template" {
-			owner, repo, _, err := loadGitHubPaidRepo()
-			if err == nil && owner != "" && repo != "" {
-				return owner, repo, nil
-			}
-			if owner, repo, ok := primaryGitHubStorageRepo(); ok {
-				return owner, repo, nil
-			}
-			raw = releaseImportDefaultPaidRepo
-		} else {
-			owner, repo, err := productUpdateRepository()
-			return owner, repo, err
-		}
+		return "", "", errors.New("这个应用还没有绑定仓库")
 	}
+	_ = purpose
 	parts := strings.Split(raw, "/")
 	if len(parts) != 2 || !sourceReleaseRepoPattern.MatchString(parts[0]) || !sourceReleaseRepoPattern.MatchString(parts[1]) {
-		return "", "", errors.New("仓库格式应为 所有者/名称")
+		return "", "", errors.New("请填写仓库，格式为 所有者/仓库")
 	}
 	return parts[0], parts[1], nil
 }

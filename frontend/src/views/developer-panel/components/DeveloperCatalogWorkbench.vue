@@ -443,10 +443,11 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import type { FormInstance, FormRules, UploadFile } from 'element-plus'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import CatalogPriceSwitchDialog from '@/views/source-station/components/CatalogPriceSwitchDialog.vue'
@@ -1235,7 +1236,7 @@
     }
     if (switchAction === 'to-free') {
       try {
-        await ElMessageBox.confirm(
+        await appConfirm(
           '改回免费后，安装包会重新提供公开下载地址。已经发给老用户的免费权益会保留。',
           '改回免费',
           { confirmButtonText: '确认改回免费', cancelButtonText: '取消', type: 'warning' }

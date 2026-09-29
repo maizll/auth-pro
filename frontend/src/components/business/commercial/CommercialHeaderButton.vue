@@ -6,7 +6,7 @@
       type="button"
       class="commercial-header-entry__hit"
       aria-label="商业版 · 待校验"
-      @click="openCommercialLicense"
+      @click="openDetail"
     >
       <span class="commercial-header-entry__pill commercial-header-entry__pill--pending">
         <ArtSvgIcon icon="ri:error-warning-line" />
@@ -19,7 +19,7 @@
       type="button"
       class="commercial-header-entry__hit"
       :aria-label="`商业版 ${term}`"
-      @click="openCommercialLicense"
+      @click="openDetail"
     >
       <span class="commercial-header-entry__pill commercial-header-entry__pill--on">
         <ArtSvgIcon icon="ri:vip-crown-2-fill" />
@@ -39,6 +39,19 @@
         <span>免费版</span>
       </span>
     </button>
+    <ElDrawer
+      v-if="narrow"
+      v-model="detailOpen"
+      direction="btt"
+      size="auto"
+      append-to-body
+      title="商业版"
+    >
+      <CommercialLicenseCard :account="account" @refreshed="onAccountRefreshed" />
+    </ElDrawer>
+    <div v-else-if="detailOpen" class="commercial-header-entry__pop">
+      <CommercialLicenseCard :account="account" @refreshed="onAccountRefreshed" />
+    </div>
   </div>
 </template>
 
@@ -46,10 +59,10 @@
   import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
   import { fetchStoreAccount, refreshStoreSnapshot, type StoreAccount } from '@/api/store'
   import { commercialHeaderTerm } from '@/utils/commercial-header-term'
+  import CommercialLicenseCard from './CommercialLicenseCard.vue'
   import {
     commercialUi,
     isCommercialActive,
-    openCommercialLicense,
     openCommercialUpgrade,
     rememberCommercialAccount
   } from '@/utils/commercial'
@@ -61,6 +74,18 @@
   const commercial = computed(() => isCommercialActive(account.value))
   const pending = computed(() => commercial.value && !!account.value?.offlineGrace)
   const term = computed(() => commercialHeaderTerm(account.value))
+  const detailOpen = ref(false)
+  const narrow = ref(false)
+
+  function openDetail() {
+    narrow.value = window.innerWidth < 768
+    detailOpen.value = !detailOpen.value
+  }
+
+  function onAccountRefreshed(next: StoreAccount) {
+    account.value = next
+    rememberCommercialAccount(next)
+  }
 
   watch(
     () => commercialUi.account,
@@ -100,9 +125,23 @@
 
 <style scoped>
   .commercial-header-entry {
+    position: relative;
     display: inline-flex;
     flex: none;
     align-items: center;
+  }
+
+  .commercial-header-entry__pop {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 30;
+    width: 420px;
+    padding: 12px;
+    background: #fff;
+    border: 1px solid #e6eaf0;
+    border-radius: 12px;
+    box-shadow: 0 16px 40px rgb(23 32 51 / 12%);
   }
 
   .commercial-header-entry__hit {

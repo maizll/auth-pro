@@ -131,12 +131,13 @@
       </el-table>
     </el-card>
 
-    <el-dialog
+    <AppDialog
       v-model="dialogVisible"
       :title="isEdit ? '编辑活动' : '新建活动'"
-      width="920px"
+      size="xl"
+      flow="long"
       destroy-on-close
-      class="campaign-dialog"
+      dialog-class="campaign-dialog"
       @closed="resetForm"
     >
       <el-form ref="formRef" :model="form" :rules="formRules" label-position="top">
@@ -322,20 +323,16 @@
           {{ isEdit ? '保存修改' : '创建活动' }}
         </el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
   </div>
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+  import AppDialog from '@/components/core/dialog/AppDialog.vue'
   import { showCaughtError } from '@/utils/http/error-toast'
-  import {
-    ElMessage,
-    ElMessageBox,
-    type FormInstance,
-    type FormRules,
-    type TagProps
-  } from 'element-plus'
+  import { ElMessage, type FormInstance, type FormRules, type TagProps } from 'element-plus'
   import {
     createPromotionCampaign,
     deletePromotionCampaign,
@@ -730,7 +727,7 @@
     const enabled = !row.enabled
     if (!enabled) {
       try {
-        await ElMessageBox.confirm(`确定禁用活动「${row.name}」？`, '禁用活动', {
+        await appConfirm(`确定禁用活动「${row.name}」？`, '禁用活动', {
           type: 'warning',
           confirmButtonText: '确认禁用'
         })
@@ -746,7 +743,7 @@
   const handleDelete = async (row: PromotionCampaignItem) => {
     if (deletingId.value !== 0) return
     try {
-      await ElMessageBox.confirm(
+      await appConfirm(
         `删除后活动「${row.name}」及其套餐优惠规则将永久移除，不再参与后续定价。历史订单中的活动定价快照不会被修改。`,
         '确认删除活动',
         {

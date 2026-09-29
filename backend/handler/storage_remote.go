@@ -67,6 +67,7 @@ func putSingleZip(ctx context.Context, loc storageLocation, secret, kind, id, ve
 		}
 		manifest := sourcePackageManifest{
 			ID: id, Version: version, Kind: kind, Name: id, Description: id + " " + version, Filename: id + "-" + version + ".zip",
+			ReleaseTag: appRepoTagFrom(ctx),
 		}
 		if _, err := pushGitHubRelease(ctx, settings, manifest, payload); err != nil {
 			if strings.Contains(err.Error(), "401") {
@@ -74,7 +75,11 @@ func putSingleZip(ctx context.Context, loc storageLocation, secret, kind, id, ve
 			}
 			return "", errors.New("上传到收费仓库失败，请检查令牌是否具备 Contents 读写权限")
 		}
-		ref := gitHubAssetRef{Owner: loc.Owner, Repo: loc.Repo, Tag: paidAssetTag(kind, id, version), Asset: paidAssetBase(kind, id, version)}
+		tag := paidAssetTag(kind, id, version)
+		if custom := appRepoTagFrom(ctx); custom != "" {
+			tag = custom
+		}
+		ref := gitHubAssetRef{Owner: loc.Owner, Repo: loc.Repo, Tag: tag, Asset: paidAssetBase(kind, id, version)}
 		if !validGitHubAssetRef(ref) {
 			return "", errors.New("收费仓库里的标签或文件名不合法")
 		}

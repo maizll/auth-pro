@@ -1,9 +1,9 @@
 <template>
-  <ElDialog
+  <AppDialog
     v-model="dialogVisible"
     :title="dialogType === 'add' ? '添加用户' : '编辑用户'"
-    width="30%"
-    align-center
+    size="md"
+    flow="short"
   >
     <ElForm ref="formRef" :model="formData" :rules="rules" label-width="80px">
       <ElFormItem label="邮箱" prop="email">
@@ -44,11 +44,12 @@
         <ElButton type="primary" :loading="submitting" @click="handleSubmit">提交</ElButton>
       </div>
     </template>
-  </ElDialog>
+  </AppDialog>
 </template>
 
 <script setup lang="ts">
   import type { FormInstance, FormRules } from 'element-plus'
+  import AppDialog from '@/components/core/dialog/AppDialog.vue'
   import request from '@/utils/http'
 
   interface Props {

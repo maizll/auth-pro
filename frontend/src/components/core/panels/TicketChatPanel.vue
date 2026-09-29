@@ -112,8 +112,9 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import { ref, computed, nextTick, onBeforeUnmount } from 'vue'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
   import {
@@ -244,7 +245,7 @@
   async function handleClose() {
     if (!ticket.value) return
     try {
-      await ElMessageBox.confirm('关闭后双方将不能继续回复，确定关闭该工单？', '关闭工单', {
+      await appConfirm('关闭后双方将不能继续回复，确定关闭该工单？', '关闭工单', {
         type: 'warning'
       })
     } catch {

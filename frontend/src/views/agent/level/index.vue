@@ -236,8 +236,9 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import type { FormInstance, FormRules } from 'element-plus'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchAgentLevelList,
@@ -529,7 +530,7 @@
 
     const action = row.enabled ? '禁用' : '启用'
     try {
-      await ElMessageBox.confirm(`确定${action}等级「${row.name}」？`, '提示', { type: 'warning' })
+      await appConfirm(`确定${action}等级「${row.name}」？`, '提示', { type: 'warning' })
       await fetchUpdateAgentLevel(row.id, {
         name: row.name,
         discount: Number(row.discount),
@@ -555,7 +556,7 @@
     }
 
     try {
-      await ElMessageBox.confirm(`删除等级「${row.name}」后不可恢复，确定继续？`, '危险操作', {
+      await appConfirm(`删除等级「${row.name}」后不可恢复，确定继续？`, '危险操作', {
         type: 'error',
         confirmButtonText: '确认删除',
         confirmButtonClass: 'el-button--danger'

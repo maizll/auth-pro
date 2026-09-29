@@ -19,6 +19,8 @@
         <template #name="{ row }">
           <div class="app-name-cell">
             <span class="app-name-cell__title">{{ row.name }}</span>
+            <span v-if="row.repo" class="app-name-cell__repo">{{ row.repo }}</span>
+            <span v-else class="app-name-cell__repo">未绑定仓库</span>
           </div>
         </template>
         <!-- 授权方式 -->
@@ -98,9 +100,33 @@
       </ArtTable>
     </ElCard>
 
-    <!-- 新增/编辑弹窗 -->
-    <ElDialog v-model="dialogVisible" :title="dialogTitle" width="640px" destroy-on-close>
-      <ElForm :model="formData" :rules="formRules" ref="formRef" label-width="150px">
+    <!-- 新增/编辑弹窗。创建时第 2 步才选仓库，编辑不出现这一步。 -->
+    <AppDialog
+      v-model="dialogVisible"
+      :title="dialogTitle"
+      size="lg"
+      flow="long"
+      destroy-on-close
+      :before-close="beforeCloseCreate"
+    >
+      <ElSteps v-if="!isEdit && !createResult" :active="step" align-center class="create-steps">
+        <ElStep title="应用" />
+        <ElStep title="仓库" />
+      </ElSteps>
+      <ElResult
+        v-if="createResult"
+        :icon="createResult.ok ? 'success' : 'info'"
+        :title="createResult.title"
+        :sub-title="createResult.sub"
+      />
+      <ElForm
+        v-else-if="isEdit || step === 0"
+        :model="formData"
+        :rules="formRules"
+        ref="formRef"
+        :label-width="narrow ? undefined : '96px'"
+        :label-position="narrow ? 'top' : 'right'"
+      >
         <ElFormItem label="应用名称" prop="name">
           <ElInput v-model="formData.name" placeholder="请输入应用名称" />
         </ElFormItem>
@@ -148,13 +174,46 @@
           <ElInput v-model="formData.remark" type="textarea" :rows="2" placeholder="可选" />
         </ElFormItem>
       </ElForm>
+      <div v-else class="repo-step">
+        <ElAlert v-if="!tokenReady" type="error" :closable="false" :title="tokenMessage" />
+        <ElRadioGroup v-model="repoAction" class="repo-choices">
+          <ElRadio value="create" border :disabled="!tokenReady">自动创建私有仓库</ElRadio>
+          <ElRadio value="bind" border :disabled="!tokenReady">绑定已有仓库</ElRadio>
+          <ElRadio value="skip" border>稍后绑定</ElRadio>
+        </ElRadioGroup>
+        <ElInput
+          v-if="repoAction !== 'skip'"
+          v-model.trim="repoName"
+          class="repo-input"
+          placeholder="所有者/仓库"
+          :disabled="!tokenReady"
+          @input="repoTouched = true"
+        />
+        <p v-if="repoHint" class="form-tip">{{ repoHint }}</p>
+      </div>
       <template #footer>
-        <ElButton @click="dialogVisible = false">取消</ElButton>
-        <ElButton type="primary" @click="handleSubmit">确定</ElButton>
+        <template v-if="createResult">
+          <ElButton @click="finishCreate">稍后处理</ElButton>
+          <ElButton v-if="!createResult.ok" type="primary" @click="retryBind">重试绑定</ElButton>
+        </template>
+        <template v-else-if="!isEdit && step === 0">
+          <ElButton @click="requestCloseCreate">取消</ElButton>
+          <ElButton type="primary" @click="goRepoStep">下一步</ElButton>
+        </template>
+        <template v-else-if="!isEdit">
+          <ElButton :disabled="saving" @click="step = 0">上一步</ElButton>
+          <ElButton type="primary" :loading="saving" @click="handleSubmit">{{
+            saving ? '正在创建…' : '创建'
+          }}</ElButton>
+        </template>
+        <template v-else>
+          <ElButton @click="dialogVisible = false">取消</ElButton>
+          <ElButton type="primary" :loading="saving" @click="handleSubmit">确定</ElButton>
+        </template>
       </template>
-    </ElDialog>
+    </AppDialog>
 
-    <ElDialog v-model="migrateVisible" title="归档应用" width="520px">
+    <AppDialog v-model="migrateVisible" title="归档应用" size="md" flow="short">
       <p v-if="migrateCount > 0">
         应用「{{ migrateSource?.name }}」下还有
         {{ migrateCount }}
@@ -207,13 +266,16 @@
           迁移并归档
         </ElButton>
       </template>
-    </ElDialog>
+    </AppDialog>
   </div>
 </template>
 
 <script setup lang="ts">
   import { useRouter } from 'vue-router'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
+  import AppDialog from '@/components/core/dialog/AppDialog.vue'
+  import { appConfirm } from '@/utils/app-confirm'
+  import { fetchAppRepoToken, suggestAppRepo } from '@/api/app-repo'
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
   import { fetchStoreAccount, type StoreAccount } from '@/api/store'
   import {
@@ -251,7 +313,20 @@
   // 弹窗相关
   const dialogVisible = ref(false)
   const isEdit = ref(false)
-  const dialogTitle = computed(() => (isEdit.value ? '编辑应用' : '新增应用'))
+  const step = ref(0)
+  const saving = ref(false)
+  const tokenReady = ref(false)
+  const tokenMessage = ref('还没有可用的令牌。请到存储管理添加。也可以先创建应用，稍后再绑定。')
+  const repoAction = ref<'create' | 'bind' | 'skip'>('skip')
+  const repoName = ref('')
+  const repoTouched = ref(false)
+  const repoHint = ref('')
+  const requestId = ref('')
+  const createResult = ref<{ ok: boolean; title: string; sub: string; appId: number } | null>(null)
+  const dialogTitle = computed(() => {
+    if (createResult.value) return '创建结果'
+    return isEdit.value ? '编辑应用' : '新增应用'
+  })
 
   const purchaseLicenseTypeOrder = ['domain', 'wildcard', 'ip', 'key'] as const
   const purchaseLicenseTypeMeta: Record<
@@ -375,6 +450,7 @@
   function appMoreActions(row: AppRow): RowActionItem[] {
     return [
       ...(narrow.value ? [{ key: 'versions', label: '版本' }] : []),
+      ...(!row.repo && !row.archived ? [{ key: 'bind', label: '绑定仓库' }] : []),
       { key: 'sdk', label: 'SDK 包' },
       { key: 'secret', label: '重置密钥', danger: true },
       row.archived
@@ -387,6 +463,9 @@
     switch (action.key) {
       case 'edit':
         handleEdit(row)
+        break
+      case 'bind':
+        router.push('/source-station/repos')
         break
       case 'versions':
         handleVersions(row)
@@ -446,6 +525,13 @@
     formData.graceDays = 7
     formData.revokeOnPasswordChange = true
     formData.commercialFeatures = 'multi_app'
+    step.value = 0
+    createResult.value = null
+    repoTouched.value = false
+    repoName.value = ''
+    repoHint.value = ''
+    requestId.value = crypto.randomUUID()
+    void loadTokenState()
     dialogVisible.value = true
   }
 
@@ -467,7 +553,76 @@
       ? [...row.purchaseLicenseTypes]
       : [...purchaseLicenseTypeOrder]
     fillCommercialForm(row)
+    step.value = 0
+    createResult.value = null
     dialogVisible.value = true
+  }
+
+  async function loadTokenState() {
+    try {
+      const token = await fetchAppRepoToken()
+      tokenReady.value = !!token?.ready
+      if (token?.message) tokenMessage.value = token.message
+    } catch {
+      tokenReady.value = false
+    }
+    repoAction.value = tokenReady.value ? 'create' : 'skip'
+  }
+
+  function createDirty() {
+    if (isEdit.value || createResult.value) return false
+    return formData.name.trim() !== '' || repoTouched.value || step.value > 0
+  }
+
+  function beforeCloseCreate(done: () => void) {
+    if (!createDirty()) {
+      done()
+      return
+    }
+    appConfirm('有未保存的更改。', '确认', {
+      confirmButtonText: '继续编辑',
+      cancelButtonText: '放弃'
+    })
+      .then(() => undefined)
+      .catch(() => done())
+  }
+
+  function requestCloseCreate() {
+    beforeCloseCreate(() => {
+      dialogVisible.value = false
+    })
+  }
+
+  async function goRepoStep() {
+    const valid = await formRef.value?.validate().catch(() => false)
+    if (!valid) return
+    if (formData.name.trim().length > 100) {
+      ElMessage.error('应用名称不能超过 100 个字符')
+      return
+    }
+    step.value = 1
+    if (!repoTouched.value && tokenReady.value) {
+      try {
+        const suggested = await suggestAppRepo(formData.name)
+        repoName.value = suggested?.repo || ''
+        repoHint.value = /[\u4e00-\u9fff]/.test(formData.name)
+          ? '应用名不能直接作为仓库名，已填入短码，可以改成自己的名字。'
+          : ''
+      } catch {
+        repoHint.value = ''
+      }
+    }
+  }
+
+  function finishCreate() {
+    dialogVisible.value = false
+    refreshData()
+  }
+
+  function retryBind() {
+    createResult.value = null
+    step.value = 1
+    if (repoAction.value === 'create') repoAction.value = 'bind'
   }
 
   const confirmCommercialSwitch = async () => {
@@ -477,7 +632,7 @@
     )
     if (!other) return true
     try {
-      await ElMessageBox.confirm(
+      await appConfirm(
         `应用「${other.name}」正在作为本站商业版出售。开启后会改到当前应用，原应用不再出售。`,
         '切换商业版产品',
         { type: 'warning', confirmButtonText: '切换', cancelButtonText: '取消' }
@@ -505,7 +660,7 @@
     }
     if (gap.code !== 'signing_key' || gap.label !== '签名密钥未生成') return
     try {
-      await ElMessageBox.confirm('尚未生成商店签名密钥。现在在本机生成？', '签名密钥', {
+      await appConfirm('尚未生成商店签名密钥。现在在本机生成？', '签名密钥', {
         type: 'warning'
       })
       await fetchEnsureStoreSnapshotKey()
@@ -519,7 +674,7 @@
     const licenseRequired = !row.licenseRequired
     if (!licenseRequired) {
       try {
-        await ElMessageBox.confirm(
+        await appConfirm(
           `关闭应用「${row.name}」的授权校验后，客户端无需许可证即可通过验证和版本检查。应用签名与启用状态校验仍然有效，是否继续？`,
           '关闭授权校验',
           {
@@ -548,11 +703,9 @@
 
   const handleResetSecret = async (row: AppRow) => {
     try {
-      await ElMessageBox.confirm(
-        `确定重置应用「${row.name}」的AppSecret？旧密钥将立即失效`,
-        '警告',
-        { type: 'warning' }
-      )
+      await appConfirm(`确定重置应用「${row.name}」的AppSecret？旧密钥将立即失效`, '警告', {
+        type: 'warning'
+      })
       const data = await fetchResetAppSecret(row.id)
       row.appSecret = data.appSecret
       ElMessage.success('密钥已重置')
@@ -638,7 +791,7 @@
 
   const handleRestore = async (row: AppRow) => {
     try {
-      await ElMessageBox.confirm(
+      await appConfirm(
         `恢复应用「${row.name}」后，可以继续往上面登记目录条目。原有授权和版本都还在。`,
         '恢复应用',
         { type: 'warning' }
@@ -669,9 +822,17 @@
   }
 
   const handleSubmit = async () => {
-    const valid = await formRef.value?.validate().catch(() => false)
-    if (!valid) return
+    if (isEdit.value || step.value === 0) {
+      const valid = await formRef.value?.validate().catch(() => false)
+      if (!valid) return
+    }
+    if (!formData.name.trim()) return
+    if (!isEdit.value && repoAction.value !== 'skip' && !repoName.value.includes('/')) {
+      ElMessage.error('请填写仓库，格式为 所有者/仓库')
+      return
+    }
 
+    saving.value = true
     try {
       if (!(await confirmCommercialSwitch())) return
       const payload = {
@@ -684,14 +845,33 @@
       if (isEdit.value) {
         const saved = await fetchUpdateLicenseApp(formData.id, payload)
         ElMessage.success(saved?.switched ? '已切换为本站商业版产品，原应用已关闭出售' : '编辑成功')
-      } else {
-        const saved = await fetchCreateLicenseApp(payload)
-        ElMessage.success(saved?.switched ? '已切换为本站商业版产品，原应用已关闭出售' : '新增成功')
+        dialogVisible.value = false
+        refreshData()
+        return
       }
+      const saved = await fetchCreateLicenseApp({
+        ...payload,
+        repoAction: repoAction.value,
+        repo: repoAction.value === 'skip' ? '' : repoName.value,
+        requestId: requestId.value
+      })
+      if (saved?.repoError) {
+        createResult.value = {
+          ok: false,
+          title: '应用已创建，仓库没有建好',
+          sub: saved.repoError,
+          appId: saved.id
+        }
+        return
+      }
+      const msg = saved?.bound ? '应用已创建，仓库已绑定' : '应用已创建'
+      ElMessage.success(saved?.switched ? '已切换为本站商业版产品，原应用已关闭出售' : msg)
       dialogVisible.value = false
       refreshData()
     } catch (e) {
       console.error('[AppManage] 提交失败:', e)
+    } finally {
+      saving.value = false
     }
   }
 
@@ -709,6 +889,28 @@
   .license-apps-page {
     .no-search-card {
       margin-top: 0;
+    }
+
+    .create-steps {
+      margin-bottom: 16px;
+    }
+
+    .repo-choices {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: stretch;
+    }
+
+    .repo-input {
+      margin-top: 12px;
+    }
+
+    .app-name-cell__repo {
+      display: block;
+      margin-top: 4px;
+      font-size: 12px;
+      color: #6b7686;
     }
 
     .version-count {

@@ -224,6 +224,7 @@
       "templates": "Catalog",
       "catalog": "Public Index",
       "ads": "Ads",
+      "repos": "Repositories",
       "storage": "Storage",
       "storageMonitor": "Storage Check",
       "storageFiles": "Package Files",

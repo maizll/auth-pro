@@ -290,8 +290,9 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import { onMounted, reactive, ref } from 'vue'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import SiteMarkdown from '@/components/site/SiteMarkdown.vue'
   import {
@@ -412,7 +413,7 @@
   }
 
   async function confirmDelete(name: string) {
-    await ElMessageBox.confirm(`确定删除「${name}」？`, '删除确认', { type: 'warning' })
+    await appConfirm(`确定删除「${name}」？`, '删除确认', { type: 'warning' })
   }
 
   async function move(

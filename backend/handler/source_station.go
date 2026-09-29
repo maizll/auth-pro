@@ -161,6 +161,7 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		admin.GET("/packages/schema", SourcePackageSchema)
 		workbenchWrites.POST("/packages/parse", AdminSourcePackageParse)
 		RegisterReleaseImportRoutes(workbenchWrites)
+		RegisterAppRepoRoutes(admin)
 		workbenchWrites.POST("/packages/publish", AdminSourcePackagePublish)
 
 		admin.GET("/advertisements", AdminSourceAdvertisements)

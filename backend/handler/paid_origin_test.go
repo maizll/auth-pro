@@ -258,12 +258,12 @@ func TestPaidHTTPSImportHiddenFromBuyers(t *testing.T) {
 	}
 	body.Store(next)
 	pulled := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins/paid-remote/pull", dev, "")
-	if sourceBodyCode(t, pulled) != 200 || !strings.Contains(pulled.Body.String(), sha256Hex(next)) || !strings.Contains(pulled.Body.String(), `"version":"1.3.0"`) {
+	if sourceBodyCode(t, pulled) == 200 || !strings.Contains(pulled.Body.String(), appRepoUnboundText) {
 		t.Fatalf("pull=%s", pulled.Body.String())
 	}
 	afterPull, err := store.GetPlugin("paid-remote")
-	if err != nil || afterPull.DownloadURL == stored.DownloadURL || afterPull.SHA256 != sha256Hex(next) {
-		t.Fatalf("pull kept old package ref: %#v err=%v", afterPull, err)
+	if err != nil || afterPull.DownloadURL != stored.DownloadURL || afterPull.SHA256 != stored.SHA256 {
+		t.Fatalf("unbound pull changed the package: %#v err=%v", afterPull, err)
 	}
 	if strings.Contains(pulled.Body.String(), stored.DownloadURL) || strings.Contains(pulled.Body.String(), afterPull.DownloadURL) {
 		t.Fatalf("pull showed storage ref: %s", pulled.Body.String())

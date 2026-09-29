@@ -43,6 +43,8 @@ type sourcePackageManifest struct {
 	Filename      string       `json:"filename"`
 	Size          int          `json:"size"`
 	ManifestPath  string       `json:"manifestPath,omitempty"`
+	// ReleaseTag 非空时按这个标签发布，用来带上 client/ 或 plugins/paid/ 这类位置前缀。
+	ReleaseTag string `json:"-"`
 }
 
 type pluginPackageJSON struct {
@@ -524,6 +526,13 @@ func formFlag(c *gin.Context, key string) bool {
 }
 
 func sourceReleaseAssetName(manifest sourcePackageManifest) string {
+	// 绑定后的标签自带位置前缀时，附件名保持原文件，避免复制核对时对不上。
+	if strings.TrimSpace(manifest.ReleaseTag) != "" {
+		name := path.Base(strings.TrimSpace(manifest.Filename))
+		if name != "" && name != "." && name != "/" {
+			return name
+		}
+	}
 	ext := ".zip"
 	if !strings.EqualFold(path.Ext(manifest.Filename), ".zip") && path.Ext(manifest.Filename) != "" {
 		ext = strings.ToLower(path.Ext(manifest.Filename))

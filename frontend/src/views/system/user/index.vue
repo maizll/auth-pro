@@ -41,12 +41,13 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import { useTable } from '@/hooks/core/useTable'
   import { fetchDeleteUser, fetchGetUserList } from '@/api/system-manage'
   import UserSearch from './modules/user-search.vue'
   import UserDialog from './modules/user-dialog.vue'
-  import { ElTag, ElMessage, ElMessageBox } from 'element-plus'
+  import { ElTag, ElMessage } from 'element-plus'
   import request from '@/utils/http'
   import { showCaughtError } from '@/utils/http/error-toast'
   import { DialogType } from '@/types'
@@ -230,7 +231,7 @@
    */
   const deleteUser = async (row: UserListItem): Promise<void> => {
     try {
-      await ElMessageBox.confirm(
+      await appConfirm(
         `确定要删除用户“${row.userName || row.userEmail}”吗？此操作不可恢复！`,
         '删除用户',
         {

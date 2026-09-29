@@ -65,7 +65,6 @@ export const catalogPurchaseResumeEvent = 'catalog-purchase-resume'
 export const commercialUi = reactive({
   upgradeOpen: false,
   promptOpen: false,
-  licenseOpen: false,
   rebindRequired: false,
   promptText: '',
   feature: '',
@@ -77,7 +76,6 @@ export const commercialUi = reactive({
 export function noteStoreRebind(data: unknown) {
   if (!storePayloadRebind(data)) return false
   commercialUi.rebindRequired = true
-  commercialUi.licenseOpen = false
   commercialUi.promptOpen = false
   commercialUi.upgradeOpen = true
   return true
@@ -118,7 +116,6 @@ export function commercialText(feature?: string, fallback?: string) {
 
 export function openCommercialUpgrade() {
   commercialUi.offer = null
-  commercialUi.licenseOpen = false
   commercialUi.upgradeOpen = true
 }
 
@@ -134,7 +131,6 @@ export function openCatalogPurchase(offer: CatalogPurchaseOffer) {
   }
   commercialUi.offer = offer
   commercialUi.promptOpen = false
-  commercialUi.licenseOpen = false
   commercialUi.upgradeOpen = true
 }
 
@@ -152,11 +148,6 @@ export function catalogCardBuyLabel(cents?: number) {
 export function requestCatalogResume(offer: CatalogPurchaseOffer) {
   if (typeof window === 'undefined') return
   window.dispatchEvent(new CustomEvent(catalogPurchaseResumeEvent, { detail: offer }))
-}
-
-export function openCommercialLicense() {
-  commercialUi.upgradeOpen = false
-  commercialUi.licenseOpen = true
 }
 
 /** 套餐时长只显示中文，不把接口里的英文代号露到界面上。 */

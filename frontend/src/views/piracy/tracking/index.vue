@@ -210,8 +210,9 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import { ref, reactive, onMounted } from 'vue'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import request from '@/utils/http'
 
   const loading = ref(false)
@@ -316,11 +317,9 @@
   }
 
   function handleBlock(row: any) {
-    ElMessageBox.confirm(
-      `确定将「${row.domain}」加入黑名单？将立即阻断所有来自该域名的请求`,
-      '拉黑确认',
-      { type: 'warning' }
-    ).then(async () => {
+    appConfirm(`确定将「${row.domain}」加入黑名单？将立即阻断所有来自该域名的请求`, '拉黑确认', {
+      type: 'warning'
+    }).then(async () => {
       await request.put<any>({ url: `/api/piracy/tracking/${row.id}/block` })
       ElMessage.success(`已拉黑 ${row.domain}`)
       handleSearch()
@@ -329,7 +328,7 @@
   }
 
   function handleUnblock(row: any) {
-    ElMessageBox.confirm(`确定将「${row.domain}」从黑名单移除？`, '解黑确认', {
+    appConfirm(`确定将「${row.domain}」从黑名单移除？`, '解黑确认', {
       type: 'info'
     }).then(async () => {
       await request.put<any>({ url: `/api/piracy/tracking/${row.id}/unblock` })
@@ -340,7 +339,7 @@
   }
 
   function handleBatchBlock() {
-    ElMessageBox.confirm(`确定批量拉黑选中的 ${selectedRows.value.length} 条记录？`, '批量拉黑', {
+    appConfirm(`确定批量拉黑选中的 ${selectedRows.value.length} 条记录？`, '批量拉黑', {
       type: 'warning'
     }).then(async () => {
       const ids = selectedRows.value.map((r) => r.id)

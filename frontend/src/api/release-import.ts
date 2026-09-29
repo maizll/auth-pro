@@ -21,17 +21,29 @@ export interface ReleaseImportResult {
   assetName: string
 }
 
-export function fetchReleaseImports(apiBase: string, purpose: string, repo: string) {
-  return request.post<{ repo: string; releases: ReleaseImportItem[] }>({
+export function fetchReleaseImports(
+  apiBase: string,
+  purpose: string,
+  appId: number,
+  priceCents = 0
+) {
+  return request.post<{ repo: string; releases: ReleaseImportItem[]; empty?: string }>({
     url: `${apiBase}/releases`,
-    data: { purpose, repo },
+    data: { purpose, appId, priceCents },
     showSuccessMessage: false
   })
 }
 
 export function fetchReleaseAsset(
   apiBase: string,
-  data: { purpose: string; repo: string; tag: string; assetName: string }
+  data: {
+    purpose: string
+    appId: number
+    priceCents?: number
+    appKey?: string
+    tag: string
+    assetName: string
+  }
 ) {
   return request.post<ReleaseImportResult>({
     url: `${apiBase}/fetch`,

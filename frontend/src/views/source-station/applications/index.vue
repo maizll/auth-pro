@@ -83,8 +83,9 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm, appPrompt } from '@/utils/app-confirm'
   import { onMounted, ref } from 'vue'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import {
     approveSourceApplication,
     cancelSourceDeveloper,
@@ -121,7 +122,7 @@
   }
 
   async function handleApprove(row: SourceApplication) {
-    await ElMessageBox.confirm(
+    await appConfirm(
       `通过 ${row.displayName || row.username} 的入驻申请？通过后该代理商可使用同一账号进入开发者端。`,
       '通过入驻',
       {
@@ -136,7 +137,7 @@
   }
 
   async function promptNote(title: string) {
-    const { value } = await ElMessageBox.prompt('请填写原因', title, {
+    const { value } = await appPrompt('请填写原因', title, {
       inputPlaceholder: '审核说明',
       confirmButtonText: '确定',
       cancelButtonText: '返回'
@@ -152,7 +153,7 @@
   }
 
   async function handleCancelDev(row: SourceDeveloper) {
-    await ElMessageBox.confirm(
+    await appConfirm(
       `确认取消并删除「${row.username}」的开发者资格？代理商账号保留，可重新申请入驻。已发布的插件/模板仍保留原归属。`,
       '取消开发者资格',
       {

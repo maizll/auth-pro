@@ -37,7 +37,8 @@
 </template>
 
 <script setup lang="ts">
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { appConfirm } from '@/utils/app-confirm'
+  import { ElMessage } from 'element-plus'
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchVerifyLogList,
@@ -135,7 +136,7 @@
    */
   const handleClear = async () => {
     try {
-      await ElMessageBox.confirm('确定清空所有验证日志？此操作不可撤销', '警告', { type: 'error' })
+      await appConfirm('确定清空所有验证日志？此操作不可撤销', '警告', { type: 'error' })
       await fetchClearVerifyLogs()
       ElMessage.success('日志已清空')
       refreshData()

@@ -52,6 +52,16 @@ export const sourceStationRoutes: AppRouteRecord = {
       }
     },
     {
+      path: 'repos',
+      name: 'SourceStationRepos',
+      component: '/source-station/repos',
+      meta: {
+        title: 'menus.sourceStation.repos',
+        icon: 'ri:git-repository-line',
+        keepAlive: true
+      }
+    },
+    {
       path: 'storage',
       name: 'SourceStationStorage',
       component: '/source-station/storage',

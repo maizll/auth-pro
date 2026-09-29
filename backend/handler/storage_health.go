@@ -78,6 +78,7 @@ func checkStorageLocations(ctx context.Context) {
 			Target: copy.ItemID + "@" + copy.Version, Message: text,
 		})
 	}
+	rows = append(rows, appRepoHealthRows(ctx)...)
 	blob.Health = rows
 	blob.CheckedAt = time.Now().UTC()
 	_ = saveStorageBlob(blob)
