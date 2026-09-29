@@ -64,13 +64,18 @@ Write-Host "[2/5] Preparing package directories..."
 $PackageBackendDir = Join-Path $PackageDir 'backend'
 New-Item -ItemType Directory -Force -Path $PackageBackendDir | Out-Null
 Copy-Item -Path (Join-Path $FrontendDist '*') -Destination $PackageDir -Recurse -Force
-foreach ($BaotaScript in @('baota-install.sh', 'baota-upgrade.sh', 'baota-lib.sh', 'install.sh', 'baota-panel.py')) {
-  $BaotaSource = Join-Path $Root "scripts/$BaotaScript"
-  if (-not (Test-Path -LiteralPath $BaotaSource)) {
-    throw "Missing Baota script: $BaotaSource"
+foreach ($PackagedScript in @('install.sh', 'baota-panel.py')) {
+  $PackagedSource = Join-Path $Root "scripts/$PackagedScript"
+  if (-not (Test-Path -LiteralPath $PackagedSource)) {
+    throw "Missing packaged script: $PackagedSource"
   }
-  Copy-Item -LiteralPath $BaotaSource -Destination (Join-Path $PackageDir $BaotaScript) -Force
+  Copy-Item -LiteralPath $PackagedSource -Destination (Join-Path $PackageDir $PackagedScript) -Force
 }
+$GuardianSource = Join-Path $Root 'backend/handler/guardian_start.sh'
+if (-not (Test-Path -LiteralPath $GuardianSource)) {
+  throw "Missing guardian start script: $GuardianSource"
+}
+Copy-Item -LiteralPath $GuardianSource -Destination (Join-Path $PackageDir 'guardian-start.sh') -Force
 
 $BackendStaticDir = Join-Path $BackendDir 'static'
 if ($BackendStaticDir -notlike "$Root*") {

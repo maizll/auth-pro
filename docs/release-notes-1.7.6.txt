@@ -1,0 +1,10 @@
+auth-pro 1.7.6
+
+- 宝塔已装进程守护插件时，安装通过插件登记本站点，由面板的 supervisord 拉起并显示在进程守护列表里。
+- 安装不再清空 supervisord 主配置，也不删除其它站点的守护配置或留下脱管进程。
+- 守护没有真正拉起本站点时直接报错并给出手工添加说明，不再显示安装完成。
+- 已装站点可用 install.sh --repair-guardian 只修复本站点守护，不改数据库、网站文件和 Nginx。
+- 安装结束打印管理后台 /admin 地址，自动生成的管理员密码改为 8 位数字并提示登录后修改。
+- 管理员账号或密码为空时安装直接失败，不再写入空密码。
+- 已装站点可由 root 执行 install.sh --reset-admin-password 重设管理员密码。
+- 安装、升级、修复和重设密码合并为一个 install.sh，发布包只带 install.sh、baota-panel.py 和 guardian-start.sh。

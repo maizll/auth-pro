@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"errors"
 	"net/http"
+	"strings"
 
 	"auto_pro/config"
 
@@ -164,6 +165,14 @@ func InstallCreateAdmin(c *gin.Context) {
 		return
 	}
 
+	// 账号或密码没送到时不能当成安装成功。空字符串也能做出 bcrypt，
+	// 接口仍会返回 200，但打印出来的密码永远登不进后台。
+	adminUsername := strings.TrimSpace(req.AdminUsername)
+	if adminUsername == "" || strings.TrimSpace(req.AdminPassword) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "请填写管理员账号和密码"})
+		return
+	}
+
 	// 插入默认角色（先建角色，管理员需要引用 role_id=1）
 	_, _ = db.Exec(`INSERT IGNORE INTO roles (id, role_name, role_code, description, discount, enabled) VALUES
 		(1, '超级管理员', 'R_SUPER', '系统超级管理员，拥有所有权限', 10.0, 1),
@@ -182,7 +191,7 @@ func InstallCreateAdmin(c *gin.Context) {
 	// 插入管理员
 	_, err = db.Exec(
 		"INSERT INTO admins (username, password_hash, nickname, role_id, enabled) VALUES (?, ?, '超级管理员', 1, 1)",
-		req.AdminUsername, string(hash),
+		adminUsername, string(hash),
 	)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "message": "创建管理员失败: " + err.Error()})

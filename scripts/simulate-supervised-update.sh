@@ -644,7 +644,7 @@ grep -q 'orphan-new-index' "$ORPHAN_SITE/index.html" || fail "孤儿更新后前
 printf '%s\n' "$ORPHAN_RESULT" > "$ART/orphan-online-job.json"
 ok "在线更新清掉 PPID=1 的旧进程并由守护启动新版"
 
-# 不响应的孤儿：占着端口、忽略 SIGTERM。baota-upgrade.sh 要 SIGKILL 它，再由守护启动新版。
+# 不响应的孤儿：占着端口、忽略 SIGTERM。install.sh upgrade 要 SIGKILL 它，再由守护启动新版。
 HUNG_PORT="$(free_port)"
 HUNG_SITE="$WORK/orphan-upgrade/site"
 write_site "$HUNG_SITE" "$HUNG_PORT" "9" supervisor "$WORK/auth_pro_1.5.7"
@@ -710,7 +710,7 @@ printf '{"version":"1.5.8","frontendDir":".","backendFile":"backend/auth_pro","r
 printf 'asset-new\n' > "$UP_PAYLOAD/assets/app.js"
 cp "$WORK/backend-unavailable.html" "$UP_PAYLOAD/backend-unavailable.html"
 AUTH_PRO_TERM_WAIT=3 AUTH_PRO_YES=1 AUTH_PRO_START=1 AUTH_PRO_SKIP_MYSQL=1 \
-  bash "$ROOT/scripts/baota-upgrade.sh" \
+  bash "$ROOT/scripts/install.sh" upgrade \
     --site-root "$HUNG_SITE" \
     --source "$UP_PAYLOAD" >"$ART/orphan-upgrade.out" 2>"$ART/orphan-upgrade.err"
 grep -q 'SIGKILL' "$ART/orphan-upgrade.out" "$ART/orphan-upgrade.err" || fail "升级没有在超时后 SIGKILL 不响应的孤儿"
@@ -729,7 +729,7 @@ kill -0 "$KEEP_PID" 2>/dev/null || fail "升级误杀了其它站点"
 curl -fsS --max-time 1 "http://127.0.0.1:${KEEP_PORT}/" >/dev/null || fail "其它站点不再响应"
 grep -q 'upgrade-new' "$HUNG_SITE/index.html" || fail "升级没有换上新页面"
 supervisorctl -c "$SUP_CONF" stop auth_pro >/dev/null 2>&1 || true
-ok "baota-upgrade 清掉不响应的孤儿并由守护启动新版"
+ok "install.sh upgrade 清掉不响应的孤儿并由守护启动新版"
 
 # nginx：后端端口没有进程时，502 返回静态说明页。
 NGINX_PORT="$(free_port)"

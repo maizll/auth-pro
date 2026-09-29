@@ -253,6 +253,31 @@ func TestInstallInitTablesStillBuildsEmptyDatabase(t *testing.T) {
 	}
 }
 
+func TestInstallCreateAdminRejectsMissingPassword(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	dir := t.TempDir()
+	t.Setenv("AUTO_PRO_DATA_DIR", dir)
+	t.Setenv("AUTO_PRO_DB_HOST", "127.0.0.1")
+	t.Setenv("AUTO_PRO_DB_NAME", "authpro")
+	t.Setenv("AUTO_PRO_DB_USER", "root")
+	t.Setenv("AUTO_PRO_DB_PASSWORD", "secret")
+	state := &installProbeState{counts: map[string]int{"admins": 0}}
+	useInstallProbeDB(t, state)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = installJSONRequest(http.MethodPost, "/api/install/create-admin", `{"adminUsername":"admin"}`)
+	InstallCreateAdmin(ctx)
+
+	if recorder.Code != http.StatusBadRequest || decodeInstallCode(t, recorder) != http.StatusBadRequest {
+		t.Fatalf("missing password status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertNoInstallExec(t, state, "INSERT INTO admins")
+	if config.IsInstalled() {
+		t.Fatal("missing password still wrote install.lock")
+	}
+}
+
 func TestInstallCreateAdminStillCreatesFirstAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	dir := t.TempDir()

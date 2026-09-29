@@ -56,8 +56,8 @@ func TestPublicInstallRouteServesScriptFromPackage(t *testing.T) {
 	if strings.Contains(string(script), "AUTH_PRO_UPDATE_BASE") {
 		t.Fatal("scripts/install.sh can retarget the official site")
 	}
-	if !strings.Contains(string(script), "https://auth.maizll.com/api/v1/update/latest.json") || !strings.Contains(string(script), "baota-install.sh") {
-		t.Fatal("scripts/install.sh does not download the official package or reuse baota-install.sh")
+	if !strings.Contains(string(script), "https://auth.maizll.com/api/v1/update/latest.json") || !strings.Contains(string(script), `bash "$WORKDIR/install.sh"`) {
+		t.Fatal("scripts/install.sh does not download the official package or re-exec the packaged install.sh")
 	}
 	if !strings.Contains(string(script), "https://auth.maizll.com/api/v1/update/package/") || !installScriptPinsOfficialOrigin(script) {
 		t.Fatal("scripts/install.sh does not pin the official package URL")

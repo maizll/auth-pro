@@ -18,12 +18,11 @@ auth_pro-full-v1.5.0.tar.gz
 │   └── auth_pro
 ├── manifest.json
 ├── install.sh
-├── baota-install.sh
-├── baota-upgrade.sh
-└── baota-lib.sh
+├── baota-panel.py
+└── guardian-start.sh
 ```
 
-`install.sh` 打在包根，供官网从当前已发布的安装包里读出并挂在 `/install.sh`。客户站点安装时不会把这个文件复制到网站根。
+`install.sh` 打在包根，供官网从当前已发布的安装包里读出并挂在 `/install.sh`。它是客户唯一入口：安装、`upgrade`、`--repair-guardian`、`--reset-admin-password` 都走这一份。`baota-panel.py` 只由 `install.sh` 调用，用来登记宝塔进程守护。`guardian-start.sh` 是启动模板，安装时写成网站目录里的 `backend/start.sh`。构建、检查和发布脚本不打进这个包。客户站点安装时不会把 `install.sh` 复制到网站根；若把压缩包直接解压在网站根，Nginx 片段会拦截这几个脚本地址。
 
 ## 必须遵守
 
@@ -49,9 +48,8 @@ auth_pro-full-v1.5.0.tar.gz
 │   └── auth_pro
 ├── manifest.json
 ├── install.sh
-├── baota-install.sh
-├── baota-upgrade.sh
-└── baota-lib.sh
+├── baota-panel.py
+└── guardian-start.sh
 ```
 
 这样浏览器请求 `/assets/index-xxxx.js` 时会命中真实文件，不会 fallback 到 `index.html`。
@@ -67,16 +65,16 @@ auth_pro-full-v1.5.0.tar.gz
 ```bash
 cd /www/wwwroot/example.com
 tar -xzf auth_pro-full-vX.Y.Z.tar.gz
-bash baota-install.sh
+bash install.sh
 ```
 
 已有站点升级。不要先把新包解压覆盖正在运行的目录。1.5.7 起，守护仍在托管本进程时用新包里的脚本加 `--start`，脚本会替换文件后只结束本站进程。也可以先在「进程守护」里停止本站点，再执行 `--no-start`：
 
 ```bash
-bash baota-upgrade.sh \
+bash install.sh upgrade \
   --site-root /www/wwwroot/example.com \
   --package /tmp/auth_pro-full-vX.Y.Z.tar.gz \
-  --stop-port --no-start
+  --no-start
 ```
 
 脚本会把运行数据拷到 `backend/updates/backups/baota-upgrade-<时间>-<pid>/`，能连上数据库时再用 `mysqldump` 导出 `db.sql`。替换的是页面、`assets/` 和 `backend/auth_pro`，并把它设为 `755`。
@@ -94,7 +92,7 @@ Nginx 反代到 `127.0.0.1:19127`，并把 `backend/baota-nginx.snippet.conf` �
 
 ## 版本号单一信源
 
-仓库根目录 `VERSION`（当前 `1.7.5`）是产品线默认版本：
+仓库根目录 `VERSION`（当前 `1.7.6`）是产品线默认版本：
 
 - 后端 `auto_pro/config.AppVersion` 仓库默认与 `VERSION` 一致；`./scripts/build-release.sh` / `.ps1` 无参数时读该文件，并用 `-ldflags` 注入 `AppVersion` / `BuildTime`。
 - 前端 `VITE_VERSION` 与 `vite.config.ts` 的 `version.json` 同样对齐 `VERSION`；发布脚本会把参数版本写入 `VITE_VERSION`。
