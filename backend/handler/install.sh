@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # 客户唯一入口，仓库里也只有这一份：backend/handler/install.sh。
 # 服务端用 go:embed 原样下发为官网 /install.sh，构建不再复制第二份。
+# 不带参数时显示编号菜单，从 /dev/tty 读输入，兼容 curl | bash。带参数的命令保持原样。
 # 发布包里没有本文件。面板辅助脚本和启动模板从官网安装包里取。官网地址写死，不能用环境变量改掉。
+# 菜单只用蓝、绿、红和终端默认色。
 set -euo pipefail
 
 # 管道执行（curl | bash -s）时没有脚本文件，BASH_SOURCE 为空。面板辅助脚本改从安装包取。
@@ -86,6 +88,96 @@ install_extract_member() {
     return 0
   fi
   install_die "安装包里缺少 ${name}"
+}
+
+# 下载并核对官网安装包，取出 baota-panel.py 和 guardian-start.sh。不执行包里的安装脚本。
+# 结果放在 PKG_FILE 和 BAOTA_PAYLOAD。菜单里改端口、卸载时也会用到面板辅助脚本。
+install_fetch_helpers() {
+  local MANIFEST PARSED VERSION SHA SIGNATURE SIZE PKG_URL PKG_NAME EXPECT_URL WORKDIR
+  local ACTUAL_SIZE ACTUAL_SHA
+  command -v curl >/dev/null 2>&1 || install_die "缺少 curl，无法下载安装包"
+  command -v python3 >/dev/null 2>&1 || install_die "缺少 python3，无法读取版本清单"
+  command -v tar >/dev/null 2>&1 || install_die "缺少 tar，无法解开安装包"
+  install_info "正在从官网获取最新版本"
+  if ! MANIFEST="$(curl -q -fsSL --proto '=https' --max-time 60 "https://auth.maizll.com/api/v1/update/latest.json")"; then
+    install_die "无法从官网获取最新版本"
+  fi
+  if ! PARSED="$(printf '%s' "$MANIFEST" | python3 -c '
+import json
+import sys
+data = json.load(sys.stdin)
+pkg = data.get("package") or {}
+
+def clean(value):
+    text = "" if value is None else str(value)
+    if "\n" in text or "\r" in text:
+        raise SystemExit(2)
+    return text
+
+version = clean(data.get("version")).lstrip("v")
+sha = clean(pkg.get("sha256") or data.get("sha256")).lower()
+sig = clean(pkg.get("signature"))
+url = clean(pkg.get("url") or data.get("url"))
+name = clean(pkg.get("fileName") or "")
+size = pkg.get("size")
+if size is None:
+    size = data.get("size") or 0
+try:
+    size = int(size)
+except (TypeError, ValueError):
+    size = 0
+sys.stdout.write("\n".join([version, sha, sig, str(size), url, name]) + "\n")
+')"; then
+    install_die "无法读取官网版本清单"
+  fi
+  local FIELDS
+  mapfile -t FIELDS <<< "$PARSED"
+  if [[ "${#FIELDS[@]}" -lt 6 ]]; then
+    install_die "无法读取官网版本清单"
+  fi
+  VERSION="${FIELDS[0]}"
+  SHA="${FIELDS[1]}"
+  SIGNATURE="${FIELDS[2]}"
+  SIZE="${FIELDS[3]}"
+  PKG_URL="${FIELDS[4]}"
+  PKG_NAME="${FIELDS[5]}"
+  [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || install_die "版本号不正确"
+  [[ "$SHA" =~ ^[a-f0-9]{64}$ ]] || install_die "清单里的 SHA256 不正确"
+  [[ "$SIGNATURE" == "sha256:${SHA}" ]] || install_die "安装包签名与 SHA256 不一致"
+  [[ "$PKG_NAME" == "auth_pro-full-v${VERSION}.tar.gz" ]] || install_die "安装包文件名与版本不一致"
+  EXPECT_URL="https://auth.maizll.com/api/v1/update/package/${VERSION}"
+  [[ "$PKG_URL" == "$EXPECT_URL" ]] || install_die "清单里的下载地址不是官网更新接口"
+  [[ "$SIZE" =~ ^[0-9]+$ ]] || install_die "清单里的安装包大小不正确"
+  if [[ "$SIZE" -gt 536870912 ]]; then
+    install_die "安装包超过 512MB 上限，已停止安装"
+  fi
+  WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/auth-pro-install.XXXXXX")"
+  INSTALL_DOWNLOAD_DIR="$WORKDIR"
+  PKG_FILE="$WORKDIR/$PKG_NAME"
+  install_info "最新版本 ${VERSION}，开始下载安装包"
+  if ! curl -q -fsSL --proto '=https' --retry 2 --retry-delay 1 --max-time 600 -o "$PKG_FILE" "$EXPECT_URL"; then
+    install_die "安装包下载失败，已停止安装"
+  fi
+  ACTUAL_SIZE="$(stat -c '%s' "$PKG_FILE" 2>/dev/null || stat -f '%z' "$PKG_FILE")"
+  if [[ "$ACTUAL_SIZE" -gt 536870912 ]]; then
+    install_die "安装包超过 512MB 上限，已停止安装"
+  fi
+  if [[ "$SIZE" -gt 0 && "$ACTUAL_SIZE" != "$SIZE" ]]; then
+    install_die "安装包大小与清单不一致，已停止安装"
+  fi
+  install_info "正在核对 SHA256 和签名"
+  ACTUAL_SHA="$(install_sha256 "$PKG_FILE")"
+  [[ "$ACTUAL_SHA" == "$SHA" ]] || install_die "安装包 SHA256 不一致，已停止安装"
+  LISTING="$(tar -tzf "$PKG_FILE")"
+  install_package_has "$LISTING" "baota-panel.py" || install_die "安装包里缺少 baota-panel.py"
+  install_package_has "$LISTING" "guardian-start.sh" || install_die "安装包里缺少 guardian-start.sh"
+  install_package_has "$LISTING" "backend/auth_pro" || install_die "安装包里缺少 backend/auth_pro"
+  HELPERS="$WORKDIR/helpers"
+  mkdir -p "$HELPERS"
+  install_extract_member "$PKG_FILE" "$HELPERS" "$LISTING" "baota-panel.py"
+  install_extract_member "$PKG_FILE" "$HELPERS" "$LISTING" "guardian-start.sh"
+  chmod 755 "$HELPERS/guardian-start.sh"
+  BAOTA_PAYLOAD="$HELPERS"
 }
 
 # 下载并核对官网安装包，然后用当前这份脚本安装或升级。
@@ -188,96 +280,8 @@ install_download_and_continue() {
     install_die "没有 ${SITE_ROOT}/backend/install.lock 。重设密码只处理已经装好的站点，请去掉 --reset-admin-password 再安装。"
   fi
 
-  command -v curl >/dev/null 2>&1 || install_die "缺少 curl，无法下载安装包"
-  command -v python3 >/dev/null 2>&1 || install_die "缺少 python3，无法读取版本清单"
-  command -v tar >/dev/null 2>&1 || install_die "缺少 tar，无法解开安装包"
-
-  local MANIFEST PARSED VERSION SHA SIGNATURE SIZE PKG_URL PKG_NAME EXPECT_URL WORKDIR PKG_FILE
-  local ACTUAL_SIZE ACTUAL_SHA LISTING HELPERS ARGS
-  install_info "正在从官网获取最新版本"
-  if ! MANIFEST="$(curl -q -fsSL --proto '=https' --max-time 60 "https://auth.maizll.com/api/v1/update/latest.json")"; then
-    install_die "无法从官网获取最新版本"
-  fi
-  if ! PARSED="$(printf '%s' "$MANIFEST" | python3 -c '
-import json
-import sys
-data = json.load(sys.stdin)
-pkg = data.get("package") or {}
-
-def clean(value):
-    text = "" if value is None else str(value)
-    if "\n" in text or "\r" in text:
-        raise SystemExit(2)
-    return text
-
-version = clean(data.get("version")).lstrip("v")
-sha = clean(pkg.get("sha256") or data.get("sha256")).lower()
-sig = clean(pkg.get("signature"))
-url = clean(pkg.get("url") or data.get("url"))
-name = clean(pkg.get("fileName") or "")
-size = pkg.get("size")
-if size is None:
-    size = data.get("size") or 0
-try:
-    size = int(size)
-except (TypeError, ValueError):
-    size = 0
-sys.stdout.write("\n".join([version, sha, sig, str(size), url, name]) + "\n")
-')"; then
-    install_die "无法读取官网版本清单"
-  fi
-  local FIELDS
-  mapfile -t FIELDS <<< "$PARSED"
-  if [[ "${#FIELDS[@]}" -lt 6 ]]; then
-    install_die "无法读取官网版本清单"
-  fi
-  VERSION="${FIELDS[0]}"
-  SHA="${FIELDS[1]}"
-  SIGNATURE="${FIELDS[2]}"
-  SIZE="${FIELDS[3]}"
-  PKG_URL="${FIELDS[4]}"
-  PKG_NAME="${FIELDS[5]}"
-  [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || install_die "版本号不正确"
-  [[ "$SHA" =~ ^[a-f0-9]{64}$ ]] || install_die "清单里的 SHA256 不正确"
-  [[ "$SIGNATURE" == "sha256:${SHA}" ]] || install_die "安装包签名与 SHA256 不一致"
-  [[ "$PKG_NAME" == "auth_pro-full-v${VERSION}.tar.gz" ]] || install_die "安装包文件名与版本不一致"
-  EXPECT_URL="https://auth.maizll.com/api/v1/update/package/${VERSION}"
-  [[ "$PKG_URL" == "$EXPECT_URL" ]] || install_die "清单里的下载地址不是官网更新接口"
-  [[ "$SIZE" =~ ^[0-9]+$ ]] || install_die "清单里的安装包大小不正确"
-  if [[ "$SIZE" -gt 536870912 ]]; then
-    install_die "安装包超过 512MB 上限，已停止安装"
-  fi
-
-  WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/auth-pro-install.XXXXXX")"
-  INSTALL_DOWNLOAD_DIR="$WORKDIR"
-  PKG_FILE="$WORKDIR/$PKG_NAME"
-  install_info "最新版本 ${VERSION}，开始下载安装包"
-  if ! curl -q -fsSL --proto '=https' --retry 2 --retry-delay 1 --max-time 600 -o "$PKG_FILE" "$EXPECT_URL"; then
-    install_die "安装包下载失败，已停止安装"
-  fi
-  ACTUAL_SIZE="$(stat -c '%s' "$PKG_FILE" 2>/dev/null || stat -f '%z' "$PKG_FILE")"
-  if [[ "$ACTUAL_SIZE" -gt 536870912 ]]; then
-    install_die "安装包超过 512MB 上限，已停止安装"
-  fi
-  if [[ "$SIZE" -gt 0 && "$ACTUAL_SIZE" != "$SIZE" ]]; then
-    install_die "安装包大小与清单不一致，已停止安装"
-  fi
-  install_info "正在核对 SHA256 和签名"
-  ACTUAL_SHA="$(install_sha256 "$PKG_FILE")"
-  [[ "$ACTUAL_SHA" == "$SHA" ]] || install_die "安装包 SHA256 不一致，已停止安装"
-
-  LISTING="$(tar -tzf "$PKG_FILE")"
-  install_package_has "$LISTING" "baota-panel.py" || install_die "安装包里缺少 baota-panel.py"
-  install_package_has "$LISTING" "guardian-start.sh" || install_die "安装包里缺少 guardian-start.sh"
-  install_package_has "$LISTING" "backend/auth_pro" || install_die "安装包里缺少 backend/auth_pro"
-  # 发布包不带安装脚本。这里只取出面板辅助脚本和启动模板，不执行包内的 install.sh。
-  HELPERS="$WORKDIR/helpers"
-  mkdir -p "$HELPERS"
-  install_extract_member "$PKG_FILE" "$HELPERS" "$LISTING" "baota-panel.py"
-  install_extract_member "$PKG_FILE" "$HELPERS" "$LISTING" "guardian-start.sh"
-  chmod 755 "$HELPERS/guardian-start.sh"
-  BAOTA_PAYLOAD="$HELPERS"
-
+  install_fetch_helpers
+  local ARGS
   if [[ -n "$DOMAIN" ]]; then
     export AUTH_PRO_PUBLIC_HOST="$DOMAIN"
   fi
@@ -316,11 +320,22 @@ sys.stdout.write("\n".join([version, sha, sig, str(size), url, name]) + "\n")
 baota_print_help() {
   cat <<'EOF'
 用法：
+  curl -fsSL https://auth.maizll.com/install.sh | bash
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- upgrade 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --repair-guardian 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --reset-admin-password 域名
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --status 域名
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --show-admin 域名
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --start 域名
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --stop 域名
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --restart 域名
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --backup 域名
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --restore 域名 --backup-dir 备份目录
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --change-port 域名 --port 端口
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --uninstall 域名 --confirm 域名
 
+不带参数时显示编号菜单。菜单从 /dev/tty 读输入，可以在 curl | bash 下使用。
 这是安装、升级、修复进程守护和重设管理员密码的唯一入口。脚本只从官网下载，不在发布包里。
 一条命令会从官网下载已发布的安装包，核对 SHA256 和签名后再安装或升级。
 需要本机已经装好宝塔面板，并且软件商店里已经安装 Nginx 和 MySQL。脚本不会替你安装 MySQL。
@@ -349,6 +364,18 @@ upgrade 从官网取最新包，替换页面和 backend/auth_pro，保留 db.jso
                     本机 root 重设已装站点的管理员密码，并打印新的 8 位数字密码
   --reset-binary FILE
                     带 reset-admin-password 子命令的 auth_pro。不写则用网站目录里的那一份
+  --status          查看已装站点的版本、端口和守护是否 RUNNING
+  --show-admin      查看管理后台地址和初始账号
+  --start           作为第一个参数时，通过进程守护启动该站点
+  --stop            通过进程守护停止该站点
+  --restart         通过进程守护重启该站点
+  --backup          备份运行数据和数据库，只留最近 3 份
+  --restore         从 --backup-dir 恢复。恢复前会先备份当前数据
+  --backup-dir DIR  --restore 要恢复的备份目录
+  --change-port     修改该站点的后台端口，需同时写 --port
+  --uninstall       卸载该站点。必须再用 --confirm 写一遍完整域名
+  --confirm 域名    与 --uninstall 的域名一致才继续
+  --delete-database 卸载时删除数据库。不写则保留
   -h, --help        显示本说明
 
 示例：
@@ -1428,6 +1455,7 @@ baota_prepare_backup_dir() {
   if [[ "$BAOTA_DRY_RUN" != "1" ]] && root="$(baota_central_backup_root)"; then
     case "$BAOTA_ACTION" in
       upgrade) kind="upgrade" ;;
+      backup) kind="backup" ;;
       *) kind="install" ;;
     esac
     if mkdir -p "$root/$kind" 2>/dev/null; then
@@ -2926,8 +2954,637 @@ baota_cmd_upgrade() {
   baota_print_manual_steps
 }
 
+# 菜单和带参数的管理命令。安装、升级、修复、重设密码仍走上面的下载入口。
+# 启动、停止、重启只调用 supervisorctl，不 nohup，避免留下父进程为 1 的脱管进程。
+
+menu_tty_print() {
+  if [[ -t 1 ]]; then
+    printf '%s\n' "$1"
+  elif [[ -w /dev/tty ]]; then
+    printf '%s\n' "$1" >/dev/tty
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
+menu_read() {
+  local __name="$1" prompt="$2" value
+  if [[ ! -r /dev/tty ]]; then
+    install_die "没有终端，无法读取输入。请改用带参数的命令。"
+  fi
+  printf '%s' "$prompt" >/dev/tty
+  IFS= read -r value </dev/tty || install_die "读取输入失败"
+  printf -v "$__name" '%s' "$value"
+}
+
+menu_blue() { printf '\033[34m%s\033[0m' "$1"; }
+menu_green() { printf '\033[32m%s\033[0m' "$1"; }
+menu_red() { printf '\033[31m%s\033[0m' "$1"; }
+
+menu_valid_domain() {
+  [[ "$1" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$ ]]
+}
+
+# 扫描 /www/wwwroot 下带 install.lock 和 auth_pro 的目录。其它网站不列入。
+menu_list_sites() {
+  local dir
+  MENU_SITE_ROOTS=()
+  MENU_SITE_DOMAINS=()
+  [[ -d /www/wwwroot ]] || return 0
+  shopt -s nullglob
+  for dir in /www/wwwroot/*; do
+    [[ -d "$dir" ]] || continue
+    [[ -f "$dir/backend/install.lock" && -f "$dir/backend/auth_pro" ]] || continue
+    MENU_SITE_ROOTS+=("$dir")
+    MENU_SITE_DOMAINS+=("$(basename "$dir")")
+  done
+  shopt -u nullglob
+}
+
+menu_print_sites() {
+  local i
+  menu_list_sites
+  if [[ ${#MENU_SITE_DOMAINS[@]} -eq 0 ]]; then
+    menu_tty_print "$(menu_red "没有找到已安装的 auth-pro 站点。")"
+    return 1
+  fi
+  menu_tty_print "$(menu_blue "本机已安装的站点：")"
+  for i in "${!MENU_SITE_DOMAINS[@]}"; do
+    menu_tty_print "  $(menu_green "$((i + 1))")  ${MENU_SITE_DOMAINS[$i]}  ${MENU_SITE_ROOTS[$i]}"
+  done
+  return 0
+}
+
+menu_pick_site() {
+  local choice index
+  menu_print_sites || return 1
+  menu_read choice "请选择站点编号: "
+  [[ "$choice" =~ ^[0-9]+$ ]] || baota_die "请输入站点编号"
+  index=$((choice - 1))
+  if [[ "$index" -lt 0 || "$index" -ge ${#MENU_SITE_DOMAINS[@]} ]]; then
+    baota_die "没有这个站点编号"
+  fi
+  MENU_PICK_DOMAIN="${MENU_SITE_DOMAINS[$index]}"
+  MENU_PICK_ROOT="${MENU_SITE_ROOTS[$index]}"
+}
+
+# 切换站点前清掉上一个站点缓存的数据目录和端口。
+menu_bind_site() {
+  local domain="$1" root="${2:-}"
+  domain="$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]')"
+  menu_valid_domain "$domain" || baota_die "域名不正确：$domain"
+  if [[ -z "$root" ]]; then
+    root="/www/wwwroot/${domain}"
+  fi
+  root="${root%/}"
+  [[ -f "$root/backend/install.lock" ]] || baota_die "没有已安装站点：${root}"
+  BAOTA_SITE_ROOT="$root"
+  BAOTA_DATA_DIR_RESOLVED=""
+  BAOTA_PORT_SET=0
+  BAOTA_PORT=""
+  export AUTH_PRO_PUBLIC_HOST="$domain"
+  MENU_PICK_DOMAIN="$domain"
+  MENU_PICK_ROOT="$root"
+}
+
+menu_ensure_helpers() {
+  if baota_panel_script >/dev/null 2>&1; then
+    return 0
+  fi
+  install_fetch_helpers
+  baota_panel_script >/dev/null 2>&1 || baota_die "缺少 baota-panel.py，无法操作宝塔面板。"
+}
+
+menu_site_version() {
+  local file="$BAOTA_SITE_ROOT/version.json"
+  if [[ -f "$file" ]]; then
+    python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("version") or "未知")' "$file"
+    return 0
+  fi
+  printf '%s\n' "未知"
+}
+
+menu_wait_supervised() {
+  local i port
+  port="$(baota_effective_port)"
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if baota_listener_supervised "$port" "$BAOTA_SITE_ROOT"; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+menu_service() {
+  local action="$1" target line
+  baota_find_supervisor || baota_die "没有找到本站点的进程守护。没有另起进程。"
+  target="$(baota_supervisor_target "$BAOTA_SUP_PROGRAM")"
+  baota_info "通过进程守护执行 ${action} ${target}"
+  baota_supervisorctl "$action" "$target" || baota_die "进程守护 ${action} 失败。没有另起进程。"
+  case "$action" in
+    stop)
+      local i
+      for i in 1 2 3 4 5 6 7 8 9 10; do
+        if ! baota_port_is_open "$(baota_effective_port)"; then
+          break
+        fi
+        sleep 1
+      done
+      if baota_port_is_open "$(baota_effective_port)"; then
+        baota_die "停止后端口仍在监听。请检查是不是留下了脱管进程。没有再启动新进程。"
+      fi
+      line="$(baota_supervisorctl status "$target" 2>/dev/null || true)"
+      baota_info "已停止。${line}"
+      ;;
+    start|restart)
+      menu_wait_supervised || baota_die "进程守护没有把本站点拉起到 RUNNING，或父进程不是 supervisord。"
+      line="$(baota_supervisorctl status "$target" 2>/dev/null || true)"
+      printf '%s\n' "$line" | grep -q RUNNING || baota_die "supervisorctl 不是 RUNNING：${line}"
+      baota_info "进程守护 RUNNING，监听进程的父进程是 supervisord。${line}"
+      ;;
+  esac
+}
+
+menu_show_status() {
+  local port version target line
+  port="$(baota_effective_port)"
+  version="$(menu_site_version)"
+  baota_info "站点 ${MENU_PICK_DOMAIN}"
+  baota_info "版本 ${version}"
+  baota_info "端口 ${port}"
+  baota_info "目录 ${BAOTA_SITE_ROOT}"
+  if baota_find_supervisor; then
+    target="$(baota_supervisor_target "$BAOTA_SUP_PROGRAM")"
+    line="$(baota_supervisorctl status "$target" 2>/dev/null || true)"
+    baota_info "守护 ${line:-未取到状态}"
+  else
+    baota_warn "没有找到本站点的进程守护配置"
+  fi
+  if baota_listener_supervised "$port" "$BAOTA_SITE_ROOT"; then
+    baota_info "监听进程的父进程是 supervisord"
+  else
+    baota_warn "当前没有由 supervisord 托管的监听进程"
+  fi
+}
+
+menu_show_admin() {
+  local dest
+  dest="/root/auth-pro-${MENU_PICK_DOMAIN}.txt"
+  baota_info "管理后台: http://${MENU_PICK_DOMAIN}/admin"
+  baota_info "管理员账号: admin"
+  if [[ -f "$dest" ]]; then
+    baota_info "凭据文件: ${dest}"
+    grep -E '^(管理后台|管理员账号|管理员密码|登录后请在后台修改密码|后端端口):' "$dest" || true
+  else
+    baota_warn "没有找到凭据文件 ${dest}。初始密码只在安装或重设时写入该文件。"
+  fi
+}
+
+menu_prune_named_backups() {
+  local root data
+  if root="$(baota_central_backup_root)"; then
+    baota_prune_backup_dir "$root/backup" 3
+  fi
+  data="$(baota_data_dir)/updates/backups"
+  if [[ -d "$data" ]]; then
+    baota_prune_backup_dir_glob "$data"/baota-backup-*
+  fi
+}
+
+menu_backup_site() {
+  BAOTA_ACTION="backup"
+  baota_prepare_backup_dir
+  baota_copy_durable_into_backup
+  baota_mysql_backup
+  menu_prune_named_backups
+  baota_info "备份完成，只保留最近 3 份。目录：${BAOTA_BACKUP_DIR}"
+}
+
+menu_mysql_restore() {
+  local cfg="$1" sql="$2"
+  [[ -f "$sql" ]] || return 0
+  command -v mysql >/dev/null 2>&1 || baota_die "未找到 mysql，无法从 db.sql 恢复。数据文件尚未改回。"
+  python3 - "$cfg" "$sql" <<'PY'
+import json, os, subprocess, sys
+cfg = json.load(open(sys.argv[1], encoding="utf-8"))
+sql = sys.argv[2]
+host = str(cfg.get("host") or "")
+port = str(cfg.get("port") or "")
+database = str(cfg.get("database") or "")
+user = str(cfg.get("username") or "")
+password = str(cfg.get("password") or "")
+if not database or not user:
+    sys.stderr.write("db.json 缺少数据库名或用户名\n")
+    sys.exit(1)
+args = ["mysql"]
+if host.startswith("unix:"):
+    args += ["--socket", host[len("unix:"):]]
+else:
+    args += ["-h", host or "127.0.0.1"]
+    if port:
+        args += ["-P", port]
+args += ["-u", user, database]
+env = os.environ.copy()
+env["MYSQL_PWD"] = password
+with open(sql, "rb") as handle:
+    proc = subprocess.run(args, stdin=handle, stderr=subprocess.PIPE, env=env)
+if proc.returncode != 0:
+    sys.stderr.write(proc.stderr.decode("utf-8", "replace"))
+    sys.exit(proc.returncode or 1)
+PY
+}
+
+menu_copy_durable_from() {
+  local src="$1" data file dir
+  data="$(baota_data_dir)"
+  [[ -d "$src/data" ]] || baota_die "备份里没有 data 目录：${src}"
+  for file in "${BAOTA_DURABLE_FILES[@]}"; do
+    if [[ -e "$src/data/$file" ]]; then
+      cp -a "$src/data/$file" "$data/$file"
+    fi
+  done
+  for dir in "${BAOTA_DURABLE_DIRS[@]}"; do
+    [[ -d "$src/data/$dir" ]] || continue
+    rm -rf "$data/$dir"
+    mkdir -p "$data/$dir"
+    cp -a "$src/data/$dir"/. "$data/$dir/"
+  done
+  chmod 600 "$data/db.json" 2>/dev/null || true
+  chmod 600 "$data/jwt.secret" 2>/dev/null || true
+}
+
+menu_restore_site() {
+  local selected="$1" hold pre data
+  [[ -d "$selected" ]] || baota_die "备份目录不存在：${selected}"
+  hold="$(mktemp -d "${TMPDIR:-/tmp}/auth-pro-restore.XXXXXX")"
+  cp -a "$selected" "$hold/selected"
+  menu_backup_site
+  pre="$BAOTA_BACKUP_DIR"
+  baota_info "恢复前已备份当前数据：${pre}"
+  menu_service stop
+  if ! menu_copy_durable_from "$hold/selected"; then
+    menu_copy_durable_from "$pre" || true
+    menu_service start || true
+    baota_die "恢复数据文件失败，已尝试改回恢复前的备份。"
+  fi
+  data="$(baota_data_dir)"
+  if [[ -f "$hold/selected/db.sql" ]]; then
+    if ! menu_mysql_restore "$data/db.json" "$hold/selected/db.sql"; then
+      menu_copy_durable_from "$pre" || true
+      menu_service start || true
+      baota_die "数据库恢复失败，已尝试改回恢复前的数据并重新启动。"
+    fi
+    baota_info "已从 db.sql 恢复数据库"
+  fi
+  rm -rf "$hold"
+  menu_service start
+  baota_info "恢复完成，守护已核验为 RUNNING"
+}
+
+menu_list_backups() {
+  local root dir i=0
+  MENU_BACKUP_DIRS=()
+  root="$(baota_central_backup_root)" || baota_die "没有备份目录"
+  shopt -s nullglob
+  for dir in "$root/backup"/baota-backup-*; do
+    [[ -d "$dir" ]] || continue
+    MENU_BACKUP_DIRS+=("$dir")
+  done
+  shopt -u nullglob
+  if [[ ${#MENU_BACKUP_DIRS[@]} -eq 0 ]]; then
+    baota_die "还没有备份。请先执行备份。"
+  fi
+  # 新的在前面，和只保留最近 3 份的顺序一致。
+  local sorted=()
+  while IFS= read -r dir; do
+    [[ -n "$dir" ]] || continue
+    sorted+=("$dir")
+  done < <(ls -1dt "${MENU_BACKUP_DIRS[@]}")
+  MENU_BACKUP_DIRS=("${sorted[@]}")
+  for dir in "${MENU_BACKUP_DIRS[@]}"; do
+    i=$((i + 1))
+    menu_tty_print "  $(menu_green "$i")  $(basename "$dir")"
+  done
+}
+
+menu_change_port() {
+  local new_port="$1" old_port
+  baota_assert_port_number "$new_port"
+  old_port="$(baota_effective_port)"
+  [[ "$new_port" != "$old_port" ]] || baota_die "新端口与当前端口相同：${old_port}"
+  if baota_port_is_open "$new_port"; then
+    baota_die "端口 ${new_port} 已被占用。没有修改配置。"
+  fi
+  if printf '%s\n' "$(baota_reserved_ports)" | grep -qx "$new_port"; then
+    baota_die "端口 ${new_port} 已写在其它 auth-pro 站点里。没有修改配置。"
+  fi
+  menu_ensure_helpers
+  BAOTA_PORT="$new_port"
+  BAOTA_PORT_SET=1
+  baota_write_env
+  if ! baota_panel_run set-port --domain "$MENU_PICK_DOMAIN" --port "$new_port" --old-port "$old_port"; then
+    BAOTA_PORT="$old_port"
+    BAOTA_PORT_SET=1
+    baota_write_env
+    baota_die "修改反代失败，已把 baota.env 改回端口 ${old_port}。"
+  fi
+  [[ "${BAOTA_PANEL_RESULT:-}" == "ok" ]] || baota_die "修改反代没有成功"
+  local dest="/root/auth-pro-${MENU_PICK_DOMAIN}.txt"
+  if [[ -f "$dest" ]]; then
+    sed -i "s/^后端端口: .*/后端端口: ${new_port}/" "$dest" || true
+  fi
+  menu_service restart
+  baota_info "后台端口已改为 ${new_port}"
+}
+
+menu_uninstall_site() {
+  local confirm="$1" delete_db="$2" db_name="" data
+  [[ "$confirm" == "$MENU_PICK_DOMAIN" ]] || baota_die "确认域名不一致，已取消卸载。没有删除站点。"
+  data="$(baota_data_dir)"
+  if [[ -f "$data/db.json" ]]; then
+    db_name="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("database") or "")' "$data/db.json")"
+  fi
+  menu_ensure_helpers
+  if [[ "$delete_db" == "1" ]]; then
+    baota_info "将删除数据库 ${db_name:-（未记录）}"
+    baota_panel_run uninstall --domain "$MENU_PICK_DOMAIN" --path "$BAOTA_SITE_ROOT" --remove-db --db-name "$db_name" || baota_die "卸载失败"
+  else
+    baota_info "数据库默认保留"
+    baota_panel_run uninstall --domain "$MENU_PICK_DOMAIN" --path "$BAOTA_SITE_ROOT" --db-name "$db_name" || baota_die "卸载失败"
+  fi
+  [[ "${BAOTA_PANEL_RESULT:-}" == "ok" ]] || baota_die "卸载没有完成"
+  baota_info "已卸载 ${MENU_PICK_DOMAIN}。守护、面板站点和程序目录已删除。"
+}
+
+menu_render() {
+  menu_tty_print "$(menu_blue "========================================")"
+  menu_tty_print "$(menu_blue "  auth-pro 1.7.8")"
+  menu_tty_print "$(menu_blue "========================================")"
+  menu_tty_print "  $(menu_green "1")  安装新站点"
+  menu_tty_print "  $(menu_green "2")  升级站点"
+  menu_tty_print "  $(menu_green "3")  修复进程守护"
+  menu_tty_print "  $(menu_green "4")  重设管理员密码"
+  menu_tty_print "  $(menu_green "5")  查看站点状态"
+  menu_tty_print "  $(menu_green "6")  查看后台地址和初始账号"
+  menu_tty_print "  $(menu_green "7")  启动 / 停止 / 重启"
+  menu_tty_print "  $(menu_green "8")  备份数据 / 从备份恢复"
+  menu_tty_print "  $(menu_red "9")  卸载站点"
+  menu_tty_print "  $(menu_green "10") 修改后台端口"
+  menu_tty_print "  $(menu_green "0")  退出"
+  menu_tty_print "$(menu_blue "========================================")"
+}
+
+menu_action_install() {
+  local domain="" port=""
+  menu_read domain "请输入域名: "
+  domain="$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]')"
+  [[ -n "$domain" ]] || baota_die "没有输入域名"
+  menu_valid_domain "$domain" || baota_die "域名不正确：$domain"
+  menu_read port "请输入端口，直接回车则自动选择: "
+  if [[ -n "$port" ]]; then
+    install_download_and_continue install "$domain" --port "$port"
+  else
+    install_download_and_continue install "$domain"
+  fi
+}
+
+menu_action_service_menu() {
+  local choice
+  menu_pick_site || return 0
+  menu_bind_site "$MENU_PICK_DOMAIN" "$MENU_PICK_ROOT"
+  menu_tty_print "  $(menu_green "1")  启动"
+  menu_tty_print "  $(menu_green "2")  停止"
+  menu_tty_print "  $(menu_green "3")  重启"
+  menu_tty_print "  $(menu_green "0")  返回"
+  menu_read choice "请选择: "
+  case "$choice" in
+    1) menu_service start ;;
+    2) menu_service stop ;;
+    3) menu_service restart ;;
+    0) return 0 ;;
+    *) baota_die "没有这个编号" ;;
+  esac
+}
+
+menu_action_backup_menu() {
+  local choice index
+  menu_pick_site || return 0
+  menu_bind_site "$MENU_PICK_DOMAIN" "$MENU_PICK_ROOT"
+  menu_tty_print "  $(menu_green "1")  备份数据"
+  menu_tty_print "  $(menu_green "2")  从备份恢复"
+  menu_tty_print "  $(menu_green "0")  返回"
+  menu_read choice "请选择: "
+  case "$choice" in
+    1) menu_backup_site ;;
+    2)
+      menu_list_backups
+      menu_read choice "请选择备份编号: "
+      [[ "$choice" =~ ^[0-9]+$ ]] || baota_die "请输入备份编号"
+      index=$((choice - 1))
+      if [[ "$index" -lt 0 || "$index" -ge ${#MENU_BACKUP_DIRS[@]} ]]; then
+        baota_die "没有这个备份编号"
+      fi
+      menu_restore_site "${MENU_BACKUP_DIRS[$index]}"
+      ;;
+    0) return 0 ;;
+    *) baota_die "没有这个编号" ;;
+  esac
+}
+
+menu_action_uninstall() {
+  local typed answer delete_db=0
+  menu_pick_site || return 0
+  menu_bind_site "$MENU_PICK_DOMAIN" "$MENU_PICK_ROOT"
+  menu_tty_print "$(menu_red "卸载将删除守护、反向代理、面板站点和程序目录。")"
+  menu_read typed "请输入完整域名以确认卸载: "
+  typed="$(printf '%s' "$typed" | tr '[:upper:]' '[:lower:]')"
+  menu_read answer "是否删除数据库？直接回车表示保留 [y/N] "
+  case "$answer" in
+    y|Y|yes|YES) delete_db=1 ;;
+    *) delete_db=0 ;;
+  esac
+  menu_uninstall_site "$typed" "$delete_db"
+}
+
+menu_action_port() {
+  local port
+  menu_pick_site || return 0
+  menu_bind_site "$MENU_PICK_DOMAIN" "$MENU_PICK_ROOT"
+  menu_read port "请输入新的后台端口: "
+  menu_change_port "$port"
+}
+
+menu_main() {
+  local choice
+  if [[ ! -r /dev/tty ]]; then
+    baota_print_help >&2
+    install_die "没有终端，无法显示菜单。请改用带参数的命令。"
+  fi
+  while true; do
+    menu_render
+    menu_read choice "请输入编号: "
+    case "$choice" in
+      1) menu_action_install ;;
+      2)
+        menu_pick_site || continue
+        menu_bind_site "$MENU_PICK_DOMAIN" "$MENU_PICK_ROOT"
+        install_download_and_continue upgrade "$MENU_PICK_DOMAIN"
+        ;;
+      3)
+        menu_pick_site || continue
+        menu_bind_site "$MENU_PICK_DOMAIN" "$MENU_PICK_ROOT"
+        install_download_and_continue repair "$MENU_PICK_DOMAIN"
+        ;;
+      4)
+        menu_pick_site || continue
+        menu_bind_site "$MENU_PICK_DOMAIN" "$MENU_PICK_ROOT"
+        install_download_and_continue reset-admin-password "$MENU_PICK_DOMAIN"
+        ;;
+      5)
+        menu_pick_site || continue
+        menu_bind_site "$MENU_PICK_DOMAIN" "$MENU_PICK_ROOT"
+        menu_show_status
+        ;;
+      6)
+        menu_pick_site || continue
+        menu_bind_site "$MENU_PICK_DOMAIN" "$MENU_PICK_ROOT"
+        menu_show_admin
+        ;;
+      7) menu_action_service_menu ;;
+      8) menu_action_backup_menu ;;
+      9) menu_action_uninstall ;;
+      10) menu_action_port ;;
+      0)
+        menu_tty_print "已退出。"
+        return 0
+        ;;
+      *) menu_tty_print "$(menu_red "没有这个编号")" ;;
+    esac
+  done
+}
+
+# --start 放在第一个参数、并且不是在装发布包时，表示通过守护启动已有站点。
+menu_start_is_service() {
+  local arg
+  shift
+  for arg in "$@"; do
+    case "$arg" in
+      --package|--source|--dry-run|--no-start|--yes|-y) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+menu_cli() {
+  local cmd="$1" domain="" root="" port="" confirm="" backup_dir="" delete_db=0
+  shift
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --site-root)
+        [[ $# -ge 2 ]] || baota_die "--site-root 需要网站根目录"
+        root="$2"
+        shift 2
+        ;;
+      --port)
+        [[ $# -ge 2 ]] || baota_die "--port 需要端口号"
+        port="$2"
+        shift 2
+        ;;
+      --confirm)
+        [[ $# -ge 2 ]] || baota_die "--confirm 需要再写一次完整域名"
+        confirm="$2"
+        shift 2
+        ;;
+      --backup-dir)
+        [[ $# -ge 2 ]] || baota_die "--backup-dir 需要备份目录"
+        backup_dir="$2"
+        shift 2
+        ;;
+      --delete-database)
+        delete_db=1
+        shift
+        ;;
+      --skip-mysql)
+        BAOTA_SKIP_MYSQL=1
+        shift
+        ;;
+      -h|--help)
+        baota_print_help
+        exit 0
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        baota_die "未知参数：$1（可用 --help 查看）"
+        ;;
+      *)
+        [[ -z "$domain" ]] || baota_die "只能写一个域名"
+        domain="$1"
+        shift
+        ;;
+    esac
+  done
+  if [[ "$cmd" == "--status" && -z "$domain" && -z "$root" ]]; then
+    menu_list_sites
+    if [[ ${#MENU_SITE_DOMAINS[@]} -eq 0 ]]; then
+      baota_die "没有找到已安装的 auth-pro 站点"
+    fi
+    local i
+    for i in "${!MENU_SITE_DOMAINS[@]}"; do
+      menu_bind_site "${MENU_SITE_DOMAINS[$i]}" "${MENU_SITE_ROOTS[$i]}"
+      menu_show_status
+    done
+    return 0
+  fi
+  [[ -n "$domain" || -n "$root" ]] || baota_die "请写上域名"
+  if [[ -z "$domain" ]]; then
+    domain="$(basename "$root")"
+  fi
+  menu_bind_site "$domain" "$root"
+  case "$cmd" in
+    --status) menu_show_status ;;
+    --show-admin) menu_show_admin ;;
+    --start) menu_service start ;;
+    --stop) menu_service stop ;;
+    --restart) menu_service restart ;;
+    --backup) menu_backup_site ;;
+    --restore)
+      [[ -n "$backup_dir" ]] || baota_die "--restore 需要 --backup-dir"
+      menu_restore_site "$backup_dir"
+      ;;
+    --change-port)
+      [[ -n "$port" ]] || baota_die "--change-port 需要 --port"
+      menu_change_port "$port"
+      ;;
+    --uninstall)
+      confirm="$(printf '%s' "$confirm" | tr '[:upper:]' '[:lower:]')"
+      menu_uninstall_site "$confirm" "$delete_db"
+      ;;
+    *) baota_die "未知命令：$cmd" ;;
+  esac
+}
+
 install_main() {
   local cmd="install"
+  if [[ $# -eq 0 ]]; then
+    menu_main
+    return
+  fi
+  case "$1" in
+    --status|--show-admin|--stop|--restart|--backup|--restore|--change-port|--uninstall)
+      menu_cli "$@"
+      return
+      ;;
+    --start)
+      if menu_start_is_service "$@"; then
+        menu_cli "$@"
+        return
+      fi
+      ;;
+  esac
   if [[ $# -gt 0 ]]; then
     case "$1" in
       upgrade|install|repair|reset-admin-password)

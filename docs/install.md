@@ -1,6 +1,16 @@
 # 安装部署
 
-在已经安装宝塔面板，并且软件商店里已经安装 Nginx 和 MySQL 的服务器上，把下面这一条粘贴到宝塔终端。把 `example.com` 换成站点域名。脚本从官网下载已发布的安装包，核对 SHA256 和签名后再安装。下载不需要登录，也不需要令牌。脚本不会替你安装 MySQL。
+在已经安装宝塔面板，并且软件商店里已经安装 Nginx 和 MySQL 的服务器上执行。脚本从官网下载已发布的安装包，核对 SHA256 和签名后再安装。下载不需要登录，也不需要令牌。脚本不会替你安装 MySQL。
+
+不带参数时显示编号菜单。菜单从终端读取输入，可以直接粘贴到宝塔终端：
+
+```bash
+curl -fsSL https://auth.maizll.com/install.sh | bash
+```
+
+菜单里可以安装、升级、修复进程守护、重设管理员密码、查看状态、查看后台地址和初始账号、通过进程守护启动或停止或重启、备份和恢复、修改后台端口、卸载。带参数的命令仍然可用。
+
+把 `example.com` 换成站点域名：
 
 ```bash
 curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com
@@ -63,6 +73,24 @@ bash /tmp/install.sh upgrade \
 守护还开着时，`--no-start` 会拒绝执行，请先在面板里停止守护。
 
 新的升级备份写到 `/www/backup/auth-pro/example.com/upgrade/`。健康检查通过后，每一类备份只保留最近 3 份。机器上没有 `/www` 时，备份仍放在原来的数据目录里。
+
+## 已安装站点
+
+下面的命令都从官网执行。涉及已装站点时写上域名。启动、停止和重启只走宝塔进程守护，不会另起进程。
+
+```bash
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --status example.com
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --show-admin example.com
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --start example.com
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --stop example.com
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --restart example.com
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --backup example.com
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --restore example.com --backup-dir /www/backup/auth-pro/example.com/backup/baota-backup-时间-进程号
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --change-port example.com --port 19128
+curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --uninstall example.com --confirm example.com
+```
+
+`--backup` 把运行数据和数据库导出到 `/www/backup/auth-pro/example.com/backup/`，只留最近 3 份。`--restore` 会先备份当前数据，再从 `--backup-dir` 恢复，然后核验进程守护为 RUNNING。`--change-port` 会检查端口空闲，并同步反代和守护配置。`--uninstall` 删除守护、反向代理、面板站点和程序；`--confirm` 必须是同一个完整域名。不写 `--delete-database` 时数据库保留。
 
 ## 在线更新
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# 宝塔面板内部调用。只给 baota-install.sh 用，不要单独当安装器。
+# 宝塔面板内部调用。只给 backend/handler/install.sh 用，不要单独当安装器。
 # 输入是子命令和参数。标准输出只给调用方捕获的 AUTH_PRO_* 键值，操作者看不到。
 # 中文说明走标准错误。失败时退出码非 0，并且不删除调用方没有点名的站点、目录或数据库。
 """宝塔 13 面板内部建站、建库、反代、进程守护和证书。"""
@@ -914,6 +914,177 @@ def apply_cert(args):
     keep_http(args, result)
 
 
+def replace_proxy_port(path, old_port, new_port):
+    """只改未注释的 proxy_pass。注释里的示例端口不动，避免把说明改乱。"""
+    if not os.path.isfile(path):
+        return False
+    original = open(path, encoding="utf-8", errors="replace").read()
+    changed = []
+    hit = False
+    needle = "proxy_pass http://127.0.0.1:%s" % old_port
+    replacement = "proxy_pass http://127.0.0.1:%s" % new_port
+    for line in original.splitlines(keepends=True):
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            changed.append(line)
+            continue
+        if needle in line:
+            hit = True
+            changed.append(line.replace(needle, replacement))
+            continue
+        changed.append(line)
+    if not hit:
+        return False
+    tmp = path + ".auth-pro-port-tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write("".join(changed))
+    os.replace(tmp, path)
+    return True
+
+
+def set_proxy_port(args):
+    """只改本站点的反代端口，nginx -t 失败就还原这些文件。"""
+    domain = args.domain.strip().lower()
+    new_port = str(int(args.port))
+    old_port = str(int(args.old_port))
+    if new_port == old_port:
+        die("新端口与当前端口相同")
+    targets = []
+    site_conf = "/www/server/panel/vhost/nginx/%s.conf" % domain
+    if os.path.isfile(site_conf):
+        targets.append(site_conf)
+    proxy_dir = "/www/server/panel/vhost/nginx/proxy/%s" % domain
+    if os.path.isdir(proxy_dir):
+        for name in sorted(os.listdir(proxy_dir)):
+            path = os.path.join(proxy_dir, name)
+            if os.path.isfile(path) and name.endswith(".conf"):
+                targets.append(path)
+    if not targets:
+        die("没有找到站点 %s 的 Nginx 配置，没有改端口" % domain)
+    originals = {}
+    for path in targets:
+        originals[path] = open(path, encoding="utf-8", errors="replace").read()
+    changed_any = False
+    for path in targets:
+        if replace_proxy_port(path, old_port, new_port):
+            changed_any = True
+            info("已更新反代端口：%s" % path)
+    if not changed_any:
+        die("没有找到指向 127.0.0.1:%s 的反代，没有改配置" % old_port)
+    ok, detail = nginx_test()
+    if not ok:
+        for path, text in originals.items():
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(text)
+        manual("nginx -t 未通过，已还原本站点配置。", [detail[-800:]])
+        die("修改端口后 nginx -t 未通过，已还原")
+    if not nginx_reload():
+        info("配置已通过 nginx -t，但 reload 失败。请手工执行 nginx -s reload。")
+    emit("AUTH_PRO_RESULT", "ok")
+    emit("AUTH_PRO_NGINX", site_conf)
+
+
+def remove_our_supervisor(domain, workdir):
+    """只停并删除本站点的守护项。启动命令不是本站 start.sh 时直接失败，不改其它站点。"""
+    program = program_name(domain)
+    command = os.path.join(workdir, "start.sh")
+    ini_paths = [
+        os.path.join(PLUGIN_PROFILE, program + ".ini"),
+        os.path.join(STANDALONE_DIR, program + ".ini"),
+    ]
+    owned = False
+    for ini in ini_paths:
+        if not os.path.isfile(ini):
+            continue
+        if not command_is_ours(read_ini_command(ini), command, workdir):
+            die("进程名 %s 的启动命令不是本站点。没有删除守护，也没有改其它站点。" % program)
+        owned = True
+    if not owned:
+        info("没有找到本站点的守护配置")
+        return program
+    if daemon_responds():
+        run_ctl("stop", program + ":")
+    if plugin_installed():
+        drop_our_registration(program, command, workdir)
+    for ini in ini_paths:
+        if os.path.isfile(ini) and command_is_ours(read_ini_command(ini), command, workdir):
+            os.remove(ini)
+            info("已删除守护配置 %s" % ini)
+    if daemon_responds():
+        run_ctl("update")
+    return program
+
+
+def site_dir_is_ours(path, domain):
+    """只允许删除 /www/wwwroot/<域名>，并且里面有本程序的 install.lock。"""
+    real = os.path.realpath(path)
+    root = os.path.realpath("/www/wwwroot")
+    if real == root or not real.startswith(root + os.sep):
+        return False
+    if os.path.basename(real) != domain:
+        return False
+    return os.path.isfile(os.path.join(real, "backend", "install.lock"))
+
+
+def uninstall_site(args):
+    """删除本站点的守护、面板站点和程序目录。默认不删数据库。"""
+    public = load_public()
+    domain = args.domain.strip().lower()
+    path = args.path
+    workdir = os.path.join(path, "backend")
+    program = remove_our_supervisor(domain, workdir)
+    info("已处理进程守护 %s" % program)
+    if args.remove_db and args.db_name:
+        row = public.M("databases").where("name=?", (args.db_name,)).find()
+        if isinstance(row, dict) and row.get("id"):
+            info("正在删除数据库 %s" % args.db_name)
+            try:
+                import database
+
+                result = database.database().DeleteDatabase(obj(id=str(row["id"]), name=args.db_name))
+                info("删库结果：%s" % result)
+            except Exception as exc:
+                manual("删除数据库失败。请在面板里只删除 %s ，不要删其它库。" % args.db_name, [str(exc)])
+                die("删除数据库失败")
+        else:
+            info("面板里没有名为 %s 的数据库，跳过删库" % args.db_name)
+    else:
+        info("按默认保留数据库")
+    row = public.M("sites").where("name=?", (domain,)).find()
+    if isinstance(row, dict) and row.get("id"):
+        info("正在删除面板站点 %s" % domain)
+        try:
+            import panelSite
+
+            result = panelSite.panelSite().DeleteSite(obj(
+                id=str(row["id"]),
+                webname=domain,
+                ftp="0",
+                database="0",
+                path=row.get("path") or path,
+            ))
+            info("删站结果：%s" % result)
+        except Exception as exc:
+            manual("删除面板站点失败。请在面板里只删除 %s ，不要删其它站点。" % domain, [str(exc)])
+            die("删除面板站点失败")
+    else:
+        info("面板网站列表里没有 %s" % domain)
+    if path and os.path.isdir(path):
+        if site_dir_is_ours(path, domain):
+            real = os.path.realpath(path)
+            subprocess.run(["chattr", "-R", "-i", real], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                shutil.rmtree(real)
+                info("已删除网站目录 %s" % real)
+            except OSError as exc:
+                manual("删除网站目录失败。请执行 chattr -R -i %s 后再手工删除这个目录。" % real, [str(exc)])
+                die("删除网站目录失败")
+        else:
+            die("拒绝删除 %s 。目录不是 /www/wwwroot/%s ，或没有 install.lock。" % (path, domain))
+    emit("AUTH_PRO_RESULT", "ok")
+    emit("AUTH_PRO_PROGRAM", program)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="宝塔面板内部操作")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -972,6 +1143,19 @@ def build_parser():
     cert.add_argument("--webroot", required=True)
     cert.add_argument("--log", default="", help="证书失败时写入完整返回值的安装日志")
     cert.set_defaults(func=apply_cert)
+
+    port_cmd = sub.add_parser("set-port")
+    port_cmd.add_argument("--domain", required=True)
+    port_cmd.add_argument("--port", required=True)
+    port_cmd.add_argument("--old-port", required=True)
+    port_cmd.set_defaults(func=set_proxy_port)
+
+    remove = sub.add_parser("uninstall")
+    remove.add_argument("--domain", required=True)
+    remove.add_argument("--path", required=True)
+    remove.add_argument("--db-name", default="")
+    remove.add_argument("--remove-db", action="store_true")
+    remove.set_defaults(func=uninstall_site)
     return parser
 
 
