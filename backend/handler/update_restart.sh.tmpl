@@ -193,7 +193,12 @@ esac
 if [ "$OVERLAY" = "1" ]; then
   # 宝塔网站根同时放着页面和 backend/。不能把整个网站根改名，否则运行中的程序和数据目录会一起被搬走。
   FRONTEND_MODE="overlay"
-  STAGING="${FRONTEND_CURRENT}.staging.$TS"
+  # 暂存目录放在本站数据目录里。网站根的上一级通常只有 root 能写，www 不能在 /www/wwwroot 旁边建目录。
+  STAGING="$DATA_DIR/updates/frontend-staging.$TS"
+  mkdir -p "$DATA_DIR/updates" || {
+    finish_job failed "无法创建前端暂存目录，线上目录未改动"
+    exit 1
+  }
   FRONTEND_BACKUP=$(auth_pro_frontend_backup overlay overlay-backup)
   rm -rf "$STAGING"
   cp -a "$FRONTEND_SOURCE" "$STAGING" || {
@@ -261,7 +266,11 @@ elif [ -L "$FRONTEND_CURRENT" ] || [ "$(basename "$FRONTEND_CURRENT")" = "curren
   log "frontend release switched to $TARGET_RELEASE"
 else
   FRONTEND_MODE="rename"
-  STAGING="${FRONTEND_CURRENT}.staging.$TS"
+  STAGING="$DATA_DIR/updates/frontend-staging.$TS"
+  mkdir -p "$DATA_DIR/updates" || {
+    finish_job failed "无法创建前端暂存目录，线上目录未改动"
+    exit 1
+  }
   FRONTEND_BACKUP=$(auth_pro_frontend_backup rename backup)
   rm -rf "$STAGING"
   cp -a "$FRONTEND_SOURCE" "$STAGING" || {
