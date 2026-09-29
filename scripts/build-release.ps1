@@ -85,8 +85,7 @@ New-Item -ItemType Directory -Force -Path $BackendStaticDir | Out-Null
 Get-ChildItem -LiteralPath $BackendStaticDir -Force | Remove-Item -Recurse -Force
 Copy-Item -Path (Join-Path $FrontendDist '*') -Destination $BackendStaticDir -Recurse -Force
 
-# 官网 /install.sh 嵌入的是仓库里的 scripts/install.sh，不是发布包里的文件。
-Copy-Item -LiteralPath (Join-Path $Root 'scripts/install.sh') -Destination (Join-Path $BackendDir 'handler/install_public.sh') -Force
+# 安装脚本的唯一源是 backend/handler/install.sh，由 go:embed 直接下发，这里不再复制。
 
 Write-Host "[3/5] Building Linux backend..."
 $BuildTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")

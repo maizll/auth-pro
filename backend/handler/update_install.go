@@ -9,9 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 官网 /install.sh 下发这一份。构建前由 scripts/install.sh 复制过来，不从客户发布包读取。
+// 官网 /install.sh 下发这一份。唯一源就是同目录的 install.sh，不从客户发布包读取，构建也不再复制。
 //
-//go:embed install_public.sh
+//go:embed install.sh
 var productInstallScript []byte
 
 const (
@@ -20,7 +20,7 @@ const (
 )
 
 // RegisterPublicInstallRoute 在站点根注册 /install.sh。
-// 正文是构建时嵌入的仓库 scripts/install.sh，不从客户发布包读取，也不按请求头、查询参数或环境变量改写。
+// 正文是构建时嵌入的 backend/handler/install.sh，不从客户发布包读取，也不按请求头、查询参数或环境变量改写。
 // 脚本里的官网地址必须是写死的 https://auth.maizll.com，带可覆盖入口的脚本不下发。
 // 安装包下载仍走 /api/v1/update/package/:version：不登录、不收令牌，只发这个应用的已发布客户端包。
 // 付费插件走软件目录的另一条下载接口，不会从这里发出去。

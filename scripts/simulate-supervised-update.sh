@@ -710,7 +710,7 @@ printf '{"version":"1.5.8","frontendDir":".","backendFile":"backend/auth_pro","r
 printf 'asset-new\n' > "$UP_PAYLOAD/assets/app.js"
 cp "$WORK/backend-unavailable.html" "$UP_PAYLOAD/backend-unavailable.html"
 AUTH_PRO_TERM_WAIT=3 AUTH_PRO_YES=1 AUTH_PRO_START=1 AUTH_PRO_SKIP_MYSQL=1 \
-  bash "$ROOT/scripts/install.sh" upgrade \
+  bash "$ROOT/backend/handler/install.sh" upgrade \
     --site-root "$HUNG_SITE" \
     --source "$UP_PAYLOAD" >"$ART/orphan-upgrade.out" 2>"$ART/orphan-upgrade.err"
 grep -q 'SIGKILL' "$ART/orphan-upgrade.out" "$ART/orphan-upgrade.err" || fail "升级没有在超时后 SIGKILL 不响应的孤儿"

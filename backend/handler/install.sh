@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 客户唯一入口。安装、升级、修复进程守护、重设管理员密码都走官网下发的这一份。
+# 客户唯一入口，仓库里也只有这一份：backend/handler/install.sh。
+# 服务端用 go:embed 原样下发为官网 /install.sh，构建不再复制第二份。
 # 发布包里没有本文件。面板辅助脚本和启动模板从官网安装包里取。官网地址写死，不能用环境变量改掉。
 set -euo pipefail
 
@@ -1160,8 +1161,13 @@ baota_panel_script() {
     printf '%s\n' "$BAOTA_PAYLOAD/baota-panel.py"
     return 0
   fi
-  if [[ -f "$SCRIPT_DIR/baota-panel.py" ]]; then
+  if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/baota-panel.py" ]]; then
     printf '%s\n' "$SCRIPT_DIR/baota-panel.py"
+    return 0
+  fi
+  # 本文件在 backend/handler。仓库里的面板辅助脚本仍是 scripts/baota-panel.py。
+  if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/../../scripts/baota-panel.py" ]]; then
+    printf '%s\n' "$SCRIPT_DIR/../../scripts/baota-panel.py"
     return 0
   fi
   return 1
@@ -1722,12 +1728,13 @@ baota_guardian_start_template() {
     printf '%s\n' "$BAOTA_PAYLOAD/guardian-start.sh"
     return 0
   fi
-  if [[ -f "$SCRIPT_DIR/guardian-start.sh" ]]; then
+  if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/guardian-start.sh" ]]; then
     printf '%s\n' "$SCRIPT_DIR/guardian-start.sh"
     return 0
   fi
-  if [[ -f "$SCRIPT_DIR/../backend/handler/guardian_start.sh" ]]; then
-    printf '%s\n' "$SCRIPT_DIR/../backend/handler/guardian_start.sh"
+  # 启动模板的唯一源与本文件放在同一目录。
+  if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/guardian_start.sh" ]]; then
+    printf '%s\n' "$SCRIPT_DIR/guardian_start.sh"
     return 0
   fi
   return 1

@@ -21,7 +21,7 @@ auth_pro-full-v1.5.0.tar.gz
 └── guardian-start.sh
 ```
 
-客户安装脚本不在这个包里。官网 `/install.sh` 下发构建时嵌入的仓库 `scripts/install.sh`。安装、`upgrade`、`--repair-guardian`、`--reset-admin-password` 都走官网这一份。`baota-panel.py` 只由 `install.sh` 从发布包里取出并调用，用来登记宝塔进程守护。`guardian-start.sh` 是启动模板，安装时写成网站目录里的 `backend/start.sh`。构建、检查和发布脚本不打进这个包。若把压缩包直接解压在网站根，Nginx 片段会拦截这两个脚本地址。
+客户安装脚本不在这个包里。官网 `/install.sh` 下发构建时嵌入的 `backend/handler/install.sh`，仓库里只有这一份。安装、`upgrade`、`--repair-guardian`、`--reset-admin-password` 都走官网这一份。`baota-panel.py` 只由 `install.sh` 从发布包里取出并调用，用来登记宝塔进程守护。`guardian-start.sh` 是启动模板，安装时写成网站目录里的 `backend/start.sh`。构建、检查和发布脚本不打进这个包。若把压缩包直接解压在网站根，Nginx 片段会拦截这两个脚本地址。
 
 ## 必须遵守
 

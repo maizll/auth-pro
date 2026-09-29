@@ -59,16 +59,14 @@ mkdir -p "$PACKAGE_DIR/backend" "$PACKAGES_DIR" "$BACKEND_DIR/static"
 rm -rf "$BACKEND_DIR/static"/*
 cp -R "$FRONTEND_DIR/dist"/. "$PACKAGE_DIR"/
 cp -R "$FRONTEND_DIR/dist"/. "$BACKEND_DIR/static"/
-# 客户包只带面板辅助脚本和进程守护模板。install.sh 由官网下发，不打进包。
+# 客户包只带面板辅助脚本和进程守护模板。
+# 安装脚本的唯一源是 backend/handler/install.sh，由 go:embed 直接下发，不复制、不打进包。
 for packaged_script in baota-panel.py; do
   cp "$ROOT_DIR/scripts/$packaged_script" "$PACKAGE_DIR/$packaged_script"
   chmod 755 "$PACKAGE_DIR/$packaged_script"
 done
 cp "$ROOT_DIR/backend/handler/guardian_start.sh" "$PACKAGE_DIR/guardian-start.sh"
 chmod 755 "$PACKAGE_DIR/guardian-start.sh"
-
-# 官网 /install.sh 嵌入的是仓库里的 scripts/install.sh，不是发布包里的文件。
-cp "$ROOT_DIR/scripts/install.sh" "$BACKEND_DIR/handler/install_public.sh"
 
 printf '[3/5] Syncing client SDK assets and building Linux amd64 backend...\n'
 rm -rf "$BACKEND_DIR/handler/sdk_assets"
