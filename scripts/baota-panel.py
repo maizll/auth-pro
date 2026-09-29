@@ -127,6 +127,26 @@ def preflight(_args):
         emit("AUTH_PRO_PANEL_VERSION", "")
 
 
+def list_sites(_args):
+    """只读面板网站目录，供安装脚本认出真正的站点。不创建、不修改、不删除。"""
+    public = load_public()
+    try:
+        rows = public.M("sites").field("name,path").select()
+    except Exception as exc:
+        die("无法查询面板站点列表：%s" % exc)
+    if isinstance(rows, str):
+        die("无法查询面板站点列表：%s" % rows)
+    if not isinstance(rows, list):
+        rows = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        path = str(row.get("path") or "").strip().rstrip("/")
+        if path:
+            emit("AUTH_PRO_SITE", path)
+    emit("AUTH_PRO_RESULT", "ok")
+
+
 def check_site(args):
     """站点名或非空目录已存在时拒绝。不会改目录里的文件。"""
     public = load_public()
@@ -1130,6 +1150,9 @@ def build_parser():
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("preflight").set_defaults(func=preflight)
+
+    listed = sub.add_parser("list-sites")
+    listed.set_defaults(func=list_sites)
 
     site = sub.add_parser("check-site")
     site.add_argument("--domain", required=True)

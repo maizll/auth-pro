@@ -25,6 +25,7 @@ import (
 var staticFS embed.FS
 
 func main() {
+	// 子命令在解析前端和监听端口之前结束。重设密码只改本站数据库，不要求 index.html。
 	handler.DispatchStoreKeygen(os.Args[1:])
 	handler.DispatchResetAdminPassword(os.Args[1:])
 
