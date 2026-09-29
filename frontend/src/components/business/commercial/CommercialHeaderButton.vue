@@ -45,6 +45,7 @@
 <script setup lang="ts">
   import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
   import { fetchStoreAccount, refreshStoreSnapshot, type StoreAccount } from '@/api/store'
+  import { commercialHeaderTerm } from '@/utils/commercial-header-term'
   import {
     commercialUi,
     isCommercialActive,
@@ -59,21 +60,7 @@
   const ready = ref(!!commercialUi.account)
   const commercial = computed(() => isCommercialActive(account.value))
   const pending = computed(() => commercial.value && !!account.value?.offlineGrace)
-  const term = computed(() => headerTerm(account.value))
-
-  function headerTerm(current: StoreAccount | null) {
-    if (!current) return ''
-    let when = '永久'
-    if (!current.permanent && current.editionExpireAt) {
-      const date = new Date(current.editionExpireAt * 1000)
-      if (!Number.isNaN(date.getTime())) {
-        const pad = (value: number) => String(value).padStart(2, '0')
-        when = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} 到期`
-      }
-    }
-    const source = (current.editionSource || '').trim()
-    return source ? `${when} · ${source}` : when
-  }
+  const term = computed(() => commercialHeaderTerm(account.value))
 
   watch(
     () => commercialUi.account,
@@ -135,6 +122,7 @@
   /* 宝塔 10 首页右上角是全圆角小胶囊：高约 26px，字号 12px，图标在左。 */
   .commercial-header-entry__pill {
     display: inline-flex;
+    flex: none;
     gap: 4px;
     align-items: center;
     height: 26px;
@@ -142,6 +130,7 @@
     font-size: 12px;
     font-weight: 600;
     line-height: 1;
+    white-space: nowrap;
     border-radius: 999px;
   }
 
@@ -167,10 +156,12 @@
   }
 
   .commercial-header-entry__expire {
+    flex: none;
     color: var(--el-text-color-secondary);
     font-size: 12px;
     font-weight: 400;
     line-height: 1;
+    white-space: nowrap;
   }
 
   .commercial-header-entry__pill--pending {
