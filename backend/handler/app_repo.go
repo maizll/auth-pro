@@ -142,18 +142,11 @@ func ensureAppRepoSchema(db *sql.DB) error {
 	return err
 }
 
+// migrateAppRepoBindings 只建表。
+// 官网仓库迁移要读令牌并访问 GitHub，不能放在这一步里：迁移要等函数返回后才记入 schema_migrations，
+// 中途再次进入 ensureSourceStationStorage 时这条仍是 pending，会无限递归，官网启动即崩溃。
 func migrateAppRepoBindings(db *sql.DB) error {
-	if err := ensureAppRepoSchema(db); err != nil {
-		return err
-	}
-	// 官网升级时把已有仓库迁入「授权系统」。失败不改绑定，下次启动再试。
-	if err := migrateOfficialAppRepo(context.Background(), db); err != nil {
-		_ = currentSourceStationStore().AppendAudit(sourceAuditEntry{
-			ActorType: "system", Action: "migrate_failed", TargetType: appRepoTargetType,
-			TargetID: productUpdateAppKey, Detail: "官网仓库迁移没有完成：" + err.Error(),
-		})
-	}
-	return nil
+	return ensureAppRepoSchema(db)
 }
 
 func lockAppRepo(appID int64) bool {
@@ -780,6 +773,32 @@ func copyRepoPrefix(ctx context.Context, fromOwner, fromRepo, toOwner, toRepo, p
 
 func urlPathTag(tag string) string {
 	return strings.ReplaceAll(tag, "/", "%2F")
+}
+
+// 官网仓库迁移在结构迁移结束之后单独跑一次。失败只记审计，下次启动再试。
+// 是否再跑看「授权系统」有没有绑定，不看 schema_migrations：线上可能已经手动补过 app_repo_bindings_v1。
+var (
+	officialAppRepoMigrateOnce   sync.Once
+	officialAppRepoMigrationWait chan struct{}
+)
+
+func scheduleOfficialAppRepoMigration(db *sql.DB) {
+	if db == nil || !officialSite() {
+		return
+	}
+	officialAppRepoMigrateOnce.Do(func() {
+		done := make(chan struct{})
+		officialAppRepoMigrationWait = done
+		go func() {
+			defer close(done)
+			if err := migrateOfficialAppRepo(context.Background(), db); err != nil {
+				_ = currentSourceStationStore().AppendAudit(sourceAuditEntry{
+					ActorType: "system", Action: "migrate_failed", TargetType: appRepoTargetType,
+					TargetID: productUpdateAppKey, Detail: "官网仓库迁移没有完成：" + err.Error(),
+				})
+			}
+		}()
+	})
 }
 
 func migrateOfficialAppRepo(ctx context.Context, db *sql.DB) error {

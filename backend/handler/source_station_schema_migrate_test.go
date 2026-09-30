@@ -237,6 +237,7 @@ var sourceStationMigrationNames = []string{
 	"source_catalog_version_storage_v1",
 	"drop_github_update_url_v1",
 	"license_operation_logs_v1",
+	"app_repo_bindings_v1",
 }
 
 type sourceSchemaPluginRow struct {
@@ -271,6 +272,12 @@ type sourceSchemaMigrateState struct {
 	execs                  []string
 	refuseFilePathBackfill bool
 	failExecContaining     string
+	// 官网启动迁移回归用。零值时不影响原来的结构迁移测试。
+	officialAppID        int64
+	officialAppName      string
+	stationSettings      map[string]string
+	appRepoBound         bool
+	queryDuringMigration bool
 }
 
 func newLegacySourceSchemaState() *sourceSchemaMigrateState {
@@ -406,6 +413,8 @@ func (c *sourceSchemaMigrateConn) ExecContext(_ context.Context, query string, a
 	}
 	upper := strings.ToUpper(query)
 	switch {
+	case strings.Contains(query, "INSERT INTO app_repo_bindings"):
+		state.appRepoBound = true
 	case strings.Contains(upper, "INSERT") && strings.Contains(query, "schema_migrations"):
 		name := sourceSchemaArgString(args, 0)
 		if name == "" {
@@ -480,6 +489,37 @@ func (c *sourceSchemaMigrateConn) QueryContext(_ context.Context, query string, 
 	defer state.mu.Unlock()
 	var count int64
 	switch {
+	case strings.Contains(query, "SELECT id, app_name FROM apps WHERE app_key"):
+		if sourceMigrationInProgress() {
+			state.queryDuringMigration = true
+		}
+		if state.officialAppID == 0 {
+			return &sourceSchemaMigrateRows{done: true}, nil
+		}
+		return &sourceSchemaMigrateRows{
+			cols:   []string{"id", "app_name"},
+			values: []driver.Value{state.officialAppID, state.officialAppName},
+		}, nil
+	case strings.Contains(query, "FROM app_repo_bindings"):
+		if sourceMigrationInProgress() {
+			state.queryDuringMigration = true
+		}
+		if !state.appRepoBound {
+			return &sourceSchemaMigrateRows{done: true}, nil
+		}
+		return &sourceSchemaMigrateRows{
+			cols:   []string{"app_id", "location_id", "owner", "repo", "private_repo", "status"},
+			values: []driver.Value{state.officialAppID, "github-paid", "acme", "paid-packages", int64(1), "ready"},
+		}, nil
+	case strings.Contains(query, "package_storage_state"):
+		return &sourceSchemaMigrateRows{done: true}, nil
+	case strings.Contains(query, "source_station_settings"):
+		key := sourceSchemaArgString(args, 0)
+		value, ok := state.stationSettings[key]
+		if !ok {
+			return &sourceSchemaMigrateRows{done: true}, nil
+		}
+		return &sourceSchemaMigrateRows{cols: []string{"setting_value"}, values: []driver.Value{value}}, nil
 	case strings.Contains(query, "schema_migrations"):
 		if state.migrations[sourceSchemaArgString(args, 0)] {
 			count = 1
@@ -569,18 +609,29 @@ func sourceSchemaArgString(args []driver.NamedValue, index int) string {
 }
 
 type sourceSchemaMigrateRows struct {
+	cols   []string
 	values []driver.Value
 	done   bool
 }
 
-func (r *sourceSchemaMigrateRows) Columns() []string { return []string{"count"} }
-func (r *sourceSchemaMigrateRows) Close() error      { return nil }
+func (r *sourceSchemaMigrateRows) Columns() []string {
+	if len(r.cols) > 0 {
+		return r.cols
+	}
+	return []string{"count"}
+}
+func (r *sourceSchemaMigrateRows) Close() error { return nil }
 func (r *sourceSchemaMigrateRows) Next(dest []driver.Value) error {
-	if r.done {
+	if r.done || len(r.values) == 0 {
+		r.done = true
 		return io.EOF
 	}
 	r.done = true
-	dest[0] = r.values[0]
+	for i := range dest {
+		if i < len(r.values) {
+			dest[i] = r.values[i]
+		}
+	}
 	return nil
 }
 

@@ -1762,7 +1762,12 @@ func ensureSourceStationStorage(db *sql.DB) error {
 		sourceDeveloperRoleName, sourceDeveloperRoleCode); err != nil {
 		return fmt.Errorf("ensure developer role: %w", err)
 	}
-	return mysqlPurgeInactiveDeveloperQualifications(db)
+	if err := mysqlPurgeInactiveDeveloperQualifications(db); err != nil {
+		return err
+	}
+	// 结构迁移全部完成后再迁官网仓库。客户站 officialSite 为假，这里直接返回。
+	scheduleOfficialAppRepoMigration(db)
+	return nil
 }
 
 func mysqlPurgeInactiveDeveloperQualifications(db *sql.DB) error {
