@@ -55,10 +55,13 @@
     <ElDrawer
       v-if="narrow"
       v-model="drawer"
+      class="public-nav-drawer"
       direction="ltr"
       size="232px"
       :with-header="false"
+      append-to="body"
       append-to-body
+      :z-index="4000"
     >
       <component
         :is="item.external ? 'a' : 'RouterLink'"

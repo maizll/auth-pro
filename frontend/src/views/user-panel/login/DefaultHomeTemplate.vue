@@ -1424,10 +1424,17 @@
   }
 
   .header-center {
-    font-size: 14px;
-    color: var(--el-color-primary);
+    display: inline-flex;
+    align-items: center;
+    height: 32px;
+    padding: 0 12px;
+    font-size: 13px;
+    line-height: 32px;
+    color: #fff;
     white-space: nowrap;
     text-decoration: none;
+    background: var(--el-color-primary);
+    border-radius: 8px;
   }
 
   .hero-section {
@@ -2746,6 +2753,12 @@
     }
     .brand-copy small {
       display: none;
+    }
+    .header-center {
+      height: 28px;
+      padding: 0 10px;
+      font-size: 12px;
+      line-height: 28px;
     }
     .header-actions :deep(.el-button) {
       padding: 8px 11px;

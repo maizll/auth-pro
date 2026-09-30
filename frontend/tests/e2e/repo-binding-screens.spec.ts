@@ -9,6 +9,20 @@ const productVersion = readFileSync(
 ).trim()
 
 const shotDir = '/opt/cursor/artifacts/screenshots'
+const shots = {
+  unbindDesktop: `${shotDir}/screen-unbind-desktop.png`,
+  unbindPhone: `${shotDir}/screen-unbind-phone.png`,
+  createDesktop: `${shotDir}/screen-create-desktop.png`,
+  createPhone: `${shotDir}/screen-create-phone.png`,
+  appsDesktop: `${shotDir}/screen-apps-desktop.png`,
+  reposDesktop: `${shotDir}/screen-repos-desktop.png`,
+  rebindDesktop: `${shotDir}/screen-rebind-desktop.png`,
+  rebindPhone: `${shotDir}/screen-rebind-phone.png`,
+  badgeDesktop: `${shotDir}/screen-badge-desktop.png`,
+  badgePhone: `${shotDir}/screen-badge-phone.png`,
+  navDrawerPhone: `${shotDir}/screen-nav-drawer-phone.png`,
+  tokenPhone: `${shotDir}/screen-token-phone.png`
+}
 mkdirSync(shotDir, { recursive: true })
 
 const menus = [
@@ -134,7 +148,7 @@ async function mockApis(page: Page, tokenReady: boolean) {
       await ok(apps)
       return
     }
-    if (pathname === '/api/store/account') {
+    if (pathname === '/api/store/account' || pathname === '/api/store/refresh') {
       await ok(account)
       return
     }
@@ -166,11 +180,11 @@ async function mockApis(page: Page, tokenReady: boolean) {
         from: 'acme/auth-system',
         to: 'acme/customer-b',
         groups: [
-          { prefix: 'client/', text: '2 个' },
-          { prefix: 'plugins/paid/', text: '4 个' },
-          { prefix: 'plugins/free/', text: '0 个' },
-          { prefix: 'templates/paid/', text: '1 个' },
-          { prefix: 'templates/free/', text: '0 个' }
+          { prefix: 'client/', text: '2 个 · 18 MB' },
+          { prefix: 'plugins/paid/', text: '4 个 · 6 MB' },
+          { prefix: 'plugins/free/', text: '没有文件' },
+          { prefix: 'templates/paid/', text: '1 个 · 2 MB' },
+          { prefix: 'templates/free/', text: '没有文件' }
         ]
       })
       return
@@ -242,7 +256,16 @@ async function login(page: Page) {
         refreshToken: 'e2e-admin-refresh'
       })
     )
+    localStorage.setItem('user_panel_token', 'e2e-site-user')
   }, productVersion)
+}
+
+async function shot(page: Page, file: string) {
+  await page.addStyleTag({
+    content:
+      '#__vue-devtools-container__, .vue-devtools__anchor, [class*="vue-devtools"] { display: none !important; }'
+  })
+  await page.screenshot({ path: file, animations: 'disabled' })
 }
 
 test('仓库绑定和统一弹窗在电脑上可操作', async ({ page }) => {
@@ -251,30 +274,36 @@ test('仓库绑定和统一弹窗在电脑上可操作', async ({ page }) => {
   await login(page)
   await page.goto('/source-station/repos')
   await expect(page.getByText('仓库绑定').first()).toBeVisible()
-  await page.screenshot({ path: `${shotDir}/impl-repos-desktop.png`, fullPage: true })
+  await shot(page, shots.reposDesktop)
 
   await page.getByRole('button', { name: '更换' }).click()
-  await expect(page.getByRole('button', { name: '复制并核对' })).toBeVisible()
-  await page.screenshot({ path: `${shotDir}/impl-rebind-desktop.png` })
+  await expect(page.getByRole('button', { name: '确认更换' })).toBeVisible()
+  await expect(page.getByText('只切换')).toBeVisible()
+  await shot(page, shots.rebindDesktop)
   await page.keyboard.press('Escape')
 
   await page.goto('/source-station/repos')
   await page.getByRole('button', { name: '解除' }).click()
   await expect(page.getByText('已发布的版本还依赖这个仓库')).toBeVisible()
-  await page.screenshot({ path: `${shotDir}/impl-unbind-desktop.png` })
+  await shot(page, shots.unbindDesktop)
 
   await page.goto('/license/apps')
+  await expect(page.getByRole('columnheader', { name: '仓库' })).toBeVisible()
+  await shot(page, shots.appsDesktop)
   await page.getByRole('button', { name: '新增应用' }).click()
   await page.getByPlaceholder('请输入应用名称').fill('Customer Portal')
   await page.getByRole('button', { name: '下一步' }).click()
-  await expect(page.getByText('自动创建私有仓库')).toBeVisible()
-  await page.screenshot({ path: `${shotDir}/impl-create-repo-desktop.png` })
+  await expect(page.getByText('密钥已保存')).toBeVisible()
+  await expect(page.getByText('应用信息')).toBeVisible()
+  await expect(page.getByPlaceholder('所有者/仓库')).toBeVisible()
+  await shot(page, shots.createDesktop)
 
   await page.goto('/license/apps')
   await expect(page.getByText('2026-10-01 到期')).toBeVisible()
   await page.locator('.commercial-header-entry__hit').first().click()
-  await expect(page.locator('.commercial-header-entry__pop')).toBeVisible()
-  await page.screenshot({ path: `${shotDir}/impl-badge-desktop.png` })
+  await expect(page.locator('.commercial-header-entry__pop').getByText('到期时间')).toBeVisible()
+  await expect(page.locator('.commercial-header-entry__pop').getByText('授权域名')).toBeVisible()
+  await shot(page, shots.badgeDesktop)
 })
 
 test('仓库绑定和官网导航在手机上可操作', async ({ page }) => {
@@ -283,46 +312,58 @@ test('仓库绑定和官网导航在手机上可操作', async ({ page }) => {
   await login(page)
   await page.goto('/source-station/repos')
   await expect(page.getByText('令牌已失效').first()).toBeVisible()
-  await page.screenshot({ path: `${shotDir}/impl-token-phone.png`, fullPage: true })
-
-  await page.getByRole('button', { name: '绑定' }).click()
-  await expect(page.getByText('还没有可用的令牌')).toBeVisible()
-  await page.screenshot({ path: `${shotDir}/impl-bind-token-phone.png` })
-  await page.keyboard.press('Escape')
+  await shot(page, shots.tokenPhone)
 
   await page.getByRole('button', { name: '更换' }).first().click()
-  await expect(page.getByRole('button', { name: '复制并核对' })).toBeVisible()
-  await page.screenshot({ path: `${shotDir}/impl-rebind-phone.png` })
+  await expect(page.getByRole('button', { name: '确认更换' })).toBeVisible()
+  await shot(page, shots.rebindPhone)
   await page.keyboard.press('Escape')
 
   await page.getByRole('button', { name: '解除' }).first().click()
   await expect(page.getByText('已发布的版本还依赖这个仓库')).toBeVisible()
-  await page.screenshot({ path: `${shotDir}/impl-unbind-phone.png` })
+  await shot(page, shots.unbindPhone)
 
   await page.goto('/license/apps')
-  await page.getByRole('button', { name: '新增应用' }).click()
-  await page.getByPlaceholder('请输入应用名称').fill('授权系统')
-  await page.getByRole('button', { name: '下一步' }).click()
-  await expect(page.getByText('稍后绑定')).toBeVisible()
-  await page.screenshot({ path: `${shotDir}/impl-create-repo-phone.png` })
-
-  await page.goto('/license/apps')
-  await page.locator('.commercial-header-entry__hit').first().click()
-  await expect(page.getByText('商业版').last()).toBeVisible()
-  await page.screenshot({ path: `${shotDir}/impl-badge-phone.png` })
+  await expect(page.getByRole('button', { name: '2026-10-01 到期' })).toBeVisible()
+  await page.getByRole('button', { name: '2026-10-01 到期' }).click()
+  const flag = page.locator('.commercial-header-entry')
+  await expect(flag).toHaveAttribute('data-detail', '1')
+  await expect(flag).toHaveAttribute('data-narrow', '1')
+  const sheet = page.locator('.el-drawer').filter({ hasText: '到期时间' })
+  await expect(sheet.getByText('来源')).toBeVisible()
+  await expect(sheet.getByText('绑定账号')).toBeVisible()
+  await expect(sheet.getByText('授权域名')).toBeVisible()
+  await shot(page, shots.badgePhone)
 
   await page.goto('/user/login')
-  await expect(page.getByRole('button', { name: '打开菜单' })).toBeVisible()
-  await page.screenshot({ path: `${shotDir}/impl-public-nav-phone.png` })
+  await expect(page.getByRole('link', { name: '个人中心' })).toBeVisible()
   await page.getByRole('button', { name: '打开菜单' }).click()
-  await expect(page.locator('.public-nav__drawer-link', { hasText: '首页' })).toBeVisible()
-  await page.screenshot({ path: `${shotDir}/impl-public-nav-drawer-phone.png` })
+  const drawer = page
+    .locator('.el-drawer')
+    .filter({ has: page.locator('.public-nav__drawer-link') })
+  await expect(
+    drawer.locator('.public-nav__drawer-link.is-active', { hasText: '首页' })
+  ).toBeVisible()
+  await expect
+    .poll(async () => {
+      const box = await drawer.boundingBox()
+      return box ? box.x >= -1 && box.width > 180 : false
+    })
+    .toBe(true)
+  await shot(page, shots.navDrawerPhone)
 })
 
-test('官网导航在电脑上是横排', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 })
+test('手机上创建应用的仓库步骤是竖排卡片', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
   await mockApis(page, true)
-  await page.goto('/user/login')
-  await expect(page.locator('.public-nav__link', { hasText: '首页' })).toBeVisible()
-  await page.screenshot({ path: `${shotDir}/impl-public-nav-desktop.png` })
+  await login(page)
+  await page.goto('/license/apps')
+  await page.getByRole('button', { name: '新增应用' }).click()
+  await page.getByPlaceholder('请输入应用名称').fill('Customer Portal')
+  await page.getByRole('button', { name: '下一步' }).click()
+  await expect(page.getByText('密钥已保存')).toBeVisible()
+  await expect(
+    page.locator('.repo-options__card.is-on').getByPlaceholder('所有者/仓库')
+  ).toBeVisible()
+  await shot(page, shots.createPhone)
 })

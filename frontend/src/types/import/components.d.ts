@@ -150,6 +150,7 @@ declare module 'vue' {
     PublicSiteNav: typeof import('./../../components/site/PublicSiteNav.vue')['default']
     PublicSiteShell: typeof import('./../../components/site/PublicSiteShell.vue')['default']
     ReleaseRepoImport: typeof import('./../../components/business/release-import/ReleaseRepoImport.vue')['default']
+    RepoOptionCards: typeof import('./../../components/business/repo/RepoOptionCards.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     RowActions: typeof import('./../../components/business/row-actions/index.vue')['default']

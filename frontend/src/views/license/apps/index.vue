@@ -17,11 +17,10 @@
       <!-- 表格 -->
       <ArtTable :loading="loading" :data="data" :columns="columns">
         <template #name="{ row }">
-          <div class="app-name-cell">
-            <span class="app-name-cell__title">{{ row.name }}</span>
-            <span v-if="row.repo" class="app-name-cell__repo">{{ row.repo }}</span>
-            <span v-else class="app-name-cell__repo">未绑定仓库</span>
-          </div>
+          <span class="app-name-cell__title">{{ row.name }}</span>
+        </template>
+        <template #repo="{ row }">
+          <span class="app-repo-cell">{{ row.repo || '未绑定仓库' }}</span>
         </template>
         <!-- 授权方式 -->
         <template #purchaseLicenseTypes="{ row }">
@@ -109,8 +108,8 @@
       destroy-on-close
       :before-close="beforeCloseCreate"
     >
-      <ElSteps v-if="!isEdit && !createResult" :active="step" align-center class="create-steps">
-        <ElStep title="应用" />
+      <ElSteps v-if="!isEdit && !createResult" :active="step" class="create-steps">
+        <ElStep title="应用信息" />
         <ElStep title="仓库" />
       </ElSteps>
       <ElResult
@@ -174,23 +173,16 @@
           <ElInput v-model="formData.remark" type="textarea" :rows="2" placeholder="可选" />
         </ElFormItem>
       </ElForm>
-      <div v-else class="repo-step">
-        <ElAlert v-if="!tokenReady" type="error" :closable="false" :title="tokenMessage" />
-        <ElRadioGroup v-model="repoAction" class="repo-choices">
-          <ElRadio value="create" border :disabled="!tokenReady">自动创建私有仓库</ElRadio>
-          <ElRadio value="bind" border :disabled="!tokenReady">绑定已有仓库</ElRadio>
-          <ElRadio value="skip" border>稍后绑定</ElRadio>
-        </ElRadioGroup>
-        <ElInput
-          v-if="repoAction !== 'skip'"
-          v-model.trim="repoName"
-          class="repo-input"
-          placeholder="所有者/仓库"
-          :disabled="!tokenReady"
-          @input="repoTouched = true"
-        />
-        <p v-if="repoHint" class="form-tip">{{ repoHint }}</p>
-      </div>
+      <RepoOptionCards
+        v-else
+        v-model="repoAction"
+        v-model:repo="repoName"
+        :token-ready="tokenReady"
+        :token-message="tokenMessage"
+        :hint="repoHint"
+        :options="repoOptions"
+        @touched="repoTouched = true"
+      />
       <template #footer>
         <template v-if="createResult">
           <ElButton @click="finishCreate">稍后处理</ElButton>
@@ -276,6 +268,7 @@
   import AppDialog from '@/components/core/dialog/AppDialog.vue'
   import { appConfirm } from '@/utils/app-confirm'
   import { fetchAppRepoToken, suggestAppRepo } from '@/api/app-repo'
+  import RepoOptionCards from '@/components/business/repo/RepoOptionCards.vue'
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
   import { fetchStoreAccount, type StoreAccount } from '@/api/store'
   import {
@@ -321,6 +314,11 @@
   const repoName = ref('')
   const repoTouched = ref(false)
   const repoHint = ref('')
+  const repoOptions = [
+    { value: 'create', title: '自动创建私有仓库', field: '仓库名', placeholder: '所有者/仓库' },
+    { value: 'bind', title: '绑定已有仓库', field: '所有者/仓库', placeholder: '所有者/仓库' },
+    { value: 'skip', title: '稍后绑定', needsToken: false }
+  ]
   const requestId = ref('')
   const createResult = ref<{ ok: boolean; title: string; sub: string; appId: number } | null>(null)
   const dialogTitle = computed(() => {
@@ -370,7 +368,16 @@
           mobileLabel: '应用',
           minWidth: 150,
           useSlot: true,
+          showOverflowTooltip: true,
           mobilePriority: 1
+        },
+        {
+          prop: 'repo',
+          label: '仓库',
+          minWidth: 180,
+          useSlot: true,
+          showOverflowTooltip: true,
+          mobileHidden: true
         },
         { prop: 'sale', label: '商业版', minWidth: 220, useSlot: true, mobileHidden: true },
         {
@@ -892,25 +899,21 @@
     }
 
     .create-steps {
-      margin-bottom: 16px;
+      margin-bottom: 20px;
     }
 
-    .repo-choices {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      align-items: stretch;
+    .create-steps :deep(.el-step__title) {
+      font-size: 14px;
+      line-height: 24px;
+      white-space: nowrap;
     }
 
-    .repo-input {
-      margin-top: 12px;
-    }
-
-    .app-name-cell__repo {
+    .app-repo-cell {
       display: block;
-      margin-top: 4px;
-      font-size: 12px;
+      overflow: hidden;
       color: #6b7686;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .version-count {
@@ -942,6 +945,10 @@
       display: block;
       overflow: hidden;
       text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    :deep(.el-table .cell) {
       white-space: nowrap;
     }
 

@@ -1,6 +1,10 @@
 <!-- 顶栏商业版入口。形态按宝塔首页右上角的胶囊：浅色底是未开通，实心主题蓝是已开通。 -->
 <template>
-  <div class="commercial-header-entry">
+  <div
+    class="commercial-header-entry"
+    :data-detail="detailOpen ? '1' : '0'"
+    :data-narrow="narrow ? '1' : '0'"
+  >
     <button
       v-if="ready && pending"
       type="button"
@@ -42,9 +46,12 @@
     <ElDrawer
       v-if="narrow"
       v-model="detailOpen"
+      class="commercial-sheet"
       direction="btt"
       size="auto"
+      append-to="body"
       append-to-body
+      :z-index="4000"
       title="商业版"
     >
       <CommercialLicenseCard :account="account" @refreshed="onAccountRefreshed" />
@@ -77,8 +84,14 @@
   const detailOpen = ref(false)
   const narrow = ref(false)
 
+  function syncNarrow() {
+    const next = window.innerWidth < 768
+    if (narrow.value && !next) detailOpen.value = false
+    narrow.value = next
+  }
+
   function openDetail() {
-    narrow.value = window.innerWidth < 768
+    syncNarrow()
     detailOpen.value = !detailOpen.value
   }
 
@@ -114,11 +127,14 @@
   }
 
   onMounted(() => {
+    syncNarrow()
     void load(true)
+    window.addEventListener('resize', syncNarrow)
     window.addEventListener('store-account-refresh', onAccountRefresh)
   })
 
   onBeforeUnmount(() => {
+    window.removeEventListener('resize', syncNarrow)
     window.removeEventListener('store-account-refresh', onAccountRefresh)
   })
 </script>
