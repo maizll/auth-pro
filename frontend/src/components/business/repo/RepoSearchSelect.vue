@@ -33,15 +33,18 @@
           :value="item.repo"
           :disabled="!!item.boundApp"
         >
-          <div class="repo-line" :class="{ 'is-taken': item.boundApp }">
+          <div class="repo-line" :class="{ 'is-taken': item.boundApp }" :title="item.repo">
             <span class="repo-line__name">{{ item.repo }}</span>
-            <span class="repo-line__tag" :class="{ 'is-public': !item.private }">{{
-              item.private ? '私有' : '公开'
-            }}</span>
-            <span class="repo-line__time">{{ formatUpdated(item.updatedAt) }}</span>
+            <span class="repo-line__meta">
+              <span class="repo-line__tag" :class="{ 'is-public': !item.private }">{{
+                item.private ? '私有' : '公开'
+              }}</span>
+              <span class="repo-line__time">{{ formatUpdated(item.updatedAt) }}</span>
+              <span v-if="item.boundApp" class="repo-line__taken"
+                >已被应用「{{ item.boundApp }}」占用</span
+              >
+            </span>
           </div>
-          <p v-if="item.boundApp" class="repo-line__extra">已被应用「{{ item.boundApp }}」占用</p>
-          <p v-else-if="!item.private" class="repo-line__extra">建议改为私有</p>
         </ElOption>
       </ElSelect>
       <p v-if="status === 'empty'" class="repo-search__hint"
@@ -236,10 +239,11 @@
 
 <style>
   .repo-search-popper .el-select-dropdown__item {
-    height: auto;
-    padding-top: 6px;
-    padding-bottom: 6px;
-    line-height: 1.4;
+    box-sizing: border-box;
+    height: 56px !important;
+    padding: 6px 12px;
+    overflow: hidden;
+    line-height: normal;
     white-space: normal;
   }
 
@@ -249,21 +253,39 @@
 
   .repo-line {
     display: flex;
-    gap: 8px;
-    align-items: center;
+    flex-direction: column;
+    gap: 4px;
+    justify-content: center;
+    height: 44px;
+    min-width: 0;
+  }
+
+  .repo-line__name,
+  .repo-line__taken {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .repo-line.is-taken,
   .repo-line.is-taken .repo-line__time,
-  .repo-line.is-taken .repo-line__tag {
+  .repo-line.is-taken .repo-line__tag,
+  .repo-line.is-taken .repo-line__taken {
     color: #98a2b3;
   }
 
   .repo-line__name {
-    min-width: 0;
-    overflow: hidden;
     font-size: 14px;
-    text-overflow: ellipsis;
+    line-height: 20px;
+  }
+
+  .repo-line__meta {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+    height: 20px;
+    overflow: hidden;
   }
 
   .repo-line__tag {
@@ -281,21 +303,18 @@
     background: #eef2ff;
   }
 
-  .repo-line__time {
+  .repo-line__time,
+  .repo-line__taken {
     flex: none;
+    color: #6b7686;
+    font-size: 12px;
+    line-height: 20px;
+  }
+
+  .repo-line__taken {
+    flex: 1 1 auto;
+    min-width: 0;
     margin-left: auto;
-    color: #6b7686;
-    font-size: 12px;
-  }
-
-  .repo-line__extra {
-    margin: 2px 0 0;
-    color: #6b7686;
-    font-size: 12px;
-    line-height: 1.4;
-  }
-
-  .repo-search-popper .is-disabled .repo-line__extra {
-    color: #98a2b3;
+    text-align: right;
   }
 </style>

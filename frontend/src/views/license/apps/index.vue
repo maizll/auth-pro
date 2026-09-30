@@ -108,7 +108,12 @@
       destroy-on-close
       :before-close="beforeCloseCreate"
     >
-      <ElSteps v-if="!isEdit && !createResult" :active="step" class="create-steps">
+      <ElSteps
+        v-if="!isEdit && !createResult"
+        :active="step"
+        align-center
+        class="create-steps"
+      >
         <ElStep title="应用信息" />
         <ElStep title="仓库" />
       </ElSteps>

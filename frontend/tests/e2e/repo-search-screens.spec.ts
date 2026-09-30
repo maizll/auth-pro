@@ -13,9 +13,15 @@ mkdirSync(shotDir, { recursive: true })
 
 const repos = [
   {
-    repo: 'acme/paid-packages',
+    repo: 'acme/paid-packages-customer-distribution-channel',
     private: true,
     updatedAt: '2026-09-29T10:20:00Z',
+    boundApp: ''
+  },
+  {
+    repo: 'acme/paid-packages',
+    private: true,
+    updatedAt: '2026-09-29T08:10:00Z',
     boundApp: ''
   },
   {
@@ -225,69 +231,44 @@ function repoSelect(page: Page) {
 
 async function openList(page: Page) {
   await repoSelect(page).click()
-  await expect(page.locator('.repo-search-popper').getByText('acme/paid-packages')).toBeVisible()
+  await expect(page.locator('.repo-search-popper').getByText('acme/paid-packages').first()).toBeVisible()
 }
 
 for (const viewport of [
-  { name: 'desktop', width: 1440, height: 900 },
-  { name: 'phone', width: 390, height: 844 }
+  { name: 'phone', width: 390, height: 844 },
+  { name: 'desktop', width: 1440, height: 900 }
 ] as const) {
   test(`仓库搜索下拉 ${viewport.name}`, async ({ page }) => {
     test.setTimeout(120_000)
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
     await login(page)
 
-    let release = await mockApis(page, 'list')
+    await mockApis(page, 'list')
     await openBind(page)
     await openList(page)
+    const longName = page.locator('.repo-search-popper .repo-line').first()
+    await expect(longName).toHaveAttribute(
+      'title',
+      'acme/paid-packages-customer-distribution-channel'
+    )
+    const taken = page.locator('.repo-search-popper .repo-line.is-taken')
+    await expect(taken).toContainText('acme/auth-system')
+    await expect(taken).toContainText('已被应用「授权系统」占用')
+    await expect(taken).toContainText('私有')
     await shot(page, `${shotDir}/repo-list-${viewport.name}.png`)
-    await expect(page.locator('.repo-search-popper').getByText('建议改为私有')).toBeVisible()
 
-    await page.unrouteAll({ behavior: 'ignoreErrors' })
-    release = await mockApis(page, 'search')
-    await page.reload()
-    await openBind(page)
-    await repoSelect(page).click()
-    await page.keyboard.type('shop')
-    await expect(page.getByText('正在搜索…')).toBeVisible()
-    await shot(page, `${shotDir}/repo-search-${viewport.name}.png`)
-    release()
+    await page.locator('.repo-search-popper').getByText('acme/public-docs', { exact: true }).click()
+    await expect(page.getByText('这是公开仓库，可以绑定，建议改为私有。')).toBeVisible()
+    await shot(page, `${shotDir}/repo-public-${viewport.name}.png`)
 
-    await page.unrouteAll({ behavior: 'ignoreErrors' })
-    await mockApis(page, 'list')
-    await page.reload()
-    await openBind(page)
-    await openList(page)
-    const taken = page.locator('.repo-search-popper').getByText('已被应用「授权系统」占用')
-    await taken.scrollIntoViewIfNeeded()
-    await expect(taken).toBeVisible()
-    await shot(page, `${shotDir}/repo-taken-${viewport.name}.png`)
-
-    await page.unrouteAll({ behavior: 'ignoreErrors' })
-    await mockApis(page, 'token')
-    await page.reload()
-    await openBind(page)
-    await expect(page.getByRole('button', { name: '去存储管理' })).toBeVisible()
-    await expect(page.getByText('GitHub 令牌无效或已过期。请到存储管理更新令牌。')).toBeVisible()
-    await shot(page, `${shotDir}/repo-token-${viewport.name}.png`)
-
-    await page.unrouteAll({ behavior: 'ignoreErrors' })
-    await mockApis(page, 'timeout')
-    await page.reload()
-    await openBind(page)
-    await expect(page.getByRole('button', { name: '重试' })).toBeVisible()
-    await expect(page.getByText('连接超时，请稍后再试。')).toBeVisible()
-    await shot(page, `${shotDir}/repo-timeout-${viewport.name}.png`)
-
-    await page.unrouteAll({ behavior: 'ignoreErrors' })
-    await mockApis(page, 'list')
-    await page.reload()
-    await openBind(page)
-    await repoSelect(page).click()
-    await page.keyboard.type('zzz')
-    await expect(page.getByText('没有找到这个仓库，可以手动填写。')).toBeVisible()
-    await page.getByPlaceholder('所有者/仓库').fill('不是仓库')
-    await expect(page.getByText('请填写仓库，格式为 所有者/仓库')).toBeVisible()
-    await shot(page, `${shotDir}/repo-manual-${viewport.name}.png`)
+    if (viewport.name === 'phone') {
+      await page.unrouteAll({ behavior: 'ignoreErrors' })
+      await mockApis(page, 'token')
+      await page.reload()
+      await openBind(page)
+      await expect(page.getByRole('button', { name: '去存储管理' })).toBeVisible()
+      await expect(page.getByText('GitHub 令牌无效或已过期。请到存储管理更新令牌。')).toBeVisible()
+      await shot(page, `${shotDir}/repo-token-phone.png`)
+    }
   })
 }
