@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -737,6 +738,21 @@ func copyRepoPrefix(ctx context.Context, fromOwner, fromRepo, toOwner, toRepo, p
 	if err != nil {
 		return 0, errors.New(appRepoListFailText)
 	}
+	return copyListedRepoPrefix(ctx, items, fromOwner, fromRepo, toOwner, toRepo, prefix)
+}
+
+func copyOfficialRepoPrefix(ctx context.Context, fromOwner, fromRepo, toOwner, toRepo, prefix string) (int, error) {
+	items, err := listOfficialMigrationReleases(ctx, fromOwner, fromRepo)
+	if errors.Is(err, errReleaseSourceAbsent) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return copyListedRepoPrefix(ctx, items, fromOwner, fromRepo, toOwner, toRepo, prefix)
+}
+
+func copyListedRepoPrefix(ctx context.Context, items []releaseImportListItem, fromOwner, fromRepo, toOwner, toRepo, prefix string) (int, error) {
 	copied := 0
 	for _, item := range items {
 		if !strings.HasPrefix(item.Tag, prefix) || item.AssetName == "" {
@@ -773,6 +789,82 @@ func copyRepoPrefix(ctx context.Context, fromOwner, fromRepo, toOwner, toRepo, p
 
 func urlPathTag(tag string) string {
 	return strings.ReplaceAll(tag, "/", "%2F")
+}
+
+// errReleaseSourceAbsent 表示源仓库不存在。空列表不是错误，调用方看到零条发布即可。
+var errReleaseSourceAbsent = errors.New("源仓库不存在")
+
+// listOfficialMigrationReleases 列出迁移要用的 Release。
+// 404 表示仓库不存在，调用方跳过这一项。401、403、429、5xx、超时和断网要失败，不能绑定。
+// 某个已保存令牌被拒绝后，不能再拿匿名请求的 404 当成仓库不存在。
+func listOfficialMigrationReleases(ctx context.Context, owner, repo string) ([]releaseImportListItem, error) {
+	rawURL := strings.TrimRight(productUpdateGitHubAPI, "/") + "/repos/" + owner + "/" + repo + "/releases?per_page=20"
+	var last error
+	var authErr error
+	for _, token := range productUpdateTokenCandidates() {
+		body, err := productUpdateFetch(ctx, rawURL, token, "application/vnd.github+json")
+		if err == nil {
+			return parseReleaseImportList(ctx, owner, repo, body)
+		}
+		last = err
+		switch productUpdateHTTPStatus(err) {
+		case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
+			authErr = err
+		}
+		if token == "" {
+			break
+		}
+	}
+	if authErr != nil {
+		return nil, officialReleaseListError(owner, repo, authErr)
+	}
+	if productUpdateHTTPStatus(last) == http.StatusNotFound {
+		return nil, errReleaseSourceAbsent
+	}
+	if last == nil {
+		last = errProductUpdateUnavailable
+	}
+	return nil, officialReleaseListError(owner, repo, last)
+}
+
+func officialReleaseListError(owner, repo string, err error) error {
+	return fmt.Errorf("列出 %s/%s 的 Release 失败：%s", owner, repo, describeProductUpdateFetch(err))
+}
+
+func describeProductUpdateFetch(err error) string {
+	var fetchErr *productUpdateFetchError
+	if !errors.As(err, &fetchErr) {
+		if err == nil {
+			return "未知错误"
+		}
+		return err.Error()
+	}
+	if fetchErr.status == 0 {
+		text := ""
+		if fetchErr.cause != nil {
+			text = fetchErr.cause.Error()
+		}
+		lower := strings.ToLower(text)
+		if strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline") {
+			return "连接超时"
+		}
+		if text == "" {
+			return "网络错误"
+		}
+		return "网络错误：" + text
+	}
+	switch fetchErr.status {
+	case http.StatusUnauthorized:
+		return "令牌无效或已过期（HTTP 401）"
+	case http.StatusForbidden:
+		return "令牌没有权限或被限流（HTTP 403）"
+	case http.StatusTooManyRequests:
+		return "请求被限流（HTTP 429）"
+	case http.StatusNotFound:
+		return "源仓库不存在（HTTP 404）"
+	default:
+		return fmt.Sprintf("托管站返回 HTTP %d", fetchErr.status)
+	}
 }
 
 // 官网仓库迁移在结构迁移结束之后单独跑一次。失败只记审计，下次启动再试。
@@ -819,12 +911,13 @@ func migrateOfficialAppRepo(ctx context.Context, db *sql.DB) error {
 		return nil
 	}
 	// 先把升级前没有位置前缀的发布改写到五个位置，核对通过后才绑定。
-	if err := copyClassifiedReleases(ctx, loc.Owner, loc.Repo, loc.Owner, loc.Repo, legacyPaidReleaseTag); err != nil && !strings.Contains(err.Error(), appRepoListFailText) {
+	// 源仓库不存在或没有 Release 就跳过这一项。网络、超时、401/403、限流不能记成已迁入。
+	if err := copyClassifiedReleases(ctx, loc.Owner, loc.Repo, loc.Owner, loc.Repo, legacyPaidReleaseTag); err != nil {
 		return err
 	}
 	prefixes := []string{appRepoPrefixPluginPaid, appRepoPrefixTemplatePaid, appRepoPrefixPluginFree, appRepoPrefixTemplateFree}
 	for _, prefix := range prefixes {
-		if _, err := copyRepoPrefix(ctx, loc.Owner, loc.Repo, loc.Owner, loc.Repo, prefix); err != nil && !strings.Contains(err.Error(), appRepoListFailText) {
+		if _, err := copyOfficialRepoPrefix(ctx, loc.Owner, loc.Repo, loc.Owner, loc.Repo, prefix); err != nil {
 			return err
 		}
 	}
@@ -839,13 +932,13 @@ func migrateOfficialAppRepo(ctx context.Context, db *sql.DB) error {
 		parts := strings.Split(officialLegacyClientRepo, "/")
 		clientOwner, clientRepo = parts[0], parts[1]
 	}
-	if err := copyClassifiedReleases(ctx, clientOwner, clientRepo, loc.Owner, loc.Repo, legacyClientReleaseTag); err != nil && !strings.Contains(err.Error(), appRepoListFailText) {
+	if err := copyClassifiedReleases(ctx, clientOwner, clientRepo, loc.Owner, loc.Repo, legacyClientReleaseTag); err != nil {
 		return err
 	}
-	if _, err := copyRepoPrefix(ctx, clientOwner, clientRepo, loc.Owner, loc.Repo, appRepoPrefixClient); err != nil && !strings.Contains(err.Error(), appRepoListFailText) {
+	if _, err := copyOfficialRepoPrefix(ctx, clientOwner, clientRepo, loc.Owner, loc.Repo, appRepoPrefixClient); err != nil {
 		return err
 	}
-	if err := writeClientAppKeyManifest(ctx, loc.Owner, loc.Repo, productUpdateAppKey); err != nil && !strings.Contains(err.Error(), appRepoListFailText) {
+	if err := writeClientAppKeyManifest(ctx, loc.Owner, loc.Repo, productUpdateAppKey); err != nil {
 		return err
 	}
 	row := appRepoRow{
@@ -910,9 +1003,12 @@ func isPlainVersionTag(tag string) bool {
 }
 
 func copyClassifiedReleases(ctx context.Context, fromOwner, fromRepo, toOwner, toRepo string, classify func(string) (string, bool)) error {
-	items, err := listReleaseImportReleases(ctx, fromOwner, fromRepo)
+	items, err := listOfficialMigrationReleases(ctx, fromOwner, fromRepo)
+	if errors.Is(err, errReleaseSourceAbsent) {
+		return nil
+	}
 	if err != nil {
-		return errors.New(appRepoListFailText)
+		return err
 	}
 	for _, item := range items {
 		target, ok := classify(item.Tag)
@@ -959,9 +1055,12 @@ func pushVerifiedRelease(ctx context.Context, owner, repo, tag, asset string, pa
 
 // writeClientAppKeyManifest 在最新的客户安装包发布上补上应用标识。没有客户包时不写空文件。
 func writeClientAppKeyManifest(ctx context.Context, owner, repo, appKey string) error {
-	items, err := listReleaseImportReleases(ctx, owner, repo)
+	items, err := listOfficialMigrationReleases(ctx, owner, repo)
+	if errors.Is(err, errReleaseSourceAbsent) {
+		return nil
+	}
 	if err != nil {
-		return errors.New(appRepoListFailText)
+		return err
 	}
 	tag := ""
 	for _, item := range items {

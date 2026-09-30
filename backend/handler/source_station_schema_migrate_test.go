@@ -278,6 +278,7 @@ type sourceSchemaMigrateState struct {
 	stationSettings      map[string]string
 	appRepoBound         bool
 	queryDuringMigration bool
+	audits               []string
 }
 
 func newLegacySourceSchemaState() *sourceSchemaMigrateState {
@@ -415,6 +416,8 @@ func (c *sourceSchemaMigrateConn) ExecContext(_ context.Context, query string, a
 	switch {
 	case strings.Contains(query, "INSERT INTO app_repo_bindings"):
 		state.appRepoBound = true
+	case strings.Contains(query, "INSERT INTO source_audit_logs"):
+		state.audits = append(state.audits, sourceSchemaArgString(args, 2)+" "+sourceSchemaArgString(args, 5))
 	case strings.Contains(upper, "INSERT") && strings.Contains(query, "schema_migrations"):
 		name := sourceSchemaArgString(args, 0)
 		if name == "" {

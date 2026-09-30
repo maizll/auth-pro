@@ -295,6 +295,10 @@ func listReleaseImportReleases(ctx context.Context, owner, repo string) ([]relea
 	if err != nil {
 		return nil, err
 	}
+	return parseReleaseImportList(ctx, owner, repo, body)
+}
+
+func parseReleaseImportList(ctx context.Context, owner, repo string, body []byte) ([]releaseImportListItem, error) {
 	var releases []struct {
 		TagName     string `json:"tag_name"`
 		Name        string `json:"name"`

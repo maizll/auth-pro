@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -41,6 +42,71 @@ func TestOfficialStartupMigrationRunsWhenSchemaAlreadyMarked(t *testing.T) {
 	}
 	if !state.appRepoBound {
 		t.Fatal("迁移记录已存在时没有按未绑定的授权系统再迁一次")
+	}
+}
+
+func TestOfficialMigrationDoesNotBindWhenReleaseListFails(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		reason string
+	}{
+		{name: "forbidden", status: http.StatusForbidden, reason: "HTTP 403"},
+		{name: "server", status: http.StatusInternalServerError, reason: "HTTP 500"},
+		{name: "unauthorized", status: http.StatusUnauthorized, reason: "HTTP 401"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			state := prepareOfficialStartupState(t, false)
+			db := openSourceSchemaMigrateDB(t, state)
+			runOfficialStartupMigrationStatus(t, db, tc.status)
+			if state.appRepoBound {
+				t.Fatal("列出 Release 失败时不应绑定")
+			}
+			if !auditHas(state, "migrate_failed", tc.reason) {
+				t.Fatalf("审计 = %#v，缺少失败原因 %s", state.audits, tc.reason)
+			}
+		})
+	}
+}
+
+func TestOfficialMigrationDoesNotBindWhenGitHubUnreachable(t *testing.T) {
+	state := prepareOfficialStartupState(t, false)
+	db := openSourceSchemaMigrateDB(t, state)
+	runOfficialStartupMigrationAt(t, db, "http://127.0.0.1:1")
+	if state.appRepoBound {
+		t.Fatal("连不上托管站时不应绑定")
+	}
+	if !auditHas(state, "migrate_failed", "网络错误") {
+		t.Fatalf("审计 = %#v，缺少网络错误", state.audits)
+	}
+}
+
+func TestOfficialMigrationSkipsMissingRepository(t *testing.T) {
+	state := prepareOfficialStartupState(t, false)
+	db := openSourceSchemaMigrateDB(t, state)
+	runOfficialStartupMigrationStatus(t, db, http.StatusNotFound)
+	if !state.appRepoBound {
+		t.Fatal("源仓库不存在时应跳过复制并完成绑定")
+	}
+	if auditHas(state, "migrate_failed", "") {
+		t.Fatalf("仓库不存在不应记失败审计：%#v", state.audits)
+	}
+}
+
+func TestOfficialMigrationRetriesAfterListFailure(t *testing.T) {
+	state := prepareOfficialStartupState(t, false)
+	db := openSourceSchemaMigrateDB(t, state)
+	runOfficialStartupMigrationStatus(t, db, http.StatusForbidden)
+	if state.appRepoBound {
+		t.Fatal("第一次列出失败不应绑定")
+	}
+	runOfficialStartupMigration(t, db)
+	if !state.appRepoBound {
+		t.Fatal("托管站恢复后再次启动应完成绑定")
+	}
+	if !auditHas(state, "migrate", "已迁入") {
+		t.Fatalf("恢复后审计 = %#v", state.audits)
 	}
 }
 
@@ -94,19 +160,44 @@ func prepareOfficialStartupState(t *testing.T, schemaAlreadyMarked bool) *source
 	return state
 }
 
+func auditHas(state *sourceSchemaMigrateState, action, reason string) bool {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	for _, line := range state.audits {
+		if strings.Contains(line, action) && strings.Contains(line, reason) {
+			return true
+		}
+	}
+	return false
+}
+
 func runOfficialStartupMigration(t *testing.T, db *sql.DB) {
+	t.Helper()
+	runOfficialStartupMigrationStatus(t, db, http.StatusOK)
+}
+
+func runOfficialStartupMigrationStatus(t *testing.T, db *sql.DB, status int) {
+	t.Helper()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if status != http.StatusOK {
+			http.Error(w, "nope", status)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("[]"))
+	}))
+	t.Cleanup(upstream.Close)
+	runOfficialStartupMigrationAt(t, db, upstream.URL)
+}
+
+func runOfficialStartupMigrationAt(t *testing.T, db *sql.DB, apiRoot string) {
 	t.Helper()
 	config.SetDBOverrideForTest(db)
 	t.Cleanup(func() { config.SetDBOverrideForTest(nil) })
 	restoreStore := SetSourceStationStoreForTest(mysqlSourceStore{})
 	t.Cleanup(restoreStore)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte("[]"))
-	}))
-	t.Cleanup(upstream.Close)
 	previousAPI := productUpdateGitHubAPI
-	productUpdateGitHubAPI = upstream.URL
+	productUpdateGitHubAPI = apiRoot
 	t.Cleanup(func() { productUpdateGitHubAPI = previousAPI })
 	officialAppRepoMigrateOnce = sync.Once{}
 	officialAppRepoMigrationWait = nil
