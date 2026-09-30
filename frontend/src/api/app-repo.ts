@@ -17,6 +17,26 @@ export function fetchAppRepos() {
   })
 }
 
+export interface GitHubRepoChoice {
+  repo: string
+  private: boolean
+  updatedAt: string
+  boundApp?: string
+}
+
+export function fetchGitHubRepoChoices(q = '', appId = 0) {
+  return request.get<{
+    status: 'ok' | 'empty' | 'token' | 'timeout'
+    message?: string
+    list?: GitHubRepoChoice[]
+  }>({
+    url: '/api/v1/source/admin/app-repos/github',
+    params: { q, appId },
+    showErrorMessage: false,
+    showSuccessMessage: false
+  })
+}
+
 export function fetchAppRepoToken() {
   return request.get<{ ready: boolean; message: string; location?: string }>({
     url: '/api/v1/source/admin/app-repos/token'

@@ -31,12 +31,21 @@
           }}</span>
           <span v-if="showField(option)" class="repo-options__field" @click.stop>
             <span class="repo-options__label">{{ option.field }}</span>
+            <RepoSearchSelect
+              v-if="option.value === 'bind'"
+              :model-value="repo"
+              :app-id="appId"
+              @update:model-value="onRepo"
+            />
             <ElInput
+              v-else
               :model-value="repo"
               :placeholder="option.placeholder || '所有者/仓库'"
               @update:model-value="onRepo"
             />
-            <span v-if="hint" class="repo-options__note">{{ hint }}</span>
+            <span v-if="hint && option.value === 'create'" class="repo-options__note">{{
+              hint
+            }}</span>
           </span>
         </span>
       </label>
@@ -45,6 +54,8 @@
 </template>
 
 <script setup lang="ts">
+  import RepoSearchSelect from '@/components/business/repo/RepoSearchSelect.vue'
+
   defineOptions({ name: 'RepoOptionCards' })
 
   export interface RepoOption {
@@ -57,14 +68,18 @@
     needsToken?: boolean
   }
 
-  const props = defineProps<{
-    modelValue: string
-    repo: string
-    tokenReady: boolean
-    tokenMessage: string
-    hint?: string
-    options: RepoOption[]
-  }>()
+  const props = withDefaults(
+    defineProps<{
+      modelValue: string
+      repo: string
+      tokenReady: boolean
+      tokenMessage: string
+      hint?: string
+      options: RepoOption[]
+      appId?: number
+    }>(),
+    { appId: 0 }
+  )
 
   const emit = defineEmits<{
     'update:modelValue': [string]
@@ -76,8 +91,13 @@
     return option.needsToken !== false && option.value !== 'skip'
   }
 
+  const createDraft = ref('')
+
   function choose(value: string) {
+    if (props.modelValue === 'create' && value !== 'create') createDraft.value = props.repo
     emit('update:modelValue', value)
+    if (value === 'bind') emit('update:repo', '')
+    if (value === 'create' && createDraft.value) emit('update:repo', createDraft.value)
   }
 
   function showField(option: RepoOption) {
