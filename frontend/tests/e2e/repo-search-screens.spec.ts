@@ -251,15 +251,46 @@ for (const viewport of [
       'title',
       'acme/paid-packages-customer-distribution-channel'
     )
+    const item = page.locator('.repo-search-popper .el-select-dropdown__item').first()
+    await expect
+      .poll(async () => item.evaluate((el) => Math.round(el.getBoundingClientRect().height)))
+      .toBeGreaterThanOrEqual(70)
+    const fit = await item.evaluate((el) => {
+      const row = el.getBoundingClientRect()
+      const meta = el.querySelector('.repo-line__meta')?.getBoundingClientRect()
+      const name = el.querySelector('.repo-line__name')?.getBoundingClientRect()
+      if (!meta || !name) return null
+      return {
+        row: Math.round(row.height),
+        metaInside: meta.top >= row.top - 1 && meta.bottom <= row.bottom + 1,
+        nameInside: name.top >= row.top - 1 && name.bottom <= row.bottom + 1,
+        stacked: meta.top >= name.bottom - 1
+      }
+    })
+    expect(fit?.metaInside).toBe(true)
+    expect(fit?.nameInside).toBe(true)
+    expect(fit?.stacked).toBe(true)
     const taken = page.locator('.repo-search-popper .repo-line.is-taken')
     await expect(taken).toContainText('acme/auth-system')
-    await expect(taken).toContainText('已被应用「授权系统」占用')
+    await expect(taken).toContainText('已被『授权系统』占用')
     await expect(taken).toContainText('私有')
+    const takenFit = await page.locator('.repo-search-popper .el-select-dropdown__item.is-disabled').evaluate((el) => {
+      const row = el.getBoundingClientRect()
+      const meta = el.querySelector('.repo-line__meta')?.getBoundingClientRect()
+      const takenText = el.querySelector('.repo-line__taken')?.getBoundingClientRect()
+      if (!meta || !takenText) return false
+      return meta.bottom <= row.bottom + 1 && takenText.bottom <= row.bottom + 1 && takenText.right <= row.right + 1
+    })
+    expect(takenFit).toBe(true)
     await shot(page, `${shotDir}/repo-list-${viewport.name}.png`)
+    await taken.scrollIntoViewIfNeeded()
+    await shot(page, `${shotDir}/repo-taken-${viewport.name}.png`)
 
     await page.locator('.repo-search-popper').getByText('acme/public-docs', { exact: true }).click()
     await expect(page.getByText('这是公开仓库，可以绑定，建议改为私有。')).toBeVisible()
-    await shot(page, `${shotDir}/repo-public-${viewport.name}.png`)
+    if (viewport.name === 'phone') {
+      await shot(page, `${shotDir}/repo-public-phone.png`)
+    }
 
     if (viewport.name === 'phone') {
       await page.unrouteAll({ behavior: 'ignoreErrors' })
@@ -269,6 +300,25 @@ for (const viewport of [
       await expect(page.getByRole('button', { name: '去存储管理' })).toBeVisible()
       await expect(page.getByText('GitHub 令牌无效或已过期。请到存储管理更新令牌。')).toBeVisible()
       await shot(page, `${shotDir}/repo-token-phone.png`)
+
+      await page.unrouteAll({ behavior: 'ignoreErrors' })
+      await mockApis(page, 'timeout')
+      await page.reload()
+      await openBind(page)
+      await expect(page.getByRole('button', { name: '重试' })).toBeVisible()
+      await expect(page.getByText('连接超时，请稍后再试。')).toBeVisible()
+      await shot(page, `${shotDir}/repo-timeout-phone.png`)
+
+      await page.unrouteAll({ behavior: 'ignoreErrors' })
+      await mockApis(page, 'list')
+      await page.reload()
+      await openBind(page)
+      await repoSelect(page).click()
+      await page.keyboard.type('zzz')
+      await expect(page.getByText('没有找到这个仓库，可以手动填写。')).toBeVisible()
+      await page.getByPlaceholder('所有者/仓库').fill('不是仓库')
+      await expect(page.getByText('请填写仓库，格式为 所有者/仓库')).toBeVisible()
+      await shot(page, `${shotDir}/repo-manual-phone.png`)
     }
   })
 }

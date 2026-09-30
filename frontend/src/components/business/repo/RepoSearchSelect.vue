@@ -41,7 +41,7 @@
               }}</span>
               <span class="repo-line__time">{{ formatUpdated(item.updatedAt) }}</span>
               <span v-if="item.boundApp" class="repo-line__taken"
-                >已被应用「{{ item.boundApp }}」占用</span
+                >已被『{{ item.boundApp }}』占用</span
               >
             </span>
           </div>
@@ -238,13 +238,18 @@
 </style>
 
 <style>
-  .repo-search-popper .el-select-dropdown__item {
-    box-sizing: border-box;
-    height: 56px !important;
-    padding: 6px 12px;
-    overflow: hidden;
-    line-height: normal;
-    white-space: normal;
+  /* 选项被传送到 body，默认行高 34px 且 overflow hidden，两行会被裁成一条残边。 */
+  .el-select-dropdown__item:has(.repo-line) {
+    display: flex !important;
+    align-items: center !important;
+    box-sizing: border-box !important;
+    height: 72px !important;
+    min-height: 72px !important;
+    max-height: 72px !important;
+    padding: 10px 12px !important;
+    overflow: hidden !important;
+    line-height: 22px !important;
+    white-space: normal !important;
   }
 
   .repo-search-popper .el-select-dropdown__item.is-disabled {
@@ -253,11 +258,13 @@
 
   .repo-line {
     display: flex;
+    flex: 1;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
     justify-content: center;
-    height: 44px;
+    width: 100%;
     min-width: 0;
+    height: 52px;
   }
 
   .repo-line__name,
@@ -275,8 +282,9 @@
   }
 
   .repo-line__name {
+    height: 22px;
     font-size: 14px;
-    line-height: 20px;
+    line-height: 22px;
   }
 
   .repo-line__meta {
@@ -284,7 +292,7 @@
     gap: 8px;
     align-items: center;
     min-width: 0;
-    height: 20px;
+    height: 22px;
     overflow: hidden;
   }
 
@@ -308,7 +316,7 @@
     flex: none;
     color: #6b7686;
     font-size: 12px;
-    line-height: 20px;
+    line-height: 22px;
   }
 
   .repo-line__taken {
