@@ -199,7 +199,8 @@
 </template>
 
 <script setup lang="ts">
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { appConfirm } from '@/utils/app-confirm'
+  import { ElMessage } from 'element-plus'
   import { showCaughtError } from '@/utils/http/error-toast'
   import {
     fetchTicketList,
@@ -348,7 +349,7 @@
   async function handleClose() {
     if (!currentTicket.value) return
     try {
-      await ElMessageBox.confirm('关闭后双方将不能继续回复，确定关闭该工单？', '关闭工单', {
+      await appConfirm('关闭后双方将不能继续回复，确定关闭该工单？', '关闭工单', {
         type: 'warning'
       })
     } catch {

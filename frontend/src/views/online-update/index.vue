@@ -232,8 +232,9 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import { Download, Refresh, Search } from '@element-plus/icons-vue'
   import {
     fetchOnlineUpdateApply,
@@ -386,7 +387,7 @@
   const handleApply = async () => {
     if (!latest.value) return
     try {
-      await ElMessageBox.confirm(
+      await appConfirm(
         `确认更新到 v${latest.value.version}？更新过程中服务会短暂重启。`,
         '在线更新',
         {

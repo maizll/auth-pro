@@ -719,6 +719,13 @@ if grep -q 'AUTH_PRO_UPDATE_BASE' "$REMOTE"; then
 fi
 grep -q 'https://auth.maizll.com/api/v1/update/latest.json' "$REMOTE" || fail "成品脚本没有写死官网清单地址"
 grep -q 'https://auth.maizll.com/api/v1/update/package/' "$REMOTE" || fail "成品脚本没有写死官网下载地址"
+grep -q 'https://auth.maizll.com/api/v1/update/helpers.json' "$REMOTE" || fail "成品脚本没有写死辅助脚本清单地址"
+grep -q 'https://auth.maizll.com/baota-panel.py' "$REMOTE" || fail "成品脚本没有写死面板辅助脚本地址"
+grep -q 'https://auth.maizll.com/guardian-start.sh' "$REMOTE" || fail "成品脚本没有写死启动模板地址"
+if grep -q '安装包里缺少 baota-panel.py' "$REMOTE"; then
+  fail "成品脚本仍从安装包取面板辅助脚本"
+fi
+"$ROOT/backend/handler/install.sh" --help | grep -q -- '--ssl' || fail "帮助里没有 --ssl"
 grep -F -q -- "--proto '=https'" "$REMOTE" || fail "成品脚本没有锁定 https"
 if grep -E -q '\$\{[A-Za-z_][A-Za-z0-9_]*:-https?://' "$REMOTE"; then
   fail "成品脚本用环境变量默认值拼官网地址"
@@ -737,10 +744,12 @@ cat > "$WORKDIR/fake-update-server.py" <<'PY'
 import hashlib, json, os, sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-pkg_path, install_path, port, mode = sys.argv[1:5]
+pkg_path, install_path, panel_path, guardian_path, port, mode = sys.argv[1:7]
 pkg = open(pkg_path, "rb").read()
 digest = hashlib.sha256(pkg).hexdigest()
 install = open(install_path, "rb").read()
+panel = open(panel_path, "rb").read()
+guardian = open(guardian_path, "rb").read()
 version = "1.7.4"
 base = "http://127.0.0.1:%s" % port
 sha = digest
@@ -762,6 +771,10 @@ manifest = {
     },
 }
 body = json.dumps(manifest).encode()
+helpers = json.dumps({
+    "baotaPanel": {"url": base + "/baota-panel.py", "sha256": hashlib.sha256(panel).hexdigest()},
+    "guardianStart": {"url": base + "/guardian-start.sh", "sha256": hashlib.sha256(guardian).hexdigest()},
+}).encode()
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -770,6 +783,12 @@ class Handler(BaseHTTPRequestHandler):
             data, ctype = install, "text/x-shellscript; charset=utf-8"
         elif path == "/api/v1/update/latest.json":
             data, ctype = body, "application/json"
+        elif path == "/api/v1/update/helpers.json":
+            data, ctype = helpers, "application/json"
+        elif path == "/baota-panel.py":
+            data, ctype = panel, "text/x-python; charset=utf-8"
+        elif path == "/guardian-start.sh":
+            data, ctype = guardian, "text/x-shellscript; charset=utf-8"
         elif path == "/api/v1/update/package/%s" % version:
             data, ctype = pkg, "application/gzip"
         else:
@@ -789,7 +808,7 @@ ThreadingHTTPServer(("127.0.0.1", int(port)), Handler).serve_forever()
 PY
 GOOD_COPY="$WORKDIR/install-ok.sh"
 install_for_test "$GOOD_COPY" "http://127.0.0.1:${REMOTE_PORT}"
-python3 "$WORKDIR/fake-update-server.py" "$WORKDIR/remote.tar.gz" "$GOOD_COPY" "$REMOTE_PORT" ok >"$WORKDIR/fake-update.log" 2>&1 &
+python3 "$WORKDIR/fake-update-server.py" "$WORKDIR/remote.tar.gz" "$GOOD_COPY" "$ROOT/scripts/baota-panel.py" "$ROOT/backend/handler/guardian_start.sh" "$REMOTE_PORT" ok >"$WORKDIR/fake-update.log" 2>&1 &
 PIDS+=("$!")
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if curl -fsS "http://127.0.0.1:${REMOTE_PORT}/install.sh" >/dev/null 2>&1; then
@@ -827,6 +846,7 @@ DB_BEFORE="$(sha256sum "$REMOTE_SITE/backend/db.json" | awk '{print $1}')"
 if bash "$GOOD_COPY" --repair-guardian demo.example --site-root "$REMOTE_SITE" >"$WORKDIR/remote-repair.out" 2>"$WORKDIR/remote-repair.err"; then
   fail "没有宝塔面板时修复命令不应成功"
 fi
+grep -q '面板辅助脚本' "$WORKDIR/remote-repair.out" || fail "修复没有从官网获取面板辅助脚本"
 grep -q '未检测到宝塔面板' "$WORKDIR/remote-repair.err" || fail "没有面板时修复命令没有说明原因"
 grep -q '安装完成' "$WORKDIR/remote-repair.out" && fail "修复失败时仍打印了安装完成"
 SUM_REPAIR="$(sha256sum "$REMOTE_SITE/index.html" | awk '{print $1}')"
@@ -855,7 +875,7 @@ ok "官网 upgrade 核对后升级，保留运行数据并删掉网站根旧脚�
 BAD_PORT="$(free_port)"
 BAD_COPY="$WORKDIR/install-bad.sh"
 install_for_test "$BAD_COPY" "http://127.0.0.1:${BAD_PORT}"
-python3 "$WORKDIR/fake-update-server.py" "$WORKDIR/remote.tar.gz" "$BAD_COPY" "$BAD_PORT" bad-hash >"$WORKDIR/fake-bad.log" 2>&1 &
+python3 "$WORKDIR/fake-update-server.py" "$WORKDIR/remote.tar.gz" "$BAD_COPY" "$ROOT/scripts/baota-panel.py" "$ROOT/backend/handler/guardian_start.sh" "$BAD_PORT" bad-hash >"$WORKDIR/fake-bad.log" 2>&1 &
 PIDS+=("$!")
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if curl -fsS "http://127.0.0.1:${BAD_PORT}/api/v1/update/latest.json" >/dev/null 2>&1; then

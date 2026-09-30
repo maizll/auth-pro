@@ -163,7 +163,8 @@
 </template>
 
 <script setup lang="ts">
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { appConfirm } from '@/utils/app-confirm'
+  import { ElMessage } from 'element-plus'
   import { showCaughtError } from '@/utils/http/error-toast'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
@@ -496,7 +497,7 @@
     const newStatus = row.status === 'active' ? 'frozen' : 'active'
     const action = row.status === 'active' ? '冻结' : '解冻'
     try {
-      await ElMessageBox.confirm(`确定${action}代理商「${row.name}」？`, '提示', {
+      await appConfirm(`确定${action}代理商「${row.name}」？`, '提示', {
         type: 'warning'
       })
       await fetchToggleAgent(row.id, newStatus)
@@ -514,7 +515,7 @@
     }
 
     try {
-      await ElMessageBox.confirm(`删除代理商「${row.name}」将清除其所有数据，确定？`, '危险操作', {
+      await appConfirm(`删除代理商「${row.name}」将清除其所有数据，确定？`, '危险操作', {
         type: 'error'
       })
       await fetchDeleteAgent(row.id)

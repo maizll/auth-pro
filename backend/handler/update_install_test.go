@@ -3,6 +3,7 @@ package handler
 import (
 	"archive/tar"
 	"compress/gzip"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -59,8 +60,11 @@ func TestPublicInstallRouteServesScriptFromPackage(t *testing.T) {
 	if !strings.Contains(string(script), "https://auth.maizll.com/api/v1/update/latest.json") || strings.Contains(string(script), `bash "$WORKDIR/install.sh"`) {
 		t.Fatal("backend/handler/install.sh does not download the official package, or it still runs install.sh from the package")
 	}
-	if !strings.Contains(string(script), "baota-panel.py") || !strings.Contains(string(script), "guardian-start.sh") {
-		t.Fatal("backend/handler/install.sh does not take the panel helper from the package")
+	if !strings.Contains(string(script), "https://auth.maizll.com/api/v1/update/helpers.json") || !strings.Contains(string(script), "https://auth.maizll.com/baota-panel.py") || !strings.Contains(string(script), "https://auth.maizll.com/guardian-start.sh") {
+		t.Fatal("backend/handler/install.sh does not download helpers from the official site")
+	}
+	if strings.Contains(string(script), "安装包里缺少 baota-panel.py") || strings.Contains(string(script), "安装包里缺少 guardian-start.sh") {
+		t.Fatal("backend/handler/install.sh still takes helpers from the client package")
 	}
 	if !strings.Contains(string(script), "https://auth.maizll.com/api/v1/update/package/") || !installScriptPinsOfficialOrigin(script) {
 		t.Fatal("backend/handler/install.sh does not pin the official package URL")
@@ -100,6 +104,75 @@ func TestPublicInstallRouteServesScriptFromPackage(t *testing.T) {
 	}
 	if strings.Contains(rewrittenRec.Body.String(), "evil.example") {
 		t.Fatal("request host leaked into the install script")
+	}
+}
+
+func TestPublicHelperScriptsMatchManifest(t *testing.T) {
+	resetProductUpdateStateForTest()
+	t.Cleanup(resetProductUpdateStateForTest)
+	if string(productBaotaPanelScript) == "" || !strings.Contains(string(productBaotaPanelScript), "supervisor") {
+		t.Fatal("embedded panel helper is empty")
+	}
+	linked, err := os.ReadFile("baota-panel.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(productBaotaPanelScript) != string(linked) {
+		t.Fatal("embedded panel helper is not scripts/baota-panel.py")
+	}
+	source, err := os.ReadFile("../../scripts/baota-panel.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(linked) != string(source) {
+		t.Fatal("panel helper symlink drifted from scripts/baota-panel.py")
+	}
+	guardian, err := os.ReadFile("guardian_start.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(productGuardianStartScript) != string(guardian) {
+		t.Fatal("embedded guardian template drifted")
+	}
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	RegisterPublicInstallRoute(router)
+	manifestRec := httptest.NewRecorder()
+	router.ServeHTTP(manifestRec, httptest.NewRequest(http.MethodGet, "/api/v1/update/helpers.json", nil))
+	if manifestRec.Code != http.StatusOK {
+		t.Fatalf("helpers status %d %s", manifestRec.Code, manifestRec.Body.String())
+	}
+	var manifest struct {
+		BaotaPanel struct {
+			URL    string `json:"url"`
+			SHA256 string `json:"sha256"`
+		} `json:"baotaPanel"`
+		GuardianStart struct {
+			URL    string `json:"url"`
+			SHA256 string `json:"sha256"`
+		} `json:"guardianStart"`
+	}
+	if err := json.Unmarshal(manifestRec.Body.Bytes(), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.BaotaPanel.URL != "https://auth.maizll.com/baota-panel.py" || manifest.GuardianStart.URL != "https://auth.maizll.com/guardian-start.sh" {
+		t.Fatalf("helper urls %#v %#v", manifest.BaotaPanel, manifest.GuardianStart)
+	}
+	panelRec := httptest.NewRecorder()
+	router.ServeHTTP(panelRec, httptest.NewRequest(http.MethodGet, "/baota-panel.py", nil))
+	guardRec := httptest.NewRecorder()
+	router.ServeHTTP(guardRec, httptest.NewRequest(http.MethodGet, "/guardian-start.sh", nil))
+	if panelRec.Code != http.StatusOK || guardRec.Code != http.StatusOK {
+		t.Fatalf("panel %d guardian %d", panelRec.Code, guardRec.Code)
+	}
+	if sha256Hex(panelRec.Body.Bytes()) != manifest.BaotaPanel.SHA256 || sha256Hex(guardRec.Body.Bytes()) != manifest.GuardianStart.SHA256 {
+		t.Fatal("helper checksum does not match helpers.json")
+	}
+	if !strings.Contains(panelRec.Body.String(), "--repair") {
+		t.Fatal("served panel helper has no supervisor --repair")
+	}
+	if strings.Contains(strings.ToLower(panelRec.Body.String()), "github.com") || strings.Contains(strings.ToLower(manifestRec.Body.String()), "github.com") {
+		t.Fatal("helper response leaked a repository address")
 	}
 }
 

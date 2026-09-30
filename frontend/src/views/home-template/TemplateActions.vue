@@ -63,8 +63,9 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import {
     fetchDisableHomeTemplate,
     fetchDownloadHomeTemplate,
@@ -162,15 +163,11 @@
     }[action]
     busy.value = action
     try {
-      await ElMessageBox.confirm(
-        `确认${label}「${props.template.name}」？${detail}`,
-        `${label}首页模板`,
-        {
-          confirmButtonText: label,
-          cancelButtonText: '取消',
-          type: 'warning'
-        }
-      )
+      await appConfirm(`确认${label}「${props.template.name}」？${detail}`, `${label}首页模板`, {
+        confirmButtonText: label,
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
       const request = {
         install: fetchInstallHomeTemplate,
         enable: fetchEnableHomeTemplate,

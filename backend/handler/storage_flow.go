@@ -14,11 +14,33 @@ import (
 // 已经有位置但全部失败时不改存本站，避免同一条收费目录出现两种位置。
 
 func putPaidWithLocations(ctx context.Context, kind, id, version string, payload []byte) (string, error) {
+	plan, enforce, planErr := appRepoPaidPlan(kind, id, version)
+	if planErr != nil {
+		return "", planErr
+	}
 	blob, err := loadStorageBlob()
 	if err != nil {
 		return "", err
 	}
 	targets := enabledStorageLocations(blob.Locations)
+	if enforce {
+		matched := make([]storageLocation, 0, 1)
+		for _, loc := range targets {
+			if loc.Kind == packageStorageGitHub && strings.EqualFold(loc.Owner, plan.Owner) && strings.EqualFold(loc.Repo, plan.Repo) {
+				matched = append(matched, loc)
+			}
+		}
+		if len(matched) == 0 {
+			if loc, _, ok := primaryGitHubBindingLocation(); ok && strings.EqualFold(loc.Owner, plan.Owner) && strings.EqualFold(loc.Repo, plan.Repo) {
+				matched = append(matched, loc)
+			}
+		}
+		if len(matched) == 0 {
+			return "", errAppRepoUnbound
+		}
+		targets = matched
+		ctx = withAppRepoTag(ctx, plan.Tag)
+	}
 	if len(targets) == 0 {
 		return "", errNoEnabledStorage
 	}

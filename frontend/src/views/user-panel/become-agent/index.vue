@@ -260,10 +260,11 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { Icon as IconifyIcon } from '@iconify/vue'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import axios from 'axios'
   import PayQrDialog from '@/components/core/pay/PayQrDialog.vue'
   import { isQrCheckout } from '@/utils/checkout'
@@ -549,7 +550,7 @@
     }
     const paymentLabel = selectedPayOption.value?.label || '所选方式'
     try {
-      await ElMessageBox.confirm(
+      await appConfirm(
         `确认使用${paymentLabel}支付 ¥${money(selectedLevel.value.price)}，并将当前账户永久转换为“${selectedLevel.value.name}”吗？`,
         '最终确认',
         {

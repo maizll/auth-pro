@@ -73,10 +73,11 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import { computed, ref } from 'vue'
   import { useI18n } from 'vue-i18n'
   import { useRouter } from 'vue-router'
-  import { ElMessageBox } from 'element-plus'
+
   import { LanguageEnum } from '@/enums/appEnum'
   import { useHeaderBar } from '@/hooks/core/useHeaderBar'
   import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
@@ -140,7 +141,7 @@
   const loginOut = (): void => {
     closeUserMenu()
     setTimeout(() => {
-      ElMessageBox.confirm(t('common.logOutTips'), t('common.tips'), {
+      appConfirm(t('common.logOutTips'), t('common.tips'), {
         confirmButtonText: t('common.confirm'),
         cancelButtonText: t('common.cancel'),
         customClass: 'login-out-dialog'

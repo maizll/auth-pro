@@ -1,12 +1,12 @@
 <!-- 新建或编辑一条菜单。父级不能选自己或自己的下级。 -->
 <template>
-  <ElDialog
+  <AppDialog
     :title="dialogTitle"
     :model-value="visible"
+    size="xl"
+    flow="long"
+    dialog-class="menu-dialog"
     @update:model-value="handleCancel"
-    width="860px"
-    align-center
-    class="menu-dialog"
     @closed="handleClosed"
   >
     <ArtForm
@@ -31,11 +31,11 @@
 
     <template #footer>
       <span class="dialog-footer">
-        <ElButton @click="handleCancel">取 消</ElButton>
-        <ElButton type="primary" @click="handleSubmit">确 定</ElButton>
+        <ElButton @click="handleCancel">取消</ElButton>
+        <ElButton type="primary" @click="handleSubmit">确定</ElButton>
       </span>
     </template>
-  </ElDialog>
+  </AppDialog>
 </template>
 
 <script setup lang="ts">
@@ -45,6 +45,7 @@
   import type { AppRouteRecord } from '@/types/router'
   import type { FormItem } from '@/components/core/forms/art-form/index.vue'
   import ArtForm from '@/components/core/forms/art-form/index.vue'
+  import AppDialog from '@/components/core/dialog/AppDialog.vue'
   import { buildParentMenuOptions, isInvalidMenuParent } from '@/utils/form/menu-parent'
   import { mapManageRowToForm } from '@/utils/form/menu-form'
   import { resolveMenuTitle } from '@/utils/form/menu-title'

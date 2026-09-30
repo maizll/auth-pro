@@ -258,12 +258,12 @@ func TestPaidHTTPSImportHiddenFromBuyers(t *testing.T) {
 	}
 	body.Store(next)
 	pulled := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins/paid-remote/pull", dev, "")
-	if sourceBodyCode(t, pulled) != 200 || !strings.Contains(pulled.Body.String(), sha256Hex(next)) || !strings.Contains(pulled.Body.String(), `"version":"1.3.0"`) {
+	if sourceBodyCode(t, pulled) == 200 || !strings.Contains(pulled.Body.String(), appRepoUnboundText) {
 		t.Fatalf("pull=%s", pulled.Body.String())
 	}
 	afterPull, err := store.GetPlugin("paid-remote")
-	if err != nil || afterPull.DownloadURL == stored.DownloadURL || afterPull.SHA256 != sha256Hex(next) {
-		t.Fatalf("pull kept old package ref: %#v err=%v", afterPull, err)
+	if err != nil || afterPull.DownloadURL != stored.DownloadURL || afterPull.SHA256 != stored.SHA256 {
+		t.Fatalf("unbound pull changed the package: %#v err=%v", afterPull, err)
 	}
 	if strings.Contains(pulled.Body.String(), stored.DownloadURL) || strings.Contains(pulled.Body.String(), afterPull.DownloadURL) {
 		t.Fatalf("pull showed storage ref: %s", pulled.Body.String())
@@ -319,6 +319,62 @@ func TestPaidOriginHealthDoesNotUnpublish(t *testing.T) {
 	publicRaw, _ := json.Marshal(public)
 	if strings.Contains(string(publicRaw), "127.0.0.1") || strings.Contains(string(publicRaw), "originUrl") || strings.Contains(string(publicRaw), "downloadUrl") {
 		t.Fatalf("public entry leaked: %s", publicRaw)
+	}
+}
+
+func TestPaidOriginDownloadOmitsOwnerToken(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	const pat = "github_pat_owner_must_not_travel"
+	store := newMemorySourceStore()
+	store.releaseSettings.Provider = "github"
+	store.releaseSettings.Token = pat
+	t.Cleanup(SetSourceStationStoreForTest(store))
+	sealed, err := sealGitHubPaidToken(pat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGitHubPaidTokenSealed(sealed); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, token := range productUpdateTokenCandidates() {
+		if token == pat {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("owner token was not available to release import")
+	}
+	payload := sourcePluginTestZIP(t)
+	var gotAuth []string
+	var gotAgent []string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = append(gotAuth, r.Header.Get("Authorization"))
+		gotAgent = append(gotAgent, r.Header.Get("User-Agent"))
+		if strings.Contains(r.Header.Get("Authorization"), pat) || strings.Contains(r.URL.RawQuery, pat) || strings.Contains(r.URL.Path, pat) {
+			t.Errorf("origin request carried the owner token")
+		}
+		_, _ = w.Write(payload)
+	}))
+	t.Cleanup(server.Close)
+	rawURL := pinHostToServer(t, "origin.example.com", server, server)
+	if !strings.HasPrefix(rawURL, "https://") {
+		t.Fatalf("url=%s", rawURL)
+	}
+	body, err := fetchPaidOriginZIP(context.Background(), rawURL)
+	if err != nil || len(body) != len(payload) {
+		t.Fatalf("fetch err=%v len=%d", err, len(body))
+	}
+	if len(gotAuth) == 0 {
+		t.Fatal("origin server was not called")
+	}
+	for i, header := range gotAuth {
+		if header != "" || strings.Contains(header, pat) {
+			t.Fatalf("authorization=%q", header)
+		}
+		if gotAgent[i] != "auth-pro-paid-import" {
+			t.Fatalf("user agent=%q", gotAgent[i])
+		}
 	}
 }
 

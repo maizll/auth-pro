@@ -109,7 +109,8 @@
 </template>
 
 <script setup lang="ts">
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { appConfirm } from '@/utils/app-confirm'
+  import { ElMessage } from 'element-plus'
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchQuotaList,
@@ -265,7 +266,7 @@
 
   const handleDelete = async (row: QuotaItem) => {
     try {
-      await ElMessageBox.confirm(`移除「${row.agentName}」的「${row.appName}」配额？`, '提示', {
+      await appConfirm(`移除「${row.agentName}」的「${row.appName}」配额？`, '提示', {
         type: 'warning'
       })
       await fetchDeleteQuota(row.id)

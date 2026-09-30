@@ -1,10 +1,11 @@
 <!-- 授权版本下载弹层：用户端 / 代理端共用 -->
 <template>
-  <el-dialog
+  <AppDialog
     v-model="visible"
-    width="680px"
+    size="xl"
+    flow="short"
     destroy-on-close
-    class="license-versions-dialog"
+    dialog-class="license-versions-dialog"
     :show-close="false"
   >
     <template #header>
@@ -76,12 +77,13 @@
       </template>
       <el-empty v-else-if="!loading" description="暂无可用版本" :image-size="72" />
     </div>
-  </el-dialog>
+  </AppDialog>
 </template>
 
 <script setup lang="ts">
   import { computed, ref } from 'vue'
   import { ElMessage } from 'element-plus'
+  import AppDialog from '@/components/core/dialog/AppDialog.vue'
   import { Icon as IconifyIcon } from '@iconify/vue'
   import axios from 'axios'
 

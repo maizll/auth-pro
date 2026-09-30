@@ -1,11 +1,11 @@
 <!-- 勾选这个角色能看见的菜单。 -->
 <template>
-  <ElDialog
+  <AppDialog
     v-model="visible"
     title="菜单权限"
-    width="520px"
-    align-center
-    class="el-dialog-border"
+    size="md"
+    flow="long"
+    dialog-class="el-dialog-border"
     @close="handleClose"
   >
     <ElScrollbar height="70vh">
@@ -29,16 +29,17 @@
       </ElTree>
     </ElScrollbar>
     <template #footer>
-      <ElButton @click="toggleExpandAll">{{ isExpandAll ? '全部收起' : '全部展开' }}</ElButton>
-      <ElButton @click="toggleSelectAll" style="margin-left: 8px">{{
-        isSelectAll ? '取消全选' : '全部选择'
-      }}</ElButton>
+      <div class="perm-tools" style="display: flex; gap: 8px; margin-right: auto">
+        <ElButton @click="toggleExpandAll">{{ isExpandAll ? '全部收起' : '全部展开' }}</ElButton>
+        <ElButton @click="toggleSelectAll">{{ isSelectAll ? '取消全选' : '全部选择' }}</ElButton>
+      </div>
       <ElButton type="primary" @click="savePermission">保存</ElButton>
     </template>
-  </ElDialog>
+  </AppDialog>
 </template>
 
 <script setup lang="ts">
+  import AppDialog from '@/components/core/dialog/AppDialog.vue'
   import { useMenuStore } from '@/store/modules/menu'
   import { formatMenuTitle } from '@/utils/router'
   import { fetchRoleMenus, fetchUpdateRoleMenus } from '@/api/system-manage'

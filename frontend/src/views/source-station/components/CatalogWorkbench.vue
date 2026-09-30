@@ -634,6 +634,8 @@
             <ReleaseRepoImport
               api-base="/api/v1/source/admin/release-import"
               :purpose="currentItem && isTemplateItem(currentItem) ? 'template' : 'plugin'"
+              :app-id="currentItem?.appId"
+              :price-cents="currentItem?.priceCents"
               @filled="applyVersionImport"
             />
             <p v-if="versionDigest" class="card-hint">{{ versionDigest }}</p>
@@ -691,10 +693,11 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm, appPrompt } from '@/utils/app-confirm'
   import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
   import { useRoute } from 'vue-router'
   import type { FormInstance, FormRules, UploadFile } from 'element-plus'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import ReleaseRepoImport from '@/components/business/release-import/ReleaseRepoImport.vue'
   import {
@@ -1437,7 +1440,7 @@
     }
     if (action === 'to-free') {
       try {
-        await ElMessageBox.confirm(
+        await appConfirm(
           editHostedPackage.value
             ? '改回免费后继续使用已托管的安装包，下载由官网提供。留空即可；填写新的 https 地址则改用外链。'
             : '改回免费后，安装包会重新提供公开下载地址。已经发给老用户的免费权益会保留。',
@@ -1640,11 +1643,9 @@
       usedCount = catalogCategoryUsageCount(data.list || [], row.key)
     }
     try {
-      await ElMessageBox.confirm(
-        deleteCatalogCategoryConfirmMessage(row.label, usedCount),
-        '删除分类',
-        { type: 'warning' }
-      )
+      await appConfirm(deleteCatalogCategoryConfirmMessage(row.label, usedCount), '删除分类', {
+        type: 'warning'
+      })
     } catch {
       return
     }
@@ -1668,14 +1669,14 @@
     action: 'approve' | 'reject' | 'shelf' | 'unshelf' | 'deprecate' | 'restore'
   ) {
     if (action === 'unshelf') {
-      await ElMessageBox.confirm(
+      await appConfirm(
         '下架后，该应用的公开软件源里不再显示这一条，已经安装的不会被远程卸掉。确认继续？',
         '下架确认',
         { type: 'warning' }
       )
     }
     if (action === 'restore') {
-      await ElMessageBox.confirm(
+      await appConfirm(
         '恢复后回到草稿，不会自动上架。需要再审核通过才能出现在公开软件源里。确认继续？',
         '恢复为草稿',
         { type: 'warning' }
@@ -1683,15 +1684,11 @@
     }
     let note = ''
     if (action === 'reject' || action === 'deprecate') {
-      const { value } = await ElMessageBox.prompt(
-        '备注（可选）',
-        action === 'reject' ? '驳回' : '弃用',
-        {
-          inputPlaceholder: '审核说明',
-          confirmButtonText: '确定',
-          cancelButtonText: '取消'
-        }
-      )
+      const { value } = await appPrompt('备注（可选）', action === 'reject' ? '驳回' : '弃用', {
+        inputPlaceholder: '审核说明',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消'
+      })
       note = value || ''
     }
     if (isTemplateItem(row)) {

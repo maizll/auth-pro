@@ -164,7 +164,10 @@ type gitHubAssetDTO struct {
 }
 
 func pushGitHubRelease(ctx context.Context, settings sourceReleaseSettings, manifest sourcePackageManifest, payload []byte) (string, error) {
-	tag := renderSourceReleaseTag(settings.TagStrategy, manifest.ID, manifest.Version, manifest.Kind)
+	tag := strings.TrimSpace(manifest.ReleaseTag)
+	if tag == "" {
+		tag = renderSourceReleaseTag(settings.TagStrategy, manifest.ID, manifest.Version, manifest.Kind)
+	}
 	filename := sourceReleaseAssetName(manifest)
 	api := strings.TrimRight(sourceGitHubAPIBase, "/")
 	owner, repo := url.PathEscape(settings.Owner), url.PathEscape(settings.Repo)
@@ -242,7 +245,10 @@ type giteeAssetDTO struct {
 }
 
 func pushGiteeRelease(ctx context.Context, settings sourceReleaseSettings, manifest sourcePackageManifest, payload []byte) (string, error) {
-	tag := renderSourceReleaseTag(settings.TagStrategy, manifest.ID, manifest.Version, manifest.Kind)
+	tag := strings.TrimSpace(manifest.ReleaseTag)
+	if tag == "" {
+		tag = renderSourceReleaseTag(settings.TagStrategy, manifest.ID, manifest.Version, manifest.Kind)
+	}
 	filename := sourceReleaseAssetName(manifest)
 	api := strings.TrimRight(sourceGiteeAPIBase, "/")
 	owner, repo := url.PathEscape(settings.Owner), url.PathEscape(settings.Repo)

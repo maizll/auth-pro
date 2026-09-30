@@ -205,7 +205,8 @@
 </template>
 
 <script setup lang="ts">
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { appConfirm } from '@/utils/app-confirm'
+  import { ElMessage } from 'element-plus'
   import { useTable } from '@/hooks/core/useTable'
   import {
     fetchPlanList,
@@ -471,7 +472,7 @@
 
   const handleDelete = async (row: PlanItem) => {
     try {
-      await ElMessageBox.confirm(`确定删除套餐「${row.name}」？`, '删除套餐', { type: 'warning' })
+      await appConfirm(`确定删除套餐「${row.name}」？`, '删除套餐', { type: 'warning' })
       await fetchDeletePlan(row.id)
       ElMessage.success('删除成功')
       refreshRemove()

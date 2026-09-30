@@ -87,7 +87,13 @@
     </ElCard>
 
     <!-- 生成卡密弹窗 -->
-    <ElDialog v-model="createDialog.visible" title="生成卡密" width="560px" destroy-on-close>
+    <AppDialog
+      v-model="createDialog.visible"
+      title="生成卡密"
+      size="lg"
+      flow="short"
+      destroy-on-close
+    >
       <ElAlert
         title="卡密永久有效且只能兑换一次。套餐时长从兑换成功时开始计算。"
         type="info"
@@ -164,10 +170,16 @@
           </ElButton>
         </ElSpace>
       </template>
-    </ElDialog>
+    </AppDialog>
 
     <!-- 生成结果弹窗 -->
-    <ElDialog v-model="resultDialog.visible" title="卡密生成成功" width="720px" destroy-on-close>
+    <AppDialog
+      v-model="resultDialog.visible"
+      title="卡密生成成功"
+      size="xl"
+      flow="short"
+      destroy-on-close
+    >
       <ElAlert
         title="完整卡密已保存，可在批次中重复导出。请妥善保管，避免泄露。"
         type="success"
@@ -182,7 +194,7 @@
           <ElButton type="primary" @click="resultDialog.visible = false">完成</ElButton>
         </ElSpace>
       </template>
-    </ElDialog>
+    </AppDialog>
 
     <!-- 批次明细抽屉 -->
     <ElDrawer
@@ -264,7 +276,9 @@
 <script setup lang="ts">
   import axios from 'axios'
   import { ArrowDown } from '@element-plus/icons-vue'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
+  import AppDialog from '@/components/core/dialog/AppDialog.vue'
+  import { appConfirm } from '@/utils/app-confirm'
   import { useTable } from '@/hooks/core/useTable'
   import { useUserStore } from '@/store/modules/user'
   import {
@@ -439,7 +453,7 @@
   const submitCreate = async () => {
     const valid = await createFormRef.value?.validate().catch(() => false)
     if (!valid) return
-    await ElMessageBox.confirm(`确认生成 ${createForm.quantity} 张卡密？`, '生成卡密', {
+    await appConfirm(`确认生成 ${createForm.quantity} 张卡密？`, '生成卡密', {
       type: 'warning'
     })
     createDialog.submitting = true
@@ -455,7 +469,7 @@
   }
 
   const deleteBatch = async (row: CardBatchItem) => {
-    await ElMessageBox.confirm(
+    await appConfirm(
       `确认删除批次「${row.batchNo}」？这将删除该批次及其所有卡密，此操作不可恢复！`,
       '确认删除',
       {

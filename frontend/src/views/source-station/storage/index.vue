@@ -59,10 +59,11 @@
       </ArtTable>
     </ElCard>
 
-    <ElDialog
+    <AppDialog
       v-model="dialogVisible"
       :title="editing ? '编辑存储' : '新增存储'"
-      :width="narrow ? '92%' : '560px'"
+      size="lg"
+      flow="long"
       destroy-on-close
     >
       <ElForm :model="form" label-position="top">
@@ -157,15 +158,16 @@
         <ElButton :loading="testing" @click="handleTest">测试连接</ElButton>
         <ElButton type="primary" :loading="saving" @click="handleSave">保存</ElButton>
       </template>
-    </ElDialog>
+    </AppDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { ElMessageBox } from 'element-plus'
+  import { appConfirm } from '@/utils/app-confirm'
+  import AppDialog from '@/components/core/dialog/AppDialog.vue'
+
   import { useRouter } from 'vue-router'
   import RowActions from '@/components/business/row-actions/index.vue'
-  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import { useTableColumns } from '@/hooks/core/useTableColumns'
   import {
     createStorageLocation,
@@ -181,7 +183,6 @@
   defineOptions({ name: 'SourceStationStorage' })
 
   const router = useRouter()
-  const narrow = useNarrowScreen()
   const loading = ref(false)
   const saving = ref(false)
   const testing = ref(false)
@@ -354,15 +355,11 @@
     }
     if (key === 'delete') {
       try {
-        await ElMessageBox.confirm(
-          `删除「${row.name}」后，新的安装包不会再写入这里。`,
-          '删除存储',
-          {
-            type: 'info',
-            confirmButtonText: '删除',
-            cancelButtonText: '取消'
-          }
-        )
+        await appConfirm(`删除「${row.name}」后，新的安装包不会再写入这里。`, '删除存储', {
+          type: 'info',
+          confirmButtonText: '删除',
+          cancelButtonText: '取消'
+        })
       } catch {
         return
       }

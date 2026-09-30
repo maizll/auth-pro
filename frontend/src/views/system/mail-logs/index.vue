@@ -78,7 +78,7 @@
       </div>
     </ElCard>
 
-    <ElDialog v-model="detailVisible" title="邮件详情" width="760px">
+    <AppDialog v-model="detailVisible" title="邮件详情" size="xl" flow="short">
       <ElDescriptions v-if="current" :column="1" border>
         <ElDescriptionsItem label="事件类型">{{
           eventTypeLabels[current.eventType] || current.eventType
@@ -101,11 +101,12 @@
           </ElTabPane>
         </ElTabs>
       </div>
-    </ElDialog>
+    </AppDialog>
   </div>
 </template>
 
 <script setup lang="ts">
+  import AppDialog from '@/components/core/dialog/AppDialog.vue'
   import {
     fetchMailLogDetail,
     fetchMailLogList,

@@ -51,6 +51,7 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import { useTableColumns } from '@/hooks/core/useTableColumns'
   import MenuDialog from './modules/menu-dialog.vue'
@@ -67,7 +68,7 @@
     stripDemoMenus
   } from '@/utils/form/menu-title'
   import { reloadDynamicMenus } from '@/router/guards/beforeEach'
-  import { ElTag, ElMessage, ElMessageBox } from 'element-plus'
+  import { ElTag, ElMessage } from 'element-plus'
   import { useRouter } from 'vue-router'
 
   defineOptions({ name: 'Menus' })
@@ -274,7 +275,7 @@
 
   const handleDeleteMenu = async (row: MenuItem): Promise<void> => {
     try {
-      await ElMessageBox.confirm('确定要删除该菜单吗？删除后无法恢复', '提示', {
+      await appConfirm('确定要删除该菜单吗？删除后无法恢复', '提示', {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
         type: 'warning'

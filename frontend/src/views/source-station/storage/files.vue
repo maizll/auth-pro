@@ -52,12 +52,7 @@
       </ArtTable>
     </ElCard>
 
-    <ElDialog
-      v-model="zipVisible"
-      title="压缩包内容"
-      :width="narrow ? '92%' : '720px'"
-      destroy-on-close
-    >
+    <AppDialog v-model="zipVisible" title="压缩包内容" size="xl" flow="short" destroy-on-close>
       <p class="zip-name cell-one-line">{{ zipName }}</p>
       <ElTable :data="zipFiles" size="small" empty-text="压缩包里没有文件">
         <ElTableColumn prop="name" label="文件" min-width="220" show-overflow-tooltip />
@@ -73,9 +68,9 @@
           </ElTabPane>
         </ElTabs>
       </div>
-    </ElDialog>
+    </AppDialog>
 
-    <ElDialog v-model="copyVisible" title="复制到另一存储" :width="narrow ? '92%' : '420px'">
+    <AppDialog v-model="copyVisible" title="复制到另一存储" size="sm" flow="short">
       <ElSelect v-model="copyTarget" placeholder="选择目标存储" style="width: 100%">
         <ElOption v-for="item in copyTargets" :key="item.id" :label="item.name" :value="item.id" />
       </ElSelect>
@@ -83,15 +78,16 @@
         <ElButton @click="copyVisible = false">取消</ElButton>
         <ElButton type="primary" :loading="copying" @click="confirmCopy">复制</ElButton>
       </template>
-    </ElDialog>
+    </AppDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { ElMessageBox } from 'element-plus'
+  import { appPrompt } from '@/utils/app-confirm'
+  import AppDialog from '@/components/core/dialog/AppDialog.vue'
+
   import { useRoute, useRouter } from 'vue-router'
   import RowActions from '@/components/business/row-actions/index.vue'
-  import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import { useTableColumns } from '@/hooks/core/useTableColumns'
   import {
     copyStorageObject,
@@ -109,7 +105,6 @@
 
   const route = useRoute()
   const router = useRouter()
-  const narrow = useNarrowScreen()
   const loading = ref(false)
   const copying = ref(false)
   const locationId = ref('')
@@ -205,15 +200,11 @@
     if (key === 'delete') {
       let typed = ''
       try {
-        const result = await ElMessageBox.prompt(
-          `请输入文件名「${row.name}」以确认删除。`,
-          '删除文件',
-          {
-            inputPlaceholder: row.name,
-            confirmButtonText: '删除',
-            cancelButtonText: '取消'
-          }
-        )
+        const result = await appPrompt(`请输入文件名「${row.name}」以确认删除。`, '删除文件', {
+          inputPlaceholder: row.name,
+          confirmButtonText: '删除',
+          cancelButtonText: '取消'
+        })
         typed = String(result.value || '')
       } catch {
         return

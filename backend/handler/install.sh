@@ -2,11 +2,11 @@
 # 客户唯一入口，仓库里也只有这一份：backend/handler/install.sh。
 # 服务端用 go:embed 原样下发为官网 /install.sh，构建不再复制第二份。
 # 不带参数时显示编号菜单，从 /dev/tty 读输入，兼容 curl | bash。带参数的命令保持原样。
-# 发布包里没有本文件。面板辅助脚本和启动模板从官网安装包里取。官网地址写死，不能用环境变量改掉。
+# 发布包里没有本文件。面板辅助脚本和启动模板从官网固定地址下载并核对，不从客户发布包里取。官网地址写死，不能用环境变量改掉。
 # 菜单只用蓝、绿、红和终端默认色。
 set -euo pipefail
 
-# 管道执行（curl | bash -s）时没有脚本文件，BASH_SOURCE 为空。面板辅助脚本改从安装包取。
+# 管道执行（curl | bash -s）时没有脚本文件，BASH_SOURCE 为空。面板辅助脚本改从官网固定地址取。
 if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 else
@@ -90,9 +90,84 @@ install_extract_member() {
   install_die "安装包里缺少 ${name}"
 }
 
-# 下载并核对官网安装包，取出 baota-panel.py 和 guardian-start.sh。不执行包里的安装脚本。
-# 结果放在 PKG_FILE 和 BAOTA_PAYLOAD。菜单里改端口、卸载时也会用到面板辅助脚本。
+install_download_dir() {
+  if [[ -n "${INSTALL_DOWNLOAD_DIR:-}" && -d "$INSTALL_DOWNLOAD_DIR" ]]; then
+    printf '%s\n' "$INSTALL_DOWNLOAD_DIR"
+    return 0
+  fi
+  INSTALL_DOWNLOAD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/auth-pro-install.XXXXXX")"
+  printf '%s\n' "$INSTALL_DOWNLOAD_DIR"
+}
+
+# 面板辅助脚本和启动模板跟官网程序一起下发。不从「发布版本」里的客户端包拆，避免旧包没有 --repair。
 install_fetch_helpers() {
+  local MANIFEST PARSED WORKDIR PANEL_SHA PANEL_URL GUARD_SHA GUARD_URL ACTUAL
+  if [[ -n "${BAOTA_HELPERS:-}" && -f "$BAOTA_HELPERS/baota-panel.py" && -f "$BAOTA_HELPERS/guardian-start.sh" ]]; then
+    return 0
+  fi
+  command -v curl >/dev/null 2>&1 || install_die "缺少 curl，无法下载面板辅助脚本"
+  command -v python3 >/dev/null 2>&1 || install_die "缺少 python3，无法读取辅助脚本清单"
+  install_info "正在从官网获取面板辅助脚本"
+  if ! MANIFEST="$(curl -q -fsSL --proto '=https' --max-time 60 "https://auth.maizll.com/api/v1/update/helpers.json")"; then
+    install_die "无法从官网获取面板辅助脚本"
+  fi
+  if ! PARSED="$(printf '%s' "$MANIFEST" | python3 -c '
+import json
+import sys
+data = json.load(sys.stdin)
+
+def clean(value):
+    text = "" if value is None else str(value).strip()
+    if "\n" in text or "\r" in text or " " in text:
+        raise SystemExit(2)
+    return text
+
+panel = data.get("baotaPanel") or {}
+guard = data.get("guardianStart") or {}
+sys.stdout.write("\n".join([
+    clean(panel.get("sha256")).lower(),
+    clean(panel.get("url")),
+    clean(guard.get("sha256")).lower(),
+    clean(guard.get("url")),
+]) + "\n")
+')"; then
+    install_die "无法读取官网辅助脚本清单"
+  fi
+  local FIELDS
+  mapfile -t FIELDS <<< "$PARSED"
+  if [[ "${#FIELDS[@]}" -lt 4 ]]; then
+    install_die "无法读取官网辅助脚本清单"
+  fi
+  PANEL_SHA="${FIELDS[0]}"
+  PANEL_URL="${FIELDS[1]}"
+  GUARD_SHA="${FIELDS[2]}"
+  GUARD_URL="${FIELDS[3]}"
+  [[ "$PANEL_SHA" =~ ^[a-f0-9]{64}$ && "$GUARD_SHA" =~ ^[a-f0-9]{64}$ ]] || install_die "辅助脚本清单里的 SHA256 不正确"
+  [[ "$PANEL_URL" == "https://auth.maizll.com/baota-panel.py" ]] || install_die "面板辅助脚本地址不是官网固定路径"
+  [[ "$GUARD_URL" == "https://auth.maizll.com/guardian-start.sh" ]] || install_die "启动模板地址不是官网固定路径"
+  WORKDIR="$(install_download_dir)"
+  HELPERS="$WORKDIR/helpers"
+  mkdir -p "$HELPERS"
+  if ! curl -q -fsSL --proto '=https' --retry 2 --retry-delay 1 --max-time 60 -o "$HELPERS/baota-panel.py" "$PANEL_URL"; then
+    install_die "面板辅助脚本下载失败"
+  fi
+  if ! curl -q -fsSL --proto '=https' --retry 2 --retry-delay 1 --max-time 60 -o "$HELPERS/guardian-start.sh" "$GUARD_URL"; then
+    install_die "启动模板下载失败"
+  fi
+  ACTUAL="$(install_sha256 "$HELPERS/baota-panel.py")"
+  [[ "$ACTUAL" == "$PANEL_SHA" ]] || install_die "面板辅助脚本 SHA256 不一致"
+  ACTUAL="$(install_sha256 "$HELPERS/guardian-start.sh")"
+  [[ "$ACTUAL" == "$GUARD_SHA" ]] || install_die "启动模板 SHA256 不一致"
+  head -n 1 "$HELPERS/baota-panel.py" | grep -q '^#!' || install_die "面板辅助脚本内容不正确"
+  head -n 1 "$HELPERS/guardian-start.sh" | grep -q '^#!' || install_die "启动模板内容不正确"
+  chmod 755 "$HELPERS/baota-panel.py" "$HELPERS/guardian-start.sh"
+  # 单独记下辅助脚本。后面解压安装包会改写 BAOTA_PAYLOAD，不能把旧包里的脚本又用回去。
+  BAOTA_HELPERS="$HELPERS"
+  BAOTA_PAYLOAD="$HELPERS"
+}
+
+# 下载并核对官网安装包。只取站点程序，不从包里拆面板辅助脚本。
+install_fetch_package() {
   local MANIFEST PARSED VERSION SHA SIGNATURE SIZE PKG_URL PKG_NAME EXPECT_URL WORKDIR
   local ACTUAL_SIZE ACTUAL_SHA
   command -v curl >/dev/null 2>&1 || install_die "缺少 curl，无法下载安装包"
@@ -151,8 +226,7 @@ sys.stdout.write("\n".join([version, sha, sig, str(size), url, name]) + "\n")
   if [[ "$SIZE" -gt 536870912 ]]; then
     install_die "安装包超过 512MB 上限，已停止安装"
   fi
-  WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/auth-pro-install.XXXXXX")"
-  INSTALL_DOWNLOAD_DIR="$WORKDIR"
+  WORKDIR="$(install_download_dir)"
   PKG_FILE="$WORKDIR/$PKG_NAME"
   install_info "最新版本 ${VERSION}，开始下载安装包"
   if ! curl -q -fsSL --proto '=https' --retry 2 --retry-delay 1 --max-time 600 -o "$PKG_FILE" "$EXPECT_URL"; then
@@ -169,19 +243,11 @@ sys.stdout.write("\n".join([version, sha, sig, str(size), url, name]) + "\n")
   ACTUAL_SHA="$(install_sha256 "$PKG_FILE")"
   [[ "$ACTUAL_SHA" == "$SHA" ]] || install_die "安装包 SHA256 不一致，已停止安装"
   LISTING="$(tar -tzf "$PKG_FILE")"
-  install_package_has "$LISTING" "baota-panel.py" || install_die "安装包里缺少 baota-panel.py"
-  install_package_has "$LISTING" "guardian-start.sh" || install_die "安装包里缺少 guardian-start.sh"
   install_package_has "$LISTING" "backend/auth_pro" || install_die "安装包里缺少 backend/auth_pro"
-  HELPERS="$WORKDIR/helpers"
-  mkdir -p "$HELPERS"
-  install_extract_member "$PKG_FILE" "$HELPERS" "$LISTING" "baota-panel.py"
-  install_extract_member "$PKG_FILE" "$HELPERS" "$LISTING" "guardian-start.sh"
-  chmod 755 "$HELPERS/guardian-start.sh"
-  BAOTA_PAYLOAD="$HELPERS"
 }
 
 # 下载并核对官网安装包，然后用当前这份脚本安装或升级。
-# 不执行包里的 install.sh。baota-panel.py 和 guardian-start.sh 从包里取出。
+# 不执行包里的 install.sh。面板辅助脚本另从官网固定地址取得。
 install_download_and_continue() {
   local action="$1"
   shift
@@ -301,6 +367,7 @@ install_download_and_continue() {
     baota_cmd_install --repair-guardian --yes --site-root "$SITE_ROOT"
     return 0
   fi
+  install_fetch_package
   ARGS=(--yes --site-root "$SITE_ROOT" --package "$PKG_FILE" "$START_FLAG")
   if [[ -n "$PORT" ]]; then
     ARGS+=(--port "$PORT")
@@ -329,6 +396,7 @@ baota_print_help() {
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --repair-guardian 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --reset-admin-password 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --status 域名
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --ssl 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --show-admin 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --start 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --stop 域名
@@ -341,6 +409,7 @@ baota_print_help() {
 不带参数时显示编号菜单。菜单从 /dev/tty 读输入，可以在 curl | bash 下使用。
 这是安装、升级、修复进程守护和重设管理员密码的唯一入口。脚本只从官网下载，不在发布包里。
 一条命令会从官网下载已发布的安装包，核对 SHA256 和签名后再安装或升级。
+面板辅助脚本和启动模板从官网固定地址下载并核对，不随「发布版本」里的旧客户端变化。
 需要本机已经装好宝塔面板，并且软件商店里已经安装 Nginx 和 MySQL。脚本不会替你安装 MySQL。
 网站目录默认是 /www/wwwroot/域名。未写 --port 时从 19127 起自动找空闲端口。
 已经有 backend/install.lock 时，安装会停下来。请改用 upgrade，或在后台使用「在线更新」。
@@ -367,7 +436,8 @@ upgrade 从官网取最新包，替换页面和 backend/auth_pro，保留 db.jso
                     本机 root 重设已装站点的管理员密码。有重设命令的程序直接运行，并带上网站根作为前端目录；1.7.5 这类旧程序改为直接更新数据库。不下载安装包，也不替换站点程序
   --reset-binary FILE
                     仅在明确指定时改用这份 auth_pro。不写则用网站目录 backend/auth_pro
-  --status          查看已装站点的版本、端口和守护是否 RUNNING
+  --status          查看已装站点的版本、端口、守护是否 RUNNING，以及 www 能否读取 db.json
+  --ssl             为已装站点申请或续签证书。成功后开启强制 HTTPS
   --show-admin      查看管理后台地址和初始账号
   --start           作为第一个参数时，通过进程守护启动该站点
   --stop            通过进程守护停止该站点
@@ -394,7 +464,7 @@ EOF
 
 # 安装、升级和修复的实现。只由同文件前面的入口调用。
 # 重设密码用站点自己的 auth_pro，不下载安装包。
-# 管道执行时 SCRIPT_DIR 为空。改端口、卸载和修复需要的 baota-panel.py 从发布包里取，这些操作不运行 auth_pro。
+# 管道执行时 SCRIPT_DIR 为空。改端口、卸载、修复和证书需要的 baota-panel.py 从官网固定地址取，这些操作不运行 auth_pro。
 
 # 这些路径相对数据目录（默认是网站根下的 backend/）。
 # 与后端 getDataDir() 一致：db.json、install.lock、jwt.secret，
@@ -1192,6 +1262,10 @@ baota_panel_python() {
 }
 
 baota_panel_script() {
+  if [[ -n "${BAOTA_HELPERS:-}" && -f "$BAOTA_HELPERS/baota-panel.py" ]]; then
+    printf '%s\n' "$BAOTA_HELPERS/baota-panel.py"
+    return 0
+  fi
   if [[ -n "${BAOTA_PAYLOAD:-}" && -f "$BAOTA_PAYLOAD/baota-panel.py" ]]; then
     printf '%s\n' "$BAOTA_PAYLOAD/baota-panel.py"
     return 0
@@ -1200,7 +1274,7 @@ baota_panel_script() {
     printf '%s\n' "$SCRIPT_DIR/baota-panel.py"
     return 0
   fi
-  # 本文件在 backend/handler。仓库里的面板辅助脚本仍是 scripts/baota-panel.py。
+  # 本文件和面板辅助脚本放在同一目录。scripts/baota-panel.py 只是指向这里的链接。
   if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/../../scripts/baota-panel.py" ]]; then
     printf '%s\n' "$SCRIPT_DIR/../../scripts/baota-panel.py"
     return 0
@@ -1224,6 +1298,7 @@ baota_panel_run() {
   script="$(baota_panel_script)" || baota_die "缺少 baota-panel.py。请使用当前版本的安装包。"
   capture="$(mktemp "${TMPDIR:-/tmp}/auth-pro-panel.XXXXXX")"
   BAOTA_PANEL_RESULT=""
+  BAOTA_PANEL_CERT_MSG=""
   BAOTA_PANEL_VERSION=""
   BAOTA_PANEL_SITE_ID=""
   BAOTA_PANEL_NGINX=""
@@ -1240,6 +1315,7 @@ baota_panel_run() {
   while IFS= read -r line || [[ -n "$line" ]]; do
     case "$line" in
       AUTH_PRO_RESULT=*) BAOTA_PANEL_RESULT="${line#AUTH_PRO_RESULT=}" ;;
+      AUTH_PRO_CERT_MSG=*) BAOTA_PANEL_CERT_MSG="${line#AUTH_PRO_CERT_MSG=}" ;;
       AUTH_PRO_PANEL_VERSION=*) BAOTA_PANEL_VERSION="${line#AUTH_PRO_PANEL_VERSION=}" ;;
       AUTH_PRO_SITE_ID=*) BAOTA_PANEL_SITE_ID="${line#AUTH_PRO_SITE_ID=}" ;;
       AUTH_PRO_NGINX=*) BAOTA_PANEL_NGINX="${line#AUTH_PRO_NGINX=}" ;;
@@ -1753,17 +1829,17 @@ baota_write_env() {
     return 0
   fi
   mkdir -p "$data"
-  # 进程守护以网站目录的属主运行（宝塔上是 www）。环境文件是 600，必须交给这个用户，不能留在 root。
+  # 进程守护以 www 运行。环境文件是 600，必须交给 www，不能跟着当时还是 root 的目录走。
   local owner="www" group="www"
+  if ! id www >/dev/null 2>&1; then
+    owner="$(id -un)"
+    group="$(id -gn)"
+  fi
   if [[ -f "$file" ]]; then
     existing_host="$(sed -n 's/^HOST=//p' "$file" | head -n 1)"
     if [[ -z "${AUTH_PRO_HOST:-}" && -n "$existing_host" ]]; then
       host="$existing_host"
     fi
-  fi
-  if [[ -d "$data" ]]; then
-    owner="$(stat -c '%U' "$data" 2>/dev/null || echo www)"
-    group="$(stat -c '%G' "$data" 2>/dev/null || echo www)"
   fi
   tmp="$file.tmp.$$"
   cat > "$tmp" <<EOF
@@ -1782,6 +1858,10 @@ EOF
 }
 
 baota_guardian_start_template() {
+  if [[ -n "${BAOTA_HELPERS:-}" && -f "$BAOTA_HELPERS/guardian-start.sh" ]]; then
+    printf '%s\n' "$BAOTA_HELPERS/guardian-start.sh"
+    return 0
+  fi
   if [[ -n "${BAOTA_PAYLOAD:-}" && -f "$BAOTA_PAYLOAD/guardian-start.sh" ]]; then
     printf '%s\n' "$BAOTA_PAYLOAD/guardian-start.sh"
     return 0
@@ -2083,6 +2163,78 @@ baota_tighten_secrets() {
   fi
 }
 
+# 1.7.5 的安装向导由 root 写成 root:root 0600。之后进程守护以 www 运行，读不到 db.json，登录就报数据库连接失败。
+# 启动前把 backend 交给 www。敏感文件保持 600，程序和启动脚本保持可执行。
+baota_claim_runtime_owner() {
+  local data
+  [[ "$BAOTA_DRY_RUN" == "1" ]] && return 0
+  id www >/dev/null 2>&1 || return 0
+  data="$(baota_data_dir)"
+  [[ -d "$data" ]] || return 0
+  if ! chown -R www:www "$data" 2>/dev/null; then
+    chattr -R -i "$data" 2>/dev/null || true
+    chown -R www:www "$data" || baota_die "无法把 ${data} 交给 www:www。进程守护以 www 运行时读不到 db.json，登录会报数据库连接失败。没有继续。"
+  fi
+  baota_tighten_secrets
+  if [[ -f "$data/auth_pro" ]]; then
+    chmod 755 "$data/auth_pro" || baota_warn "无法把 auth_pro 设为 755"
+  fi
+  if [[ -f "$data/start.sh" ]]; then
+    chmod 755 "$data/start.sh" || baota_warn "无法把 start.sh 设为 755"
+  fi
+  if [[ -d "$data/logs" ]]; then
+    chown www:www "$data/logs" 2>/dev/null || true
+  fi
+}
+
+baota_www_can_read() {
+  local file="$1" quoted
+  id www >/dev/null 2>&1 || return 1
+  [[ -f "$file" ]] || return 1
+  quoted="$(printf '%q' "$file")"
+  if command -v runuser >/dev/null 2>&1; then
+    runuser -u www -- test -r "$file"
+    return
+  fi
+  su -s /bin/sh www -c "test -r ${quoted}"
+}
+
+baota_report_db_reader() {
+  local data file owner mode
+  data="$(baota_data_dir)"
+  file="$data/db.json"
+  if [[ ! -f "$file" ]]; then
+    baota_warn "没有 db.json"
+    return 0
+  fi
+  owner="$(stat -c '%U:%G' "$file" 2>/dev/null || echo unknown)"
+  mode="$(stat -c '%a' "$file" 2>/dev/null || echo unknown)"
+  baota_info "db.json 属主 ${owner} 权限 ${mode}"
+  if ! id www >/dev/null 2>&1; then
+    return 0
+  fi
+  if baota_www_can_read "$file"; then
+    baota_info "www 可以读取 db.json"
+  else
+    baota_warn "www 无法读取 db.json。登录会报数据库连接失败。请执行修复进程守护。"
+  fi
+}
+
+# 申请或续签证书。成功返回 0 并已开启强制 HTTPS。失败时辅助脚本已经打印「证书申请失败」和原因，这里不撤站点。
+baota_apply_certificate() {
+  local domain="$1" cert_log
+  domain="$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]')"
+  cert_log="$(baota_data_dir)/logs/baota-install.log"
+  mkdir -p "$(baota_data_dir)/logs"
+  baota_panel_run cert --domain "$domain" --webroot "$BAOTA_SITE_ROOT" --log "$cert_log" || true
+  if [[ "${BAOTA_PANEL_RESULT:-}" == "https" ]]; then
+    baota_info "证书已申请，已开启强制 HTTPS。请使用 https://${domain}/"
+    return 0
+  fi
+  baota_warn "证书申请失败，站点地址仍是 http://${domain}/"
+  return 1
+}
+
 baota_rollback_programs() {
   local site="$BAOTA_SITE_ROOT" data
   data="$(baota_data_dir)"
@@ -2201,6 +2353,7 @@ baota_verify_guardian() {
 baota_start_backend() {
   local data port pid i health url started_by timeout
   [[ "$BAOTA_START" == "1" ]] || return 0
+  baota_claim_runtime_owner
   data="$(baota_data_dir)"
   port="$(baota_effective_port)"
   url="http://127.0.0.1:${port}/api/install/status"
@@ -2656,18 +2809,12 @@ baota_oneclick_install() {
     baota_warn "已指定不启动。进程守护已登记并停在停止状态，没有 nohup，也没有创建管理员。站点、数据库和反代已就绪。"
   fi
   scheme="http"
-  # 证书失败时的那一句中文和日志路径由辅助脚本打印。这里只根据捕获到的结果决定网址用 http 还是 https。
-  cert_log="$(baota_data_dir)/logs/baota-install.log"
-  if baota_panel_run cert --domain "$domain" --webroot "$BAOTA_SITE_ROOT" --log "$cert_log"; then
-    if [[ "$BAOTA_PANEL_RESULT" == "https" ]]; then
-      scheme="https"
-      baota_info "证书已申请，请使用 https://${domain}/"
-    fi
-  else
-    baota_warn "证书申请步骤没有完成，站点保持 HTTP。"
+  if baota_apply_certificate "$domain"; then
+    scheme="https"
   fi
   if [[ "$BAOTA_START" == "1" ]]; then
     baota_run_wizard "$domain" "$port" "$db_name" "$db_user" "$db_pass" "$scheme"
+    baota_claim_runtime_owner
   else
     baota_print_db_hint "$domain" "$port" "$db_name" "$db_user" "$db_pass"
   fi
@@ -2873,6 +3020,7 @@ baota_repair_guardian() {
     sum_before="$(sha256sum "$BAOTA_SITE_ROOT/index.html" | awk '{print $1}')"
   fi
   baota_info "修复 ${BAOTA_SITE_ROOT} 的进程守护，端口 ${port}。不改数据库、站点程序和 Nginx。"
+  baota_claim_runtime_owner
   baota_find_supervisor || true
   baota_supervisor_stop_ours
   if baota_port_is_open "$port"; then
@@ -2936,7 +3084,7 @@ baota_cmd_install() {
     return
   fi
   if [[ "${AUTH_PRO_ONECLICK:-}" == "1" ]]; then
-    baota_die "未检测到宝塔面板，或安装包里没有面板辅助脚本。请先安装宝塔面板，并在软件商店安装 Nginx 和 MySQL 后再执行。脚本不会替你安装 MySQL。"
+    baota_die "未检测到宝塔面板，或没有拿到官网下发的面板辅助脚本。请先安装宝塔面板，并在软件商店安装 Nginx 和 MySQL 后再执行。脚本不会替你安装 MySQL。"
   fi
   baota_resolve_site_root
   baota_resolve_start_flag
@@ -3045,6 +3193,7 @@ baota_upgrade_under_guardian() {
   baota_apply_payload
   baota_verify_manifest "$manifest"
   baota_tighten_secrets
+  baota_claim_runtime_owner
   baota_signal_pid "$pid"
   if baota_wait_listening_health; then
     baota_prune_after_health || true
@@ -3274,7 +3423,7 @@ menu_bind_site() {
 }
 
 menu_ensure_helpers() {
-  if baota_panel_script >/dev/null 2>&1; then
+  if baota_panel_script >/dev/null 2>&1 && baota_guardian_start_template >/dev/null 2>&1; then
     return 0
   fi
   install_fetch_helpers
@@ -3306,6 +3455,11 @@ menu_service() {
   local action="$1" target line
   baota_find_supervisor || baota_die "没有找到本站点的进程守护。没有另起进程。"
   target="$(baota_supervisor_target "$BAOTA_SUP_PROGRAM")"
+  case "$action" in
+    start|restart)
+      baota_claim_runtime_owner
+      ;;
+  esac
   baota_info "通过进程守护执行 ${action} ${target}"
   baota_supervisorctl "$action" "$target" || baota_die "进程守护 ${action} 失败。没有另起进程。"
   case "$action" in
@@ -3352,6 +3506,7 @@ menu_show_status() {
   else
     baota_warn "当前没有由 supervisord 托管的监听进程"
   fi
+  baota_report_db_reader
 }
 
 menu_show_admin() {
@@ -3568,7 +3723,7 @@ menu_uninstall_site() {
 
 menu_render() {
   menu_tty_print "$(menu_blue "========================================")"
-  menu_tty_print "$(menu_blue "  auth-pro 1.7.9")"
+  menu_tty_print "$(menu_blue "  auth-pro 1.8.0")"
   menu_tty_print "$(menu_blue "========================================")"
   menu_tty_print "  $(menu_green "1")  安装新站点"
   menu_tty_print "  $(menu_green "2")  升级站点"
@@ -3578,8 +3733,9 @@ menu_render() {
   menu_tty_print "  $(menu_green "6")  查看后台地址和初始账号"
   menu_tty_print "  $(menu_green "7")  启动 / 停止 / 重启"
   menu_tty_print "  $(menu_green "8")  备份数据 / 从备份恢复"
-  menu_tty_print "  $(menu_red "9")  卸载站点"
+  menu_tty_print "  $(menu_green "9")  申请/续签 SSL 证书"
   menu_tty_print "  $(menu_green "10") 修改后台端口"
+  menu_tty_print "  $(menu_red "11") 卸载站点"
   menu_tty_print "  $(menu_green "0")  退出"
   menu_tty_print "$(menu_blue "========================================")"
 }
@@ -3659,6 +3815,16 @@ menu_action_uninstall() {
   menu_uninstall_site "$typed" "$delete_db"
 }
 
+menu_action_ssl() {
+  menu_pick_site || return 0
+  menu_bind_site "$MENU_PICK_DOMAIN" "$MENU_PICK_ROOT"
+  menu_ensure_helpers
+  if baota_apply_certificate "$MENU_PICK_DOMAIN"; then
+    return 0
+  fi
+  baota_die "证书申请失败，没有开启强制 HTTPS。"
+}
+
 menu_action_port() {
   local port
   menu_pick_site || return 0
@@ -3705,8 +3871,9 @@ menu_main() {
         ;;
       7) menu_action_service_menu ;;
       8) menu_action_backup_menu ;;
-      9) menu_action_uninstall ;;
+      9) menu_action_ssl ;;
       10) menu_action_port ;;
+      11) menu_action_uninstall ;;
       0)
         menu_tty_print "已退出。"
         return 0
@@ -3811,6 +3978,10 @@ menu_cli() {
       [[ -n "$port" ]] || baota_die "--change-port 需要 --port"
       menu_change_port "$port"
       ;;
+    --ssl)
+      menu_ensure_helpers
+      baota_apply_certificate "$domain" || baota_die "证书申请失败，没有开启强制 HTTPS。"
+      ;;
     --uninstall)
       confirm="$(printf '%s' "$confirm" | tr '[:upper:]' '[:lower:]')"
       menu_uninstall_site "$confirm" "$delete_db"
@@ -3826,7 +3997,7 @@ install_main() {
     return
   fi
   case "$1" in
-    --status|--show-admin|--stop|--restart|--backup|--restore|--change-port|--uninstall)
+    --status|--show-admin|--stop|--restart|--backup|--restore|--change-port|--uninstall|--ssl)
       menu_cli "$@"
       return
       ;;

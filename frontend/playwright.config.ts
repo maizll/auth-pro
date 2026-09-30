@@ -9,7 +9,10 @@ export default defineConfig({
   reporter: 'list',
   use: {
     baseURL: 'http://127.0.0.1:4175',
-    trace: 'retain-on-failure'
+    trace: 'retain-on-failure',
+    launchOptions: process.env.CHROME_PATH
+      ? { executablePath: process.env.CHROME_PATH, args: ['--no-sandbox'] }
+      : undefined
   },
   projects: [
     {
@@ -21,6 +24,7 @@ export default defineConfig({
     command: 'node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 4175',
     url: 'http://127.0.0.1:4175',
     reuseExistingServer: false,
-    timeout: 120_000
+    timeout: 120_000,
+    env: { E2E: '1' }
   }
 })

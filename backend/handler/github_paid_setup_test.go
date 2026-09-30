@@ -95,19 +95,6 @@ func usePaidGitHubFake(t *testing.T, fake *paidGitHubFake) (*httptest.ResponseRe
 	return nil, call
 }
 
-func githubPaidTokenURL(t *testing.T, rec *httptest.ResponseRecorder) string {
-	t.Helper()
-	var payload struct {
-		Data struct {
-			TokenCreateURL string `json:"tokenCreateUrl"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
-		t.Fatal(err)
-	}
-	return payload.Data.TokenCreateURL
-}
-
 func useGitHubPaidPrivateRepoStub(t *testing.T, login string) {
 	t.Helper()
 	fake := &paidGitHubFake{login: login, repos: map[string]bool{}}
@@ -133,18 +120,15 @@ func TestGitHubPaidRepoClosedLoop(t *testing.T) {
 		t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
 		fake := &paidGitHubFake{login: "octocat", orgs: []string{"acme"}}
 		_, call := usePaidGitHubFake(t, fake)
-		got := call(http.MethodPost, base+"/test", `{"token":"`+pat+`"}`)
+		got := call(http.MethodPost, base+"/test", `{"token":"`+pat+`","repo":"paid-plugins"}`)
 		body := got.Body.String()
-		if sourceBodyCode(t, got) != 200 || strings.Contains(body, pat) {
-			t.Fatalf("test: %s", body)
-		}
-		for _, want := range []string{`"login":"octocat"`, `"owner":"octocat"`, `"repo":"auth-pro-paid"`, `"connected":false`, `"repoStatus":"missing"`, `"kind":"org"`, `"login":"acme"`, githubPaidRepoMissingText} {
+		for _, want := range []string{`"login":"octocat"`, `"owner":"octocat"`, `"repo":"paid-plugins"`, `"connected":false`, `"repoStatus":"missing"`, `"kind":"org"`, `"login":"acme"`, githubPaidRepoMissingText} {
 			if !strings.Contains(body, want) {
 				t.Fatalf("missing %s in %s", want, body)
 			}
 		}
-		if !strings.Contains(body, `"tokenCreateUrl":`) || githubPaidTokenURL(t, got) != githubPaidTokenCreateURL {
-			t.Fatalf("token url: %s", body)
+		if strings.Contains(body, "settings/tokens") {
+			t.Fatalf("token url leaked: %s", body)
 		}
 		if len(fake.createCalls) != 0 {
 			t.Fatalf("test created a repo: %v", fake.createCalls)
@@ -155,16 +139,16 @@ func TestGitHubPaidRepoClosedLoop(t *testing.T) {
 		t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
 		fake := &paidGitHubFake{login: "octocat"}
 		_, call := usePaidGitHubFake(t, fake)
-		got := call(http.MethodPost, base+"/repo", `{"token":"`+pat+`"}`)
+		got := call(http.MethodPost, base+"/repo", `{"token":"`+pat+`","repo":"paid-plugins"}`)
 		body := got.Body.String()
-		if sourceBodyCode(t, got) != 200 || !strings.Contains(body, "已连接：octocat/auth-pro-paid（私有）") || !strings.Contains(body, `"connected":true`) || strings.Contains(body, pat) {
+		if sourceBodyCode(t, got) != 200 || !strings.Contains(body, "已连接：octocat/paid-plugins（私有）") || !strings.Contains(body, `"connected":true`) || strings.Contains(body, pat) {
 			t.Fatalf("create: %s", body)
 		}
 		if len(fake.createCalls) != 1 || fake.createCalls[0] != "/user/repos" {
 			t.Fatalf("calls=%v", fake.createCalls)
 		}
 		created := fake.createBodies[0]
-		if created["name"] != githubPaidDefaultRepo || created["private"] != true || created["auto_init"] != true {
+		if created["name"] != "paid-plugins" || created["private"] != true || created["auto_init"] != true {
 			t.Fatalf("body=%v", created)
 		}
 	})
@@ -192,9 +176,9 @@ func TestGitHubPaidRepoClosedLoop(t *testing.T) {
 		}
 		_, call := usePaidGitHubFake(t, fake)
 		for _, item := range []struct{ method, path, payload string }{
-			{http.MethodPost, base + "/test", `{"token":"` + pat + `"}`},
-			{http.MethodPost, base + "/repo", `{"token":"` + pat + `"}`},
-			{http.MethodPut, base, `{"token":"` + pat + `"}`},
+			{http.MethodPost, base + "/test", `{"token":"` + pat + `","repo":"auth-pro-paid"}`},
+			{http.MethodPost, base + "/repo", `{"token":"` + pat + `","repo":"auth-pro-paid"}`},
+			{http.MethodPut, base, `{"token":"` + pat + `","repo":"auth-pro-paid"}`},
 		} {
 			got := call(item.method, item.path, item.payload)
 			body := got.Body.String()
@@ -219,7 +203,7 @@ func TestGitHubPaidRepoClosedLoop(t *testing.T) {
 			{http.MethodPost, base + "/repo"},
 			{http.MethodPut, base},
 		} {
-			got := call(item.method, item.path, `{"token":"`+pat+`"}`)
+			got := call(item.method, item.path, `{"token":"`+pat+`","repo":"auth-pro-paid"}`)
 			body := got.Body.String()
 			if sourceBodyCode(t, got) != 400 || !strings.Contains(body, "公开") || strings.Contains(body, pat) {
 				t.Fatalf("%s %s: %s", item.method, item.path, body)
@@ -238,7 +222,7 @@ func TestGitHubPaidRepoClosedLoop(t *testing.T) {
 		t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
 		fake := &paidGitHubFake{login: "octocat", forbidCreate: true}
 		_, call := usePaidGitHubFake(t, fake)
-		got := call(http.MethodPost, base+"/repo", `{"token":"`+pat+`"}`)
+		got := call(http.MethodPost, base+"/repo", `{"token":"`+pat+`","repo":"paid-plugins"}`)
 		body := got.Body.String()
 		if sourceBodyCode(t, got) != 400 || strings.Contains(body, pat) {
 			t.Fatalf("forbidden: %s", body)
@@ -257,8 +241,8 @@ func TestGitHubPaidRepoClosedLoop(t *testing.T) {
 		if err := json.Unmarshal(got.Body.Bytes(), &payload); err != nil {
 			t.Fatal(err)
 		}
-		if payload.Data.TokenCreateURL != githubPaidTokenCreateURL || !strings.Contains(payload.Msg, githubPaidTokenCreateURL) {
-			t.Fatalf("token url msg=%s data=%s", payload.Msg, payload.Data.TokenCreateURL)
+		if strings.Contains(payload.Msg, "settings/tokens") || payload.Data.TokenCreateURL != "" {
+			t.Fatalf("token url leaked msg=%s", payload.Msg)
 		}
 		if len(fake.createCalls) != 1 || fake.createCalls[0] != "/user/repos" {
 			t.Fatalf("calls=%v", fake.createCalls)
@@ -269,16 +253,16 @@ func TestGitHubPaidRepoClosedLoop(t *testing.T) {
 		t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
 		fake := &paidGitHubFake{login: "octocat", orgs: []string{"acme"}}
 		_, call := usePaidGitHubFake(t, fake)
-		got := call(http.MethodPut, base, `{"token":"`+pat+`"}`)
+		got := call(http.MethodPut, base, `{"token":"`+pat+`","repo":"paid-plugins"}`)
 		body := got.Body.String()
-		if sourceBodyCode(t, got) != 200 || !strings.Contains(body, `"owner":"octocat"`) || !strings.Contains(body, `"repo":"auth-pro-paid"`) || !strings.Contains(body, `"configured":true`) || !strings.Contains(body, `"connected":true`) || strings.Contains(body, pat) {
+		if sourceBodyCode(t, got) != 200 || !strings.Contains(body, `"owner":"octocat"`) || !strings.Contains(body, `"repo":"paid-plugins"`) || !strings.Contains(body, `"configured":true`) || !strings.Contains(body, `"connected":true`) || strings.Contains(body, pat) {
 			t.Fatalf("save create: %s", body)
 		}
 		if len(fake.createCalls) != 1 || fake.createCalls[0] != "/user/repos" {
 			t.Fatalf("calls=%v", fake.createCalls)
 		}
 		created := fake.createBodies[0]
-		if created["private"] != true || created["auto_init"] != true || created["name"] != "auth-pro-paid" {
+		if created["private"] != true || created["auto_init"] != true || created["name"] != "paid-plugins" {
 			t.Fatalf("body=%v", created)
 		}
 		plain, err := loadGitHubPaidToken()

@@ -1,20 +1,20 @@
 <!-- 购买商业版和单独购买插件或模板共用这一个窗口。账号栏固定在内容区顶部，付款区是这一步里的二维码和倒计时。 -->
 <template>
   <div>
-    <ElDialog v-model="commercialUi.promptOpen" title="需要商业版" width="460px" append-to-body>
+    <AppDialog v-model="commercialUi.promptOpen" title="需要商业版" size="sm" flow="short">
       <CommercialMark :text="commercialUi.promptText" icon="ri:rocket-2-line" />
       <template #footer>
         <ElButton @click="commercialUi.promptOpen = false">知道了</ElButton>
         <ElButton type="primary" @click="goUpgrade">{{ promptActionLabel }}</ElButton>
       </template>
-    </ElDialog>
+    </AppDialog>
 
-    <ElDialog
+    <AppDialog
       v-model="commercialUi.upgradeOpen"
       :title="dialogTitle"
-      :width="purchaseDialogWidth"
-      :modal-class="purchaseModalClass"
-      append-to-body
+      size="xl"
+      flow="long"
+      :dialog-class="purchaseModalClass"
       @open="loadPurchase"
       @closed="onPurchaseClosed"
     >
@@ -422,31 +422,17 @@
         </template>
       </div>
       <template v-if="upgraded" #footer>
-        <ElButton type="primary" @click="commercialUi.upgradeOpen = false">关闭</ElButton>
+        <ElButton @click="commercialUi.upgradeOpen = false">关闭</ElButton>
       </template>
-    </ElDialog>
-
-    <ElDialog
-      v-model="commercialUi.licenseOpen"
-      title="商业版授权"
-      modal-class="commercial-purchase-modal"
-      append-to-body
-      @open="loadLicense"
-    >
-      <div v-loading="loading" class="upgrade-body">
-        <ElAlert v-if="loadError" type="error" :closable="false" show-icon :title="loadError" />
-        <CommercialLicenseCard v-else :account="account" @refreshed="onAccountRefreshed" />
-      </div>
-      <template #footer>
-        <ElButton type="primary" @click="commercialUi.licenseOpen = false">关闭</ElButton>
-      </template>
-    </ElDialog>
+    </AppDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+  import { ElMessage } from 'element-plus'
+  import AppDialog from '@/components/core/dialog/AppDialog.vue'
+  import { appConfirm } from '@/utils/app-confirm'
   import { caughtErrorText, errorAlreadyToasted, showCaughtError } from '@/utils/http/error-toast'
   import QrcodeVue from 'qrcode.vue'
   import CommercialMark from './CommercialMark.vue'
@@ -629,7 +615,6 @@
   const emailCodeCountdown = ref(0)
   let emailCodeTimer: ReturnType<typeof setInterval> | null = null
   const bindAccountInput = ref<{ focus?: () => void } | null>(null)
-  const purchaseDialogWidth = ref('720px')
   // 账号栏的「当前账号」只认源站这次核对。本地快照仍显示已绑定、但 sourceVerified 还没回来时，不显示账号。
   const showBoundAccount = computed(() => sourceConfirmedBound(account.value) && !needsBind.value)
   const accountRoleLabel = computed(() => (account.value?.role === 'agent' ? '代理商' : '用户'))
@@ -665,10 +650,6 @@
     payFailed.value = ''
     orderTitle.value = ''
     payAmountCents.value = 0
-  }
-
-  function syncPurchaseWidth() {
-    purchaseDialogWidth.value = window.matchMedia('(max-width: 767px)').matches ? '100%' : '720px'
   }
 
   // 邮箱留首字符和域名，手机号留前三后二，其余只留首字。空名字显示「已绑定」，避免把已绑定画成未绑定。
@@ -736,7 +717,7 @@
 
   async function switchBinding() {
     try {
-      await ElMessageBox.confirm('解除当前绑定后，需要用另一个账号重新登录才能购买。', '切换绑定', {
+      await appConfirm('解除当前绑定后，需要用另一个账号重新登录才能购买。', '切换绑定', {
         confirmButtonText: '解除并重新绑定',
         cancelButtonText: '取消',
         type: 'warning'
@@ -821,21 +802,6 @@
         caughtErrorText(error, '读取商业版信息失败', errorAlreadyToasted(error)) ||
         '读取商业版信息失败'
       showCaughtError(error, '读取商业版信息失败')
-    } finally {
-      loading.value = false
-    }
-  }
-
-  async function loadLicense() {
-    loadError.value = ''
-    loading.value = true
-    try {
-      const next = await fetchStoreAccount(true)
-      applyAccount(next)
-    } catch (error: unknown) {
-      loadError.value =
-        caughtErrorText(error, '读取授权信息失败', errorAlreadyToasted(error)) || '读取授权信息失败'
-      showCaughtError(error, '读取授权信息失败')
     } finally {
       loading.value = false
     }
@@ -1229,16 +1195,10 @@
     }
   )
 
-  onMounted(() => {
-    syncPurchaseWidth()
-    window.addEventListener('resize', syncPurchaseWidth)
-  })
-
   onBeforeUnmount(() => {
     stopPoll()
     stopTick()
     stopEmailCodeCountdown()
-    window.removeEventListener('resize', syncPurchaseWidth)
   })
 </script>
 

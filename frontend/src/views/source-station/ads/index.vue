@@ -250,9 +250,10 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm, appPrompt } from '@/utils/app-confirm'
   import { onMounted, reactive, ref } from 'vue'
   import type { FormInstance, FormRules, UploadFile } from 'element-plus'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import { DEFAULT_AD_PLACEHOLDER } from '@/api/advertisement'
   import {
     AD_POSITIONS,
@@ -343,7 +344,7 @@
   }
 
   async function handleApproveApp(row: SourceAdApplication) {
-    await ElMessageBox.confirm(`通过「${row.title}」并创建广告投放？`, '通过广告申请', {
+    await appConfirm(`通过「${row.title}」并创建广告投放？`, '通过广告申请', {
       type: 'success',
       confirmButtonText: '确认通过'
     })
@@ -353,7 +354,7 @@
   }
 
   async function handleRejectApp(row: SourceAdApplication) {
-    const { value } = await ElMessageBox.prompt('请填写拒绝原因', '拒绝广告申请', {
+    const { value } = await appPrompt('请填写拒绝原因', '拒绝广告申请', {
       inputPlaceholder: '审核说明',
       confirmButtonText: '确定'
     })
@@ -447,7 +448,7 @@
   }
 
   async function handleDelete(row: SourceAdvertisement) {
-    await ElMessageBox.confirm(`删除广告 ${row.id}？`, '删除确认', { type: 'warning' })
+    await appConfirm(`删除广告 ${row.id}？`, '删除确认', { type: 'warning' })
     await deleteSourceAdvertisement(row.id)
     ElMessage.success('广告已删除')
     await loadAds()

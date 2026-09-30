@@ -94,6 +94,7 @@ func AppManageList(c *gin.Context) {
 		}
 	}
 
+	_ = ensureAppRepoSchema(db)
 	rows, err := db.Query(`
 		SELECT a.id, a.app_name, a.app_key, a.app_secret, a.description, a.enabled, a.commercial_product,
 		       a.license_required, a.purchase_license_type_mask, a.created_at, a.deleted_at,
@@ -126,6 +127,7 @@ func AppManageList(c *gin.Context) {
 		GraceDays              int                 `json:"graceDays,omitempty"`
 		RevokeOnPasswordChange *bool               `json:"revokeOnPasswordChange,omitempty"`
 		CommercialFeatures     []string            `json:"commercialFeatures,omitempty"`
+		Repo                   string              `json:"repo,omitempty"`
 		CreatedAt              string              `json:"createdAt"`
 		LicenseCount           int64               `json:"licenseCount"`
 		VersionCount           int64               `json:"versionCount"`
@@ -154,6 +156,9 @@ func AppManageList(c *gin.Context) {
 				item.RevokeOnPasswordChange = storeSettings.RevokeOnPasswordChange
 				item.CommercialFeatures = storeSettings.CommercialFeatures
 			}
+			if bound, ok, _ := loadAppRepo(item.ID); ok {
+				item.Repo = bound.Owner + "/" + bound.Repo
+			}
 			list = append(list, item)
 		}
 	}
@@ -175,9 +180,30 @@ func AppCreate(c *gin.Context) {
 		GraceDays              *int      `json:"graceDays"`
 		RevokeOnPasswordChange *bool     `json:"revokeOnPasswordChange"`
 		CommercialFeatures     *[]string `json:"commercialFeatures"`
+		RepoAction             string    `json:"repoAction"`
+		Repo                   string    `json:"repo"`
+		RequestID              string    `json:"requestId"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用名称不能为空"})
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请输入应用名称"})
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请输入应用名称"})
+		return
+	}
+	if len([]rune(req.Name)) > 100 {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "应用名称不能超过 100 个字符"})
+		return
+	}
+	// 同一个 requestId 只创建一次应用。重复提交改为给这一条补绑定，不再插入第二行。
+	if existing, ok := lookupCreateRequest(req.RequestID); ok {
+		retryCreateAppRepo(c, existing, req.RepoAction, req.Repo)
+		return
+	}
+	if err := validateAppRepoChoice(c.Request.Context(), req.RepoAction, req.Repo); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
 	if req.CommercialProduct != nil && *req.CommercialProduct {
@@ -234,9 +260,51 @@ func AppCreate(c *gin.Context) {
 		return
 	}
 	if msg == "" {
-		msg = "创建成功"
+		msg = "应用已创建"
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": gin.H{"id": id, "switched": switched}})
+	_, _ = rememberCreateRequest(req.RequestID, id)
+	bound, repoErr := finishAppCreateRepo(c.Request.Context(), id, appKey, req.Name, req.RepoAction, req.Repo)
+	if repoErr != "" {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": repoErr, "data": gin.H{"id": id, "appKey": appKey, "switched": switched, "bound": false, "repoError": repoErr}})
+		return
+	}
+	if bound {
+		msg = "应用已创建，仓库已绑定"
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": gin.H{"id": id, "appKey": appKey, "switched": switched, "bound": bound}})
+}
+
+// retryCreateAppRepo 重复提交时不新建应用，只给已经写下的那一条补仓库。
+func retryCreateAppRepo(c *gin.Context, appID int64, action, repo string) {
+	db, err := config.DB()
+	if err != nil || db == nil {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "应用已创建", "data": gin.H{"id": appID, "reused": true}})
+		return
+	}
+	var appKey, appName string
+	if err := db.QueryRow(`SELECT app_key, app_name FROM apps WHERE id = ?`, appID).Scan(&appKey, &appName); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "应用已创建", "data": gin.H{"id": appID, "reused": true}})
+		return
+	}
+	action = strings.TrimSpace(action)
+	if action == "" || action == "skip" {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "应用已创建", "data": gin.H{"id": appID, "appKey": appKey, "reused": true, "bound": false}})
+		return
+	}
+	if err := validateAppRepoChoice(c.Request.Context(), action, repo); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error(), "data": gin.H{"id": appID, "reused": true}})
+		return
+	}
+	bound, repoErr := finishAppCreateRepo(c.Request.Context(), appID, appKey, appName, action, repo)
+	if repoErr != "" {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": repoErr, "data": gin.H{"id": appID, "appKey": appKey, "reused": true, "bound": false, "repoError": repoErr}})
+		return
+	}
+	msg := "应用已创建"
+	if bound {
+		msg = "应用已创建，仓库已绑定"
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": gin.H{"id": appID, "appKey": appKey, "reused": true, "bound": bound}})
 }
 
 // AppUpdate 编辑应用

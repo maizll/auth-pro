@@ -344,6 +344,7 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import TemplateActions from '@/views/home-template/TemplateActions.vue'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
@@ -360,7 +361,7 @@
   } from '@/utils/commercial'
   import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import { showCaughtError } from '@/utils/http/error-toast'
   import { FolderAdd, Refresh, Search } from '@element-plus/icons-vue'
   import {
@@ -633,7 +634,7 @@
   async function enablePlugin(plugin: PluginInfo, skipConfirm: boolean) {
     if (!plugin.enabled && !skipConfirm) {
       try {
-        await ElMessageBox.confirm(
+        await appConfirm(
           `启用「${plugin.name}」后，同分区其他插件将自动停用，确认启用？`,
           '启用插件',
           { confirmButtonText: '启用', cancelButtonText: '取消', type: 'warning' }
@@ -720,7 +721,7 @@
   const handleRestoreSourceApp = async (source: PluginSource) => {
     if (!source.restoreAppId) return
     try {
-      await ElMessageBox.confirm('恢复后，这条软件源地址会重新打开该应用自己的目录。', '恢复应用', {
+      await appConfirm('恢复后，这条软件源地址会重新打开该应用自己的目录。', '恢复应用', {
         type: 'warning',
         confirmButtonText: '恢复',
         cancelButtonText: '取消'
@@ -776,7 +777,7 @@
 
   const handleDeleteSource = async (row: PluginSource) => {
     try {
-      await ElMessageBox.confirm(
+      await appConfirm(
         `确认删除软件源「${row.name}」？已下载到本地的插件不受影响。`,
         '删除软件源',
         {

@@ -35,7 +35,7 @@ func githubPaidConnectedText(owner, repo string) string {
 }
 
 func githubPaidPermissionError() error {
-	return errors.New(githubPaidPermissionText + " " + githubPaidTokenCreateURL)
+	return errors.New(githubPaidPermissionText)
 }
 
 func validGitHubPaidName(value string) bool {
@@ -269,9 +269,6 @@ func githubPaidRequestTarget(c *gin.Context, withIdentity bool) (token, owner, r
 		if repo == "" {
 			repo = savedRepo
 		}
-	}
-	if repo == "" {
-		repo = githubPaidDefaultRepo
 	}
 	if !validGitHubPaidName(owner) || !validGitHubPaidName(repo) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请填写私有仓库的所有者和仓库名", "data": githubPaidConnectData(identity, owner, repo, "", false)})

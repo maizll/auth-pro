@@ -224,6 +224,7 @@
       "templates": "软件目录",
       "catalog": "公开目录",
       "ads": "广告投放",
+      "repos": "仓库绑定",
       "storage": "存储管理",
       "storageMonitor": "存储检查",
       "storageFiles": "安装包文件",

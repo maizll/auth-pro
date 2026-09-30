@@ -101,6 +101,7 @@ export interface LicenseAppItem {
   revokeOnPasswordChange?: boolean
   commercialFeatures?: string[]
   remark?: string
+  repo?: string
   createdAt: string
 }
 
@@ -293,10 +294,20 @@ export interface CommercialAppPayload {
   graceDays?: number
   revokeOnPasswordChange?: boolean
   commercialFeatures?: string[]
+  repoAction?: 'create' | 'bind' | 'skip'
+  repo?: string
+  requestId?: string
 }
 
 export function fetchCreateLicenseApp(params: CommercialAppPayload) {
-  return request.post<{ id: number; switched?: boolean }>({ url: '/api/app/create', params })
+  return request.post<{
+    id: number
+    switched?: boolean
+    bound?: boolean
+    appKey?: string
+    repoError?: string
+    reused?: boolean
+  }>({ url: '/api/app/create', params })
 }
 
 /** 编辑应用 */

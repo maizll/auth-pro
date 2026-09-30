@@ -118,7 +118,8 @@ export default ({ mode }: { mode: string }) => {
         threshold: 10240, // 只有大小大于该值的资源会被处理 10240B = 10KB
         deleteOriginFile: false // 压缩后是否删除原文件
       }),
-      vueDevTools(),
+      // 截图用的预览服务会带上 E2E=1，这时不挂开发工具浮标。
+      ...(process.env.E2E === '1' ? [] : [vueDevTools()]),
       {
         name: 'generate-version-json',
         apply: 'build',

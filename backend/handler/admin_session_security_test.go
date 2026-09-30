@@ -473,6 +473,8 @@ func (conn *adminSessionConn) QueryContext(_ context.Context, query string, args
 		return &adminSessionRows{columns: []string{"count"}, values: [][]driver.Value{{int64(1)}}}, nil
 	case strings.Contains(query, "password_changed_at"):
 		return &adminSessionRows{columns: []string{"password_changed_at"}, values: [][]driver.Value{{nil}}}, nil
+	case strings.Contains(query, "app_repo_bindings"), strings.Contains(query, "app_create_requests"):
+		return &adminSessionRows{columns: []string{"app_id"}}, nil
 	default:
 		return nil, fmt.Errorf("unexpected query: %s", query)
 	}
@@ -509,6 +511,8 @@ func (conn *adminSessionConn) ExecContext(_ context.Context, query string, args 
 		if ip, ok := namedString(args, 0); ok {
 			conn.state.agent.lastLoginIP = ip
 		}
+		return adminSessionResult{affected: 1}, nil
+	case strings.Contains(query, "app_repo_bindings"), strings.Contains(query, "app_create_requests"), strings.Contains(query, "schema_migrations"):
 		return adminSessionResult{affected: 1}, nil
 	default:
 		return nil, fmt.Errorf("unexpected exec: %s", query)

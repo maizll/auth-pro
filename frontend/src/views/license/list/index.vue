@@ -423,7 +423,8 @@
 </template>
 
 <script setup lang="ts">
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { appConfirm, appPrompt } from '@/utils/app-confirm'
+  import { ElMessage } from 'element-plus'
   import CommercialReissueBanner from '@/components/business/commercial/CommercialReissueBanner.vue'
   import EditionExpire from '@/components/business/commercial/EditionExpire.vue'
   import { showCaughtError } from '@/utils/http/error-toast'
@@ -1051,15 +1052,11 @@
 
   const revokePlugin = async (entitlementId: number, itemId: string) => {
     try {
-      const { value } = await ElMessageBox.prompt(
-        `撤销「${itemId}」后，这条插件权益立即失效`,
-        '撤销插件',
-        {
-          inputPlaceholder: '填写原因，可留空',
-          confirmButtonText: '撤销',
-          cancelButtonText: '取消'
-        }
-      )
+      const { value } = await appPrompt(`撤销「${itemId}」后，这条插件权益立即失效`, '撤销插件', {
+        inputPlaceholder: '填写原因，可留空',
+        confirmButtonText: '撤销',
+        cancelButtonText: '取消'
+      })
       await fetchRevokeLicensePlugin(detail.licenseId, entitlementId, value || '')
       ElMessage.success('已撤销')
       await loadLicenseDetail()
@@ -1070,7 +1067,7 @@
 
   const handleRevokeCommercial = async (row: LicenseItem) => {
     try {
-      const { value } = await ElMessageBox.prompt('请填写吊销原因', '吊销商业版', {
+      const { value } = await appPrompt('请填写吊销原因', '吊销商业版', {
         inputPlaceholder: '例如：退款',
         confirmButtonText: '吊销',
         cancelButtonText: '取消'
@@ -1088,7 +1085,7 @@
     const newStatus = row.status === 'active' ? 'disabled' : 'active'
     const action = row.status === 'active' ? '禁用' : '启用'
     try {
-      await ElMessageBox.confirm(`确定${action}该授权？`, '提示', { type: 'warning' })
+      await appConfirm(`确定${action}该授权？`, '提示', { type: 'warning' })
       await fetchToggleLicense(row.id, newStatus)
       ElMessage.success(`${action}成功`)
       refreshUpdate()
@@ -1105,7 +1102,7 @@
       const warning = row.commercialActive
         ? '该授权带有商业版，删除后对应站点将失去商业版'
         : '确定删除该授权？删除后不可恢复'
-      await ElMessageBox.confirm(warning, '警告', { type: 'error' })
+      await appConfirm(warning, '警告', { type: 'error' })
       await fetchDeleteLicense(row.id)
       ElMessage.success('删除成功')
       refreshRemove()
@@ -1143,7 +1140,7 @@
 
   const handleUnbindSite = async (row: LicenseSiteItem) => {
     try {
-      await ElMessageBox.confirm(`确定解绑站点「${row.target}」？解绑后名额立即释放。`, '提示', {
+      await appConfirm(`确定解绑站点「${row.target}」？解绑后名额立即释放。`, '提示', {
         type: 'warning'
       })
       await fetchUnbindLicenseSite(siteDialog.licenseId, row.id)

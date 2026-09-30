@@ -148,9 +148,10 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import TemplateActions from './TemplateActions.vue'
   import { computed, onMounted, ref } from 'vue'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage } from 'element-plus'
   import { showCaughtError } from '@/utils/http/error-toast'
   import { Refresh } from '@element-plus/icons-vue'
   import {
@@ -245,11 +246,11 @@
 
   const handleRestoreDefault = async () => {
     try {
-      await ElMessageBox.confirm(
-        '确认恢复默认首页模板？当前启用的自定义模板将被停用。',
-        '恢复默认模板',
-        { confirmButtonText: '恢复', cancelButtonText: '取消', type: 'warning' }
-      )
+      await appConfirm('确认恢复默认首页模板？当前启用的自定义模板将被停用。', '恢复默认模板', {
+        confirmButtonText: '恢复',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
     } catch {
       return
     }

@@ -148,7 +148,12 @@
         </ElRow>
 
         <ElFormItem label="从仓库导入">
-          <ReleaseRepoImport api-base="/api/release-import" purpose="app" @filled="applyImport" />
+          <ReleaseRepoImport
+            api-base="/api/release-import"
+            purpose="app"
+            :app-id="appId"
+            @filled="applyImport"
+          />
         </ElFormItem>
 
         <ElFormItem label="更新包来源">
@@ -304,6 +309,7 @@
 </template>
 
 <script setup lang="ts">
+  import { appConfirm } from '@/utils/app-confirm'
   import { reactive, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import type {
@@ -314,7 +320,7 @@
     UploadInstance,
     UploadRawFile
   } from 'element-plus'
-  import { ElMessage, ElMessageBox, genFileId } from 'element-plus'
+  import { ElMessage, genFileId } from 'element-plus'
   import ArtSvgIcon from '@/components/core/base/art-svg-icon/index.vue'
   import RowActions, { type RowActionItem } from '@/components/business/row-actions/index.vue'
   import ReleaseRepoImport from '@/components/business/release-import/ReleaseRepoImport.vue'
@@ -733,11 +739,11 @@
 
   async function handleDelete(row: AppVersionItem) {
     try {
-      await ElMessageBox.confirm(
-        `确定删除版本「${row.version}」？本地上传的更新包也会被删除。`,
-        '删除版本',
-        { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' }
-      )
+      await appConfirm(`确定删除版本「${row.version}」？本地上传的更新包也会被删除。`, '删除版本', {
+        type: 'warning',
+        confirmButtonText: '删除',
+        confirmButtonClass: 'el-button--danger'
+      })
       await deleteAppVersion(appId, row.id)
       ElMessage.success('版本删除成功')
       // 删除后智能处理页码，避免停留在空页

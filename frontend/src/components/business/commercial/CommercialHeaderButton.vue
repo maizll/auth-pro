@@ -1,12 +1,16 @@
 <!-- 顶栏商业版入口。形态按宝塔首页右上角的胶囊：浅色底是未开通，实心主题蓝是已开通。 -->
 <template>
-  <div class="commercial-header-entry">
+  <div
+    class="commercial-header-entry"
+    :data-detail="detailOpen ? '1' : '0'"
+    :data-narrow="narrow ? '1' : '0'"
+  >
     <button
       v-if="ready && pending"
       type="button"
       class="commercial-header-entry__hit"
       aria-label="商业版 · 待校验"
-      @click="openCommercialLicense"
+      @click="openDetail"
     >
       <span class="commercial-header-entry__pill commercial-header-entry__pill--pending">
         <ArtSvgIcon icon="ri:error-warning-line" />
@@ -19,7 +23,7 @@
       type="button"
       class="commercial-header-entry__hit"
       :aria-label="`商业版 ${term}`"
-      @click="openCommercialLicense"
+      @click="openDetail"
     >
       <span class="commercial-header-entry__pill commercial-header-entry__pill--on">
         <ArtSvgIcon icon="ri:vip-crown-2-fill" />
@@ -39,16 +43,33 @@
         <span>免费版</span>
       </span>
     </button>
+    <ElDrawer
+      v-if="narrow"
+      v-model="detailOpen"
+      class="commercial-sheet"
+      direction="btt"
+      size="auto"
+      append-to="body"
+      append-to-body
+      :z-index="4000"
+      title="商业版"
+    >
+      <CommercialLicenseCard :account="account" @refreshed="onAccountRefreshed" />
+    </ElDrawer>
+    <div v-else-if="detailOpen" class="commercial-header-entry__pop">
+      <CommercialLicenseCard :account="account" @refreshed="onAccountRefreshed" />
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
   import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
   import { fetchStoreAccount, refreshStoreSnapshot, type StoreAccount } from '@/api/store'
+  import { commercialHeaderTerm } from '@/utils/commercial-header-term'
+  import CommercialLicenseCard from './CommercialLicenseCard.vue'
   import {
     commercialUi,
     isCommercialActive,
-    openCommercialLicense,
     openCommercialUpgrade,
     rememberCommercialAccount
   } from '@/utils/commercial'
@@ -59,20 +80,24 @@
   const ready = ref(!!commercialUi.account)
   const commercial = computed(() => isCommercialActive(account.value))
   const pending = computed(() => commercial.value && !!account.value?.offlineGrace)
-  const term = computed(() => headerTerm(account.value))
+  const term = computed(() => commercialHeaderTerm(account.value))
+  const detailOpen = ref(false)
+  const narrow = ref(false)
 
-  function headerTerm(current: StoreAccount | null) {
-    if (!current) return ''
-    let when = '永久'
-    if (!current.permanent && current.editionExpireAt) {
-      const date = new Date(current.editionExpireAt * 1000)
-      if (!Number.isNaN(date.getTime())) {
-        const pad = (value: number) => String(value).padStart(2, '0')
-        when = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} 到期`
-      }
-    }
-    const source = (current.editionSource || '').trim()
-    return source ? `${when} · ${source}` : when
+  function syncNarrow() {
+    const next = window.innerWidth < 768
+    if (narrow.value && !next) detailOpen.value = false
+    narrow.value = next
+  }
+
+  function openDetail() {
+    syncNarrow()
+    detailOpen.value = !detailOpen.value
+  }
+
+  function onAccountRefreshed(next: StoreAccount) {
+    account.value = next
+    rememberCommercialAccount(next)
   }
 
   watch(
@@ -102,20 +127,37 @@
   }
 
   onMounted(() => {
+    syncNarrow()
     void load(true)
+    window.addEventListener('resize', syncNarrow)
     window.addEventListener('store-account-refresh', onAccountRefresh)
   })
 
   onBeforeUnmount(() => {
+    window.removeEventListener('resize', syncNarrow)
     window.removeEventListener('store-account-refresh', onAccountRefresh)
   })
 </script>
 
 <style scoped>
   .commercial-header-entry {
+    position: relative;
     display: inline-flex;
     flex: none;
     align-items: center;
+  }
+
+  .commercial-header-entry__pop {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 30;
+    width: 420px;
+    padding: 12px;
+    background: #fff;
+    border: 1px solid #e6eaf0;
+    border-radius: 12px;
+    box-shadow: 0 16px 40px rgb(23 32 51 / 12%);
   }
 
   .commercial-header-entry__hit {
@@ -135,6 +177,7 @@
   /* 宝塔 10 首页右上角是全圆角小胶囊：高约 26px，字号 12px，图标在左。 */
   .commercial-header-entry__pill {
     display: inline-flex;
+    flex: none;
     gap: 4px;
     align-items: center;
     height: 26px;
@@ -142,6 +185,7 @@
     font-size: 12px;
     font-weight: 600;
     line-height: 1;
+    white-space: nowrap;
     border-radius: 999px;
   }
 
@@ -167,10 +211,12 @@
   }
 
   .commercial-header-entry__expire {
+    flex: none;
     color: var(--el-text-color-secondary);
     font-size: 12px;
     font-weight: 400;
     line-height: 1;
+    white-space: nowrap;
   }
 
   .commercial-header-entry__pill--pending {

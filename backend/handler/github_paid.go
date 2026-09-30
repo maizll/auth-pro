@@ -30,9 +30,7 @@ const (
 	githubPaidTokenInvalidText = "GitHub 令牌无效或已过期，请到软件源设置重新配置。令牌需要 Contents 读写权限"
 	githubPaidAssetMissingText = "收费仓库里找不到该安装包，请重新上传"
 	paidLocalFallbackText      = "安装包暂存在本站。请到「存储管理」添加主存储，测试连接后再保存。"
-	githubPaidDefaultRepo      = "auth-pro-paid"
-	githubPaidTokenCreateURL   = "https://github.com/settings/tokens/new?scopes=repo&description=auth-pro"
-	githubPaidPermissionText   = "权限不足：细粒度令牌需要 Administration 读写（创建仓库）和 Contents 读写，经典令牌需要 repo 权限。"
+	githubPaidPermissionText = "权限不足：细粒度令牌需要 Administration 读写（创建仓库）和 Contents 读写，经典令牌需要 repo 权限。"
 	githubPaidPublicRepoText   = "该仓库已存在，但是公开的，不能存放收费安装包。请改用私有仓库。"
 	githubPaidRepoMissingText  = "仓库还不存在。可点「自动创建私有仓库」，保存时也会自动创建。"
 )
@@ -133,10 +131,16 @@ func parseGitHubPackageRef(raw string) (gitHubAssetRef, bool) {
 		return gitHubAssetRef{}, false
 	}
 	parts := strings.Split(strings.TrimPrefix(value, githubPackagePrefix), "/")
-	if len(parts) != 4 {
+	// 标签可以带位置前缀，例如 plugins/paid/demo-1.0.0。所有者、仓库和文件名仍各占一段。
+	if len(parts) < 4 {
 		return gitHubAssetRef{}, false
 	}
-	ref := gitHubAssetRef{Owner: parts[0], Repo: parts[1], Tag: parts[2], Asset: parts[3]}
+	ref := gitHubAssetRef{
+		Owner: parts[0],
+		Repo:  parts[1],
+		Tag:   strings.Join(parts[2:len(parts)-1], "/"),
+		Asset: parts[len(parts)-1],
+	}
 	if !validGitHubAssetRef(ref) {
 		return gitHubAssetRef{}, false
 	}
@@ -151,11 +155,13 @@ func validGitHubAssetRef(ref gitHubAssetRef) bool {
 	if !sourceReleaseRepoPattern.MatchString(ref.Owner) || !sourceReleaseRepoPattern.MatchString(ref.Repo) {
 		return false
 	}
-	if ref.Tag == "" || ref.Asset == "" || strings.Contains(ref.Tag, "/") || strings.Contains(ref.Asset, "/") {
+	if ref.Tag == "" || ref.Asset == "" || strings.Contains(ref.Asset, "/") || strings.Contains(ref.Asset, "..") {
 		return false
 	}
-	if strings.Contains(ref.Tag, "..") || strings.Contains(ref.Asset, "..") {
-		return false
+	for _, part := range strings.Split(ref.Tag, "/") {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
 	}
 	return true
 }
@@ -374,9 +380,7 @@ func githubPaidSettingsView() gin.H {
 		"owner":          owner,
 		"repo":           repo,
 		"reminder":       reminder,
-		"defaultRepo":    githubPaidDefaultRepo,
-		"tokenCreateUrl": githubPaidTokenCreateURL,
-		"connected":      configured,
+		"connected": configured,
 		"private":        configured,
 	}
 	if configured {
@@ -414,9 +418,6 @@ func AdminGitHubPaidTokenSave(c *gin.Context) {
 	}
 	owner := strings.TrimSpace(body.Owner)
 	repo := strings.TrimSpace(body.Repo)
-	if repo == "" {
-		repo = githubPaidDefaultRepo
-	}
 	var known *githubPaidIdentity
 	if owner == "" {
 		identity, idErr := fetchGitHubPaidIdentity(c.Request.Context(), token)

@@ -1,7 +1,18 @@
-<!-- 官网顶栏导航。和电脑同一行，放不下的收进「更多」，不用汉堡菜单和侧栏。 -->
+<!-- 电脑横排，当前项是直线下划线。手机把菜单收到左侧抽屉。 -->
 <template>
-  <nav ref="host" class="public-nav" aria-label="官网导航">
-    <div class="public-nav__row">
+  <nav ref="host" class="public-nav" :class="{ 'is-narrow': narrow }" aria-label="官网导航">
+    <button
+      v-if="narrow"
+      class="public-nav__menu-btn"
+      type="button"
+      :aria-label="drawer ? '关闭菜单' : '打开菜单'"
+      @click="drawer = !drawer"
+    >
+      <span />
+      <span />
+      <span />
+    </button>
+    <div v-if="!narrow" class="public-nav__row">
       <component
         :is="item.external ? 'a' : 'RouterLink'"
         v-for="item in shown"
@@ -41,6 +52,30 @@
         {{ item.label }}
       </component>
     </div>
+    <ElDrawer
+      v-if="narrow"
+      v-model="drawer"
+      class="public-nav-drawer"
+      direction="ltr"
+      size="232px"
+      :with-header="false"
+      append-to="body"
+      append-to-body
+      :z-index="4000"
+    >
+      <component
+        :is="item.external ? 'a' : 'RouterLink'"
+        v-for="item in items"
+        :key="item.key"
+        class="public-nav__drawer-link"
+        :class="{ 'is-active': active(item) }"
+        :to="item.external ? undefined : item.href"
+        :href="item.external ? item.href : undefined"
+        @click="drawer = false"
+      >
+        {{ item.label }}
+      </component>
+    </ElDrawer>
     <div ref="ruler" class="public-nav__ruler" aria-hidden="true">
       <span v-for="item in items" :key="item.key" data-nav-item>{{ item.label }}</span>
       <span data-nav-more>更多</span>
@@ -62,6 +97,13 @@
   const shown = ref<PublicNavItem[]>([])
   const overflow = ref<PublicNavItem[]>([])
   const open = ref(false)
+  const drawer = ref(false)
+  const narrow = ref(false)
+
+  function syncNarrow() {
+    narrow.value = window.innerWidth < 768
+    if (!narrow.value) drawer.value = false
+  }
 
   function active(item: PublicNavItem) {
     return navItemActive(route.path, item)
@@ -121,12 +163,15 @@
   }
 
   onMounted(() => {
+    syncNarrow()
     measure()
     window.addEventListener('resize', onResize)
+    window.addEventListener('resize', syncNarrow)
     document.addEventListener('click', onDocumentClick)
   })
   onBeforeUnmount(() => {
     window.removeEventListener('resize', onResize)
+    window.removeEventListener('resize', syncNarrow)
     document.removeEventListener('click', onDocumentClick)
   })
   watch(
@@ -184,6 +229,42 @@
 
   .public-nav__link.is-active {
     box-shadow: inset 0 -2px 0 var(--remote-primary, var(--el-color-primary));
+  }
+
+  .public-nav.is-narrow {
+    flex: 0 0 auto;
+    order: -1;
+    width: auto;
+    height: auto;
+  }
+
+  .public-nav__menu-btn {
+    display: grid;
+    gap: 4px;
+    width: 36px;
+    height: 36px;
+    padding: 8px;
+    background: transparent;
+    border: 0;
+  }
+
+  .public-nav__menu-btn span {
+    display: block;
+    height: 2px;
+    background: currentcolor;
+  }
+
+  .public-nav__drawer-link {
+    display: block;
+    padding: 12px 16px;
+    color: inherit;
+    font-size: 14px;
+    text-decoration: none;
+  }
+
+  .public-nav__drawer-link.is-active {
+    color: var(--remote-primary, var(--el-color-primary));
+    background: #eef3ff;
   }
 
   .public-nav__more {

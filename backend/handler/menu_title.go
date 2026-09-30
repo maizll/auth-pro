@@ -24,6 +24,7 @@ var menuTitleZH = map[string]string{
 	"menus.sourceStation.templates":      "软件目录",
 	"menus.sourceStation.catalog":        "公开目录",
 	"menus.sourceStation.ads":            "广告投放",
+	"menus.sourceStation.repos":          "仓库绑定",
 	"menus.sourceStation.storage":        "存储管理",
 	"menus.sourceStation.storageMonitor": "存储检查",
 	"menus.sourceStation.storageFiles":   "安装包文件",

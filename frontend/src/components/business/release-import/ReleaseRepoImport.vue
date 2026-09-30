@@ -1,16 +1,11 @@
 <!-- 从已保存令牌连接的私有仓库选择一个 Release，并回填版本、标题、说明和校验值。 -->
 <template>
   <div class="release-import">
-    <div class="release-import__bar">
-      <ElInput
-        v-model.trim="repo"
-        class="release-import__repo"
-        :placeholder="placeholder"
-        maxlength="120"
-      />
+    <ElEmpty v-if="unbound" description="这个应用还没有绑定仓库。" />
+    <div v-else class="release-import__bar">
+      <span v-if="connectedRepo">{{ connectedRepo }}</span>
       <ElButton :loading="listing" @click="loadReleases">列出发布</ElButton>
     </div>
-    <p v-if="connectedRepo" class="release-import__hint">已连接 {{ connectedRepo }}</p>
     <div v-if="releases.length" class="release-import__table-wrap">
       <ElTable
         :data="releases"
@@ -65,7 +60,7 @@
         </ElTableColumn>
       </ElTable>
     </div>
-    <p v-else-if="listed" class="release-import__hint">这个仓库还没有可导入的发布</p>
+    <p v-else-if="listed" class="release-import__hint">{{ emptyText }}</p>
     <p v-if="loadingTag" class="release-import__hint"
       >正在导入 {{ loadingTag }}，完成后可以再改表单</p
     >
@@ -73,7 +68,7 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, ref } from 'vue'
+  import { ref } from 'vue'
   import { ElMessage } from 'element-plus'
   import {
     fetchReleaseAsset,
@@ -85,16 +80,17 @@
   const props = defineProps<{
     apiBase: string
     purpose: 'app' | 'plugin' | 'template'
+    appId?: number
+    priceCents?: number
+    appKey?: string
   }>()
 
   const emit = defineEmits<{
     filled: [value: ReleaseImportResult]
   }>()
 
-  const placeholder = computed(() =>
-    props.purpose === 'app' ? 'maizll/auth-pro-client' : 'maizll/auth-pro-paid'
-  )
-  const repo = ref('')
+  const unbound = ref(false)
+  const emptyText = ref('这个位置还没有可导入的发布。')
   const connectedRepo = ref('')
   const releases = ref<ReleaseImportItem[]>([])
   const listing = ref(false)
@@ -110,9 +106,20 @@
     listing.value = true
     listed.value = false
     try {
-      const data = await fetchReleaseImports(props.apiBase, props.purpose, repo.value)
+      if (!props.appId) {
+        unbound.value = true
+        return
+      }
+      const data = await fetchReleaseImports(
+        props.apiBase,
+        props.purpose,
+        props.appId,
+        props.priceCents || 0
+      )
+      unbound.value = false
       releases.value = data?.releases || []
-      connectedRepo.value = data?.repo || repo.value
+      connectedRepo.value = data?.repo || ''
+      emptyText.value = data?.empty || '这个位置还没有可导入的发布。'
       listed.value = true
     } finally {
       listing.value = false
@@ -131,7 +138,9 @@
     try {
       const filled = await fetchReleaseAsset(props.apiBase, {
         purpose: props.purpose,
-        repo: connectedRepo.value || repo.value,
+        appId: props.appId || 0,
+        priceCents: props.priceCents || 0,
+        appKey: props.appKey || '',
         tag: row.tag,
         assetName: row.assetName
       })

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -17,8 +18,8 @@ func TestGitHubPaidTokenIsEncryptedAndNotEchoed(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	admin := sourceAdminToken(t)
 	const secret = "github_pat_super_secret_value"
-	detected := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/settings/github-paid", admin, `{"token":"`+secret+`"}`)
-	if sourceBodyCode(t, detected) != 200 || !strings.Contains(detected.Body.String(), `"owner":"station"`) || !strings.Contains(detected.Body.String(), `"repo":"auth-pro-paid"`) || strings.Contains(detected.Body.String(), secret) {
+	detected := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/settings/github-paid", admin, `{"token":"`+secret+`","repo":"paid-plugins"}`)
+	if sourceBodyCode(t, detected) != 200 || !strings.Contains(detected.Body.String(), `"owner":"station"`) || !strings.Contains(detected.Body.String(), `"repo":"paid-plugins"`) || strings.Contains(detected.Body.String(), secret) {
 		t.Fatalf("token-only save: %s", detected.Body.String())
 	}
 	saved := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/settings/github-paid", admin, `{"token":"`+secret+`","owner":"station","repo":"paid-plugins"}`)
@@ -289,7 +290,16 @@ func TestDeveloperPaidPackagesUseStationRepo(t *testing.T) {
 	pluginZIP := sourcePluginTestZIP(t)
 	templateZIP := makeTestZIP(t, testZIPEntry{name: "template.json", data: `{"kind":"template","id":"clean-home","name":"清新首页","version":"1.0.0","schemaVersion":1,
 		"description":"模板","author":"设计组","hero":{"title":"欢迎"}}`})
+	const pat = "github_pat_station_only"
+	var zipMu sync.Mutex
+	var zipAuth []string
 	zipServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		zipMu.Lock()
+		zipAuth = append(zipAuth, r.Header.Get("Authorization"))
+		zipMu.Unlock()
+		if strings.Contains(r.Header.Get("Authorization"), pat) {
+			t.Errorf("public download carried the owner token")
+		}
 		if strings.HasSuffix(r.URL.Path, "home.zip") {
 			_, _ = w.Write(templateZIP)
 			return
@@ -301,7 +311,6 @@ func TestDeveloperPaidPackagesUseStationRepo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const pat = "github_pat_station_only"
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+pat {
 			http.Error(w, "bad", http.StatusUnauthorized)
@@ -372,11 +381,30 @@ func TestDeveloperPaidPackagesUseStationRepo(t *testing.T) {
 	if err != nil || item.DeveloperID != idA || item.DownloadURL != "github:station/paid-plugins/paid-plugin-demo-plugin-1.0.0/demo-plugin-1.0.0.zip" || len(item.SHA256) != 64 {
 		t.Fatalf("plugin=%#v err=%v", item, err)
 	}
+	useAppRepoMemoryForTest(t)
+	if err := saveAppRepo(appRepoRow{AppID: 1, AppKey: "app-1", Owner: "station", Repo: "paid-plugins", Status: appRepoStatusReady, Private: true}); err != nil {
+		t.Fatal(err)
+	}
 	uploaded := sourceMultipart(t, router, "/api/v1/source/developer/packages/upload", tokenB, "demo-plugin.zip", pluginZIP, map[string]string{
 		"kind": "plugin", "category": "other", "priceCents": "800",
 	})
-	if sourceBodyCode(t, uploaded) != 200 || !strings.Contains(uploaded.Body.String(), `"storedBySite":true`) || strings.Contains(uploaded.Body.String(), pat) {
+	if sourceBodyCode(t, uploaded) != 200 || !strings.Contains(uploaded.Body.String(), `"storedBySite":true`) || !strings.Contains(uploaded.Body.String(), `"url":"github:station/paid-plugins/`) || strings.Contains(uploaded.Body.String(), pat) {
 		t.Fatalf("developer upload: %s", uploaded.Body.String())
+	}
+	for _, call := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/source/developer/release-import/preference"},
+		{http.MethodPost, "/api/v1/source/developer/release-import/releases"},
+		{http.MethodPost, "/api/v1/source/developer/release-import/fetch"},
+		{http.MethodPost, "/api/v1/source/developer/release-import/probe-url"},
+		{http.MethodPost, "/api/v1/source/developer/release-import/materialize"},
+	} {
+		got := sourceJSON(t, router, call.method, call.path, tokenB, `{"purpose":"plugin","repo":"acme/widgets","token":"`+pat+`","url":"https://example.com/a.zip","tag":"v1.0.0"}`)
+		if got.Code != http.StatusNotFound && got.Code != http.StatusForbidden {
+			t.Fatalf("%s %s status %d body %s", call.method, call.path, got.Code, got.Body.String())
+		}
 	}
 	homeURL := "https://release.example.com:" + zipPort + "/home.zip"
 	templateSaved := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/templates", tokenA, `{
@@ -415,6 +443,17 @@ func TestDeveloperPaidPackagesUseStationRepo(t *testing.T) {
 	temp, err := authorizeGitHubBuyerURL(context.Background(), true, item.DownloadURL)
 	if err != nil || temp != "https://release-assets.githubusercontent.com/plugin.zip?token=shortlived" || strings.Contains(temp, pat) || strings.Contains(temp, "station/paid-plugins") {
 		t.Fatalf("buyer url=%s err=%v", temp, err)
+	}
+	zipMu.Lock()
+	seenAuth := append([]string(nil), zipAuth...)
+	zipMu.Unlock()
+	if len(seenAuth) == 0 {
+		t.Fatal("public origin was not downloaded")
+	}
+	for _, header := range seenAuth {
+		if header != "" || strings.Contains(header, pat) {
+			t.Fatalf("origin download authorization=%q", header)
+		}
 	}
 }
 
@@ -455,13 +494,13 @@ func TestPaidSaveFallsBackWithoutStationRepo(t *testing.T) {
 	dev := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/plugins", devToken, `{
 		"appId":1,"id":"other-plugin","name":"另一个","version":"1.0.0","category":"other","priceCents":100,
 		"downloadUrl":"`+publicURL+`"}`)
-	if sourceBodyCode(t, dev) != 200 || !strings.Contains(dev.Body.String(), "插件草稿已保存") || strings.Contains(dev.Body.String(), "尚未配置收费仓库") || strings.Contains(dev.Body.String(), "githubOwner") {
+	if sourceBodyCode(t, dev) == 200 || !strings.Contains(dev.Body.String(), appRepoUnboundText) || strings.Contains(dev.Body.String(), "githubOwner") {
 		t.Fatalf("developer fallback: %s", dev.Body.String())
 	}
-	other, err := store.GetPlugin("other-plugin")
-	if err != nil || other.DeveloperID != devID || !strings.HasPrefix(other.DownloadURL, "paid:") {
-		t.Fatalf("developer fallback item=%#v err=%v", other, err)
+	if _, err := store.GetPlugin("other-plugin"); err == nil {
+		t.Fatal("unbound app still saved a package")
 	}
+	_ = devID
 }
 
 func TestGitHubReleaseAssetURLParse(t *testing.T) {

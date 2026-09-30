@@ -2,7 +2,10 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -14,9 +17,21 @@ import (
 //go:embed install.sh
 var productInstallScript []byte
 
+// 面板辅助脚本只有这一份。scripts/baota-panel.py 是指向它的符号链接，发布包从那里复制的仍是同一份。
+//
+//go:embed baota-panel.py
+var productBaotaPanelScript []byte
+
+// 进程守护启动模板的唯一源。发布包里的 guardian-start.sh 也从这一份复制，不再另写第二份。
+//
+//go:embed guardian_start.sh
+var productGuardianStartScript []byte
+
 const (
-	// 安装脚本只是一段 shell，不接受异常大的正文。
+	// 安装脚本和辅助脚本都只是文本，不接受异常大的正文。
 	productUpdateInstallScriptMax = 1 << 20
+	productHelperPanelURL         = "https://auth.maizll.com/baota-panel.py"
+	productHelperGuardianURL      = "https://auth.maizll.com/guardian-start.sh"
 )
 
 // RegisterPublicInstallRoute 在站点根注册 /install.sh。
@@ -26,6 +41,10 @@ const (
 // 付费插件走软件目录的另一条下载接口，不会从这里发出去。
 func RegisterPublicInstallRoute(engine *gin.Engine) {
 	engine.GET("/install.sh", productUpdateInstallScript)
+	// 辅助脚本跟官网程序一起下发。安装脚本按这两个固定地址下载并核对 SHA256，不再拆客户发布包。
+	engine.GET("/baota-panel.py", productUpdateBaotaPanelScript)
+	engine.GET("/guardian-start.sh", productUpdateGuardianStartScript)
+	engine.GET("/api/v1/update/helpers.json", productUpdateHelpersManifest)
 }
 
 func productUpdateInstallScript(c *gin.Context) {
@@ -91,4 +110,73 @@ func installScriptPinsOfficialOrigin(body []byte) bool {
 		}
 	}
 	return latest && pkg
+}
+
+func productUpdateBaotaPanelScript(c *gin.Context) {
+	productUpdateServeEmbedded(c, productBaotaPanelScript, "text/x-python; charset=utf-8", "#!")
+}
+
+func productUpdateGuardianStartScript(c *gin.Context) {
+	productUpdateServeEmbedded(c, productGuardianStartScript, "text/x-shellscript; charset=utf-8", "#!")
+}
+
+func productUpdateServeEmbedded(c *gin.Context, body []byte, contentType, prefix string) {
+	if !productUpdateAllow(c, productUpdateJSONLimiter) {
+		return
+	}
+	if len(body) == 0 || len(body) > productUpdateInstallScriptMax || !strings.HasPrefix(string(body), prefix) {
+		productUpdateFail(c, errProductUpdateUnavailable)
+		return
+	}
+	if productUpdateBodyLeaks(body) {
+		productUpdateFail(c, errProductUpdateUnavailable)
+		return
+	}
+	sum := sha256.Sum256(body)
+	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("X-Checksum-Sha256", hex.EncodeToString(sum[:]))
+	c.Data(http.StatusOK, contentType, body)
+}
+
+// productUpdateHelpersManifest 给出两个辅助脚本的固定地址和 SHA256。
+// 校验值按当前嵌入的正文现算，避免清单和文件各写一份后对不上。
+func productUpdateHelpersManifest(c *gin.Context) {
+	if !productUpdateAllow(c, productUpdateJSONLimiter) {
+		return
+	}
+	body, err := productHelperManifestBody()
+	if err != nil {
+		productUpdateFail(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(http.StatusOK, "application/json; charset=utf-8", body)
+}
+
+func productHelperManifestBody() ([]byte, error) {
+	if len(productBaotaPanelScript) == 0 || len(productGuardianStartScript) == 0 {
+		return nil, errProductUpdateUnavailable
+	}
+	if productUpdateBodyLeaks(productBaotaPanelScript) || productUpdateBodyLeaks(productGuardianStartScript) {
+		return nil, errProductUpdateUnavailable
+	}
+	panelSum := sha256.Sum256(productBaotaPanelScript)
+	guardianSum := sha256.Sum256(productGuardianStartScript)
+	payload := map[string]map[string]string{
+		"baotaPanel": {
+			"url":    productHelperPanelURL,
+			"sha256": hex.EncodeToString(panelSum[:]),
+		},
+		"guardianStart": {
+			"url":    productHelperGuardianURL,
+			"sha256": hex.EncodeToString(guardianSum[:]),
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil || productUpdateBodyLeaks(body) {
+		return nil, errProductUpdateUnavailable
+	}
+	return body, nil
 }
