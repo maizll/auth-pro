@@ -1,6 +1,6 @@
 # 代码结构与维护指南
 
-这份文档给接手源码的人用。产品版本以仓库根目录 `VERSION` 为准。当前是 **1.7.5**。
+这份文档给接手源码的人用。产品版本以仓库根目录 `VERSION` 为准。当前是 **1.8.1**。
 
 从这一版起，合并和发版前必须通过 `scripts/quality-check.sh`。检查失败时，GitHub 的 CI 和打标签发版都会停住，不会打出安装包。
 
@@ -19,6 +19,8 @@
 | `frontend/src/components/business/commercial/` | 顶栏商业版按钮和购买窗口。 |
 | `scripts/build-release.sh` | 打 Linux amd64 安装包。 |
 | `scripts/quality-check.sh` | 合并和发版前的检查。 |
+| `scripts/check-migration-cycles.sh` | 用调用图确认结构迁移不会绕回存储初始化。不进发布包。 |
+| `scripts/startup-smoke.sh` | 用真实二进制做官网和客户站的启动冒烟。不进发布包。 |
 | `scripts/commercial_mysql_e2e.py` | 商业版双站 MySQL 端到端。没有 MySQL 时退出码 77。 |
 | `docs/` | 给管理员和接手人的说明。开发者登记章程在 `docs/developer/`。 |
 
@@ -89,6 +91,14 @@
 4. Vue 组件在文件顶部说明这个组件给谁用、点下去做什么。复杂的状态（例如重新绑定、付款轮询）在计算属性或函数旁边写原因。
 5. 1.6.8 覆盖购买窗口按源站核对绑定。1.6.9 覆盖手机列表排版、顶栏商业版胶囊和购买窗口账号栏，以及这一版改过的文件。授权、实名、支付渠道的其余函数在后续版本补齐。
 
+## 结构迁移
+
+源站的一次性改表记在 `schema_migrations`，步骤在 `backend/handler/source_station_migrate.go`。一条迁移要等函数返回才标记。标记之前如果再调用 `ensureSourceStationStorage`，同名步骤还是 pending，会再跑一遍。
+
+新增迁移步骤内不得调用会触发 `ensureSourceStationStorage` 的函数。需要网络或令牌的数据迁移放到启动后单独执行：`main` 在 `EnsureSourceStationSchema` 成功之后调用 `ScheduleOfficialAppRepoMigration`。失败只记审计，下次启动再试；已经绑定的应用跳过。`ensureSourceStationMigrations` 在同一进程里正在跑时再次进入会直接返回，这只是兜底，不能代替上面的拆分。
+
+合并前跑 `scripts/check-migration-cycles.sh`。它用 `callgraph -algo=vta` 找包含这些初始化函数和全部迁移步骤的强连通分量，发现环就失败。`buildMenuTree`、`buildManageTree`、`copyOnlineUpdatePath` 这类树遍历的自递归在白名单里。
+
 ## 本地检查
 
 需要 Go 1.22、Node.js 22、pnpm 8 以上。在仓库根目录：
@@ -129,4 +139,4 @@ cd backend && go test -count=1 -timeout 30m -run TestCommercialMysqlE2E ./handle
 5. 打标签 `vX.Y.Z` 并推送。`.github/workflows/release.yml` 会先跑质量检查，再执行 `scripts/build-release.sh`，最后上传安装包。检查失败就不会发版。
 6. 同一个版本号不会再次触发已安装站点的在线更新。已经发出的标签不要覆盖。
 
-合并请求走 `.github/workflows/ci.yml`：质量检查加上 `go test ./...`。请在仓库设置里把这个检查设为合并前必须通过。
+合并请求走 `.github/workflows/ci.yml`：质量检查、`go test ./...`、调用图环检查，以及带 MySQL 的启动冒烟。请在仓库设置里把这些检查设为合并前必须通过。

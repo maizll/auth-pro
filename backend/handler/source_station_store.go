@@ -1765,9 +1765,17 @@ func ensureSourceStationStorage(db *sql.DB) error {
 	if err := mysqlPurgeInactiveDeveloperQualifications(db); err != nil {
 		return err
 	}
-	// 结构迁移全部完成后再迁官网仓库。客户站 officialSite 为假，这里直接返回。
-	scheduleOfficialAppRepoMigration(db)
 	return nil
+}
+
+// ScheduleOfficialAppRepoMigration 在全部结构迁移成功之后单独调用。
+// 不能放进 ensureSourceStationStorage：官网迁移要读令牌，读令牌会再进来，调用图上就是环。
+func ScheduleOfficialAppRepoMigration() {
+	db, err := config.DB()
+	if err != nil || db == nil {
+		return
+	}
+	scheduleOfficialAppRepoMigration(db)
 }
 
 func mysqlPurgeInactiveDeveloperQualifications(db *sql.DB) error {

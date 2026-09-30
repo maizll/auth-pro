@@ -117,6 +117,8 @@ func runOfficialStartupMigration(t *testing.T, db *sql.DB) {
 	if err := ensureSourceStationStorage(db); err != nil {
 		t.Fatalf("启动迁移: %v", err)
 	}
+	// 和 main 一样：结构迁移返回之后才安排官网仓库迁移。
+	ScheduleOfficialAppRepoMigration()
 	wait := officialAppRepoMigrationWait
 	if wait == nil {
 		t.Fatal("官网没有在结构迁移之后安排仓库迁移")
