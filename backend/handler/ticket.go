@@ -657,7 +657,7 @@ func AdminTicketList(c *gin.Context) {
 
 	var pendingCount, todayCount, closedCount int
 	_ = db.QueryRow("SELECT COUNT(*) FROM tickets WHERE status = ?", ticketStatusPending).Scan(&pendingCount)
-	_ = db.QueryRow("SELECT COUNT(*) FROM tickets WHERE DATE(created_at) = CURDATE()").Scan(&todayCount)
+	_ = db.QueryRow("SELECT COUNT(*) FROM tickets WHERE created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY").Scan(&todayCount)
 	_ = db.QueryRow("SELECT COUNT(*) FROM tickets WHERE status = ?", ticketStatusClosed).Scan(&closedCount)
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{

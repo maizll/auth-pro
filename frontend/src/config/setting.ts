@@ -76,7 +76,7 @@ export const SETTING_DEFAULT_CONFIG = {
   /** 边框模式 */
   boxBorderMode: true,
   /** 页面过渡效果 */
-  pageTransition: 'slide-left',
+  pageTransition: 'fade',
   /** 标签页样式 */
   tabStyle: 'tab-default',
   /** 自定义圆角 */

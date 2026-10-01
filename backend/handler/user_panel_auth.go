@@ -43,6 +43,9 @@ var phoneRegexp = regexp.MustCompile(`^1\d{10}$`)
 //   - users.phone 手机号列（唯一索引，NULL 不冲突，未绑定手机号的用户不受影响）
 //   - user_password_resets 密码重置令牌表
 func ensureUserAuthStorage(db *sql.DB) error {
+	if hotPathSchemaSkipped() {
+		return nil
+	}
 	var phoneCount int
 	if err := db.QueryRow(`
 		SELECT COUNT(*) FROM information_schema.COLUMNS

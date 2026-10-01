@@ -73,11 +73,12 @@ func buildPiracyTrend(db *sql.DB, startDate string, daysInt int, now time.Time) 
 		dates = append(dates, label)
 
 		var hitSum int
-		db.QueryRow("SELECT COALESCE(SUM(hit_count),0) FROM piracy_records WHERE DATE(last_seen)=?", dateStr).Scan(&hitSum)
+		start, end := dayRange(dateStr)
+		db.QueryRow("SELECT COALESCE(SUM(hit_count),0) FROM piracy_records WHERE last_seen >= ? AND last_seen < ?", start, end).Scan(&hitSum)
 		piracyRequests = append(piracyRequests, hitSum)
 
 		var newCount int
-		db.QueryRow("SELECT COUNT(*) FROM piracy_records WHERE DATE(first_seen)=?", dateStr).Scan(&newCount)
+		db.QueryRow("SELECT COUNT(*) FROM piracy_records WHERE first_seen >= ? AND first_seen < ?", start, end).Scan(&newCount)
 		newCases = append(newCases, newCount)
 	}
 
@@ -95,8 +96,9 @@ func buildVerifyTrend(db *sql.DB, startDate string, daysInt int, now time.Time) 
 		dates = append(dates, label)
 
 		var total, passed int
-		db.QueryRow("SELECT COUNT(*) FROM verify_logs WHERE DATE(created_at)=?", dateStr).Scan(&total)
-		db.QueryRow("SELECT COUNT(*) FROM verify_logs WHERE DATE(created_at)=? AND status='pass'", dateStr).Scan(&passed)
+		start, end := dayRange(dateStr)
+		db.QueryRow("SELECT COUNT(*) FROM verify_logs WHERE created_at >= ? AND created_at < ?", start, end).Scan(&total)
+		db.QueryRow("SELECT COUNT(*) FROM verify_logs WHERE created_at >= ? AND created_at < ? AND status='pass'", start, end).Scan(&passed)
 
 		rate := 100.0
 		if total > 0 {
@@ -120,8 +122,9 @@ func buildRevenueTrend(db *sql.DB, startDate string, daysInt int, now time.Time)
 		dates = append(dates, label)
 
 		var recharge, consume float64
-		db.QueryRow("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE DATE(created_at)=? AND type='recharge'", dateStr).Scan(&recharge)
-		db.QueryRow("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE DATE(created_at)=? AND type='consume'", dateStr).Scan(&consume)
+		start, end := dayRange(dateStr)
+		db.QueryRow("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE created_at >= ? AND created_at < ? AND type='recharge'", start, end).Scan(&recharge)
+		db.QueryRow("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE created_at >= ? AND created_at < ? AND type='consume'", start, end).Scan(&consume)
 		recharges = append(recharges, recharge)
 		consumes = append(consumes, -consume)
 	}

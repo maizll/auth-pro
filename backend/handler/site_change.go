@@ -48,7 +48,7 @@ func EnsureSiteChangeSchema(db *sql.DB) error {
 }
 
 func ensureSiteChangeSchema(db *sql.DB) error {
-	if db == nil {
+	if db == nil || hotPathSchemaSkipped() {
 		return nil
 	}
 	var name string

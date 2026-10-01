@@ -21,6 +21,9 @@
       :show-reset="false"
       :show-submit="false"
     >
+      <template #icon>
+        <MenuIconPicker v-model="form.icon" />
+      </template>
       <template #menuType>
         <ElRadioGroup v-model="form.menuType" :disabled="disableMenuType">
           <ElRadioButton value="menu" label="menu">菜单</ElRadioButton>
@@ -46,6 +49,7 @@
   import type { FormItem } from '@/components/core/forms/art-form/index.vue'
   import ArtForm from '@/components/core/forms/art-form/index.vue'
   import AppDialog from '@/components/core/dialog/AppDialog.vue'
+  import MenuIconPicker from './menu-icon-picker.vue'
   import { buildParentMenuOptions, isInvalidMenuParent } from '@/utils/form/menu-parent'
   import { mapManageRowToForm } from '@/utils/form/menu-form'
   import { resolveMenuTitle } from '@/utils/form/menu-title'
@@ -206,7 +210,7 @@
           type: 'input',
           props: { placeholder: '如：/system/user 或留空' }
         },
-        { label: '图标', key: 'icon', type: 'input', props: { placeholder: '如：ri:user-line' } },
+        { label: '图标', key: 'icon' },
         {
           label: createLabelTooltip('角色权限', '仅用于前端权限模式'),
           key: 'roles',

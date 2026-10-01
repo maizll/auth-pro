@@ -30,6 +30,9 @@ const (
 // ensureSourceStationMigrations 把源站的一次性 ALTER / 回填记入 schema_migrations。
 // 成功后同名迁移不再执行，因此不会在每次启动时重复 DROP COLUMN。
 func ensureSourceStationMigrations(db *sql.DB) error {
+	if hotPathSchemaSkipped() {
+		return nil
+	}
 	sourceMigrationMu.Lock()
 	if sourceMigrationRunning {
 		sourceMigrationMu.Unlock()
@@ -80,6 +83,7 @@ func ensureSourceStationMigrations(db *sql.DB) error {
 		{storeMigrationDropGitHubUpdateURL, migrateDropGitHubUpdateURL},
 		{storeMigrationLicenseOps, migrateLicenseOperationLogs},
 		{"app_repo_bindings_v1", migrateAppRepoBindings},
+		{"hot_path_list_indexes_v1", migrateHotPathListIndexes},
 	}
 	for _, step := range steps {
 		if err := runSourceStationMigration(db, step.name, step.run); err != nil {

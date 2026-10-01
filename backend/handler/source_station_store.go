@@ -1557,6 +1557,9 @@ func (mysqlSourceStore) Ensure() error {
 }
 
 func ensureSourceStationStorage(db *sql.DB) error {
+	if hotPathSchemaSkipped() {
+		return nil
+	}
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS source_developer_applications (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

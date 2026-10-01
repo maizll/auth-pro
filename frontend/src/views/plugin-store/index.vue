@@ -815,8 +815,7 @@
   })
 
   async function onStoreRefresh() {
-    await loadStoreCatalog()
-    await loadPlugins()
+    await Promise.all([loadStoreCatalog(), loadPlugins()])
   }
 </script>
 

@@ -52,6 +52,58 @@ import { fetchGetUserInfo } from '@/api/auth'
 import { ApiStatus } from '@/utils/http/status'
 import { isHttpError } from '@/utils/http/error'
 import { RouteRegistry, MenuProcessor, IframeRouteManager, RoutePermissionValidator } from '../core'
+import { ensureRenderedRemixIcons } from '@/utils/ui/iconify-loader'
+
+const installStatusKey = 'auth-pro-install-status'
+let installStatusKnown = false
+let installStatusInstalled = false
+
+function readInstallStatus(): boolean {
+  if (installStatusKnown) return true
+  try {
+    const cached = sessionStorage.getItem(installStatusKey)
+    if (cached === '1' || cached === '0') {
+      installStatusInstalled = cached === '1'
+      installStatusKnown = true
+      return true
+    }
+  } catch {
+    return false
+  }
+  return false
+}
+
+function writeInstallStatus(installed: boolean) {
+  installStatusInstalled = installed
+  installStatusKnown = true
+  try {
+    sessionStorage.setItem(installStatusKey, installed ? '1' : '0')
+  } catch {
+    // 隐私模式写不进会话存储时，本次进程内的内存结果仍然有效。
+  }
+}
+
+/** 安装完成后再跳转时，避免守卫仍拿着「未安装」把人送回安装页。 */
+export function rememberInstallStatus(installed: boolean) {
+  writeInstallStatus(installed)
+}
+
+async function resolveInstallStatus(force: boolean): Promise<boolean> {
+  if (!force && readInstallStatus()) return installStatusInstalled
+  let installed = false
+  try {
+    const res = await fetch('/api/install/status', { cache: 'no-store' })
+    if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+      const data: { installed?: boolean } = await res.json()
+      installed = data.installed === true
+    }
+    writeInstallStatus(installed)
+  } catch (error) {
+    console.error('[RouteGuard] 安装状态检查失败:', error)
+    installStatusKnown = false
+  }
+  return installed
+}
 
 // 路由注册器实例
 let routeRegistry: RouteRegistry | null = null
@@ -107,6 +159,7 @@ export async function reloadDynamicMenus(router?: Router): Promise<void> {
   if (!menuProcessor.validateMenuList(menuList)) {
     return
   }
+  ensureRenderedRemixIcons(menuList)
   const menuStore = useMenuStore()
   menuStore.setMenuList(menuList)
   if (!routeRegistry) {
@@ -251,17 +304,8 @@ async function handleRouteGuard(
     NProgress.start()
   }
 
-  // 安装状态只以后端 install.lock 的实时检查结果为准。
-  let isInstalled = false
-  try {
-    const res = await fetch('/api/install/status', { cache: 'no-store' })
-    if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
-      const data: { installed?: boolean } = await res.json()
-      isInstalled = data.installed === true
-    }
-  } catch (error) {
-    console.error('[RouteGuard] 安装状态检查失败:', error)
-  }
+  // 每个会话只查一次安装状态。进入安装页，或还不知道结果时才重新请求。
+  const isInstalled = await resolveInstallStatus(to.path === '/install')
 
   if (to.path === '/install') {
     if (isInstalled) {
@@ -419,11 +463,9 @@ async function handleDynamicRoutes(
   loadingService.showLoading()
 
   try {
-    // 1. 获取用户信息
-    await fetchUserInfo()
-
-    // 2. 获取菜单数据
-    const menuList = await menuProcessor.getMenuList()
+    // 用户信息和菜单互不依赖，一起请求。
+    const [, menuList] = await Promise.all([fetchUserInfo(), menuProcessor.getMenuList()])
+    ensureRenderedRemixIcons(menuList)
 
     // 3. 验证菜单数据
     if (!menuProcessor.validateMenuList(menuList)) {

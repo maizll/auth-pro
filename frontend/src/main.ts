@@ -1,5 +1,6 @@
 import App from './App.vue'
 import { createApp } from 'vue'
+import { Icon } from '@iconify/vue'
 import { initStore } from './store'                 // Store
 import { initRouter } from './router'               // Router
 import language from './locales'                    // 国际化
@@ -17,10 +18,13 @@ document.addEventListener(
   { passive: false }
 )
 
-const bootstrap = async () => {
+const bootstrap = () => {
   const app = createApp(App)
+  // 模板里的 iconify-icon 与 ArtSvgIcon 共用同一套离线图标。
+  app.component('iconify-icon', Icon)
   initStore(app)
-  await useSystemConfigStore().loadPublicConfig()
+  // 先用本地记住的站点配置挂载，再在后台刷新，避免首屏被配置请求挡住。
+  void useSystemConfigStore().loadPublicConfig()
   initRouter(app)
   setupGlobDirectives(app)
   setupErrorHandle(app)

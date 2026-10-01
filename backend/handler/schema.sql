@@ -288,7 +288,8 @@ CREATE TABLE `licenses` (
   KEY `idx_app` (`app_id`),
   KEY `idx_owner` (`owner_type`, `owner_id`),
   KEY `idx_license_owner_app_status` (`owner_type`, `owner_id`, `app_id`, `status`),
-  KEY `idx_status_expired` (`status`, `expired_at`)
+  KEY `idx_status_expired` (`status`, `expired_at`),
+  KEY `idx_licenses_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='授权表';
 
 DROP TABLE IF EXISTS `license_domains`;
@@ -367,6 +368,7 @@ CREATE TABLE `verify_logs` (
   PRIMARY KEY (`id`),
   KEY `idx_license` (`license_id`),
   KEY `idx_app_time` (`app_id`, `created_at`),
+  KEY `idx_verify_logs_created_at` (`created_at`),
   KEY `idx_domain` (`domain`),
   KEY `idx_server_ip` (`server_ip`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='验证日志表';
@@ -496,7 +498,9 @@ CREATE TABLE `transactions` (
   `created_at`    DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_tx_no` (`tx_no`),
-  KEY `idx_subject` (`subject_type`, `subject_id`, `created_at`)
+  KEY `idx_subject` (`subject_type`, `subject_id`, `created_at`),
+  KEY `idx_transactions_type_created` (`type`, `created_at`),
+  KEY `idx_transactions_ref` (`ref_type`, `ref_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='财务流水表';
 
 DROP TABLE IF EXISTS `recharge_orders`;

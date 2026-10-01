@@ -1,22 +1,58 @@
 /**
  * 离线图标加载器
  *
- * 用于在内网环境下支持 Iconify 图标的离线加载。
- * 通过预加载图标集数据，避免运行时从 CDN 获取图标。
- *
- * 使用方式：
- * 1. 安装所需图标集：pnpm add -D @iconify-json/[icon-set-name]
- * 2. 在此文件中导入并注册图标集
- * 3. 在组件中使用：<ArtSvgIcon icon="ri:home-line" />
+ * 入口只注册源码和菜单里实际出现的 Remix 图标。
+ * 菜单图标选择器，或数据库里出现未收录图标时，再异步加载完整图标集。
  *
  * @module utils/ui/iconify-loader
- * @author Art Design Pro Team
  */
+import { addCollection, iconLoaded } from '@iconify/vue'
+import usedRemixIcons from './remix-icons-used.json'
 
-import { addCollection } from '@iconify/vue'
+type RemixIconSet = Parameters<typeof addCollection>[0]
 
-// 导入离线图标数据
-import riIcons from '@iconify-json/ri/icons.json'
+addCollection(usedRemixIcons as RemixIconSet)
 
-// 注册离线图标集
-addCollection(riIcons)
+let fullRemixIcons: Promise<void> | null = null
+
+function asRemixIconSet(mod: { default?: RemixIconSet } & Partial<RemixIconSet>): RemixIconSet {
+  return (mod.default ?? mod) as RemixIconSet
+}
+
+/** 异步加载完整 Remix 图标集，不打进首屏入口。 */
+function loadFullRemixIcons(): Promise<void> {
+  if (!fullRemixIcons) {
+    fullRemixIcons = import('@iconify-json/ri/icons.json').then((mod) => {
+      addCollection(asRemixIconSet(mod))
+    })
+  }
+  return fullRemixIcons
+}
+
+/** 图标选择器用的全部图标名。会先把完整图标集注册好。 */
+export async function listRemixIconNames(): Promise<string[]> {
+  const mod = await import('@iconify-json/ri/icons.json')
+  const data = asRemixIconSet(mod)
+  addCollection(data)
+  fullRemixIcons = Promise.resolve()
+  const names = [...Object.keys(data.icons ?? {}), ...Object.keys(data.aliases ?? {})]
+  names.sort()
+  return names
+}
+
+type IconMenu = { meta?: { icon?: string }; children?: IconMenu[] }
+
+/** 菜单里有入口未收录的图标时，后台补齐完整图标集。 */
+export function ensureRenderedRemixIcons(menus: IconMenu[]): void {
+  const pending = [...menus]
+  while (pending.length) {
+    const item = pending.pop()
+    if (!item) continue
+    const icon = item.meta?.icon || ''
+    if (icon.startsWith('ri:') && !iconLoaded(icon)) {
+      void loadFullRemixIcons()
+      return
+    }
+    if (item.children?.length) pending.push(...item.children)
+  }
+}
