@@ -238,6 +238,11 @@
 </style>
 
 <style>
+  /* 创建应用在手机上是抽屉，默认弹出层压在抽屉下面，列表点开也看不见。 */
+  .repo-search-popper {
+    z-index: 4100 !important;
+  }
+
   /* 选项被传送到 body，默认行高 34px 且 overflow hidden，两行会被裁成一条残边。 */
   .el-select-dropdown__item:has(.repo-line) {
     display: flex !important;
