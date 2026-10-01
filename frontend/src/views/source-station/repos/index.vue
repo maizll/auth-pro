@@ -38,6 +38,7 @@
       <RepoOptionCards
         v-model="action"
         v-model:repo="repo"
+        :app-id="current?.appId || 0"
         :token-ready="tokenReady"
         :token-message="tokenMessage"
         :options="bindOptions"
@@ -52,10 +53,7 @@
 
     <AppDialog v-model="previewOpen" title="更换仓库" size="lg" flow="long">
       <p class="lead">{{ current?.name }} · 从 {{ current?.repo }} 换到新仓库</p>
-      <label class="field">
-        <span>新仓库</span>
-        <ElInput v-model.trim="repo" placeholder="所有者/仓库" />
-      </label>
+      <RepoSearchSelect v-model="repo" :app-id="current?.appId || 0" />
       <ul class="counts">
         <li v-for="group in groups" :key="group.prefix">
           <span>{{ prefixLabel(group.prefix) }}</span>
@@ -121,6 +119,7 @@
   import { ElMessage } from 'element-plus'
   import AppDialog from '@/components/core/dialog/AppDialog.vue'
   import RepoOptionCards from '@/components/business/repo/RepoOptionCards.vue'
+  import RepoSearchSelect from '@/components/business/repo/RepoSearchSelect.vue'
   import {
     bindAppRepo,
     fetchAppRepoImpact,
