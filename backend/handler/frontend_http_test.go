@@ -77,6 +77,59 @@ func TestRegisterFrontendReturns503WhenDiskDisappears(t *testing.T) {
 	}
 }
 
+func TestHashedAssetLongCacheAndGzip(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html>disk-root</html>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	jsPath := filepath.Join(dir, "assets", "index-Ab12Cd34.js")
+	if err := os.WriteFile(jsPath, []byte("console.log(1)"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jsPath+".gz", []byte("gzip-body"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTO_PRO_FRONTEND_DIR", dir)
+	t.Setenv("AUTO_PRO_ALLOW_EMBEDDED_FRONTEND", "")
+
+	router := gin.New()
+	if err := RegisterFrontend(router, fstest.MapFS{"index.html": {Data: []byte("<html>embed</html>")}}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/index-Ab12Cd34.js", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "gzip-body" {
+		t.Fatalf("body=%q", rec.Body.String())
+	}
+	if rec.Header().Get("Content-Encoding") != "gzip" {
+		t.Fatalf("encoding=%q", rec.Header().Get("Content-Encoding"))
+	}
+	cache := rec.Header().Get("Cache-Control")
+	if !strings.Contains(cache, "immutable") || !strings.Contains(cache, "31536000") {
+		t.Fatalf("cache=%q", cache)
+	}
+	if !strings.Contains(rec.Header().Get("Content-Type"), "javascript") {
+		t.Fatalf("type=%q", rec.Header().Get("Content-Type"))
+	}
+
+	plain := httptest.NewRequest(http.MethodGet, "/assets/index-Ab12Cd34.js", nil)
+	plainRec := httptest.NewRecorder()
+	router.ServeHTTP(plainRec, plain)
+	if plainRec.Body.String() != "console.log(1)" || plainRec.Header().Get("Content-Encoding") != "" {
+		t.Fatalf("plain body=%q encoding=%q", plainRec.Body.String(), plainRec.Header().Get("Content-Encoding"))
+	}
+}
+
 func TestRegisterFrontendEmbedRequiresOptIn(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("AUTO_PRO_FRONTEND_DIR", "")

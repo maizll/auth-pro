@@ -57,6 +57,9 @@ func ensureCommercialProductColumn(db *sql.DB) error {
 
 // prepareCommercialProduct 补列、把旧的手填 app_key 标到应用上，并把旧价格迁进套餐。
 func prepareCommercialProduct(db *sql.DB) error {
+	if hotPathSchemaSkipped() {
+		return nil
+	}
 	if err := ensureCommercialProductColumn(db); err != nil {
 		return err
 	}
@@ -352,22 +355,55 @@ func applyCommercialProductChoice(db *sql.DB, appID int64, on *bool, grace *int,
 	return false, "", nil
 }
 
-func commercialSaleGaps(db *sql.DB, appID int64, enabled bool) []commercialSaleGap {
+// commercialSaleShared 是和具体应用无关的出售条件，列表里只算一次。
+type commercialSaleShared struct {
+	paymentMissing bool
+	signingLabel   string
+}
+
+func loadCommercialSaleShared(db *sql.DB) commercialSaleShared {
+	shared := commercialSaleShared{}
+	if len(configuredOnlinePayOptions(db)) == 0 {
+		shared.paymentMissing = true
+	}
+	if _, err := os.Stat(storeSnapshotPrivateKeyPath()); err != nil {
+		shared.signingLabel = "签名密钥未生成"
+	} else if _, err := loadStoreSnapshotPrivateKey(); err != nil {
+		shared.signingLabel = "签名密钥不可用"
+	}
+	return shared
+}
+
+func loadPricedPlanCounts(db *sql.DB) map[int64]int {
+	counts := map[int64]int{}
+	rows, err := db.Query(`SELECT app_id, COUNT(*) FROM license_plans WHERE enabled = 1 AND price > 0 GROUP BY app_id`)
+	if err != nil {
+		return counts
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var appID int64
+		var count int
+		if err := rows.Scan(&appID, &count); err == nil {
+			counts[appID] = count
+		}
+	}
+	return counts
+}
+
+func commercialSaleGapsWith(enabled bool, priced int, shared commercialSaleShared) []commercialSaleGap {
 	gaps := make([]commercialSaleGap, 0)
 	if !enabled {
 		gaps = append(gaps, commercialSaleGap{Code: "disabled", Label: "应用未启用"})
 	}
-	var priced int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM license_plans WHERE app_id = ? AND enabled = 1 AND price > 0`, appID).Scan(&priced); err != nil || priced == 0 {
+	if priced == 0 {
 		gaps = append(gaps, commercialSaleGap{Code: "plan", Label: "没有有价格的套餐", Path: "/license/plans"})
 	}
-	if len(configuredOnlinePayOptions(db)) == 0 {
+	if shared.paymentMissing {
 		gaps = append(gaps, commercialSaleGap{Code: "payment", Label: "未配支付", Path: "/system/epay-config"})
 	}
-	if _, err := os.Stat(storeSnapshotPrivateKeyPath()); err != nil {
-		gaps = append(gaps, commercialSaleGap{Code: "signing_key", Label: "签名密钥未生成"})
-	} else if _, err := loadStoreSnapshotPrivateKey(); err != nil {
-		gaps = append(gaps, commercialSaleGap{Code: "signing_key", Label: "签名密钥不可用"})
+	if shared.signingLabel != "" {
+		gaps = append(gaps, commercialSaleGap{Code: "signing_key", Label: shared.signingLabel})
 	}
 	return gaps
 }

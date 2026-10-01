@@ -4,16 +4,21 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"auto_pro/config"
 
 	"github.com/gin-gonic/gin"
 )
+
+// 构建产物文件名带内容哈希，例如 assets/index-B4k2mQ1a.js。
+var hashedAssetPattern = regexp.MustCompile(`-[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9]+)+$`)
 
 // RegisterFrontend 用同一套 ResolveFrontendRoot 结果挂 NoRoute。
 // 生产路径缺盘上前端时返回错误（由调用方 fatal）；不得静默改走 embed。
@@ -73,6 +78,10 @@ func serveDiskFrontend(c *gin.Context, dir string, diskServer http.Handler) {
 				c.Status(http.StatusNotFound)
 				return
 			}
+			if isImmutableAsset(cleanPath) {
+				serveImmutableFile(c, full)
+				return
+			}
 			diskServer.ServeHTTP(c.Writer, c.Request)
 			return
 		}
@@ -98,6 +107,10 @@ func serveEmbedFrontend(c *gin.Context, embedFS fs.FS) {
 	cleanPath := strings.TrimPrefix(path.Clean(c.Request.URL.Path), "/")
 	if cleanPath != "." && cleanPath != "index.html" {
 		if info, err := fs.Stat(embedFS, cleanPath); err == nil && !info.IsDir() {
+			if isImmutableAsset(cleanPath) {
+				serveImmutableEmbed(c, embedFS, cleanPath)
+				return
+			}
 			http.FileServer(http.FS(embedFS)).ServeHTTP(c.Writer, c.Request)
 			return
 		}
@@ -111,6 +124,88 @@ func serveEmbedFrontend(c *gin.Context, embedFS fs.FS) {
 	c.Header("Pragma", "no-cache")
 	c.Header("Expires", "0")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
+}
+
+func isImmutableAsset(cleanPath string) bool {
+	return strings.HasPrefix(cleanPath, "assets/") && hashedAssetPattern.MatchString(filepath.Base(cleanPath))
+}
+
+func acceptsGzip(header http.Header) bool {
+	for _, part := range strings.Split(header.Get("Accept-Encoding"), ",") {
+		if strings.TrimSpace(strings.Split(part, ";")[0]) == "gzip" {
+			return true
+		}
+	}
+	return false
+}
+
+func contentTypeFor(name string) string {
+	ext := filepath.Ext(name)
+	if ext == ".js" || ext == ".mjs" {
+		return "text/javascript; charset=utf-8"
+	}
+	if kind := mime.TypeByExtension(ext); kind != "" {
+		return kind
+	}
+	return "application/octet-stream"
+}
+
+func serveImmutableFile(c *gin.Context, full string) {
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	c.Header("Vary", "Accept-Encoding")
+	target := full
+	if acceptsGzip(c.Request.Header) {
+		if info, err := os.Stat(full + ".gz"); err == nil && !info.IsDir() {
+			c.Header("Content-Encoding", "gzip")
+			target = full + ".gz"
+		}
+	}
+	file, err := os.Open(target)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	defer file.Close()
+	stat, err := file.Stat()
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	c.Header("Content-Type", contentTypeFor(full))
+	http.ServeContent(c.Writer, c.Request, filepath.Base(full), stat.ModTime(), file)
+}
+
+func serveImmutableEmbed(c *gin.Context, embedFS fs.FS, cleanPath string) {
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	c.Header("Vary", "Accept-Encoding")
+	name := cleanPath
+	if acceptsGzip(c.Request.Header) {
+		if info, err := fs.Stat(embedFS, cleanPath+".gz"); err == nil && !info.IsDir() {
+			c.Header("Content-Encoding", "gzip")
+			name = cleanPath + ".gz"
+		}
+	}
+	file, err := embedFS.Open(name)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	defer file.Close()
+	stat, err := file.Stat()
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	seeker, ok := file.(interface {
+		Read([]byte) (int, error)
+		Seek(int64, int) (int64, error)
+	})
+	if !ok {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	c.Header("Content-Type", contentTypeFor(cleanPath))
+	http.ServeContent(c.Writer, c.Request, filepath.Base(cleanPath), stat.ModTime(), seeker)
 }
 
 func writeFrontendUnavailable(c *gin.Context, dir string) {

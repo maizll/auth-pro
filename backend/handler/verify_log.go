@@ -66,9 +66,8 @@ func VerifyLogList(c *gin.Context) {
 
 	whereSQL := strings.Join(where, " AND ")
 
-	var total int64
-	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM verify_logs v WHERE %s", whereSQL)
-	db.QueryRow(countSQL, args...).Scan(&total)
+	filtered := keyword != "" || appId != "" || result != "" || startDate != "" || endDate != ""
+	total := verifyLogRowCount(db, filtered, fmt.Sprintf("SELECT COUNT(*) FROM verify_logs v WHERE %s", whereSQL), args)
 
 	offset := (page - 1) * pageSize
 	listSQL := fmt.Sprintf(`
@@ -128,6 +127,24 @@ func VerifyLogList(c *gin.Context) {
 			"total": total,
 		},
 	})
+}
+
+// verifyLogRowCount 在没有筛选时用表统计估计行数。
+// InnoDB 的 COUNT(*) 会扫整张日志表；估计值对翻页够用，统计还没生成时再退回精确计数。
+func verifyLogRowCount(db *sql.DB, filtered bool, countSQL string, args []any) int64 {
+	if !filtered {
+		var estimate sql.NullInt64
+		err := db.QueryRow(`
+			SELECT TABLE_ROWS FROM information_schema.TABLES
+			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verify_logs'
+		`).Scan(&estimate)
+		if err == nil && estimate.Valid && estimate.Int64 > 0 {
+			return estimate.Int64
+		}
+	}
+	var total int64
+	_ = db.QueryRow(countSQL, args...).Scan(&total)
+	return total
 }
 
 // VerifyLogClear 清空验证日志

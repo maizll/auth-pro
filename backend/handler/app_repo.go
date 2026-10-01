@@ -117,7 +117,7 @@ func useAppRepoMemoryForTest(t interface{ Cleanup(func()) }) {
 }
 
 func ensureAppRepoSchema(db *sql.DB) error {
-	if db == nil {
+	if db == nil || hotPathSchemaSkipped() {
 		return nil
 	}
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS app_repo_bindings (
@@ -242,6 +242,25 @@ func primaryGitHubBindingLocation() (storageLocation, string, bool) {
 		return storageLocation{}, "", false
 	}
 	return storageLocation{ID: "github-paid", Kind: packageStorageGitHub, Owner: owner, Repo: repo, Name: "收费仓库"}, token, true
+}
+
+func appRepoLabel(appID int64, owner, repo string) string {
+	appRepoMemory.mu.Lock()
+	if appRepoMemory.on {
+		row, ok := appRepoMemory.rows[appID]
+		appRepoMemory.mu.Unlock()
+		if !ok || row.Owner == "" || row.Repo == "" {
+			return ""
+		}
+		return row.Owner + "/" + row.Repo
+	}
+	appRepoMemory.mu.Unlock()
+	owner = strings.TrimSpace(owner)
+	repo = strings.TrimSpace(repo)
+	if owner == "" || repo == "" {
+		return ""
+	}
+	return owner + "/" + repo
 }
 
 func loadAppRepo(appID int64) (appRepoRow, bool, error) {

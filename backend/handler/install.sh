@@ -1935,6 +1935,19 @@ location = /backend-unavailable.html {
     default_type text/html;
 }
 
+# 带哈希的前端资源可以长期缓存。文件名变了就是新文件。
+# 仍反代到后端，不从磁盘另取，避免和现有反代、错误页冲突。
+location ^~ /assets/ {
+    proxy_pass http://127.0.0.1:${port};
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_hide_header Cache-Control;
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+}
+
 # 入口页不要缓存。在线更新完成后浏览器必须重新获取 index.html，才能加载新的前端资源。
 location = /index.html {
     proxy_pass http://127.0.0.1:${port};
@@ -2023,8 +2036,8 @@ baota_configure_nginx_error_page() {
         continue
       fi
       found=1
-      if grep -Fq "location = /backend-unavailable.html" "$conf" && grep -Fq "BEGIN AUTH_PRO_INDEX_NO_CACHE" "$conf"; then
-        baota_info "Nginx 已包含后端不可达页面和入口页 no-cache：$conf"
+      if grep -Fq "location = /backend-unavailable.html" "$conf" && grep -Fq "BEGIN AUTH_PRO_INDEX_NO_CACHE" "$conf" && grep -Fq "BEGIN AUTH_PRO_ASSETS_CACHE" "$conf"; then
+        baota_info "Nginx 已包含后端不可达页面、入口页 no-cache 和静态资源长缓存：$conf"
         continue
       fi
       backup="${conf}.bak.auth-pro-$(date '+%Y%m%d%H%M%S')"
@@ -2039,8 +2052,38 @@ if not port.isdigit():
 text = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
 marker = "# BEGIN AUTH_PRO_BACKEND_UNAVAILABLE"
 index_marker = "# BEGIN AUTH_PRO_INDEX_NO_CACHE"
+assets_marker = "# BEGIN AUTH_PRO_ASSETS_CACHE"
+
+def insert_before_last_brace(src, block):
+    idx = src.rfind("}")
+    if idx < 0:
+        raise SystemExit("找不到 server 块结束括号")
+    return src[:idx] + block + "\n" + src[idx:]
+
+def with_assets(src):
+    if assets_marker in src:
+        return src
+    block = f"""
+    {assets_marker}
+    location ^~ /assets/ {{
+        proxy_pass http://127.0.0.1:{port};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+    }}
+    # END AUTH_PRO_ASSETS_CACHE
+"""
+    return insert_before_last_brace(src, block)
+
 if marker in text or "location = /backend-unavailable.html" in text:
     if index_marker in text or "location = /index.html" in text:
+        updated = with_assets(text)
+        if updated != text:
+            pathlib.Path(path).write_text(updated, encoding="utf-8")
         raise SystemExit(0)
     index_block = f"""
     {index_marker}
@@ -2063,7 +2106,7 @@ if marker in text or "location = /backend-unavailable.html" in text:
     idx = text.rfind("}")
     if idx < 0:
         raise SystemExit("找不到 server 块结束括号")
-    pathlib.Path(path).write_text(text[:idx] + index_block + "\n" + text[idx:], encoding="utf-8")
+    pathlib.Path(path).write_text(with_assets(text[:idx] + index_block + "\n" + text[idx:]), encoding="utf-8")
     raise SystemExit(0)
 block = f"""
     {marker}
@@ -2093,7 +2136,7 @@ block = f"""
 idx = text.rfind("}")
 if idx < 0:
     raise SystemExit("找不到 server 块结束括号")
-pathlib.Path(path).write_text(text[:idx] + block + "\n" + text[idx:], encoding="utf-8")
+pathlib.Path(path).write_text(with_assets(text[:idx] + block + "\n" + text[idx:]), encoding="utf-8")
 PY
       then
         cp -a "$backup" "$conf" || true
@@ -3723,7 +3766,7 @@ menu_uninstall_site() {
 
 menu_render() {
   menu_tty_print "$(menu_blue "========================================")"
-  menu_tty_print "$(menu_blue "  auth-pro 1.8.2")"
+  menu_tty_print "$(menu_blue "  auth-pro 1.8.3")"
   menu_tty_print "$(menu_blue "========================================")"
   menu_tty_print "  $(menu_green "1")  安装新站点"
   menu_tty_print "  $(menu_green "2")  升级站点"

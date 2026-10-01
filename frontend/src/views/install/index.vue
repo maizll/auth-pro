@@ -157,6 +157,7 @@
   import { useRouter } from 'vue-router'
   import { ElMessage } from 'element-plus'
   import { Icon as IconifyIcon } from '@iconify/vue'
+  import { rememberInstallStatus } from '@/router/guards/beforeEach'
 
   const router = useRouter()
   const step = ref(1)
@@ -239,6 +240,7 @@
         adminPassword: adminForm.password
       })
       ElMessage.success('安装完成！')
+      rememberInstallStatus(true)
       step.value = 4
     } catch (e: any) {
       ElMessage.error(e?.message || '保存失败')

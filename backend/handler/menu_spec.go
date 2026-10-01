@@ -222,7 +222,7 @@ func boolToInt(v bool) int {
 }
 
 func ensureProductMenus(db *sql.DB) {
-	if db == nil {
+	if db == nil || hotPathSchemaSkipped() {
 		return
 	}
 	removeHomeTemplateMenu(db)

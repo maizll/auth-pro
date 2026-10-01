@@ -29,8 +29,15 @@ $fade-easing: transition-config('fade-easing');
 .fade {
   &-enter-active,
   &-leave-active {
-    transition: opacity $duration $fade-easing;
+    transition: opacity 0.16s $fade-easing;
     will-change: opacity;
+  }
+
+  // 离开的页面脱离文档流，新页面可以马上挂载并请求数据。
+  &-leave-active {
+    position: absolute;
+    inset: 0;
+    width: 100%;
   }
 
   &-enter-from,
@@ -67,6 +74,9 @@ $fade-easing: transition-config('fade-easing');
   }
 
   &-leave-active {
+    position: absolute;
+    inset: 0;
+    width: 100%;
     transition:
       opacity calc($duration * 0.7) $easing,
       transform calc($duration * 0.7) $easing;

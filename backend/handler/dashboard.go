@@ -203,11 +203,13 @@ func dashboardOK(c *gin.Context, data any) {
 func dashboardCards(db *sql.DB, now time.Time) []dashboardCard {
 	today := now.Format("2006-01-02")
 	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	todayStart, todayEnd := dayRange(today)
+	yesterdayStart, yesterdayEnd := dayRange(yesterday)
 
-	todayRevenue := dashboardFloat(db, "SELECT COALESCE(SUM(ABS(amount)), 0) FROM transactions WHERE type IN ('purchase', 'consume') AND amount < 0 AND DATE(created_at) = ?", today)
-	yesterdayRevenue := dashboardFloat(db, "SELECT COALESCE(SUM(ABS(amount)), 0) FROM transactions WHERE type IN ('purchase', 'consume') AND amount < 0 AND DATE(created_at) = ?", yesterday)
-	todayOrders := dashboardInt(db, "SELECT COUNT(*) FROM transactions WHERE type IN ('purchase', 'consume') AND amount < 0 AND DATE(created_at) = ?", today)
-	yesterdayOrders := dashboardInt(db, "SELECT COUNT(*) FROM transactions WHERE type IN ('purchase', 'consume') AND amount < 0 AND DATE(created_at) = ?", yesterday)
+	todayRevenue := dashboardFloat(db, "SELECT COALESCE(SUM(ABS(amount)), 0) FROM transactions WHERE type IN ('purchase', 'consume') AND amount < 0 AND created_at >= ? AND created_at < ?", todayStart, todayEnd)
+	yesterdayRevenue := dashboardFloat(db, "SELECT COALESCE(SUM(ABS(amount)), 0) FROM transactions WHERE type IN ('purchase', 'consume') AND amount < 0 AND created_at >= ? AND created_at < ?", yesterdayStart, yesterdayEnd)
+	todayOrders := dashboardInt(db, "SELECT COUNT(*) FROM transactions WHERE type IN ('purchase', 'consume') AND amount < 0 AND created_at >= ? AND created_at < ?", todayStart, todayEnd)
+	yesterdayOrders := dashboardInt(db, "SELECT COUNT(*) FROM transactions WHERE type IN ('purchase', 'consume') AND amount < 0 AND created_at >= ? AND created_at < ?", yesterdayStart, yesterdayEnd)
 	activeLicenses := dashboardInt(db, "SELECT COUNT(*) FROM licenses WHERE status = 'active' AND (expired_at IS NULL OR expired_at > NOW())")
 	yesterdayActiveLicenses := dashboardInt(db, "SELECT COUNT(*) FROM licenses WHERE status = 'active' AND (expired_at IS NULL OR expired_at > ?) AND created_at < ?", yesterday+" 23:59:59", today+" 00:00:00")
 	expiringLicenses := dashboardInt(db, "SELECT COUNT(*) FROM licenses WHERE status = 'active' AND expired_at IS NOT NULL AND expired_at > NOW() AND expired_at <= DATE_ADD(NOW(), INTERVAL 7 DAY)")
@@ -382,7 +384,7 @@ func dashboardAgentRanking(db *sql.DB) []dashboardRankItem {
 func dashboardTodos(db *sql.DB) []dashboardTodoItem {
 	return []dashboardTodoItem{
 		{Title: "7 天内到期授权", Value: dashboardInt(db, "SELECT COUNT(*) FROM licenses WHERE status = 'active' AND expired_at IS NOT NULL AND expired_at > NOW() AND expired_at <= DATE_ADD(NOW(), INTERVAL 7 DAY)"), Level: "warning", Desc: "建议提前联系续费或处理"},
-		{Title: "今日验证失败", Value: dashboardInt(db, "SELECT COUNT(*) FROM verify_logs WHERE result IN ('fail', 'expired', 'blacklisted') AND DATE(created_at) = CURDATE()"), Level: "danger", Desc: "关注异常域名、过期授权和黑名单命中"},
+		{Title: "今日验证失败", Value: dashboardInt(db, "SELECT COUNT(*) FROM verify_logs WHERE result IN ('fail', 'expired', 'blacklisted') AND created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY"), Level: "danger", Desc: "关注异常域名、过期授权和黑名单命中"},
 		{Title: "余额不足代理商", Value: dashboardInt(db, "SELECT COUNT(*) FROM agents WHERE enabled = 1 AND balance < 100"), Level: "warning", Desc: "余额低于 100 元可能影响开通授权"},
 		{Title: "禁用账号", Value: dashboardInt(db, "SELECT (SELECT COUNT(*) FROM agents WHERE enabled = 0) + (SELECT COUNT(*) FROM users WHERE enabled = 0)"), Level: "info", Desc: "包含禁用代理商和禁用用户"},
 	}
@@ -431,37 +433,41 @@ func dashboardActivities(db *sql.DB) []dashboardActivityItem {
 }
 
 func dashboardPaymentMethods(db *sql.DB, today string) []dashboardRankItem {
-	balanceAmount := dashboardFloat(db, "SELECT COALESCE(SUM(ABS(amount)), 0) FROM transactions WHERE type IN ('purchase', 'consume') AND amount < 0 AND DATE(created_at) = ?", today)
+	start, end := dayRange(today)
+	balanceAmount := dashboardFloat(db, "SELECT COALESCE(SUM(ABS(amount)), 0) FROM transactions WHERE type IN ('purchase', 'consume') AND amount < 0 AND created_at >= ? AND created_at < ?", start, end)
 	return []dashboardRankItem{
-		{Name: "余额支付", Value: dashboardInt(db, "SELECT COUNT(*) FROM transactions WHERE type IN ('purchase', 'consume') AND amount < 0 AND DATE(created_at) = ?", today), Revenue: balanceAmount, Extra: "当前实际支付通道"},
+		{Name: "余额支付", Value: dashboardInt(db, "SELECT COUNT(*) FROM transactions WHERE type IN ('purchase', 'consume') AND amount < 0 AND created_at >= ? AND created_at < ?", start, end), Revenue: balanceAmount, Extra: "当前实际支付通道"},
 		{Name: "支付宝", Value: 0, Revenue: 0, Extra: "通道预留"},
 		{Name: "微信支付", Value: 0, Revenue: 0, Extra: "通道预留"},
 	}
 }
 
 func dashboardAgentMetrics(db *sql.DB, today string) []dashboardMetricItem {
+	start, end := dayRange(today)
 	return []dashboardMetricItem{
 		{Label: "代理商总数", Value: float64(dashboardInt(db, "SELECT COUNT(*) FROM agents")), Unit: "个", Desc: fmt.Sprintf("启用 %d 个 / 禁用 %d 个", dashboardInt(db, "SELECT COUNT(*) FROM agents WHERE enabled = 1"), dashboardInt(db, "SELECT COUNT(*) FROM agents WHERE enabled = 0")), Level: "primary"},
-		{Label: "今日新增代理商", Value: float64(dashboardInt(db, "SELECT COUNT(*) FROM agents WHERE DATE(created_at) = ?", today)), Unit: "个", Desc: "当天创建的代理账号", Level: "success"},
+		{Label: "今日新增代理商", Value: float64(dashboardInt(db, "SELECT COUNT(*) FROM agents WHERE created_at >= ? AND created_at < ?", start, end)), Unit: "个", Desc: "当天创建的代理账号", Level: "success"},
 		{Label: "代理商余额", Value: dashboardFloat(db, "SELECT COALESCE(SUM(balance), 0) FROM agents"), Unit: "元", Prefix: "¥", Desc: "所有代理商账户余额合计", Level: "warning"},
-		{Label: "今日代理消费", Value: dashboardFloat(db, "SELECT COALESCE(SUM(ABS(amount)), 0) FROM transactions WHERE subject_type = 'agent' AND type = 'consume' AND amount < 0 AND DATE(created_at) = ?", today), Unit: "元", Prefix: "¥", Desc: "代理商今日开通授权扣费", Level: "danger"},
+		{Label: "今日代理消费", Value: dashboardFloat(db, "SELECT COALESCE(SUM(ABS(amount)), 0) FROM transactions WHERE subject_type = 'agent' AND type = 'consume' AND amount < 0 AND created_at >= ? AND created_at < ?", start, end), Unit: "元", Prefix: "¥", Desc: "代理商今日开通授权扣费", Level: "danger"},
 	}
 }
 
 func dashboardUserMetrics(db *sql.DB, today string) []dashboardMetricItem {
+	start, end := dayRange(today)
 	return []dashboardMetricItem{
 		{Label: "用户总数", Value: float64(dashboardInt(db, "SELECT COUNT(*) FROM users")), Unit: "人", Desc: fmt.Sprintf("启用 %d 人 / 禁用 %d 人", dashboardInt(db, "SELECT COUNT(*) FROM users WHERE enabled = 1"), dashboardInt(db, "SELECT COUNT(*) FROM users WHERE enabled = 0")), Level: "primary"},
-		{Label: "今日新增用户", Value: float64(dashboardInt(db, "SELECT COUNT(*) FROM users WHERE DATE(created_at) = ?", today)), Unit: "人", Desc: "当天注册或后台创建用户", Level: "success"},
+		{Label: "今日新增用户", Value: float64(dashboardInt(db, "SELECT COUNT(*) FROM users WHERE created_at >= ? AND created_at < ?", start, end)), Unit: "人", Desc: "当天注册或后台创建用户", Level: "success"},
 		{Label: "用户余额", Value: dashboardFloat(db, "SELECT COALESCE(SUM(balance), 0) FROM users"), Unit: "元", Prefix: "¥", Desc: "所有用户账户余额合计", Level: "warning"},
-		{Label: "今日用户消费", Value: dashboardFloat(db, "SELECT COALESCE(SUM(ABS(amount)), 0) FROM transactions WHERE subject_type = 'user' AND type = 'purchase' AND amount < 0 AND DATE(created_at) = ?", today), Unit: "元", Prefix: "¥", Desc: "用户今日购买授权支出", Level: "danger"},
+		{Label: "今日用户消费", Value: dashboardFloat(db, "SELECT COALESCE(SUM(ABS(amount)), 0) FROM transactions WHERE subject_type = 'user' AND type = 'purchase' AND amount < 0 AND created_at >= ? AND created_at < ?", start, end), Unit: "元", Prefix: "¥", Desc: "用户今日购买授权支出", Level: "danger"},
 	}
 }
 
 func dashboardAppMetrics(db *sql.DB, today string) []dashboardMetricItem {
+	start, end := dayRange(today)
 	return []dashboardMetricItem{
 		{Label: "应用总数", Value: float64(dashboardInt(db, "SELECT COUNT(*) FROM apps")), Unit: "个", Desc: fmt.Sprintf("上架 %d 个 / 下架 %d 个", dashboardInt(db, "SELECT COUNT(*) FROM apps WHERE enabled = 1"), dashboardInt(db, "SELECT COUNT(*) FROM apps WHERE enabled = 0")), Level: "primary"},
 		{Label: "套餐数量", Value: float64(dashboardInt(db, "SELECT COUNT(*) FROM license_plans")), Unit: "个", Desc: fmt.Sprintf("启用套餐 %d 个", dashboardInt(db, "SELECT COUNT(*) FROM license_plans WHERE enabled = 1")), Level: "success"},
-		{Label: "今日新增授权", Value: float64(dashboardInt(db, "SELECT COUNT(*) FROM licenses WHERE DATE(created_at) = ?", today)), Unit: "个", Desc: "今天新开通的授权", Level: "warning"},
+		{Label: "今日新增授权", Value: float64(dashboardInt(db, "SELECT COUNT(*) FROM licenses WHERE created_at >= ? AND created_at < ?", start, end)), Unit: "个", Desc: "今天新开通的授权", Level: "warning"},
 		{Label: "永久授权", Value: float64(dashboardInt(db, "SELECT COUNT(*) FROM licenses WHERE expired_at IS NULL OR duration_days = 0")), Unit: "个", Desc: "无固定到期时间的授权", Level: "danger"},
 	}
 }
@@ -476,7 +482,7 @@ func dashboardRiskAlerts(db *sql.DB) []dashboardTodoItem {
 		items = append(items, dashboardTodoItem{Title: "授权即将到期", Value: expiring, Level: "warning", Desc: "7 天内到期，建议提前续费处理"})
 	}
 
-	failedVerify := dashboardInt(db, "SELECT COUNT(*) FROM verify_logs WHERE result IN ('fail', 'expired', 'blacklisted') AND DATE(created_at) = CURDATE()")
+	failedVerify := dashboardInt(db, "SELECT COUNT(*) FROM verify_logs WHERE result IN ('fail', 'expired', 'blacklisted') AND created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY")
 	if failedVerify > 0 {
 		items = append(items, dashboardTodoItem{Title: "今日验证异常", Value: failedVerify, Level: "danger", Desc: "包含失败、过期和黑名单命中"})
 	}

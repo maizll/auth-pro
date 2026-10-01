@@ -509,6 +509,9 @@ func main() {
 		if err := handler.EnsureSourceStationSchema(); err != nil {
 			log.Fatalf("ensure source station schema failed: %v", err)
 		}
+		if err := handler.WarmHotPathSchema(db); err != nil {
+			log.Printf("warm hot path schema failed: %v", err)
+		}
 		// 结构迁移已经记完，再迁官网仓库。放在这里，读令牌不会绕回尚未结束的迁移。
 		handler.ScheduleOfficialAppRepoMigration()
 		handler.StartPaidOriginHealthCheck()

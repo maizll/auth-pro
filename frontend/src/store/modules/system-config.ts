@@ -39,13 +39,21 @@ export const useSystemConfigStore = defineStore(
       loaded.value = true
     }
 
-    const loadPublicConfig = async () => {
-      try {
-        const data = await fetchPublicSystemConfig()
-        applyConfig(data)
-      } catch {
-        applyConfig()
-      }
+    let publicConfigTask: Promise<void> | null = null
+
+    const loadPublicConfig = () => {
+      if (publicConfigTask) return publicConfigTask
+      publicConfigTask = (async () => {
+        try {
+          const data = await fetchPublicSystemConfig()
+          applyConfig(data)
+        } catch {
+          applyConfig()
+        } finally {
+          publicConfigTask = null
+        }
+      })()
+      return publicConfigTask
     }
 
     return {

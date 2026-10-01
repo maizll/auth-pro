@@ -95,6 +95,8 @@ func AppManageList(c *gin.Context) {
 	}
 
 	_ = ensureAppRepoSchema(db)
+	saleShared := loadCommercialSaleShared(db)
+	pricedPlans := loadPricedPlanCounts(db)
 	rows, err := db.Query(`
 		SELECT a.id, a.app_name, a.app_key, a.app_secret, a.description, a.enabled, a.commercial_product,
 		       a.license_required, a.purchase_license_type_mask, a.created_at, a.deleted_at,
@@ -103,8 +105,11 @@ func AppManageList(c *gin.Context) {
 		       COALESCE((
 		           SELECT v.version FROM app_versions v WHERE v.app_id = a.id
 		           ORDER BY v.published_at DESC, v.id DESC LIMIT 1
-		       ), '') AS recent_version
-		FROM apps a ORDER BY a.id ASC
+		       ), '') AS recent_version,
+		       COALESCE(b.owner, ''), COALESCE(b.repo, '')
+		FROM apps a
+		LEFT JOIN app_repo_bindings b ON b.app_id = a.id
+		ORDER BY a.id ASC
 	`)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "查询失败"})
@@ -142,23 +147,22 @@ func AppManageList(c *gin.Context) {
 		var desc string
 		var purchaseLicenseTypeMask uint8
 		var commercial int
+		var repoOwner, repoName string
 		if err := rows.Scan(&item.ID, &item.Name, &item.AppKey, &item.AppSecret,
 			&desc, &item.Enabled, &commercial, &item.LicenseRequired, &purchaseLicenseTypeMask, &createdAt, &deletedAt, &item.LicenseCount, &item.VersionCount,
-			&item.RecentVersion); err == nil {
+			&item.RecentVersion, &repoOwner, &repoName); err == nil {
 			item.Archived = deletedAt.Valid
 			item.Remark = desc
 			item.CommercialProduct = commercial == 1
 			item.PurchaseLicenseTypes = purchaseLicenseTypesFromMask(purchaseLicenseTypeMask)
 			item.CreatedAt = createdAt.Format("2006-01-02 15:04")
 			if item.CommercialProduct {
-				item.SaleGaps = commercialSaleGaps(db, item.ID, item.Enabled)
+				item.SaleGaps = commercialSaleGapsWith(item.Enabled, pricedPlans[item.ID], saleShared)
 				item.GraceDays = storeSettings.GraceDays
 				item.RevokeOnPasswordChange = storeSettings.RevokeOnPasswordChange
 				item.CommercialFeatures = storeSettings.CommercialFeatures
 			}
-			if bound, ok, _ := loadAppRepo(item.ID); ok {
-				item.Repo = bound.Owner + "/" + bound.Repo
-			}
+			item.Repo = appRepoLabel(item.ID, repoOwner, repoName)
 			list = append(list, item)
 		}
 	}

@@ -30,13 +30,15 @@ func LicenseDashboard(c *gin.Context) {
 	db.QueryRow("SELECT COUNT(*) FROM licenses").Scan(&totalLicenses)
 	db.QueryRow("SELECT COUNT(*) FROM licenses WHERE status = 'active'").Scan(&activeLicenses)
 	db.QueryRow("SELECT COUNT(*) FROM licenses WHERE status = 'expired'").Scan(&expiredLicenses)
-	db.QueryRow("SELECT COUNT(*) FROM verify_logs WHERE DATE(created_at) = ?", today).Scan(&todayVerify)
-	db.QueryRow("SELECT COUNT(*) FROM verify_logs WHERE DATE(created_at) = ?", yesterday).Scan(&yesterdayVerify)
+	todayStart, todayEnd := dayRange(today)
+	yesterdayStart, _ := dayRange(yesterday)
+	db.QueryRow("SELECT COUNT(*) FROM verify_logs WHERE created_at >= ? AND created_at < ?", todayStart, todayEnd).Scan(&todayVerify)
+	db.QueryRow("SELECT COUNT(*) FROM verify_logs WHERE created_at >= ? AND created_at < ?", yesterdayStart, todayStart).Scan(&yesterdayVerify)
 
-	// 昨日统计（用于计算趋势）
-	db.QueryRow("SELECT COUNT(*) FROM licenses WHERE DATE(created_at) <= ?", yesterday).Scan(&yesterdayTotal)
-	db.QueryRow("SELECT COUNT(*) FROM licenses WHERE status = 'active' AND DATE(created_at) <= ?", yesterday).Scan(&yesterdayActive)
-	db.QueryRow("SELECT COUNT(*) FROM licenses WHERE status = 'expired' AND DATE(created_at) <= ?", yesterday).Scan(&yesterdayExpired)
+	// 昨日统计（用于计算趋势）。created_at < 今天零点，等价于日期不晚于昨天。
+	db.QueryRow("SELECT COUNT(*) FROM licenses WHERE created_at < ?", todayStart).Scan(&yesterdayTotal)
+	db.QueryRow("SELECT COUNT(*) FROM licenses WHERE status = 'active' AND created_at < ?", todayStart).Scan(&yesterdayActive)
+	db.QueryRow("SELECT COUNT(*) FROM licenses WHERE status = 'expired' AND created_at < ?", todayStart).Scan(&yesterdayExpired)
 
 	// 最近授权（最新5条）
 	recentRows, err := db.Query(`

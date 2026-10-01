@@ -238,6 +238,7 @@ var sourceStationMigrationNames = []string{
 	"drop_github_update_url_v1",
 	"license_operation_logs_v1",
 	"app_repo_bindings_v1",
+	"hot_path_list_indexes_v1",
 }
 
 type sourceSchemaPluginRow struct {

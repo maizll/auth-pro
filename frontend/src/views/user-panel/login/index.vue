@@ -9,7 +9,7 @@
 </template>
 
 <script setup lang="ts">
-  import { onErrorCaptured, onMounted, ref, shallowRef } from 'vue'
+  import { onErrorCaptured, ref, shallowRef } from 'vue'
   import axios from 'axios'
   import DefaultHomeTemplate from './DefaultHomeTemplate.vue'
   import RemoteHomeTemplate from './RemoteHomeTemplate.vue'
@@ -70,5 +70,6 @@
     return false
   })
 
-  onMounted(loadActiveTemplate)
+  // 尽早拉取当前首页模板，默认模板先显示，有自定义模板再替换。
+  void loadActiveTemplate()
 </script>

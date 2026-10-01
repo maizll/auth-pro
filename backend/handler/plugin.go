@@ -166,6 +166,9 @@ func listedCatalogPlugins() []pluginInfo {
 
 // ensurePluginStorage 幂等建表。
 func ensurePluginStorage(db *sql.DB) error {
+	if hotPathSchemaSkipped() {
+		return nil
+	}
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS plugins (
 			id VARCHAR(60) NOT NULL PRIMARY KEY COMMENT '插件标识',

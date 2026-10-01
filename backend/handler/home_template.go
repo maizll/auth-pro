@@ -40,6 +40,9 @@ type homeTemplateDocument struct {
 }
 
 func ensureHomeTemplateStorage(db *sql.DB) error {
+	if hotPathSchemaSkipped() {
+		return nil
+	}
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS home_templates (
 			id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,

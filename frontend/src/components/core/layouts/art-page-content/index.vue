@@ -8,7 +8,7 @@
 
     <RouterView v-if="isRefresh" v-slot="{ Component, route }" :style="contentStyle">
       <!-- 缓存路由动画 -->
-      <Transition :name="showTransitionMask ? '' : actualTransition" mode="out-in" appear>
+      <Transition :name="showTransitionMask ? '' : actualTransition" appear>
         <KeepAlive :max="10" :exclude="keepAliveExclude">
           <component
             class="art-page-view"
@@ -20,7 +20,7 @@
       </Transition>
 
       <!-- 非缓存路由动画 -->
-      <Transition :name="showTransitionMask ? '' : actualTransition" mode="out-in" appear>
+      <Transition :name="showTransitionMask ? '' : actualTransition" appear>
         <component
           class="art-page-view"
           :is="Component"
@@ -125,3 +125,9 @@
     })
   })
 </script>
+
+<style scoped>
+  .layout-content {
+    position: relative;
+  }
+</style>

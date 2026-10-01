@@ -10,6 +10,9 @@ const sourceMigrationVersionStorage = "source_catalog_version_storage_v1"
 const sourceMigrationVersionSize = "source_catalog_version_size_v1"
 
 func ensureAppDeletedAt(db *sql.DB) error {
+	if hotPathSchemaSkipped() {
+		return nil
+	}
 	return ensureSourceStationColumn(db, "apps", "deleted_at",
 		"ALTER TABLE apps ADD COLUMN deleted_at DATETIME NULL DEFAULT NULL")
 }

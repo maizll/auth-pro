@@ -352,7 +352,7 @@ func PiracyAlertStats(c *gin.Context) {
 
 	var unhandled, today, week, handled int
 	db.QueryRow("SELECT COUNT(*) FROM piracy_alerts WHERE status='pending'").Scan(&unhandled)
-	db.QueryRow("SELECT COUNT(*) FROM piracy_alerts WHERE DATE(created_at)=CURDATE()").Scan(&today)
+	db.QueryRow("SELECT COUNT(*) FROM piracy_alerts WHERE created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY").Scan(&today)
 	db.QueryRow("SELECT COUNT(*) FROM piracy_alerts WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)").Scan(&week)
 	db.QueryRow("SELECT COUNT(*) FROM piracy_alerts WHERE status='processed'").Scan(&handled)
 
