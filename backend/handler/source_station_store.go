@@ -1762,7 +1762,20 @@ func ensureSourceStationStorage(db *sql.DB) error {
 		sourceDeveloperRoleName, sourceDeveloperRoleCode); err != nil {
 		return fmt.Errorf("ensure developer role: %w", err)
 	}
-	return mysqlPurgeInactiveDeveloperQualifications(db)
+	if err := mysqlPurgeInactiveDeveloperQualifications(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ScheduleOfficialAppRepoMigration 在全部结构迁移成功之后单独调用。
+// 不能放进 ensureSourceStationStorage：官网迁移要读令牌，读令牌会再进来，调用图上就是环。
+func ScheduleOfficialAppRepoMigration() {
+	db, err := config.DB()
+	if err != nil || db == nil {
+		return
+	}
+	scheduleOfficialAppRepoMigration(db)
 }
 
 func mysqlPurgeInactiveDeveloperQualifications(db *sql.DB) error {

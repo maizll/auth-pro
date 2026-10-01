@@ -3,6 +3,14 @@ package handler
 import (
 	"database/sql"
 	"fmt"
+	"sync"
+)
+
+// 结构迁移还没写完标记时，迁移函数里如果再调用 ensureSourceStationStorage，
+// 会发现同名迁移仍是 pending，再跑一遍。这里挡住同一进程里的重入。
+var (
+	sourceMigrationMu      sync.Mutex
+	sourceMigrationRunning bool
 )
 
 const (
@@ -22,6 +30,18 @@ const (
 // ensureSourceStationMigrations 把源站的一次性 ALTER / 回填记入 schema_migrations。
 // 成功后同名迁移不再执行，因此不会在每次启动时重复 DROP COLUMN。
 func ensureSourceStationMigrations(db *sql.DB) error {
+	sourceMigrationMu.Lock()
+	if sourceMigrationRunning {
+		sourceMigrationMu.Unlock()
+		return nil
+	}
+	sourceMigrationRunning = true
+	sourceMigrationMu.Unlock()
+	defer func() {
+		sourceMigrationMu.Lock()
+		sourceMigrationRunning = false
+		sourceMigrationMu.Unlock()
+	}()
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		name VARCHAR(100) NOT NULL,
 		applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -84,6 +104,12 @@ func runSourceStationMigration(db *sql.DB, name string, migrate func(*sql.DB) er
 		return fmt.Errorf("migration %s: %w", name, err)
 	}
 	return nil
+}
+
+func sourceMigrationInProgress() bool {
+	sourceMigrationMu.Lock()
+	defer sourceMigrationMu.Unlock()
+	return sourceMigrationRunning
 }
 
 func sourceStationMigrationPending(db *sql.DB, name string) (bool, error) {

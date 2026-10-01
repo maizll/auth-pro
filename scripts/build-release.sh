@@ -87,7 +87,7 @@ printf '[5/5] Creating tar.gz package and latest.json...\n'
 rm -f "$PACKAGE_PATH"
 tar -czf "$PACKAGE_PATH" -C "$PACKAGE_DIR" .
 
-forbidden="$(tar -tzf "$PACKAGE_PATH" | grep -E '(^|/)([^/]*_test\.go|[^/]*\.test\.(ts|js|mjs)|[^/]*\.spec\.ts|commercial_mysql_e2e\.py|/tests/|/e2e/|__pycache__/|install\.sh|baota-install\.sh|baota-upgrade\.sh|baota-lib\.sh|quality-check\.sh|build-release\.sh|test-baota-scripts\.sh|simulate-supervised-update\.sh|restart-backend\.sh|smoke-client-sdk\.sh|publish-gitee-release\.(sh|ps1)|check-unused-exports\.mjs|write-release-manifests\.mjs)' || true)"
+forbidden="$(tar -tzf "$PACKAGE_PATH" | grep -E '(^|/)([^/]*_test\.go|[^/]*\.test\.(ts|js|mjs)|[^/]*\.spec\.ts|commercial_mysql_e2e\.py|/tests/|/e2e/|__pycache__/|install\.sh|baota-install\.sh|baota-upgrade\.sh|baota-lib\.sh|quality-check\.sh|build-release\.sh|test-baota-scripts\.sh|simulate-supervised-update\.sh|restart-backend\.sh|smoke-client-sdk\.sh|startup-smoke\.sh|check-migration-cycles\.sh|publish-gitee-release\.(sh|ps1)|check-unused-exports\.mjs|write-release-manifests\.mjs)' || true)"
 if [[ -n "$forbidden" ]]; then
   printf '发布包包含测试或调试文件:\n%s\n' "$forbidden" >&2
   exit 1

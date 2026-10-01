@@ -30,7 +30,7 @@ const (
 	productUpdateJSONLimit    = 30
 	productUpdatePackageLimit = 6
 	productUpdateRateWindow   = time.Minute
-	productUpdateRepoEnv = "AUTO_PRO_UPDATE_REPOSITORY"
+	productUpdateRepoEnv      = "AUTO_PRO_UPDATE_REPOSITORY"
 	// 客户站系统更新只认官网这个应用的发布版本。标识写死，避免指到别的应用。
 	productUpdateAppKey        = "app_f93896d80066_5811"
 	productUpdateUnavailable   = "暂时无法获取更新"
@@ -48,6 +48,29 @@ var (
 	productUpdateGitHubAPI  = "https://api.github.com"
 	productUpdateHTTPClient = &http.Client{Timeout: 2 * time.Minute}
 )
+
+// productUpdateFetchError 保留状态码和网络原因。对外仍显示「暂时无法获取更新」。
+// 官网仓库迁移要区分 404 和 401/403/超时，不能把这些都当成同一种失败。
+type productUpdateFetchError struct {
+	status int
+	cause  error
+}
+
+func (e *productUpdateFetchError) Error() string {
+	return errProductUpdateUnavailable.Error()
+}
+
+func (e *productUpdateFetchError) Unwrap() error {
+	return errProductUpdateUnavailable
+}
+
+func productUpdateHTTPStatus(err error) int {
+	var fetchErr *productUpdateFetchError
+	if errors.As(err, &fetchErr) {
+		return fetchErr.status
+	}
+	return 0
+}
 
 type productUpdateRateLimiter struct {
 	mu     sync.Mutex
@@ -585,12 +608,12 @@ func productUpdateFetch(ctx context.Context, rawURL, token, accept string) ([]by
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return nil, errProductUpdateUnavailable
+		return nil, &productUpdateFetchError{cause: err}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
-		return nil, errProductUpdateUnavailable
+		return nil, &productUpdateFetchError{status: response.StatusCode}
 	}
 	limit := int64(2 << 20)
 	if accept == "application/octet-stream" {
