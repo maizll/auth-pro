@@ -12,6 +12,8 @@ import (
 
 func RegisterAppRepoRoutes(admin *gin.RouterGroup) {
 	admin.GET("/app-repos", AdminAppRepoList)
+	// 只读列出令牌能访问的仓库。开发者分组没有这条路由。
+	admin.GET("/app-repos/github", AdminListGitHubRepos)
 	admin.GET("/app-repos/token", AdminAppRepoToken)
 	admin.POST("/app-repos/suggest", AdminAppRepoSuggest)
 	admin.POST("/app-repos/bind", AdminAppRepoBind)
