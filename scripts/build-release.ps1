@@ -111,6 +111,14 @@ try {
     $LdFlags += " -X auto_pro/handler.embeddedStoreSnapshotPublicKey=$($env:AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY)"
     Write-Host 'store snapshot public key: embed via ldflags'
   }
+  # 本站在源站上所属的商业版应用。留空时归入源站「接收老客户端」的那个应用。
+  if ($env:AUTH_PRO_STORE_PRODUCT_APP_KEY) {
+    if ($env:AUTH_PRO_STORE_PRODUCT_APP_KEY -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$') {
+      throw 'AUTH_PRO_STORE_PRODUCT_APP_KEY 只能包含字母、数字、下划线和短横线'
+    }
+    $LdFlags += " -X auto_pro/handler.embeddedStoreProductAppKey=$($env:AUTH_PRO_STORE_PRODUCT_APP_KEY)"
+    Write-Host "store product app key: $($env:AUTH_PRO_STORE_PRODUCT_APP_KEY)"
+  }
   go build -trimpath -ldflags $LdFlags -o $BackendBinary .
 } finally {
   Remove-Item Env:GOOS -ErrorAction SilentlyContinue

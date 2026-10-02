@@ -96,6 +96,11 @@ func GetMenuList(c *gin.Context) {
 		allMenus = append(allMenus, m)
 	}
 
+	// 商业版只在官网管理，客户站不显示这个菜单。
+	if !officialSite() {
+		allMenus = dropMenuByName(allMenus, "LicenseCommercial")
+	}
+
 	rolesByName := productMenuRoleIndex()
 	for i := range allMenus {
 		allMenus[i].Roles = rolesByName[allMenus[i].Name]
@@ -458,4 +463,14 @@ func removeAlipayF2FConfigMenu(db *sql.DB) {
 			OR path IN ('alipay-f2f-config', '/system/alipay-f2f-config')
 			OR component = '/system/alipay-f2f-config'
 	`)
+}
+
+func dropMenuByName(menus []menuRow, name string) []menuRow {
+	out := menus[:0]
+	for _, m := range menus {
+		if m.Name != name {
+			out = append(out, m)
+		}
+	}
+	return out
 }

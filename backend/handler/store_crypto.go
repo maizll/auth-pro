@@ -43,6 +43,20 @@ const productionStoreSnapshotPublicKey = "pwAizm/sOyWCu+qi8+Dl/xJr0Upuamh5u7vL3w
 // 私钥只由源站 store-keygen 写到数据目录，不要放进 ldflags、环境变量或仓库。
 var embeddedStoreSnapshotPublicKey = productionStoreSnapshotPublicKey
 
+// embeddedStoreProductAppKey 是这个程序在源站上所属的应用标识，构建时写入：
+//
+//	go build -ldflags "-X auto_pro/handler.embeddedStoreProductAppKey=<应用标识>"
+//
+// 留空时源站按「接收老客户端」的默认应用处理，和 1.8.3 及更早的程序一样。
+var embeddedStoreProductAppKey = ""
+
+// storeProductHeader 是客户站请求源站时声明所属应用的请求头。
+const storeProductHeader = "X-Store-Product"
+
+func storeProductKey() string {
+	return strings.TrimSpace(embeddedStoreProductAppKey)
+}
+
 var (
 	storeSnapshotKeyMu   sync.RWMutex
 	storeSnapshotPublic  ed25519.PublicKey

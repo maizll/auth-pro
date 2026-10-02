@@ -121,6 +121,9 @@ func TestStoreItemPurchaseMariaDB(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO apps (id, app_name, app_key, enabled) VALUES (1, '站点', 'site-app', 1)`); err != nil {
 		t.Fatal(err)
 	}
+	if err := migratePerAppCommercial(db); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`INSERT INTO users (id, email, password_hash, nickname, balance, enabled) VALUES (7, 'buyer@example.com', 'x', '买家', 0, 1)`); err != nil {
 		t.Fatal(err)
 	}

@@ -26,6 +26,7 @@ func registerStoreAdminRoutes(admin *gin.RouterGroup) {
 	read.GET("/orders", AdminStoreOrders)
 	orders.POST("/orders/:orderNo/refund", AdminStoreOrderRefund)
 	read.GET("/licenses", AdminStoreLicenses)
+	read.GET("/bindings", AdminStoreBindings)
 	licenses.POST("/licenses/:id/grant", AdminStoreLicenseGrant)
 	licenses.POST("/licenses/:id/revoke", AdminStoreLicenseRevoke)
 	licenses.POST("/licenses/:id/transfer", AdminStoreLicenseTransfer)
@@ -111,14 +112,29 @@ func AdminStorePlanSave(c *gin.Context) {
 	storeData(c, gin.H{"id": id})
 }
 
-// AdminStoreOrders 返回最近 200 笔商店订单。读库失败返回 500。
+// AdminStoreOrders 分页列出商店订单。?appId= 只看某个应用，?kind=edition 只看商业版订单，?status= 按订单状态筛选。读库失败返回 500。
 func AdminStoreOrders(c *gin.Context) {
 	db, err := openStoreDB(c)
 	if err != nil {
 		return
 	}
-	rows, err := db.Query(`SELECT order_no, owner_type, owner_id, item_kind, title_snapshot, amount_cents, status, pay_channel, created_at, paid_at
-		FROM store_purchase_orders ORDER BY id DESC LIMIT 200`)
+	page, size := storeAdminPage(c)
+	appID := storeAdminAppID(c)
+	kind := strings.TrimSpace(c.Query("kind"))
+	status := strings.TrimSpace(c.Query("status"))
+	where := `WHERE (? = 0 OR o.app_id = ?) AND (? = '' OR o.item_kind = ?) AND (? = '' OR o.status = ?)`
+	args := []any{appID, appID, kind, kind, status, status}
+	var total int64
+	if err := db.QueryRow(`SELECT COUNT(*) FROM store_purchase_orders o `+where, args...).Scan(&total); err != nil {
+		storeFail(c, 500, "读取订单失败")
+		return
+	}
+	rows, err := db.Query(`SELECT o.order_no, o.owner_type, o.owner_id, o.item_kind, o.title_snapshot, o.amount_cents, o.status, o.pay_channel,
+		o.created_at, o.paid_at, COALESCE(o.app_id, 0), COALESCE(a.app_name, ''), COALESCE(d.domain_snapshot, '')
+		FROM store_purchase_orders o
+		LEFT JOIN apps a ON a.id = o.app_id
+		LEFT JOIN store_bindings d ON d.binding_id = o.binding_id
+		`+where+` ORDER BY o.id DESC LIMIT ? OFFSET ?`, append(args, size, (page-1)*size)...)
 	if err != nil {
 		storeFail(c, 500, "读取订单失败")
 		return
@@ -126,13 +142,14 @@ func AdminStoreOrders(c *gin.Context) {
 	defer rows.Close()
 	list := make([]gin.H, 0)
 	for rows.Next() {
-		var ownerID, amount int64
-		var orderNo, ownerType, kind, title, status, channel string
+		var ownerID, amount, rowAppID int64
+		var orderNo, ownerType, kind, title, status, channel, appName, domain string
 		var created, paid sql.NullTime
-		if err := rows.Scan(&orderNo, &ownerType, &ownerID, &kind, &title, &amount, &status, &channel, &created, &paid); err != nil {
+		if err := rows.Scan(&orderNo, &ownerType, &ownerID, &kind, &title, &amount, &status, &channel, &created, &paid, &rowAppID, &appName, &domain); err != nil {
 			continue
 		}
-		item := gin.H{"orderNo": orderNo, "ownerType": ownerType, "ownerId": ownerID, "itemKind": kind, "title": title, "amountCents": amount, "status": status, "payChannel": channel}
+		item := gin.H{"orderNo": orderNo, "ownerType": ownerType, "ownerId": ownerID, "itemKind": kind, "title": title, "amountCents": amount,
+			"status": status, "payChannel": channel, "appId": rowAppID, "appName": appName, "domain": domain}
 		if created.Valid {
 			item["createdAt"] = created.Time.Format("2006-01-02 15:04:05")
 		}
@@ -141,7 +158,32 @@ func AdminStoreOrders(c *gin.Context) {
 		}
 		list = append(list, item)
 	}
-	storeData(c, gin.H{"list": list})
+	if err := rows.Err(); err != nil {
+		storeFail(c, 500, "读取订单失败")
+		return
+	}
+	storeData(c, gin.H{"list": list, "total": total, "page": page, "size": size})
+}
+
+// storeAdminPage 读分页参数，page 从 1 开始，size 默认 20、最多 100。
+func storeAdminPage(c *gin.Context) (page, size int) {
+	page, _ = strconv.Atoi(c.DefaultQuery("page", "1"))
+	size, _ = strconv.Atoi(c.DefaultQuery("size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 100 {
+		size = 20
+	}
+	return page, size
+}
+
+func storeAdminAppID(c *gin.Context) int64 {
+	id, _ := strconv.ParseInt(strings.TrimSpace(c.Query("appId")), 10, 64)
+	if id < 0 {
+		return 0
+	}
+	return id
 }
 
 // AdminStoreOrderRefund 按订单号退款。原因可空。订单不存在或状态不允许时返回 400。
@@ -161,21 +203,32 @@ func AdminStoreOrderRefund(c *gin.Context) {
 	storeData(c, gin.H{"ok": true})
 }
 
-// AdminStoreLicenses 列出挂在商业版产品应用上的主授权及其商业版状态。读库失败返回 500。
+// AdminStoreLicenses 分页列出商业版应用（出售中或已停售）下的主授权及其商业版状态。?appId= 只看某个应用。读库失败返回 500。
 func AdminStoreLicenses(c *gin.Context) {
 	db, err := openStoreDB(c)
 	if err != nil {
 		return
 	}
-	settings, _ := loadEffectiveStoreSettings(db)
-	rows, err := db.Query(`SELECT l.id, l.license_no, l.owner_type, l.owner_id, l.status,
+	page, size := storeAdminPage(c)
+	appID := storeAdminAppID(c)
+	from := `FROM licenses l
+		JOIN apps a ON a.id = l.app_id
+		JOIN app_commercial_settings s ON s.app_id = l.app_id AND s.mode <> 'off'
+		WHERE (? = 0 OR l.app_id = ?)`
+	var total int64
+	if err := db.QueryRow(`SELECT COUNT(*) `+from, appID, appID).Scan(&total); err != nil {
+		storeFail(c, 500, "读取主授权失败")
+		return
+	}
+	rows, err := db.Query(`SELECT l.id, l.license_no, l.owner_type, l.owner_id, l.status, l.app_id, a.app_name,
+		COALESCE((SELECT domain FROM license_domains WHERE license_id = l.id ORDER BY id LIMIT 1), ''),
 		COALESCE(e.edition, 'free'), COALESCE(e.period, ''), e.expires_at, e.status
-		FROM licenses l
-		JOIN apps a ON a.id = l.app_id AND a.app_key = ?
+		`+from[:strings.Index(from, "WHERE")]+`
 		LEFT JOIN main_license_editions e ON e.id = (
 			SELECT id FROM main_license_editions WHERE license_id = l.id ORDER BY id DESC LIMIT 1
 		)
-		ORDER BY l.id DESC LIMIT 200`, settings.ProductAppKey)
+		WHERE (? = 0 OR l.app_id = ?)
+		ORDER BY l.id DESC LIMIT ? OFFSET ?`, appID, appID, size, (page-1)*size)
 	if err != nil {
 		storeFail(c, 500, "读取主授权失败")
 		return
@@ -183,14 +236,15 @@ func AdminStoreLicenses(c *gin.Context) {
 	defer rows.Close()
 	list := make([]gin.H, 0)
 	for rows.Next() {
-		var id, ownerID int64
-		var licenseNo, ownerType, licenseStatus, edition, period string
+		var id, ownerID, rowAppID int64
+		var licenseNo, ownerType, licenseStatus, appName, domain, edition, period string
 		var editionStatus sql.NullString
 		var expires sql.NullTime
-		if err := rows.Scan(&id, &licenseNo, &ownerType, &ownerID, &licenseStatus, &edition, &period, &expires, &editionStatus); err != nil {
+		if err := rows.Scan(&id, &licenseNo, &ownerType, &ownerID, &licenseStatus, &rowAppID, &appName, &domain, &edition, &period, &expires, &editionStatus); err != nil {
 			continue
 		}
-		item := gin.H{"id": id, "licenseNo": licenseNo, "ownerType": ownerType, "ownerId": ownerID, "licenseStatus": licenseStatus, "edition": edition, "period": period}
+		item := gin.H{"id": id, "licenseNo": licenseNo, "ownerType": ownerType, "ownerId": ownerID, "licenseStatus": licenseStatus,
+			"appId": rowAppID, "appName": appName, "domain": domain, "edition": edition, "period": period}
 		if expires.Valid {
 			item["editionExpireAt"] = expires.Time.Format("2006-01-02 15:04:05")
 		}
@@ -199,7 +253,63 @@ func AdminStoreLicenses(c *gin.Context) {
 		}
 		list = append(list, item)
 	}
-	storeData(c, gin.H{"list": list})
+	if err := rows.Err(); err != nil {
+		storeFail(c, 500, "读取主授权失败")
+		return
+	}
+	storeData(c, gin.H{"list": list, "total": total, "page": page, "size": size})
+}
+
+// AdminStoreBindings 分页列出已绑定的客户站。?appId= 只看某个应用，?status= 只看 active 或 revoked。读库失败返回 500。
+func AdminStoreBindings(c *gin.Context) {
+	db, err := openStoreDB(c)
+	if err != nil {
+		return
+	}
+	page, size := storeAdminPage(c)
+	appID := storeAdminAppID(c)
+	status := strings.TrimSpace(c.Query("status"))
+	where := `WHERE (? = 0 OR b.app_id = ?) AND (? = '' OR b.status = ?)`
+	args := []any{appID, appID, status, status}
+	var total int64
+	if err := db.QueryRow(`SELECT COUNT(*) FROM store_bindings b `+where, args...).Scan(&total); err != nil {
+		storeFail(c, 500, "读取绑定站点失败")
+		return
+	}
+	rows, err := db.Query(`SELECT b.binding_id, b.owner_type, b.owner_id, b.license_id, COALESCE(b.app_id, 0), COALESCE(a.app_name, ''),
+		b.domain_snapshot, b.app_version, b.status, b.created_at, b.last_seen_at, COALESCE(l.license_no, '')
+		FROM store_bindings b
+		LEFT JOIN apps a ON a.id = b.app_id
+		LEFT JOIN licenses l ON l.id = b.license_id
+		`+where+` ORDER BY b.id DESC LIMIT ? OFFSET ?`, append(args, size, (page-1)*size)...)
+	if err != nil {
+		storeFail(c, 500, "读取绑定站点失败")
+		return
+	}
+	defer rows.Close()
+	list := make([]gin.H, 0)
+	for rows.Next() {
+		var ownerID, licenseID, rowAppID int64
+		var bindingID, ownerType, appName, domain, version, rowStatus, licenseNo string
+		var created, seen sql.NullTime
+		if err := rows.Scan(&bindingID, &ownerType, &ownerID, &licenseID, &rowAppID, &appName, &domain, &version, &rowStatus, &created, &seen, &licenseNo); err != nil {
+			continue
+		}
+		item := gin.H{"bindingId": bindingID, "ownerType": ownerType, "ownerId": ownerID, "licenseId": licenseID, "licenseNo": licenseNo,
+			"appId": rowAppID, "appName": appName, "domain": domain, "appVersion": version, "status": rowStatus}
+		if created.Valid {
+			item["createdAt"] = created.Time.Format("2006-01-02 15:04:05")
+		}
+		if seen.Valid {
+			item["lastSeenAt"] = seen.Time.Format("2006-01-02 15:04:05")
+		}
+		list = append(list, item)
+	}
+	if err := rows.Err(); err != nil {
+		storeFail(c, 500, "读取绑定站点失败")
+		return
+	}
+	storeData(c, gin.H{"list": list, "total": total, "page": page, "size": size})
 }
 
 // AdminStoreLicenseGrant 给指定授权手工开通商业版。

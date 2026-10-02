@@ -53,8 +53,14 @@ export function fetchStoreAccount(verify = false) {
   })
 }
 
+/** 套餐列表。product 是本站商业版所属的应用；暂时不能购买时 notice 说明原因。 */
 export function fetchStorePlans() {
-  return request.get<{ list: StorePlan[]; payOptions?: StorePayOption[] }>({
+  return request.get<{
+    list: StorePlan[]
+    payOptions?: StorePayOption[]
+    product?: { name: string }
+    notice?: string
+  }>({
     url: '/api/store/plans',
     showErrorMessage: false
   })
@@ -130,8 +136,10 @@ export function logoutStoreAccount() {
   })
 }
 
-export function refreshStoreSnapshot(force = false) {
+/** 向源站刷新本站快照。quiet 用于顶栏的后台刷新：失败时调用方会退回读本地状态，不弹错误提示。 */
+export function refreshStoreSnapshot(force = false, quiet = false) {
   return request.post<StoreAccount>({
-    url: force ? '/api/store/refresh?force=1' : '/api/store/refresh'
+    url: force ? '/api/store/refresh?force=1' : '/api/store/refresh',
+    showErrorMessage: !quiet
   })
 }

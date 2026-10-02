@@ -26,6 +26,7 @@ INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `title`, `i
 INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `title`, `icon`, `sort`, `keep_alive`) VALUES
 (303, 3, 'LicenseApps',      'apps',      '/license/apps',      'menus.license.apps',     'ri:apps-2-line',      1, 1),
 (308, 3, 'LicenseVersions',  'versions',  '/license/versions',  'menus.license.versions', 'ri:git-branch-line',  2, 1),
+(309, 3, 'LicenseCommercial', 'commercial', '/license/commercial', 'menus.license.commercial', 'ri:vip-diamond-line', 3, 1),
 (307, 3, 'LicensePlans',     'plans',     '/license/plans',     'menus.license.plans',    'ri:price-tag-3-line', 4, 1),
 (306, 3, 'LicenseCards',     'cards',     '/license/cards',     'menus.license.cards',    'ri:coupon-3-line',    5, 1),
 (302, 3, 'LicenseList',      'list',      '/license/list',      'menus.license.list',     'ri:file-list-3-line', 6, 1),

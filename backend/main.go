@@ -327,6 +327,7 @@ func main() {
 			secured.GET("/license/apps", handler.AppList)
 			secured.GET("/license/owners", handler.LicenseOwnerOptions)
 			secured.GET("/app/list", handler.AppManageList)
+			secured.GET("/app-commercial/context", handler.AppCommercialContext)
 			// 打包下载不改业务数据，仍只要求管理员身份。
 			secured.POST("/sdk/pack", handler.AdminSDKPackDownload)
 			licenseApps.POST("/app/create", handler.AppCreate)
@@ -336,6 +337,7 @@ func main() {
 			licenseApps.PUT("/app/:id/reset-secret", handler.AppResetSecret)
 			licenseApps.DELETE("/app/:id", handler.AppDelete)
 			licenseApps.POST("/app/:id/restore", handler.AppRestore)
+			licenseApps.POST("/app/:id/commercial/close", handler.AppCommercialCloseHandler)
 			secured.GET("/app/:id/versions", handler.AppVersionList)
 			licenseVersions.POST("/app/:id/versions", handler.AppVersionCreate)
 			licenseVersions.PUT("/app/:id/versions/:versionId", handler.AppVersionUpdate)

@@ -6,9 +6,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"net/http"
-	"os"
 	"path"
-	"path/filepath"
 	"sort"
 	"time"
 
@@ -29,15 +27,6 @@ func SourceDeveloperStarterZIP(c *gin.Context) {
 	}
 	c.Header("Content-Disposition", `attachment; filename="`+developerStarterZipName+`"`)
 	c.Data(http.StatusOK, "application/zip", payload)
-}
-
-func SourceDeveloperSkillMarkdown(c *gin.Context) {
-	if _, err := currentSourceDeveloper(c); err != nil {
-		writeCurrentSourceDeveloperError(c, err)
-		return
-	}
-	c.Header("Content-Disposition", `attachment; filename="SKILL.md"`)
-	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(developerSkillMarkdown()))
 }
 
 func buildDeveloperStarterZIP() ([]byte, error) {
@@ -70,23 +59,20 @@ func buildDeveloperStarterZIP() ([]byte, error) {
 }
 
 func developerStarterFiles() map[string]string {
-	skill := developerSkillMarkdown()
 	return map[string]string{
-		"README.md":                                        developerStarterReadme(),
-		"SKILL.md":                                         skill,
-		"docs/README.md":                                   loadDeveloperDocOr("README.md", developerDocsIndexFallback()),
-		"docs/charter.md":                                  loadDeveloperDocOr("charter.md", developerCharterFallback()),
-		"docs/plugin-package.md":                           loadDeveloperDocOr("plugin-package.md", developerPluginPackageFallback()),
-		"docs/template-package.md":                         loadDeveloperDocOr("template-package.md", developerTemplatePackageFallback()),
-		"docs/packaging.md":                                loadDeveloperDocOr("packaging.md", developerPackagingFallback()),
-		"docs/validation.md":                               loadDeveloperDocOr("validation.md", developerValidationFallback()),
-		"docs/versions.md":                                 loadDeveloperDocOr("versions.md", developerVersionsFallback()),
-		"docs/review-and-catalog.md":                       loadDeveloperDocOr("review-and-catalog.md", developerReviewCatalogFallback()),
-		"plugin-example/plugin.json":                       loadDeveloperDocOr("starter/plugin-example/plugin.json", developerExamplePluginJSON()),
-		"plugin-example/README.md":                         loadDeveloperDocOr("starter/plugin-example/README.md", developerExamplePluginReadme()),
-		"template-example/template.json":                   loadDeveloperDocOr("starter/template-example/template.json", developerExampleTemplateJSON()),
-		"template-example/README.md":                       loadDeveloperDocOr("starter/template-example/README.md", developerExampleTemplateReadme()),
-		".cursor/skills/auth-pro-plugin-template/SKILL.md": skill,
+		"README.md":                      developerStarterReadme(),
+		"docs/README.md":                 loadDeveloperDocOr("README.md", developerDocsIndexFallback()),
+		"docs/charter.md":                loadDeveloperDocOr("charter.md", developerCharterFallback()),
+		"docs/plugin-package.md":         loadDeveloperDocOr("plugin-package.md", developerPluginPackageFallback()),
+		"docs/template-package.md":       loadDeveloperDocOr("template-package.md", developerTemplatePackageFallback()),
+		"docs/packaging.md":              loadDeveloperDocOr("packaging.md", developerPackagingFallback()),
+		"docs/validation.md":             loadDeveloperDocOr("validation.md", developerValidationFallback()),
+		"docs/versions.md":               loadDeveloperDocOr("versions.md", developerVersionsFallback()),
+		"docs/review-and-catalog.md":     loadDeveloperDocOr("review-and-catalog.md", developerReviewCatalogFallback()),
+		"plugin-example/plugin.json":     loadDeveloperDocOr("starter/plugin-example/plugin.json", developerExamplePluginJSON()),
+		"plugin-example/README.md":       loadDeveloperDocOr("starter/plugin-example/README.md", developerExamplePluginReadme()),
+		"template-example/template.json": loadDeveloperDocOr("starter/template-example/template.json", developerExampleTemplateJSON()),
+		"template-example/README.md":     loadDeveloperDocOr("starter/template-example/README.md", developerExampleTemplateReadme()),
 	}
 }
 
@@ -96,26 +82,6 @@ func loadDeveloperDocOr(rel, fallback string) string {
 		return fallback
 	}
 	return string(payload)
-}
-
-func developerSkillMarkdown() string {
-	if dir := findDeveloperDocsDir(); dir != "" {
-		candidates := []string{
-			filepath.Join(filepath.Dir(filepath.Dir(dir)), "developer-skills", "auth-pro-plugin-template", "SKILL.md"),
-			filepath.Join(dir, "SKILL.md"),
-		}
-		for _, candidate := range candidates {
-			if payload, err := os.ReadFile(candidate); err == nil && bytes.Contains(payload, []byte("kind")) {
-				if bytes.Contains(payload, []byte("name: auth-pro-plugin-template")) {
-					return string(payload)
-				}
-			}
-		}
-		if payload, err := os.ReadFile(candidates[0]); err == nil && len(payload) > 0 {
-			return string(payload)
-		}
-	}
-	return developerSkillFallback()
 }
 
 func developerStarterReadme() string {
@@ -132,7 +98,6 @@ func developerStarterReadme() string {
 | ` + "`docs/charter.md`" + ` | 开发者章程。交给 AI 的唯一规范 |
 | ` + "`plugin-example/`" + ` | 可过硬校验的 plugin.json |
 | ` + "`template-example/`" + ` | 可过硬校验的整站 template.json（含登录动作，不要加 index.html） |
-| ` + "`SKILL.md`" + ` | AI 操作清单 |
 
 ## 步骤
 
@@ -253,16 +218,4 @@ func developerVersionsFallback() string {
 
 func developerReviewCatalogFallback() string {
 	return "# 审核、目录与广告申请\n\ndraft → review → approved → published。广告申请独立状态机。\n"
-}
-
-func developerSkillFallback() string {
-	return `---
-name: auth-pro-plugin-template
-description: Use when creating AuthPro source-station plugins or home templates.
----
-
-# AuthPro 源站插件 / 模板
-
-template.json 必须包含 kind: template。插件自定义分类会出现在应用商店筛选页签。
-`
 }

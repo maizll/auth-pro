@@ -3,21 +3,20 @@ package handler
 import "testing"
 
 func TestNormalizeStoreSettings(t *testing.T) {
-	ok, err := normalizeStoreSettings(sourceStoreSettings{ProductAppKey: " store-app_1 ", FreePlanID: " 12 "})
-	if err != nil || ok.ProductAppKey != "store-app_1" || ok.FreePlanID != "12" {
-		t.Fatalf("normalized=%#v err=%v", ok, err)
-	}
 	empty, err := normalizeStoreSettings(sourceStoreSettings{})
-	if err != nil || empty.ProductAppKey != "" || empty.FreePlanID != "" {
+	if err != nil || empty.GraceDays != storeGraceDefaultDays || empty.RevokeOnPasswordChange == nil || !*empty.RevokeOnPasswordChange ||
+		len(empty.CommercialFeatures) != 1 || empty.CommercialFeatures[0] != storeFeatureMultiApp {
 		t.Fatalf("empty=%#v err=%v", empty, err)
 	}
-	if _, err := normalizeStoreSettings(sourceStoreSettings{ProductAppKey: "bad key"}); err == nil {
-		t.Fatal("expected invalid app key")
+	off := false
+	ok, err := normalizeStoreSettings(sourceStoreSettings{GraceDays: 3, RevokeOnPasswordChange: &off, CommercialFeatures: []string{" multi_app ", "multi_app", ""}})
+	if err != nil || ok.GraceDays != 3 || *ok.RevokeOnPasswordChange || len(ok.CommercialFeatures) != 1 {
+		t.Fatalf("normalized=%#v err=%v", ok, err)
 	}
-	if _, err := normalizeStoreSettings(sourceStoreSettings{FreePlanID: "0"}); err == nil {
-		t.Fatal("expected invalid plan id")
+	if _, err := normalizeStoreSettings(sourceStoreSettings{GraceDays: 31}); err == nil {
+		t.Fatal("expected invalid grace days")
 	}
-	if _, err := normalizeStoreSettings(sourceStoreSettings{FreePlanID: "abc"}); err == nil {
-		t.Fatal("expected non-numeric plan id")
+	if _, err := normalizeStoreSettings(sourceStoreSettings{CommercialFeatures: []string{"Bad Key"}}); err == nil {
+		t.Fatal("expected invalid feature key")
 	}
 }

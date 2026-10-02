@@ -57,7 +57,6 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		developer.POST("/plugins/:id/pull", SourceDeveloperPullPlugin)
 		developer.POST("/templates/:id/pull", SourceDeveloperPullTemplate)
 		developer.GET("/starter.zip", SourceDeveloperStarterZIP)
-		developer.GET("/skill.md", SourceDeveloperSkillMarkdown)
 	}
 
 	api.GET("/v1/public/source-packages/:name", PublicSourcePackageFile)
@@ -140,8 +139,6 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		settings.PUT("/settings/github-paid", AdminGitHubPaidTokenSave)
 		settings.POST("/settings/github-paid/test", AdminGitHubPaidTokenTest)
 		settings.POST("/settings/github-paid/repo", AdminGitHubPaidRepoCreate)
-		admin.GET("/settings/store", AdminSourceStoreSettings)
-		settings.PUT("/settings/store", AdminSourceStoreSettingsSave)
 		settings.POST("/settings/release/test", AdminSourceReleaseSettingsTest)
 		admin.GET("/storage/locations", AdminStorageLocations)
 		settings.POST("/storage/locations", AdminStorageLocationCreate)

@@ -203,6 +203,7 @@
       "apps": "应用管理",
       "versions": "版本管理",
       "plans": "套餐管理",
+      "commercial": "商业版",
       "cards": "卡密管理",
       "list": "授权列表",
       "logs": "验证日志",

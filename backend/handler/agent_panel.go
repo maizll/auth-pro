@@ -130,10 +130,6 @@ func AgentPanelPurchaseApps(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化促销活动失败"})
 		return
 	}
-	if err := ensureCommercialProductColumn(db); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取商业版产品失败"})
-		return
-	}
 
 	discount, err := currentAgentDiscount(db, agentID)
 	if err != nil || discount <= 0 {
@@ -145,7 +141,7 @@ func AgentPanelPurchaseApps(c *gin.Context) {
 		SELECT id, app_name, description, icon, purchase_license_type_mask
 		FROM apps
 		WHERE enabled = 1
-		  AND commercial_product = 0
+		  AND NOT EXISTS (SELECT 1 FROM app_commercial_settings s WHERE s.app_id = apps.id AND s.mode <> 'off')
 		  AND purchase_license_type_mask <> 0
 		  AND EXISTS (SELECT 1 FROM license_plans p WHERE p.app_id = apps.id AND p.enabled = 1)
 		ORDER BY id ASC

@@ -205,6 +205,10 @@ func openCommercialGrantDB(t *testing.T) *sql.DB {
 	if err := createCommercialGapSchema(db); err != nil {
 		t.Fatal(err)
 	}
+	// 和正式启动一样跑 1.8.4 的迁移，补上各表的 app_id。
+	if err := migratePerAppCommercial(db); err != nil {
+		t.Fatal(err)
+	}
 	return db
 }
 

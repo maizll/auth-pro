@@ -71,6 +71,10 @@ func TestUserLicenseDomainBindMariaDB(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
+	// 升级到 1.8.4 后，commercial_product 标记的应用成为出售中的商业版应用，换域名冷却照常生效。
+	if err := migratePerAppCommercial(db); err != nil {
+		t.Fatal(err)
+	}
 	config.SetDBOverrideForTest(db)
 	t.Cleanup(func() { config.SetDBOverrideForTest(nil) })
 

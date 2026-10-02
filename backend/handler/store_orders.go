@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -103,19 +104,35 @@ func settleStorePurchaseOrder(db *sql.DB, orderNo string, paidCents int64, chann
 	return tx.Commit()
 }
 
-// StoreEditionPlans 列出源站正在出售的商业版套餐。
+// StoreEditionPlans 列出一个应用正在出售的商业版套餐。?app= 是客户端打包时写入的应用标识，
+// 老客户端不带参数，返回接收老客户端的默认应用。应用没出售或已停售时返回空列表和原因。
 // 数据库读失败返回 500。不返回已下架套餐。
 func StoreEditionPlans(c *gin.Context) {
 	db, err := openStoreDB(c)
 	if err != nil {
 		return
 	}
-	list, err := listCommercialSalePlans(db)
+	product, err := resolveStoreProductApp(db, c.Query("app"))
+	if err != nil {
+		storeData(c, gin.H{"list": []map[string]any{}, "payOptions": []payOption{}, "notice": err.Error()})
+		return
+	}
+	data := gin.H{"product": gin.H{"name": product.AppName}}
+	if problem := product.saleProblem(); problem != nil {
+		data["list"] = []map[string]any{}
+		data["payOptions"] = []payOption{}
+		data["notice"] = problem.Error()
+		storeData(c, data)
+		return
+	}
+	list, err := listCommercialSalePlans(db, product.AppID)
 	if err != nil {
 		storeFail(c, 500, "读取套餐失败")
 		return
 	}
-	storeData(c, gin.H{"list": list, "payOptions": configuredOnlinePayOptions(db)})
+	data["list"] = list
+	data["payOptions"] = configuredOnlinePayOptions(db)
+	storeData(c, data)
 }
 
 // StoreOrderCreate 为已签名的买家创建商业版或单品订单。
@@ -146,11 +163,27 @@ func StoreOrderCreate(c *gin.Context) {
 	// 空字符串表示沿用源站排在第一位的收款方式，兼容还没传支付方式的旧买家。
 	c.Set("storePayMethod", strings.TrimSpace(req.PayMethod))
 	db := c.MustGet("storeDB").(*sql.DB)
+	product, ok := storeBindingProduct(c, db, row)
+	if !ok {
+		return
+	}
 	orderNo := storeOrderPrefix + strconv.FormatInt(time.Now().Unix(), 10) + randomHex(4)
 	returnURL := buildRequestURL(c, "/store/pay-complete")
 	switch req.ItemKind {
 	case "edition":
-		name, period, price, err := loadCommercialSalePlan(db, req.PlanID)
+		if problem := product.saleProblem(); problem != nil {
+			storeFail(c, 400, problem.Error())
+			return
+		}
+		name, period, price, err := loadCommercialSalePlan(db, product.AppID, req.PlanID)
+		if errors.Is(err, errCommercialPlanAppMismatch) {
+			c.JSON(http.StatusOK, gin.H{
+				"code": 400,
+				"msg":  "当前站点属于「" + product.AppName + "」，" + err.Error(),
+				"data": gin.H{"reason": "plan_app_mismatch"},
+			})
+			return
+		}
 		if err != nil {
 			storeFail(c, 400, err.Error())
 			return
@@ -165,9 +198,9 @@ func StoreOrderCreate(c *gin.Context) {
 			return
 		}
 		_, err = db.Exec(`INSERT INTO store_purchase_orders
-			(order_no, owner_type, owner_id, license_id, binding_id, item_kind, item_id, period, amount_cents, price_cents_snapshot, title_snapshot, pay_channel, pay_method, status, return_url, expires_at)
-			VALUES (?, ?, ?, ?, ?, 'edition', ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-			orderNo, row.OwnerType, row.OwnerID, row.LicenseID, row.BindingID, strconv.FormatInt(req.PlanID, 10), period,
+			(order_no, owner_type, owner_id, license_id, app_id, binding_id, item_kind, item_id, period, amount_cents, price_cents_snapshot, title_snapshot, pay_channel, pay_method, status, return_url, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, 'edition', ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+			orderNo, row.OwnerType, row.OwnerID, row.LicenseID, product.AppID, row.BindingID, strconv.FormatInt(req.PlanID, 10), period,
 			price, price, name, channel, method, returnURL, time.Now().Add(storeOrderTTL))
 		if err != nil {
 			storeFail(c, 500, "创建订单失败")
@@ -194,9 +227,9 @@ func StoreOrderCreate(c *gin.Context) {
 			developer = quote.DeveloperID
 		}
 		_, err = db.Exec(`INSERT INTO store_purchase_orders
-			(order_no, owner_type, owner_id, license_id, binding_id, item_kind, item_id, period, developer_id, amount_cents, price_cents_snapshot, title_snapshot, pay_channel, pay_method, status, return_url, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-			orderNo, row.OwnerType, row.OwnerID, row.LicenseID, row.BindingID, quote.Kind, quote.ID, quote.Period, developer,
+			(order_no, owner_type, owner_id, license_id, app_id, binding_id, item_kind, item_id, period, developer_id, amount_cents, price_cents_snapshot, title_snapshot, pay_channel, pay_method, status, return_url, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+			orderNo, row.OwnerType, row.OwnerID, row.LicenseID, product.AppID, row.BindingID, quote.Kind, quote.ID, quote.Period, developer,
 			quote.PriceCents, quote.PriceCents, quote.Name, channel, method, returnURL, time.Now().Add(storeOrderTTL))
 		if err != nil {
 			storeFail(c, 500, "创建订单失败")
@@ -290,12 +323,12 @@ func StoreOrderQuery(c *gin.Context) {
 	domain = row.Domain
 	data := gin.H{"orderNo": orderNo, "status": status}
 	if status == "paid" {
-		settings, err := loadEffectiveStoreSettings(db)
+		product, err := loadAppCommercial(db, row.AppID)
 		if err != nil {
 			storeFail(c, 500, "读取配置失败")
 			return
 		}
-		snapshot, err := buildStoreSnapshot(db, row.BindingID, licenseID, licenseNo, domain, settings)
+		snapshot, err := buildStoreSnapshot(db, row.BindingID, licenseID, licenseNo, domain, product.storeSettings())
 		if err != nil {
 			storeFail(c, 500, err.Error())
 			return

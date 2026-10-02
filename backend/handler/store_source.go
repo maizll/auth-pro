@@ -249,6 +249,8 @@ type storeLoginBody struct {
 	Domain     string `json:"domain"`
 	InstallID  string `json:"installId"`
 	AppVersion string `json:"appVersion"`
+	// ProductKey 是客户端打包时写入的应用标识。老客户端不带，落到接收老客户端的默认应用。
+	ProductKey string `json:"productKey"`
 	geetestValidateParams
 }
 
@@ -324,6 +326,15 @@ func StoreAuthLogin(c *gin.Context) {
 	if err != nil {
 		return
 	}
+	product, err := resolveStoreProductApp(db, req.ProductKey)
+	if err != nil {
+		storeFail(c, 400, err.Error())
+		return
+	}
+	if !product.onSale() {
+		storeFail(c, 400, errAppCommercialNotForSale.Error())
+		return
+	}
 	if remaining := middleware.LoginLockRemaining(c.ClientIP(), req.Account); remaining > 0 {
 		storeFail(c, 429, fmt.Sprintf("登录尝试次数过多，请 %d 秒后重试", int(remaining.Seconds())+1))
 		return
@@ -351,9 +362,9 @@ func StoreAuthLogin(c *gin.Context) {
 	sum := sha256.Sum256([]byte(nonce))
 	challengeID := "ch_" + randomHex(12)
 	if _, err := db.Exec(`INSERT INTO store_bind_challenges
-		(challenge_id, nonce, nonce_hash, owner_type, owner_id, domain, install_id, app_version, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		challengeID, nonce, hex.EncodeToString(sum[:]), req.Role, ownerID, req.Domain, req.InstallID, strings.TrimSpace(req.AppVersion),
+		(challenge_id, nonce, nonce_hash, owner_type, owner_id, app_id, domain, install_id, app_version, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		challengeID, nonce, hex.EncodeToString(sum[:]), req.Role, ownerID, product.AppID, req.Domain, req.InstallID, strings.TrimSpace(req.AppVersion),
 		time.Now().Add(storeBindChallengeTTL)); err != nil {
 		storeFail(c, 500, "创建挑战失败")
 		return
@@ -364,6 +375,7 @@ func StoreAuthLogin(c *gin.Context) {
 		"expiresIn":   int(storeBindChallengeTTL.Seconds()),
 		"account":     gin.H{"name": display, "role": req.Role},
 		"domain":      req.Domain,
+		"product":     gin.H{"name": product.AppName},
 	})
 }
 
@@ -383,11 +395,12 @@ func StoreAuthConfirm(c *gin.Context) {
 	}
 	var ownerType, nonce, domain, installID, appVersion string
 	var ownerID int64
+	var challengeApp sql.NullInt64
 	var expires time.Time
 	var used sql.NullTime
-	err = db.QueryRow(`SELECT owner_type, owner_id, nonce, domain, install_id, app_version, expires_at, used_at
+	err = db.QueryRow(`SELECT owner_type, owner_id, app_id, nonce, domain, install_id, app_version, expires_at, used_at
 		FROM store_bind_challenges WHERE challenge_id = ?`, strings.TrimSpace(req.ChallengeID)).
-		Scan(&ownerType, &ownerID, &nonce, &domain, &installID, &appVersion, &expires, &used)
+		Scan(&ownerType, &ownerID, &challengeApp, &nonce, &domain, &installID, &appVersion, &expires, &used)
 	if err != nil {
 		storeFail(c, 400, "挑战不存在")
 		return
@@ -411,16 +424,23 @@ func StoreAuthConfirm(c *gin.Context) {
 		storeFail(c, 400, "域名校验未通过")
 		return
 	}
-	settings, err := loadEffectiveStoreSettings(db)
+	// 确认只用登录时记下的应用。升级前发出的挑战没有应用，按接收老客户端的默认应用处理。
+	var product appCommercial
+	if challengeApp.Valid && challengeApp.Int64 > 0 {
+		product, err = loadAppCommercial(db, challengeApp.Int64)
+	} else {
+		product, err = resolveStoreProductApp(db, "")
+	}
 	if err != nil {
-		storeFail(c, 500, "源站未配置产品应用")
+		storeFail(c, 400, err.Error())
 		return
 	}
-	appID, err := lookupEnabledStoreProductAppID(db, settings.ProductAppKey)
-	if err != nil {
-		storeFail(c, 500, err.Error())
+	if !product.onSale() {
+		storeFail(c, 400, errAppCommercialNotForSale.Error())
 		return
 	}
+	appID := product.AppID
+	settings := product.storeSettings()
 	matches, err := listDomainLicenseMatches(db, appID, domain)
 	if err != nil {
 		storeFail(c, 500, "查询主授权失败")
@@ -472,9 +492,9 @@ func StoreAuthConfirm(c *gin.Context) {
 		return
 	}
 	if _, err := tx.Exec(`INSERT INTO store_bindings
-		(binding_id, secret_salt, owner_type, owner_id, license_id, domain_snapshot, install_id, app_version, last_ip, status, last_seen_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW())`,
-		bindingID, salt, ownerType, ownerID, licenseID, domain, installID, appVersion, c.ClientIP()); err != nil {
+		(binding_id, secret_salt, owner_type, owner_id, license_id, app_id, domain_snapshot, install_id, app_version, last_ip, status, last_seen_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW())`,
+		bindingID, salt, ownerType, ownerID, licenseID, appID, domain, installID, appVersion, c.ClientIP()); err != nil {
 		storeFail(c, 500, "绑定失败")
 		return
 	}
@@ -501,6 +521,7 @@ func StoreAuthConfirm(c *gin.Context) {
 		"account":       gin.H{"name": display, "role": ownerType},
 		"mainLicense":   gin.H{"licenseNo": licenseNo, "domain": domain, "edition": snapshot.Edition, "editionExpireAt": snapshot.EditionExpireAt, "licenseExpireAt": snapshot.LicenseExpireAt},
 		"snapshot":      snapshot,
+		"product":       gin.H{"name": product.AppName},
 	})
 }
 
@@ -613,27 +634,6 @@ func openStoreDB(c *gin.Context) (*sql.DB, error) {
 	return db, nil
 }
 
-func loadEffectiveStoreSettings(db *sql.DB) (sourceStoreSettings, error) {
-	settings, err := loadSourceStoreSettings(db)
-	if err != nil {
-		return sourceStoreSettings{}, err
-	}
-	settings, err = normalizeStoreSettings(settings)
-	if err != nil {
-		return sourceStoreSettings{}, err
-	}
-	if err := prepareCommercialProduct(db); err != nil {
-		return sourceStoreSettings{}, err
-	}
-	_, appKey, _, err := lookupCommercialProduct(db)
-	if err != nil {
-		return sourceStoreSettings{}, err
-	}
-	settings.ProductAppKey = strings.TrimSpace(appKey)
-	settings.FreePlanID = ""
-	return settings, nil
-}
-
 func storeAccountLabel(db *sql.DB, ownerType string, ownerID int64) string {
 	var name string
 	if ownerType == "agent" {
@@ -654,6 +654,7 @@ type storeBindingRecord struct {
 	OwnerType string
 	OwnerID   int64
 	LicenseID int64
+	AppID     int64
 	Domain    string
 	InstallID string
 	Status    string
@@ -662,9 +663,12 @@ type storeBindingRecord struct {
 
 func loadStoreBinding(db *sql.DB, bindingID string) (storeBindingRecord, error) {
 	var row storeBindingRecord
-	err := db.QueryRow(`SELECT binding_id, secret_salt, owner_type, owner_id, license_id, domain_snapshot, install_id, status, last_seen_at
-		FROM store_bindings WHERE binding_id = ?`, bindingID).
-		Scan(&row.BindingID, &row.Salt, &row.OwnerType, &row.OwnerID, &row.LicenseID, &row.Domain, &row.InstallID, &row.Status, &row.LastSeen)
+	// 绑定上的 app_id 是刷新时判断应用的唯一依据。迁移前没回填到的行，按授权所属应用兜底。
+	err := db.QueryRow(`SELECT b.binding_id, b.secret_salt, b.owner_type, b.owner_id, b.license_id,
+		COALESCE(b.app_id, (SELECT l.app_id FROM licenses l WHERE l.id = b.license_id), 0),
+		b.domain_snapshot, b.install_id, b.status, b.last_seen_at
+		FROM store_bindings b WHERE b.binding_id = ?`, bindingID).
+		Scan(&row.BindingID, &row.Salt, &row.OwnerType, &row.OwnerID, &row.LicenseID, &row.AppID, &row.Domain, &row.InstallID, &row.Status, &row.LastSeen)
 	return row, err
 }
 
@@ -803,16 +807,12 @@ func StoreStatus(c *gin.Context) {
 		return
 	}
 	db := c.MustGet("storeDB").(*sql.DB)
-	settings, err := loadEffectiveStoreSettings(db)
-	if err != nil {
-		storeFail(c, 500, "读取配置失败")
+	product, ok := storeBindingProduct(c, db, row)
+	if !ok {
 		return
 	}
-	var appID int64
-	if err := db.QueryRow(`SELECT id FROM apps WHERE app_key = ?`, strings.TrimSpace(settings.ProductAppKey)).Scan(&appID); err != nil {
-		storeFail(c, 500, "产品应用不存在")
-		return
-	}
+	appID := product.AppID
+	settings := product.storeSettings()
 	requestDomain := normalizeLicenseDomain(c.Query("domain"))
 	if requestDomain == "" {
 		requestDomain = row.Domain

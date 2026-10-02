@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -172,8 +173,12 @@ func BuyerStoreSettingsSave(c *gin.Context) {
 // BuyerStorePlans 向源站拉取可购买的商业版套餐。
 // 源站不可达或拒绝时返回 400，文案用源站返回的原因。
 func BuyerStorePlans(c *gin.Context) {
+	path := "/api/v1/store/edition-plans"
+	if key := storeProductKey(); key != "" {
+		path += "?app=" + url.QueryEscape(key)
+	}
 	var payload map[string]any
-	if err := callSourceJSON(http.MethodGet, "/api/v1/store/edition-plans", nil, nil, &payload); err != nil {
+	if err := callSourceJSON(http.MethodGet, path, nil, nil, &payload); err != nil {
 		storeFail(c, 400, err.Error())
 		return
 	}
@@ -233,6 +238,7 @@ func finishBuyerBind(c *gin.Context, account, password, role string) (int, error
 	loginBody := map[string]any{
 		"account": account, "password": password, "role": role,
 		"domain": domain, "installId": loadBuyerInstallID(), "appVersion": config.AppVersion,
+		"productKey": storeProductKey(),
 	}
 	var login map[string]any
 	err := callSourceJSON(http.MethodPost, "/api/v1/store/auth/login", loginBody, nil, &login)

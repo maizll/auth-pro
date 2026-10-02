@@ -7,7 +7,6 @@
     <OrderSearch v-model="searchForm" @search="handleSearch" @reset="resetSearchParams" />
 
     <ElCard class="art-table-card" shadow="never">
-      <CommercialReissueBanner />
       <ElAlert
         class="commercial-paid"
         :closable="false"
@@ -123,7 +122,6 @@
     type PaymentOrderSearchParams
   } from '@/api/system-manage'
   import OrderSearch from './modules/order-search.vue'
-  import CommercialReissueBanner from '@/components/business/commercial/CommercialReissueBanner.vue'
 
   defineOptions({ name: 'PaymentOrders' })
 

@@ -21,4 +21,4 @@
 
 本站安装到首页时，还接受静态 `index.html`。那不是登记闸门，见 [首页模板](../home-template.md)。
 
-支付渠道除了清单，还要在服务端实现 Channel，见 [payment-channel-plugin.md](payment-channel-plugin.md)。AI 操作清单在 [SKILL.md](../../developer-skills/auth-pro-plugin-template/SKILL.md)。
+支付渠道除了清单，还要在服务端实现 Channel，见 [payment-channel-plugin.md](payment-channel-plugin.md)。

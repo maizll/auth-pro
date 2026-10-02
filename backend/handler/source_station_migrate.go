@@ -84,6 +84,7 @@ func ensureSourceStationMigrations(db *sql.DB) error {
 		{storeMigrationLicenseOps, migrateLicenseOperationLogs},
 		{"app_repo_bindings_v1", migrateAppRepoBindings},
 		{"hot_path_list_indexes_v1", migrateHotPathListIndexes},
+		{perAppCommercialMigration, migratePerAppCommercial},
 	}
 	for _, step := range steps {
 		if err := runSourceStationMigration(db, step.name, step.run); err != nil {

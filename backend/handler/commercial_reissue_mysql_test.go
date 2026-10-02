@@ -47,6 +47,10 @@ func TestCommercialPurchaseMariaDB(t *testing.T) {
 		(2, '商业版', 'commercial-app', 1, 1, 15)`); err != nil {
 		t.Fatal(err)
 	}
+	// 1.8.3 的数据：apps.commercial_product 标记的应用，迁移后成为出售中、接收老客户端的默认应用。
+	if err := migratePerAppCommercial(db); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`INSERT INTO license_plans (id, app_id, name, license_type, duration_days, price, enabled) VALUES
 		(11, 1, '普通年付', '', 365, 10, 1),
 		(22, 2, '永久商业版', '', 0, 199, 1)`); err != nil {
@@ -114,11 +118,11 @@ func TestCommercialPurchaseMariaDB(t *testing.T) {
 		t.Fatalf("补发前买家快照应是免费版, edition=%s bound=%v err=%v", before.Edition, bound, err)
 	}
 
-	gaps, err := listCommercialPurchaseGaps(db)
+	gaps, err := listCommercialPurchaseGaps(db, 2)
 	if err != nil || len(gaps) != 1 || gaps[0].OrderNo != "U-GAP" {
 		t.Fatalf("缺口订单 = %#v err=%v", gaps, err)
 	}
-	granted, already, err := reissueCommercialPurchaseGaps(db)
+	granted, already, err := reissueCommercialPurchaseGaps(db, 2)
 	if err != nil || granted != 1 || already != 0 {
 		t.Fatalf("首次补发 granted=%d already=%d err=%v", granted, already, err)
 	}
@@ -133,7 +137,7 @@ func TestCommercialPurchaseMariaDB(t *testing.T) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM main_license_editions WHERE license_id = 100 AND status = 'active'`).Scan(&editionCount); err != nil {
 		t.Fatal(err)
 	}
-	granted, already, err = reissueCommercialPurchaseGaps(db)
+	granted, already, err = reissueCommercialPurchaseGaps(db, 2)
 	if err != nil || granted != 0 || already != 0 {
 		t.Fatalf("重复补发应为空缺口 granted=%d already=%d err=%v", granted, already, err)
 	}
@@ -242,6 +246,12 @@ func markCommercialGapMigrations(t *testing.T, db *sql.DB) {
 		storeMigrationLicenseSourcePurchase,
 		storeMigrationDomainChanges,
 		storeMigrationDropBuyerConnection,
+		storeMigrationLoginHandoff,
+		storeMigrationDropGitHubUpdateURL,
+		storeMigrationLicenseOps,
+		"app_repo_bindings_v1",
+		"hot_path_list_indexes_v1",
+		perAppCommercialMigration,
 		storeEditionPlansMigration,
 	}
 	for _, name := range names {
