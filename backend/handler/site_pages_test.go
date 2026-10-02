@@ -27,7 +27,6 @@ func TestSiteDocWhitelistSkipsInternalRecords(t *testing.T) {
 		"design/payment-channel-plugin.md",
 		"superpowers/specs/2026-09-21-client-sdk-hybrid-design.md",
 		"release-notes-1.6.8.txt",
-		"developer/SKILL.md",
 		"upgrade-history.md",
 	}
 	for _, rel := range denied {

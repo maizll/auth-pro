@@ -83,6 +83,35 @@ export interface AppSaleGap {
   path?: string
 }
 
+/** 商业版状态：普通应用、出售中、已停售 */
+export type AppCommercialMode = 'off' | 'selling' | 'stopped'
+
+export interface AppCommercialPlan {
+  id: number
+  name: string
+  durationDays: number
+  price: string
+  enabled: boolean
+}
+
+export interface AppCommercialStats {
+  activeLicenses: number
+  boundSites: number
+  pendingOrders: number
+}
+
+/** 应用自己的商业版设置，只在官网返回 */
+interface AppCommercialView {
+  mode: AppCommercialMode
+  legacyDefault: boolean
+  graceDays: number
+  revokeOnPasswordChange: boolean
+  features: string[]
+  saleGaps: AppSaleGap[]
+  stats: AppCommercialStats
+  plans: AppCommercialPlan[]
+}
+
 export interface LicenseAppItem {
   id: number
   name: string
@@ -95,11 +124,7 @@ export interface LicenseAppItem {
   enabled: boolean
   archived?: boolean
   licenseRequired: boolean
-  commercialProduct?: boolean
-  saleGaps?: AppSaleGap[]
-  graceDays?: number
-  revokeOnPasswordChange?: boolean
-  commercialFeatures?: string[]
+  commercial?: AppCommercialView
   remark?: string
   repo?: string
   createdAt: string
@@ -284,35 +309,71 @@ export function fetchLicenseAppList() {
   return request.get<LicenseAppItem[]>({ url: '/api/app/list' })
 }
 
-/** 新增应用 */
-export interface CommercialAppPayload {
+/** 应用弹框里商业版小节提交的字段，不传表示不改 */
+export interface AppCommercialInput {
+  mode?: 'selling' | 'off'
+  legacyDefault?: boolean
+  graceDays?: number
+  revokeOnPasswordChange?: boolean
+  features?: string[]
+}
+
+interface AppCommercialSaved {
+  mode: AppCommercialMode
+  legacyDefault: boolean
+  notice?: string
+}
+
+/** 新增、编辑应用 */
+interface LicenseAppPayload {
   name: string
   enabled: boolean
   remark: string
   purchaseLicenseTypes: string[]
-  commercialProduct?: boolean
-  graceDays?: number
-  revokeOnPasswordChange?: boolean
-  commercialFeatures?: string[]
+  commercial?: AppCommercialInput
   repoAction?: 'create' | 'bind' | 'skip'
   repo?: string
   requestId?: string
 }
 
-export function fetchCreateLicenseApp(params: CommercialAppPayload) {
+export function fetchCreateLicenseApp(params: LicenseAppPayload) {
   return request.post<{
     id: number
-    switched?: boolean
     bound?: boolean
     appKey?: string
     repoError?: string
     reused?: boolean
+    commercial?: AppCommercialSaved | null
+    commercialError?: string
   }>({ url: '/api/app/create', params })
 }
 
 /** 编辑应用 */
-export function fetchUpdateLicenseApp(id: number, params: CommercialAppPayload) {
-  return request.put<{ switched?: boolean }>({ url: `/api/app/${id}`, params })
+export function fetchUpdateLicenseApp(id: number, params: LicenseAppPayload) {
+  return request.put<{ commercial?: AppCommercialSaved | null }>({
+    url: `/api/app/${id}`,
+    params
+  })
+}
+
+/** 本站是不是官网（官网才出售商业版）、当前管理员是不是超级管理员 */
+export function fetchAppCommercialContext() {
+  return request.get<{ managed: boolean; super: boolean }>({
+    url: '/api/app-commercial/context',
+    showErrorMessage: false
+  })
+}
+
+/** 关闭一个应用的商业版出售。stop 只停新售；revoke 同时作废已售权益，只有超级管理员可用 */
+export function closeAppCommercial(
+  id: number,
+  data: { action: 'stop' | 'revoke'; confirmName?: string; legacyTo?: number }
+) {
+  return request.post<{ mode: AppCommercialMode; revoked: number; msg: string }>({
+    url: `/api/app/${id}/commercial/close`,
+    data,
+    showErrorMessage: false
+  })
 }
 
 /** 补生成商店签名密钥 */
@@ -320,18 +381,118 @@ export function fetchEnsureStoreSnapshotKey() {
   return request.post({ url: '/api/app/store-snapshot-key', showSuccessMessage: true })
 }
 
-export function fetchCommercialPurchaseGaps() {
-  return request.get<{ count: number; orders: { orderNo: string; licenseNo: string }[] }>({
+interface CommercialGapOrder {
+  orderNo: string
+  appId: number
+  licenseId: number
+  licenseNo: string
+  appName: string
+  planName: string
+  paidAt: string
+  period: string
+}
+
+/** 已付款但还没开通商业版的订单。appId 为 0 时列出全部商业版应用 */
+export function fetchCommercialPurchaseGaps(appId = 0) {
+  return request.get<{ count: number; orders: CommercialGapOrder[] }>({
     url: '/api/v1/source/admin/store/commercial-gaps',
+    params: appId ? { appId } : undefined,
     showErrorMessage: false
   })
 }
 
-export function reissueCommercialPurchases() {
+/** 只补发这个应用的订单 */
+export function reissueCommercialPurchases(appId: number) {
   return request.post<{ granted: number; already: number; msg: string }>({
     url: '/api/v1/source/admin/store/commercial-reissue',
+    data: { appId },
     showSuccessMessage: false,
     showErrorMessage: true
+  })
+}
+
+interface StoreAdminPage<T> {
+  list: T[]
+  total: number
+  page: number
+  size: number
+}
+
+export interface StoreAdminQuery {
+  appId?: number
+  page: number
+  size: number
+  kind?: string
+  status?: string
+}
+
+export interface StoreAdminOrder {
+  orderNo: string
+  ownerType: string
+  ownerId: number
+  itemKind: string
+  title: string
+  amountCents: number
+  status: string
+  payChannel: string
+  appId: number
+  appName: string
+  domain: string
+  createdAt?: string
+  paidAt?: string
+}
+
+export interface StoreAdminLicense {
+  id: number
+  licenseNo: string
+  ownerType: string
+  ownerId: number
+  licenseStatus: string
+  appId: number
+  appName: string
+  domain: string
+  edition: string
+  period: string
+  editionExpireAt?: string
+  editionStatus?: string
+}
+
+export interface StoreAdminBinding {
+  bindingId: string
+  ownerType: string
+  ownerId: number
+  licenseId: number
+  licenseNo: string
+  appId: number
+  appName: string
+  domain: string
+  appVersion: string
+  status: string
+  createdAt?: string
+  lastSeenAt?: string
+}
+
+export function fetchStoreAdminOrders(params: StoreAdminQuery) {
+  return request.get<StoreAdminPage<StoreAdminOrder>>({
+    url: '/api/v1/source/admin/store/orders',
+    params,
+    showErrorMessage: false
+  })
+}
+
+export function fetchStoreAdminLicenses(params: StoreAdminQuery) {
+  return request.get<StoreAdminPage<StoreAdminLicense>>({
+    url: '/api/v1/source/admin/store/licenses',
+    params,
+    showErrorMessage: false
+  })
+}
+
+export function fetchStoreAdminBindings(params: StoreAdminQuery) {
+  return request.get<StoreAdminPage<StoreAdminBinding>>({
+    url: '/api/v1/source/admin/store/bindings',
+    params,
+    showErrorMessage: false
   })
 }
 

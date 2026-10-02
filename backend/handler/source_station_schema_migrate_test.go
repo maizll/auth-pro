@@ -517,6 +517,11 @@ func (c *sourceSchemaMigrateConn) QueryContext(_ context.Context, query string, 
 		}, nil
 	case strings.Contains(query, "package_storage_state"):
 		return &sourceSchemaMigrateRows{done: true}, nil
+	case strings.Contains(query, "app_commercial_settings"),
+		strings.Contains(query, "commercial_product = 1"),
+		strings.Contains(query, "store_product_app_key"):
+		// 这些库里没有商业版应用，按应用拆分商业版的迁移读不到任何行。
+		return &sourceSchemaMigrateRows{done: true}, nil
 	case strings.Contains(query, "source_station_settings"):
 		key := sourceSchemaArgString(args, 0)
 		value, ok := state.stationSettings[key]

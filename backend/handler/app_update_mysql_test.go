@@ -75,14 +75,11 @@ func TestAppUpdateMariaDB(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	prevCommercial := commercialProductColumnOK
 	prevPurchase := appPurchaseLicenseTypesOK
 	prevVersions := appVersionTableOK
-	commercialProductColumnOK = false
 	appPurchaseLicenseTypesOK = false
 	appVersionTableOK = false
 	t.Cleanup(func() {
-		commercialProductColumnOK = prevCommercial
 		appPurchaseLicenseTypesOK = prevPurchase
 		appVersionTableOK = prevVersions
 	})
@@ -92,21 +89,20 @@ func TestAppUpdateMariaDB(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 
-	// 新建 → 只打开商业版开关（名称等不变）→ 再改名称和备注 → 从列表读出。
-	createCode, createBody := postAppCreate(t, appUpdateBody("授权系统", "", true, false))
+	// 新建 → 字段不变再保存 → 改名称和备注 → 从列表读出。商业版设置见 app_commercial_mysql_test.go。
+	createCode, createBody := postAppCreate(t, appUpdateBody("授权系统", "", true))
 	if jsonCode(createBody) != 200 {
 		t.Fatalf("新建应用失败 http=%d body=%s", createCode, createBody)
 	}
 	createdID := int64(createBody["data"].(map[string]any)["id"].(float64))
-	same := appUpdateBody("授权系统", "", true, true)
+	same := appUpdateBody("授权系统", "", true)
 	code, body := putAppUpdate(t, createdID, same)
 	if code != 200 || jsonCode(body) != 200 {
-		t.Fatalf("只开商业版开关应保存成功，http=%d body=%s", code, body)
+		t.Fatalf("字段不变保存应成功，http=%d body=%s", code, body)
 	}
-	assertAppRow(t, db, createdID, "授权系统", "", 1, 1)
-	assertGraceDays(t, db, 7)
+	assertAppRow(t, db, createdID, "授权系统", "", 1)
 
-	// 老数据直接插入：没有 owner 字段，开关默认关，提交值和原值相同。
+	// 老数据直接插入：没有 owner 字段，提交值和原值相同。
 	res, err := db.Exec(`
 		INSERT INTO apps (app_name, app_key, app_secret, description, enabled, purchase_license_type_mask)
 		VALUES ('旧应用', 'app_legacy', 'sk_live_legacy', '', 1, 15)
@@ -115,32 +111,29 @@ func TestAppUpdateMariaDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	legacyID, _ := res.LastInsertId()
-	legacy := appUpdateBody("旧应用", "", true, true)
-	code, body = putAppUpdate(t, legacyID, legacy)
+	code, body = putAppUpdate(t, legacyID, appUpdateBody("旧应用", "", true))
 	if jsonCode(body) != 200 {
-		t.Fatalf("老数据只开商业版开关应保存成功，http=%d body=%s", code, body)
+		t.Fatalf("老数据原样保存应成功，http=%d body=%s", code, body)
 	}
-	assertAppRow(t, db, legacyID, "旧应用", "", 1, 1)
-	renamed := appUpdateBody("买家主应用-改", "备注一", true, true)
-	renamed["graceDays"] = 9
+	assertAppRow(t, db, legacyID, "旧应用", "", 1)
+	renamed := appUpdateBody("买家主应用-改", "备注一", true)
 	code, body = putAppUpdate(t, createdID, renamed)
 	if jsonCode(body) != 200 {
 		t.Fatalf("编辑保存失败 http=%d body=%s", code, body)
 	}
 	reopened := appFromList(t, createdID)
-	if reopened["name"] != "买家主应用-改" || reopened["remark"] != "备注一" || reopened["commercialProduct"] != true {
+	if reopened["name"] != "买家主应用-改" || reopened["remark"] != "备注一" {
 		t.Fatalf("再次打开字段不对: %#v", reopened)
 	}
-	if int(reopened["graceDays"].(float64)) != 9 {
-		t.Fatalf("宽限天数未保存: %#v", reopened["graceDays"])
+	if _, ok := reopened["commercial"]; ok {
+		t.Fatalf("客户站的应用列表不应带商业版设置: %#v", reopened)
 	}
 
-	// 字段完全不变再保存一次，不能再报应用不存在，商业版开关保持打开。
 	code, body = putAppUpdate(t, createdID, renamed)
 	if jsonCode(body) != 200 {
 		t.Fatalf("字段不变再次保存失败 http=%d body=%s", code, body)
 	}
-	assertAppRow(t, db, createdID, "买家主应用-改", "备注一", 1, 1)
+	assertAppRow(t, db, createdID, "买家主应用-改", "备注一", 1)
 
 	code, body = putAppUpdate(t, 999999, same)
 	if jsonCode(body) != 404 {
@@ -198,16 +191,12 @@ func openAppUpdateDatabase(t *testing.T, databaseName string) *sql.DB {
 	return db
 }
 
-func appUpdateBody(name, remark string, enabled, commercial bool) map[string]any {
+func appUpdateBody(name, remark string, enabled bool) map[string]any {
 	return map[string]any{
-		"name":                   name,
-		"enabled":                enabled,
-		"remark":                 remark,
-		"purchaseLicenseTypes":   []string{"domain", "wildcard", "ip", "key"},
-		"commercialProduct":      commercial,
-		"graceDays":              7,
-		"revokeOnPasswordChange": true,
-		"commercialFeatures":     []string{"multi_app"},
+		"name":                 name,
+		"enabled":              enabled,
+		"remark":               remark,
+		"purchaseLicenseTypes": []string{"domain", "wildcard", "ip", "key"},
 	}
 }
 
@@ -249,30 +238,18 @@ func jsonCode(body map[string]any) int {
 	}
 }
 
-func assertAppRow(t *testing.T, db *sql.DB, id int64, name, remark string, enabled, commercial int) {
+func assertAppRow(t *testing.T, db *sql.DB, id int64, name, remark string, enabled int) {
 	t.Helper()
 	var gotName, gotRemark string
-	var gotEnabled, gotCommercial int
+	var gotEnabled int
 	err := db.QueryRow(`
-		SELECT app_name, description, enabled, commercial_product FROM apps WHERE id = ?
-	`, id).Scan(&gotName, &gotRemark, &gotEnabled, &gotCommercial)
+		SELECT app_name, description, enabled FROM apps WHERE id = ?
+	`, id).Scan(&gotName, &gotRemark, &gotEnabled)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotName != name || gotRemark != remark || gotEnabled != enabled || gotCommercial != commercial {
-		t.Fatalf("apps 行 id=%d got name=%q remark=%q enabled=%d commercial=%d", id, gotName, gotRemark, gotEnabled, gotCommercial)
-	}
-}
-
-func assertGraceDays(t *testing.T, db *sql.DB, days int) {
-	t.Helper()
-	var value string
-	err := db.QueryRow("SELECT value FROM system_configs WHERE `group`='store' AND `key`='store_grace_days'").Scan(&value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if value != strconv.Itoa(days) {
-		t.Fatalf("宽限天数 = %s，期望 %d", value, days)
+	if gotName != name || gotRemark != remark || gotEnabled != enabled {
+		t.Fatalf("apps 行 id=%d got name=%q remark=%q enabled=%d", id, gotName, gotRemark, gotEnabled)
 	}
 }
 

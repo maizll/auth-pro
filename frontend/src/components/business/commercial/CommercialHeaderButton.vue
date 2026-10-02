@@ -111,7 +111,7 @@
   async function load(pull: boolean) {
     try {
       const next = pull
-        ? await refreshStoreSnapshot().catch(() => fetchStoreAccount())
+        ? await refreshStoreSnapshot(false, true).catch(() => fetchStoreAccount())
         : await fetchStoreAccount()
       account.value = next
       rememberCommercialAccount(next)

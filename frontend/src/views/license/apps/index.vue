@@ -56,18 +56,23 @@
         </template>
 
         <template #sale="{ row }">
-          <div v-if="row.commercialProduct" class="sale-status">
-            <ElTag type="primary" size="small">商业版产品</ElTag>
-            <ElTag v-if="!row.saleGaps?.length" type="success" size="small">可售</ElTag>
+          <div v-if="row.commercial && row.commercial.mode !== 'off'" class="sale-status">
+            <ElTag v-if="row.commercial.mode === 'stopped'" type="info" size="small">已停售</ElTag>
+            <ElTag v-else-if="!row.commercial.saleGaps?.length" type="primary" size="small">
+              商业版 · 出售中
+            </ElTag>
             <ElButton
-              v-for="gap in row.saleGaps || []"
+              v-for="gap in row.commercial.mode === 'selling' ? row.commercial.saleGaps || [] : []"
               :key="gap.code"
               link
               type="danger"
-              @click="handleSaleGap(row, gap)"
+              @click="handleSaleGap(gap)"
             >
               {{ gap.label }}
             </ElButton>
+            <ElTag v-if="row.commercial.legacyDefault" type="success" size="small" effect="plain">
+              接收老客户端
+            </ElTag>
           </div>
           <span v-else class="text-secondary">--</span>
         </template>
@@ -147,28 +152,20 @@
         <ElFormItem label="状态">
           <ElSwitch v-model="formData.enabled" active-text="启用" inactive-text="禁用" />
         </ElFormItem>
-        <ElFormItem label="作为本站商业版出售">
-          <ElSwitch v-model="formData.commercialProduct" />
-          <div class="form-tip">全站只能有一个应用打开。买家绑定和扫码购买都用这个应用。</div>
-        </ElFormItem>
-        <ElCollapse v-if="formData.commercialProduct" class="commercial-advanced">
-          <ElCollapseItem title="高级设置" name="advanced">
-            <ElFormItem label="离线宽限天数">
-              <ElInputNumber v-model="formData.graceDays" :min="1" :max="30" />
-              <div class="form-tip"
-                >源站暂时连不上时，买方商业版还可以继续使用的天数，默认 7 天。</div
-              >
-            </ElFormItem>
-            <ElFormItem label="改密撤销绑定">
-              <ElSwitch v-model="formData.revokeOnPasswordChange" />
-              <div class="form-tip">打开后，买家在源站修改密码，会撤销已经绑定的站点。</div>
-            </ElFormItem>
-            <ElFormItem label="商业版功能键">
-              <ElInput v-model.trim="formData.commercialFeatures" placeholder="一般不用改" />
-              <div class="form-tip"> 商业版开放的能力。默认已填好多应用，一般不用改。 </div>
-            </ElFormItem>
-          </ElCollapseItem>
-        </ElCollapse>
+        <AppCommercialSection
+          v-if="commercialContext.managed"
+          v-model:form="commercialForm"
+          :saved-mode="editingRow?.commercial?.mode || 'off'"
+          :app-id="formData.id"
+          :app-key="editingRow?.appKey || ''"
+          :plans="editingRow?.commercial?.plans || []"
+          :stats="editingRow?.commercial?.stats"
+          :gaps="editingRow?.commercial?.saleGaps || []"
+          :legacy-owner="legacyOwnerName"
+          @close="openCloseDialog"
+          @plans="goPlans"
+          @gap="handleSaleGap"
+        />
         <ElFormItem label="备注">
           <ElInput v-model="formData.remark" type="textarea" :rows="2" placeholder="可选" />
         </ElFormItem>
@@ -184,6 +181,7 @@
         @touched="repoTouched = true"
       />
       <template #footer>
+        <span v-if="editDirty" class="unsaved-tip">有未保存的修改</span>
         <template v-if="createResult">
           <ElButton @click="finishCreate">稍后处理</ElButton>
           <ElButton v-if="!createResult.ok" type="primary" @click="retryBind">重试绑定</ElButton>
@@ -199,11 +197,23 @@
           }}</ElButton>
         </template>
         <template v-else>
-          <ElButton @click="dialogVisible = false">取消</ElButton>
-          <ElButton type="primary" :loading="saving" @click="handleSubmit">确定</ElButton>
+          <ElButton @click="requestCloseCreate">取消</ElButton>
+          <ElButton type="primary" :loading="saving" @click="handleSubmit">保存</ElButton>
         </template>
       </template>
     </AppDialog>
+
+    <AppCommercialCloseDialog
+      v-if="closingRow?.commercial"
+      v-model="closeVisible"
+      :app-id="closingRow.id"
+      :app-name="closingRow.name"
+      :stats="closingRow.commercial.stats"
+      :is-super="commercialContext.super"
+      :legacy-default="closingRow.commercial.legacyDefault"
+      :legacy-targets="legacyTargets"
+      @done="afterClose"
+    />
 
     <AppDialog v-model="migrateVisible" title="归档应用" size="md" flow="short">
       <p v-if="migrateCount > 0">
@@ -270,6 +280,10 @@
   import { fetchAppRepoToken, suggestAppRepo } from '@/api/app-repo'
   import RepoOptionCards from '@/components/business/repo/RepoOptionCards.vue'
   import CommercialMark from '@/components/business/commercial/CommercialMark.vue'
+  import AppCommercialSection, {
+    type AppCommercialForm
+  } from '@/components/business/commercial/AppCommercialSection.vue'
+  import AppCommercialCloseDialog from '@/components/business/commercial/AppCommercialCloseDialog.vue'
   import { fetchStoreAccount, type StoreAccount } from '@/api/store'
   import {
     commercialCopy,
@@ -289,6 +303,8 @@
     fetchResetAppSecret,
     fetchUpdateAppLicenseRequired,
     fetchEnsureStoreSnapshotKey,
+    fetchAppCommercialContext,
+    type AppCommercialInput,
     type AppSaleGap,
     type LicenseAppItem
   } from '@/api/license-manage'
@@ -344,103 +360,121 @@
     callbackUrl: '',
     enabled: true,
     remark: '',
-    purchaseLicenseTypes: [...purchaseLicenseTypeOrder] as string[],
-    commercialProduct: false,
+    purchaseLicenseTypes: [...purchaseLicenseTypeOrder] as string[]
+  })
+
+  // 商业版只在官网出售。客户站拿到 managed=false，整节隐藏。
+  const commercialContext = reactive({ managed: false, super: false })
+  const defaultCommercialForm = (): AppCommercialForm => ({
+    mode: 'off',
+    legacyDefault: false,
     graceDays: 7,
     revokeOnPasswordChange: true,
-    commercialFeatures: 'multi_app'
+    features: 'multi_app'
   })
+  const commercialForm = ref<AppCommercialForm>(defaultCommercialForm())
+  const editingRow = ref<AppRow | null>(null)
+  // 打开弹框时的快照，用来提示未保存的修改。
+  const openedSnapshot = ref('')
+  const formSnapshot = () => JSON.stringify([formData, commercialForm.value])
 
   const formRules = {
     name: [{ required: true, message: '请输入应用名称', trigger: 'blur' }]
   }
 
-  const { columns, columnChecks, data, loading, refreshData, refreshRemove } = useTable({
-    // 核心配置
-    core: {
-      apiFn: fetchLicenseAppList,
-      apiParams: {},
-      columnsFactory: () => [
-        { type: 'index', width: 60, label: '序号', mobileHidden: true },
-        {
-          prop: 'name',
-          label: '应用名称',
-          mobileLabel: '应用',
-          minWidth: 150,
-          useSlot: true,
-          showOverflowTooltip: true,
-          mobilePriority: 1
-        },
-        {
-          prop: 'repo',
-          label: '仓库',
-          minWidth: 180,
-          useSlot: true,
-          showOverflowTooltip: true,
-          mobileHidden: true
-        },
-        { prop: 'sale', label: '商业版', minWidth: 220, useSlot: true, mobileHidden: true },
-        {
-          prop: 'appKey',
-          label: 'AppKey',
-          minWidth: 220,
-          showOverflowTooltip: true,
-          mobileHidden: true
-        },
-        {
-          prop: 'purchaseLicenseTypes',
-          label: '授权方式',
-          minWidth: 250,
-          useSlot: true,
-          mobileHidden: true
-        },
-        { prop: 'appSecret', label: 'AppSecret', minWidth: 220, useSlot: true, mobileHidden: true },
-        { prop: 'licenseCount', label: '授权数', width: 90, align: 'center', mobileHidden: true },
-        { prop: 'version', label: '版本', minWidth: 120, useSlot: true, mobileHidden: true },
-        {
-          prop: 'enabled',
-          label: '状态',
-          width: 90,
-          align: 'center',
-          useSlot: true,
-          mobilePriority: 2,
-          mobileWidth: 72
-        },
-        {
-          prop: 'licenseRequired',
-          label: '授权校验',
-          width: 100,
-          align: 'center',
-          useSlot: true,
-          mobileHidden: true
-        },
-        { prop: 'createdAt', label: '创建时间', width: 160, mobileHidden: true },
-        {
-          prop: 'operation',
-          label: '操作',
-          width: 168,
-          useSlot: true,
-          mobilePriority: 3,
-          mobileWidth: 104
+  const { columns, columnChecks, data, loading, refreshData, refreshRemove, toggleColumn } =
+    useTable({
+      // 核心配置
+      core: {
+        apiFn: fetchLicenseAppList,
+        apiParams: {},
+        columnsFactory: () => [
+          { type: 'index', width: 60, label: '序号', mobileHidden: true },
+          {
+            prop: 'name',
+            label: '应用名称',
+            mobileLabel: '应用',
+            minWidth: 150,
+            useSlot: true,
+            showOverflowTooltip: true,
+            mobilePriority: 1
+          },
+          {
+            prop: 'repo',
+            label: '仓库',
+            minWidth: 180,
+            useSlot: true,
+            showOverflowTooltip: true,
+            mobileHidden: true
+          },
+          { prop: 'sale', label: '商业版', minWidth: 220, useSlot: true, mobileHidden: true },
+          {
+            prop: 'appKey',
+            label: 'AppKey',
+            minWidth: 220,
+            showOverflowTooltip: true,
+            mobileHidden: true
+          },
+          {
+            prop: 'purchaseLicenseTypes',
+            label: '授权方式',
+            minWidth: 250,
+            useSlot: true,
+            mobileHidden: true
+          },
+          {
+            prop: 'appSecret',
+            label: 'AppSecret',
+            minWidth: 220,
+            useSlot: true,
+            mobileHidden: true
+          },
+          { prop: 'licenseCount', label: '授权数', width: 90, align: 'center', mobileHidden: true },
+          { prop: 'version', label: '版本', minWidth: 120, useSlot: true, mobileHidden: true },
+          {
+            prop: 'enabled',
+            label: '状态',
+            width: 90,
+            align: 'center',
+            useSlot: true,
+            mobilePriority: 2,
+            mobileWidth: 72
+          },
+          {
+            prop: 'licenseRequired',
+            label: '授权校验',
+            width: 100,
+            align: 'center',
+            useSlot: true,
+            mobileHidden: true
+          },
+          { prop: 'createdAt', label: '创建时间', width: 160, mobileHidden: true },
+          {
+            prop: 'operation',
+            label: '操作',
+            width: 168,
+            useSlot: true,
+            mobilePriority: 3,
+            mobileWidth: 104
+          }
+        ]
+      },
+      // 数据处理
+      transform: {
+        dataTransformer: (records) => {
+          if (!Array.isArray(records)) {
+            return []
+          }
+          // 附加行级本地状态：密钥可见性、授权校验切换中
+          const normalized = (records as unknown as LicenseAppItem[]).map((item) => ({
+            ...item,
+            licenseRequired: item.licenseRequired !== false,
+            licenseRequiredChanging: false
+          }))
+          return normalized as unknown as typeof records
         }
-      ]
-    },
-    // 数据处理
-    transform: {
-      dataTransformer: (records) => {
-        if (!Array.isArray(records)) {
-          return []
-        }
-        // 附加行级本地状态：密钥可见性、授权校验切换中
-        const normalized = (records as unknown as LicenseAppItem[]).map((item) => ({
-          ...item,
-          licenseRequired: item.licenseRequired !== false,
-          licenseRequiredChanging: false
-        }))
-        return normalized as unknown as typeof records
       }
-    }
-  })
+    })
 
   const narrow = useNarrowScreen()
 
@@ -498,7 +532,10 @@
 
   const storeAccount = ref<StoreAccount | null>(null)
   const multiAppText = commercialCopy.multi_app
-  const showCommercialHint = computed(() => !isCommercialActive(storeAccount.value))
+  // 官网自己出售商业版，应用数不受限，不显示升级提示。
+  const showCommercialHint = computed(
+    () => !commercialContext.managed && !isCommercialActive(storeAccount.value)
+  )
   const showAppLimitBar = computed(() => showCommercialHint.value && (data.value?.length || 0) >= 1)
 
   async function loadCommercialAccount() {
@@ -510,7 +547,19 @@
     rememberCommercialAccount(storeAccount.value)
   }
 
+  async function loadCommercialContext() {
+    try {
+      const ctx = await fetchAppCommercialContext()
+      commercialContext.managed = !!ctx?.managed
+      commercialContext.super = !!ctx?.super
+    } catch {
+      commercialContext.managed = false
+    }
+    toggleColumn?.('sale', commercialContext.managed)
+  }
+
   onMounted(() => {
+    loadCommercialContext()
     loadCommercialAccount()
     window.addEventListener('store-account-refresh', loadCommercialAccount)
   })
@@ -528,10 +577,8 @@
     formData.enabled = true
     formData.remark = ''
     formData.purchaseLicenseTypes = [...purchaseLicenseTypeOrder]
-    formData.commercialProduct = false
-    formData.graceDays = 7
-    formData.revokeOnPasswordChange = true
-    formData.commercialFeatures = 'multi_app'
+    editingRow.value = null
+    commercialForm.value = defaultCommercialForm()
     step.value = 0
     createResult.value = null
     repoTouched.value = false
@@ -542,11 +589,15 @@
     dialogVisible.value = true
   }
 
-  const fillCommercialForm = (row?: AppRow) => {
-    formData.commercialProduct = !!row?.commercialProduct
-    formData.graceDays = row?.graceDays || 7
-    formData.revokeOnPasswordChange = row?.revokeOnPasswordChange !== false
-    formData.commercialFeatures = (row?.commercialFeatures || ['multi_app']).join(',')
+  const fillCommercialForm = (row: AppRow) => {
+    const view = row.commercial
+    commercialForm.value = {
+      mode: view?.mode || 'off',
+      legacyDefault: !!view?.legacyDefault,
+      graceDays: view?.graceDays || 7,
+      revokeOnPasswordChange: view?.revokeOnPasswordChange !== false,
+      features: (view?.features?.length ? view.features : ['multi_app']).join(',')
+    }
   }
 
   const handleEdit = (row: AppRow) => {
@@ -559,9 +610,11 @@
     formData.purchaseLicenseTypes = Array.isArray(row.purchaseLicenseTypes)
       ? [...row.purchaseLicenseTypes]
       : [...purchaseLicenseTypeOrder]
+    editingRow.value = row
     fillCommercialForm(row)
     step.value = 0
     createResult.value = null
+    openedSnapshot.value = formSnapshot()
     dialogVisible.value = true
   }
 
@@ -576,8 +629,13 @@
     repoAction.value = tokenReady.value ? 'create' : 'skip'
   }
 
+  const editDirty = computed(
+    () => dialogVisible.value && isEdit.value && formSnapshot() !== openedSnapshot.value
+  )
+
   function createDirty() {
-    if (isEdit.value || createResult.value) return false
+    if (createResult.value) return false
+    if (isEdit.value) return editDirty.value
     return formData.name.trim() !== '' || repoTouched.value || step.value > 0
   }
 
@@ -586,7 +644,7 @@
       done()
       return
     }
-    appConfirm('有未保存的更改。', '确认', {
+    appConfirm('有未保存的修改，确定放弃吗？', '确认', {
       confirmButtonText: '继续编辑',
       cancelButtonText: '放弃'
     })
@@ -632,35 +690,60 @@
     if (repoAction.value === 'create') repoAction.value = 'bind'
   }
 
-  const confirmCommercialSwitch = async () => {
-    if (!formData.commercialProduct) return true
-    const other = ((data.value || []) as AppRow[]).find(
-      (row) => row.commercialProduct && row.id !== formData.id
+  // 当前接收老客户端的其他应用。
+  const legacyOwnerName = computed(() => {
+    const owner = ((data.value || []) as AppRow[]).find(
+      (row) => row.commercial?.legacyDefault && row.id !== formData.id
     )
-    if (!other) return true
-    try {
-      await appConfirm(
-        `应用「${other.name}」正在作为本站商业版出售。开启后会改到当前应用，原应用不再出售。`,
-        '切换商业版产品',
-        { type: 'warning', confirmButtonText: '切换', cancelButtonText: '取消' }
-      )
-      return true
-    } catch {
-      return false
-    }
-  }
-
-  const commercialPayload = () => ({
-    commercialProduct: formData.commercialProduct,
-    graceDays: formData.graceDays,
-    revokeOnPasswordChange: formData.revokeOnPasswordChange,
-    commercialFeatures: formData.commercialFeatures
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean)
+    return owner?.name || ''
   })
 
-  const handleSaleGap = async (row: AppRow, gap: AppSaleGap) => {
+  // 只提交和打开时不一样的商业版字段。已停售的应用不提交状态，恢复出售要明确打开开关。
+  const commercialPayload = (): AppCommercialInput | undefined => {
+    if (!commercialContext.managed) return undefined
+    const form = commercialForm.value
+    const saved = editingRow.value?.commercial
+    const savedMode = saved?.mode || 'off'
+    const input: AppCommercialInput = {}
+    if (form.mode !== savedMode && (form.mode === 'selling' || form.mode === 'off')) {
+      input.mode = form.mode
+    }
+    if (form.mode !== 'off') {
+      if (form.legacyDefault !== !!saved?.legacyDefault) input.legacyDefault = form.legacyDefault
+      input.graceDays = form.graceDays
+      input.revokeOnPasswordChange = form.revokeOnPasswordChange
+      input.features = form.features
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    }
+    return Object.keys(input).length ? input : undefined
+  }
+
+  const closingRow = ref<AppRow | null>(null)
+  const closeVisible = ref(false)
+  const legacyTargets = computed(() =>
+    ((data.value || []) as AppRow[])
+      .filter((row) => row.id !== closingRow.value?.id && row.commercial?.mode === 'selling')
+      .map((row) => ({ id: row.id, name: row.name }))
+  )
+
+  function openCloseDialog() {
+    closingRow.value = editingRow.value
+    closeVisible.value = true
+  }
+
+  async function afterClose() {
+    dialogVisible.value = false
+    await refreshData()
+  }
+
+  function goPlans() {
+    if (!formData.id) return
+    router.push({ path: '/license/plans', query: { appId: String(formData.id) } })
+  }
+
+  const handleSaleGap = async (gap: AppSaleGap) => {
     if (gap.path) {
       router.push(gap.path)
       return
@@ -841,17 +924,18 @@
 
     saving.value = true
     try {
-      if (!(await confirmCommercialSwitch())) return
       const payload = {
         name: formData.name,
         enabled: formData.enabled,
         remark: formData.remark,
         purchaseLicenseTypes: formData.purchaseLicenseTypes,
-        ...commercialPayload()
+        commercial: commercialPayload()
       }
       if (isEdit.value) {
         const saved = await fetchUpdateLicenseApp(formData.id, payload)
-        ElMessage.success(saved?.switched ? '已切换为本站商业版产品，原应用已关闭出售' : '编辑成功')
+        ElMessage.success(
+          saved?.commercial?.notice ? `已保存。${saved.commercial.notice}` : '已保存'
+        )
         dialogVisible.value = false
         refreshData()
         return
@@ -872,7 +956,11 @@
         return
       }
       const msg = saved?.bound ? '应用已创建，仓库已绑定' : '应用已创建'
-      ElMessage.success(saved?.switched ? '已切换为本站商业版产品，原应用已关闭出售' : msg)
+      if (saved?.commercialError) {
+        ElMessage.error(`${msg}，商业版设置没有保存：${saved.commercialError}`)
+      } else {
+        ElMessage.success(saved?.commercial?.notice ? `${msg}。${saved.commercial.notice}` : msg)
+      }
       dialogVisible.value = false
       refreshData()
     } catch (e) {
@@ -960,8 +1048,10 @@
       overflow: hidden;
     }
 
-    .commercial-advanced {
-      margin-bottom: 12px;
+    .unsaved-tip {
+      margin-right: auto;
+      font-size: 12px;
+      color: var(--el-color-danger);
     }
 
     .form-tip {

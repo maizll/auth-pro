@@ -494,11 +494,3 @@ export async function downloadSourceDeveloperStarter() {
   })
   await triggerBlobDownload(res.data, 'auth-pro-developer-starter.zip', 'application/zip')
 }
-
-export async function downloadSourceDeveloperSkill() {
-  const res = await axios.get<Blob>(`${BASE}/skill.md`, {
-    ...developerConfig(),
-    responseType: 'blob'
-  })
-  await triggerBlobDownload(res.data, 'SKILL.md', 'text/markdown;charset=utf-8')
-}

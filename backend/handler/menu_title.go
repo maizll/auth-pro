@@ -7,6 +7,7 @@ var menuTitleZH = map[string]string{
 	"menus.license.apps":                 "应用管理",
 	"menus.license.versions":             "版本管理",
 	"menus.license.plans":                "套餐管理",
+	"menus.license.commercial":           "商业版",
 	"menus.license.cards":                "卡密管理",
 	"menus.license.list":                 "授权列表",
 	"menus.license.logs":                 "验证日志",

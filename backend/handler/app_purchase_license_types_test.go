@@ -183,10 +183,13 @@ func (conn *purchaseLicenseTypeTestConn) QueryContext(_ context.Context, query s
 			columns: []string{"enabled"},
 			values:  [][]driver.Value{{true}},
 		}, nil
-	case strings.Contains(query, "SELECT commercial_product FROM apps WHERE id"):
+	case strings.Contains(query, "SELECT mode FROM app_commercial_settings WHERE app_id"):
+		if conn.state.commercialProduct == 0 {
+			return &purchaseLicenseTypeTestRows{columns: []string{"mode"}}, nil
+		}
 		return &purchaseLicenseTypeTestRows{
-			columns: []string{"commercial_product"},
-			values:  [][]driver.Value{{conn.state.commercialProduct}},
+			columns: []string{"mode"},
+			values:  [][]driver.Value{{appCommercialModeSelling}},
 		}, nil
 	case strings.Contains(query, "SELECT enabled FROM apps WHERE id"):
 		return &purchaseLicenseTypeTestRows{
@@ -1060,8 +1063,6 @@ func usePurchaseLicenseTypeTestHooks(t *testing.T, db *sql.DB) {
 	previousEnsurePromotion := ensurePurchasePromotionSchema
 	previousSelfPurchase := selfPurchaseEnabledForPurchase
 	previousQueue := queuePurchaseSuccessMail
-	previousCommercialColumn := commercialProductColumnOK
-	commercialProductColumnOK = true
 	openAppPurchaseDB = func() (*sql.DB, error) { return db, nil }
 	ensureAppPurchaseLicenseTypes = func(*sql.DB) error { return nil }
 	ensureAgentPurchaseSchemas = func(*sql.DB) error { return nil }
@@ -1077,6 +1078,5 @@ func usePurchaseLicenseTypeTestHooks(t *testing.T, db *sql.DB) {
 		ensurePurchasePromotionSchema = previousEnsurePromotion
 		selfPurchaseEnabledForPurchase = previousSelfPurchase
 		queuePurchaseSuccessMail = previousQueue
-		commercialProductColumnOK = previousCommercialColumn
 	})
 }

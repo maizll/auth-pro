@@ -235,9 +235,10 @@
   const formRef = ref()
   const dialogTitle = computed(() => (isEdit.value ? '编辑套餐' : '新增套餐'))
 
-  // 搜索表单
+  // 搜索表单。从应用管理「管理套餐」跳过来时带 appId，直接筛出这个应用的套餐。
+  const route = useRoute()
   const searchForm = ref<PlanSearchForm>({
-    appId: undefined,
+    appId: Number(route.query.appId) || undefined,
     keyword: undefined,
     status: undefined
   })

@@ -5,6 +5,7 @@ package handler
 import (
 	"database/sql"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ type commercialEditionGrant struct {
 
 type commercialGapOrder struct {
 	OrderNo   string `json:"orderNo"`
+	AppID     int64  `json:"appId"`
 	LicenseID int64  `json:"licenseId"`
 	LicenseNo string `json:"licenseNo"`
 	AppName   string `json:"appName"`
@@ -35,22 +37,21 @@ type commercialGapOrder struct {
 	Period    string `json:"-"`
 }
 
+// appIsCommercialProduct 判断应用是不是在维护商业版（出售中或已停售）。
+// 已停售的应用仍然算：它的套餐不能当普通授权卖，已付款的订单照常开通。
 func appIsCommercialProduct(db *sql.DB, appID int64) (bool, error) {
 	if appID <= 0 {
 		return false, nil
 	}
-	if err := ensureCommercialProductColumn(db); err != nil {
-		return false, err
-	}
-	var flag int
-	err := db.QueryRow(`SELECT commercial_product FROM apps WHERE id = ?`, appID).Scan(&flag)
+	var mode string
+	err := db.QueryRow(`SELECT mode FROM app_commercial_settings WHERE app_id = ?`, appID).Scan(&mode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	return flag == 1, nil
+	return mode == appCommercialModeSelling || mode == appCommercialModeStopped, nil
 }
 
 func rejectCommercialOrdinaryPurchase(c *gin.Context, db *sql.DB, appID int64) bool {
@@ -110,9 +111,9 @@ func grantCommercialEditionTx(tx *sql.Tx, grant commercialEditionGrant) (bool, e
 		grantedBy = grant.GrantedBy
 	}
 	if _, err := tx.Exec(`INSERT INTO main_license_editions
-		(license_id, edition, period, started_at, expires_at, status, order_id, granted_by)
-		VALUES (?, 'commercial', ?, NOW(), ?, 'active', ?, ?)`,
-		grant.LicenseID, period, exp, orderID, grantedBy); err != nil {
+		(license_id, app_id, edition, period, started_at, expires_at, status, order_id, granted_by)
+		VALUES (?, (SELECT l.app_id FROM licenses l WHERE l.id = ?), 'commercial', ?, NOW(), ?, 'active', ?, ?)`,
+		grant.LicenseID, grant.LicenseID, period, exp, orderID, grantedBy); err != nil {
 		return false, err
 	}
 	if grant.MarkStorePurchase {
@@ -279,38 +280,39 @@ func signedSnapshotForLicense(db *sql.DB, licenseID int64) (storeSnapshot, bool,
 	if err != nil {
 		return storeSnapshot{}, false, err
 	}
-	settings, err := loadEffectiveStoreSettings(db)
+	product, err := loadAppCommercialForLicense(db, licenseID)
 	if err != nil {
 		return storeSnapshot{}, false, err
 	}
-	snapshot, err := buildStoreSnapshot(db, bindingID, licenseID, licenseNo, domain, settings)
+	snapshot, err := buildStoreSnapshot(db, bindingID, licenseID, licenseNo, domain, product.storeSettings())
 	if err != nil {
 		return storeSnapshot{}, true, err
 	}
 	return snapshot, true, nil
 }
 
-func listCommercialPurchaseGaps(db *sql.DB) ([]commercialGapOrder, error) {
-	if err := ensureCommercialProductColumn(db); err != nil {
-		return nil, err
-	}
-	rows, err := db.Query(`
-		SELECT o.order_no, o.license_id, COALESCE(o.license_no, ''),
+// listCommercialPurchaseGaps 列出在授权购买页付了款、却还没开通商业版的订单。appID 为 0 时列出全部商业版应用。
+// 已停售的应用也算，它们的历史订单同样要能补发。
+func listCommercialPurchaseGaps(db *sql.DB, appID int64) ([]commercialGapOrder, error) {
+	query := `
+		SELECT o.order_no, o.app_id, o.license_id, COALESCE(o.license_no, ''),
 		       COALESCE(NULLIF(o.app_name_snapshot, ''), a.app_name, ''),
 		       COALESCE(NULLIF(o.plan_name_snapshot, ''), ''),
 		       COALESCE(o.paid_at, o.created_at),
 		       COALESCE(l.duration_days, 0)
 		FROM license_purchase_orders o
-		JOIN apps a ON a.id = o.app_id AND a.commercial_product = 1
+		JOIN apps a ON a.id = o.app_id
+		JOIN app_commercial_settings s ON s.app_id = o.app_id AND s.mode <> 'off'
 		JOIN licenses l ON l.id = o.license_id
 		WHERE o.status = 'paid' AND o.owner_type = 'user'
+		  AND (? = 0 OR o.app_id = ?)
 		  AND NOT EXISTS (
 		    SELECT 1 FROM main_license_editions e
 		    WHERE e.license_id = o.license_id AND e.edition = 'commercial' AND e.status = 'active'
 		      AND (e.expires_at IS NULL OR e.expires_at > NOW())
 		  )
-		ORDER BY o.id ASC
-	`)
+		ORDER BY o.id ASC`
+	rows, err := db.Query(query, appID, appID)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +322,7 @@ func listCommercialPurchaseGaps(db *sql.DB) ([]commercialGapOrder, error) {
 		var item commercialGapOrder
 		var paid time.Time
 		var days int
-		if err := rows.Scan(&item.OrderNo, &item.LicenseID, &item.LicenseNo, &item.AppName, &item.PlanName, &paid, &days); err != nil {
+		if err := rows.Scan(&item.OrderNo, &item.AppID, &item.LicenseID, &item.LicenseNo, &item.AppName, &item.PlanName, &paid, &days); err != nil {
 			return nil, err
 		}
 		item.PaidAt = paid.Format("2006-01-02 15:04")
@@ -330,8 +332,8 @@ func listCommercialPurchaseGaps(db *sql.DB) ([]commercialGapOrder, error) {
 	return list, rows.Err()
 }
 
-func reissueCommercialPurchaseGaps(db *sql.DB) (granted, already int, err error) {
-	gaps, err := listCommercialPurchaseGaps(db)
+func reissueCommercialPurchaseGaps(db *sql.DB, appID int64) (granted, already int, err error) {
+	gaps, err := listCommercialPurchaseGaps(db, appID)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -367,7 +369,8 @@ func AdminCommercialPurchaseGaps(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	gaps, err := listCommercialPurchaseGaps(db)
+	appID, _ := strconv.ParseInt(strings.TrimSpace(c.Query("appId")), 10, 64)
+	gaps, err := listCommercialPurchaseGaps(db, appID)
 	if err != nil {
 		storeFail(c, 500, "读取未开通的商业版订单失败")
 		return
@@ -375,14 +378,18 @@ func AdminCommercialPurchaseGaps(c *gin.Context) {
 	storeData(c, gin.H{"count": len(gaps), "orders": gaps})
 }
 
-// AdminCommercialPurchaseReissue 给这些订单补发商业版。已经开通过的不重复发放。
-// 返回补发数量和原本就已经开通的数量。中途写库失败返回 500，已提交的不会回滚。
+// AdminCommercialPurchaseReissue 给这些订单补发商业版。请求体 appId 指定只补发哪个应用，不传或为 0 时补发全部。
+// 已经开通过的不重复发放。返回补发数量和原本就已经开通的数量。中途写库失败返回 500，已提交的不会回滚。
 func AdminCommercialPurchaseReissue(c *gin.Context) {
+	var req struct {
+		AppID int64 `json:"appId"`
+	}
+	_ = c.ShouldBindJSON(&req)
 	db, err := openStoreDB(c)
 	if err != nil {
 		return
 	}
-	granted, already, err := reissueCommercialPurchaseGaps(db)
+	granted, already, err := reissueCommercialPurchaseGaps(db, req.AppID)
 	if err != nil {
 		storeFail(c, 500, "补发商业版授权失败")
 		return

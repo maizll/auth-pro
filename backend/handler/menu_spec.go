@@ -42,6 +42,7 @@ func productMenuSpecs() []productMenuSpec {
 		{ID: 303, ParentName: "License", Name: "LicenseApps", Path: "apps", Component: "/license/apps", Title: "menus.license.apps", Icon: "ri:apps-2-line", Sort: 1, KeepAlive: true, Roles: ops},
 		{ID: 308, ParentName: "License", Name: "LicenseVersions", Path: "versions", Component: "/license/versions", Title: "menus.license.versions", Icon: "ri:git-branch-line", Sort: 2, KeepAlive: true, Roles: ops},
 		{ID: 305, ParentName: "License", Name: "AppVersions", Path: "apps/:id/versions", Component: "/license/app-versions", Title: "menus.license.versions", Icon: "ri:git-branch-line", Sort: 99, IsHide: true, Roles: ops},
+		{ID: 309, ParentName: "License", Name: "LicenseCommercial", Path: "commercial", Component: "/license/commercial", Title: "menus.license.commercial", Icon: "ri:vip-diamond-line", Sort: 3, KeepAlive: true, Roles: ops},
 		{ID: 307, ParentName: "License", Name: "LicensePlans", Path: "plans", Component: "/license/plans", Title: "menus.license.plans", Icon: "ri:price-tag-3-line", Sort: 4, KeepAlive: true, Roles: ops},
 		{ID: 306, ParentName: "License", Name: "LicenseCards", Path: "cards", Component: "/license/cards", Title: "menus.license.cards", Icon: "ri:coupon-3-line", Sort: 5, KeepAlive: true, Roles: ops},
 		{ID: 302, ParentName: "License", Name: "LicenseList", Path: "list", Component: "/license/list", Title: "menus.license.list", Icon: "ri:file-list-3-line", Sort: 6, KeepAlive: true, Roles: ops},

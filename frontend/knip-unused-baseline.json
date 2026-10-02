@@ -18,7 +18,6 @@
     "src/api/dashboard.ts:type:DashboardTodoItem",
     "src/api/dashboard.ts:type:DashboardTrendItem",
     "src/api/license-manage.ts:type:CardItem",
-    "src/api/license-manage.ts:type:CommercialAppPayload",
     "src/api/license-manage.ts:type:PlanSearchParams",
     "src/api/license-manage.ts:type:VerifyLogItem",
     "src/api/notifications.ts:type:NotificationUnreadCount",

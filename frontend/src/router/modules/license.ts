@@ -44,6 +44,16 @@ export const licenseRoutes: AppRouteRecord = {
       }
     },
     {
+      path: 'commercial',
+      name: 'LicenseCommercial',
+      component: '/license/commercial',
+      meta: {
+        title: 'menus.license.commercial',
+        icon: 'ri:vip-diamond-line',
+        keepAlive: true
+      }
+    },
+    {
       path: 'plans',
       name: 'LicensePlans',
       component: '/license/plans',

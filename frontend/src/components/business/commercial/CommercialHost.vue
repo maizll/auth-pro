@@ -371,6 +371,7 @@
               <p class="upgrade-tip">{{ commercialCompareNote }}</p>
             </section>
             <p class="section-title">{{ action === 'renew' ? '选择续费套餐' : '选择套餐' }}</p>
+            <p v-if="productName" class="product-line">本站商业版：{{ productName }}</p>
             <div v-if="plans.length" class="plan-grid">
               <button
                 v-for="(plan, index) in plans"
@@ -410,6 +411,7 @@
               </button>
             </div>
             <ElButton
+              v-if="plans.length"
               type="primary"
               class="pay-submit"
               :loading="acting"
@@ -417,7 +419,7 @@
               @click="pay"
               >{{ payButtonText }}</ElButton
             >
-            <p v-if="!plans.length" class="upgrade-tip">源站尚未配置可购买的套餐。</p>
+            <p v-else class="upgrade-tip">{{ planNotice || '源站尚未配置可购买的套餐。' }}</p>
           </template>
         </template>
       </div>
@@ -566,6 +568,9 @@
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
   })
   const plans = ref<StorePlan[]>([])
+  // 源站按本站所属应用返回套餐，这里记下应用名和不能购买的原因。
+  const productName = ref('')
+  const planNotice = ref('')
   const planId = ref<number>()
   const payOptions = ref<StorePayOption[]>([])
   const payMethod = ref('')
@@ -786,6 +791,8 @@
         // 永久商业版不再卖套餐，但单独购买插件仍要拿到源站开启的收款方式。
         const data = await fetchStorePlans()
         applyPayOptions(data.payOptions)
+        productName.value = data.product?.name || ''
+        planNotice.value = data.notice || ''
         if (commercialCta(next) !== 'view') {
           plans.value = data.list || []
           planId.value = plans.value[0]?.id
@@ -895,6 +902,8 @@
     const keptPlan = planId.value
     const data = await fetchStorePlans()
     applyPayOptions(data.payOptions)
+    productName.value = data.product?.name || ''
+    planNotice.value = data.notice || ''
     // 单品窗口也要套餐列表，绑定成功后才能画出「商业版套餐」那张卡。
     plans.value = data.list || []
     if (!commercialUi.offer || choosingEdition.value) {
@@ -1280,6 +1289,12 @@
   }
 
   .compare__row + .compare__row {
+    border-top: 1px solid var(--el-border-color-extra-light);
+  }
+
+  /* 对比表底部的说明和表格行对齐，不要贴着圆角边框。 */
+  .compare .upgrade-tip {
+    padding: 8px 12px 10px;
     border-top: 1px solid var(--el-border-color-extra-light);
   }
 
@@ -1683,6 +1698,12 @@
     font-weight: 600;
   }
 
+  .product-line {
+    margin: -4px 0 8px;
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+  }
+
   .plan-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -1863,6 +1884,10 @@
     .compare__row {
       gap: 4px;
       padding: 8px;
+    }
+
+    .compare .upgrade-tip {
+      padding: 6px 8px 8px;
     }
 
     .compare__label,

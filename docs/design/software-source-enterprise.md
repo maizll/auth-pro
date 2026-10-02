@@ -84,7 +84,7 @@ PR #23 / #25 已补上目录编辑、分类进商店、`kind` 硬约束、上架
 | 动作 | 开发者 | 管理员 | 匿名 / 商店 |
 | --- | --- | --- | --- |
 | 入驻申请 / 查状态 | 代理商可申请；开发者只读状态 | 通过 / 拒绝后不保留申请单；取消开发者删除资格 | 否 |
-| 读文档 / starter.zip / skill.md | 是 | 是（管理端另有文档页） | schema 公开；starter 需开发者 JWT |
+| 读文档 / starter.zip | 是 | 是（管理端另有文档页） | schema 公开；starter 需开发者 JWT |
 | 登记元数据（URL + SHA256） | 是 → `draft` | 是；`shelf=true` 可直发 | 否 |
 | 上传 ZIP 硬校验 | **待补齐**（现仅管理端） | `packages/parse`、`packages/publish` | 否 |
 | 提交审核 | `POST .../submit` → `pending_review` | 可不经此步直发 | 否 |
@@ -296,7 +296,7 @@ stateDiagram-v2
 | 同上 | `/templates` 对称 |
 | GET/POST | `/ad-applications` |
 | POST | `/advertisements/image`（开发者上传广告图，与管理端同目录） |
-| GET | `/starter.zip` `/skill.md` |
+| GET | `/starter.zip` |
 
 **管理员（JWT + `RequireAdmin`）**
 
@@ -438,7 +438,7 @@ sequenceDiagram
   A->>O: POST /developer/apply
   O->>A: applications/:id/approve
   A->>D: 同一 JWT 进 /developer-panel
-  D->>D: GET starter.zip / skill.md / 读 docs/developer
+  D->>D: GET starter.zip / 读 docs/developer
   D->>D: 打 ZIP，托管 HTTPS，算 SHA256
   alt 外部地址（已具备）
     D->>O: POST /developer/plugins 或 /templates（draft）
@@ -459,7 +459,7 @@ sequenceDiagram
 ### 8.1 步骤（实现检查表）
 
 1. **入驻**：代理商面板「开发者入驻」一键申请。管理员「源站 → 入驻审核」通过。取消开发者会删除资格记录；审核通过/拒绝后不保留申请单。已发布目录归属不随取消删除。
-2. **读规范**：`/developer-panel/guide` 与 `GET /starter.zip`、`GET /skill.md`。starter 的 `plugin.json` / `template.json` 必须能过硬校验。
+2. **读规范**：`/developer-panel/guide` 与 `GET /starter.zip`。starter 的 `plugin.json` / `template.json` 必须能过硬校验。
 3. **交包**：选 `appId`。现状：填 HTTPS URL + SHA256。P1：也可上传 ZIP（仍不在源站落包，只解析清单）。
 4. **提交审核**：`submit` → `pending_review`。开发者不能上架。
 5. **等运营上架**：管理员 approve + shelf。P1 增加申请上架，仍由管理员按按钮。
@@ -646,7 +646,6 @@ sequenceDiagram
 | `docs/software-source-client-url.md` | 公开 URL / 字段 |
 | `GET /software-source/package-schema.json` | 与上列同 PR |
 | `docs/developer/starter/*` | 必须继续过硬校验 |
-| `developer-skills/auth-pro-plugin-template/SKILL.md` | 给 AI 工具的副本 |
 
 ### 13.4 明确不做
 

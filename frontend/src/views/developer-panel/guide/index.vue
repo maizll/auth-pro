@@ -11,11 +11,8 @@
           </p>
         </div>
         <div class="header-actions">
-          <el-button :loading="downloadingStarter" @click="handleDownloadStarter">
+          <el-button type="primary" :loading="downloadingStarter" @click="handleDownloadStarter">
             下载入门包 ZIP
-          </el-button>
-          <el-button type="primary" :loading="downloadingSkill" @click="handleDownloadSkill">
-            下载 AI Skill
           </el-button>
         </div>
       </div>
@@ -80,10 +77,7 @@
   import validationDoc from '@developer-docs/validation.md?raw'
   import versionsDoc from '@developer-docs/versions.md?raw'
   import reviewDoc from '@developer-docs/review-and-catalog.md?raw'
-  import {
-    downloadSourceDeveloperSkill,
-    downloadSourceDeveloperStarter
-  } from '@/api/source-developer'
+  import { downloadSourceDeveloperStarter } from '@/api/source-developer'
 
   defineOptions({ name: 'DeveloperPanelGuide' })
 
@@ -173,7 +167,6 @@
   }
 
   const downloadingStarter = ref(false)
-  const downloadingSkill = ref(false)
 
   async function handleDownloadStarter() {
     downloadingStarter.value = true
@@ -184,18 +177,6 @@
       ElMessage.error(error instanceof Error ? error.message : '下载入门包失败')
     } finally {
       downloadingStarter.value = false
-    }
-  }
-
-  async function handleDownloadSkill() {
-    downloadingSkill.value = true
-    try {
-      await downloadSourceDeveloperSkill()
-      ElMessage.success('已开始下载 SKILL.md')
-    } catch (error: unknown) {
-      ElMessage.error(error instanceof Error ? error.message : '下载 Skill 失败')
-    } finally {
-      downloadingSkill.value = false
     }
   }
 </script>

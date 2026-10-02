@@ -359,6 +359,9 @@ func signedSourceJSONPath(method, signPath, requestPath string, body any, out an
 		"X-Store-Nonce":     nonce,
 		"X-Store-Signature": storeRequestSignature(secret, method, signPath, ts, nonce, payload),
 	}
+	if key := storeProductKey(); key != "" {
+		headers[storeProductHeader] = key
+	}
 	var send any
 	if len(payload) > 0 {
 		send = json.RawMessage(payload)

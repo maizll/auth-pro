@@ -1,4 +1,4 @@
-// 把一个应用标成「本站商业版产品」，并列出还不能出售的原因：没套餐、没支付或签名密钥不可用。
+// 商业版套餐的读取和出售缺项检查：没套餐、没支付或签名密钥不可用。每个应用各自判断。
 
 package handler
 
@@ -55,7 +55,8 @@ func ensureCommercialProductColumn(db *sql.DB) error {
 	return nil
 }
 
-// prepareCommercialProduct 补列、把旧的手填 app_key 标到应用上，并把旧价格迁进套餐。
+// prepareCommercialProduct 补 apps.commercial_product 列，并把旧的商业版价格迁进套餐。只在启动时执行。
+// 这一列只用来兼容回滚：新程序按 app_commercial_settings 判断，列里只同步「接收老客户端」的那个应用。
 func prepareCommercialProduct(db *sql.DB) error {
 	if hotPathSchemaSkipped() {
 		return nil
@@ -63,37 +64,7 @@ func prepareCommercialProduct(db *sql.DB) error {
 	if err := ensureCommercialProductColumn(db); err != nil {
 		return err
 	}
-	if err := adoptLegacyCommercialProduct(db); err != nil {
-		return err
-	}
 	return migrateStoreEditionPlans(db)
-}
-
-func adoptLegacyCommercialProduct(db *sql.DB) error {
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM apps WHERE commercial_product = 1`).Scan(&count); err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
-	}
-	var key string
-	err := db.QueryRow(
-		"SELECT value FROM system_configs WHERE `group` = ? AND `key` = ?",
-		storeConfigGroup, storeConfigProductAppKey,
-	).Scan(&key)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return nil
-	}
-	_, err = db.Exec(`UPDATE apps SET commercial_product = 1 WHERE app_key = ?`, key)
-	return err
 }
 
 func lookupCommercialProduct(db *sql.DB) (id int64, appKey string, enabled int, err error) {
@@ -107,55 +78,6 @@ func lookupCommercialProduct(db *sql.DB) (id int64, appKey string, enabled int, 
 	}
 	appKey = strings.TrimSpace(appKey)
 	return id, appKey, enabled, nil
-}
-
-// setCommercialProduct 打开或关闭「作为本站商业版出售」。打开时关掉其他应用。
-func setCommercialProduct(db *sql.DB, appID int64, on bool) (switched bool, err error) {
-	if err := ensureCommercialProductColumn(db); err != nil {
-		return false, err
-	}
-	var exists int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM apps WHERE id = ?`, appID).Scan(&exists); err != nil {
-		return false, err
-	}
-	if exists == 0 {
-		return false, errors.New("应用不存在")
-	}
-	if !on {
-		_, err := db.Exec(`UPDATE apps SET commercial_product = 0 WHERE id = ?`, appID)
-		return false, err
-	}
-	var others int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM apps WHERE commercial_product = 1 AND id <> ?`, appID).Scan(&others); err != nil {
-		return false, err
-	}
-	if _, err := db.Exec(`UPDATE apps SET commercial_product = CASE WHEN id = ? THEN 1 ELSE 0 END`, appID); err != nil {
-		return false, err
-	}
-	return others > 0, nil
-}
-
-func saveCommercialAppSettings(db *sql.DB, grace *int, revoke *bool, features *[]string) error {
-	current, err := loadSourceStoreSettings(db)
-	if err != nil {
-		return err
-	}
-	if grace != nil {
-		current.GraceDays = *grace
-	}
-	if revoke != nil {
-		current.RevokeOnPasswordChange = revoke
-	}
-	if features != nil {
-		current.CommercialFeatures = *features
-	}
-	current.FreePlanID = ""
-	normalized, err := normalizeStoreSettings(current)
-	if err != nil {
-		return err
-	}
-	normalized.FreePlanID = ""
-	return saveSourceStoreSettings(db, normalized)
 }
 
 func migrateStoreEditionPlans(db *sql.DB) error {
@@ -247,16 +169,9 @@ func yuanTextToCents(raw string) (int64, error) {
 	return int64(math.Round(yuan * 100)), nil
 }
 
-func listCommercialSalePlans(db *sql.DB) ([]map[string]any, error) {
-	settings, err := loadEffectiveStoreSettings(db)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(settings.ProductAppKey) == "" {
-		return []map[string]any{}, nil
-	}
-	appID, err := lookupEnabledStoreProductAppID(db, settings.ProductAppKey)
-	if err != nil {
+// listCommercialSalePlans 列出一个应用正在出售的商业版套餐：已启用、价格大于 0。
+func listCommercialSalePlans(db *sql.DB, appID int64) ([]map[string]any, error) {
+	if appID <= 0 {
 		return []map[string]any{}, nil
 	}
 	rows, err := db.Query(`SELECT id, name, duration_days, CAST(price AS CHAR),
@@ -300,59 +215,27 @@ func commercialSalePlanItem(id int64, name string, days int, cents int64, freeCh
 	return item
 }
 
-func loadCommercialSalePlan(db *sql.DB, planID int64) (name, period string, priceCents int64, err error) {
-	settings, err := loadEffectiveStoreSettings(db)
-	if err != nil {
-		return "", "", 0, err
-	}
-	appID, err := lookupEnabledStoreProductAppID(db, settings.ProductAppKey)
-	if err != nil {
-		return "", "", 0, err
-	}
+// errCommercialPlanAppMismatch 表示套餐不属于这个站点绑定的应用，多半是老客户端缓存了别的应用的套餐。
+var errCommercialPlanAppMismatch = errors.New("套餐已更新，请刷新后重新选择")
+
+// loadCommercialSalePlan 读取下单用的套餐。套餐必须属于站点绑定的应用。
+func loadCommercialSalePlan(db *sql.DB, appID, planID int64) (name, period string, priceCents int64, err error) {
 	var days, enabled int
+	var planApp int64
 	var priceText string
-	queryErr := db.QueryRow(`SELECT name, duration_days, CAST(price AS CHAR), enabled
-		FROM license_plans WHERE id = ? AND app_id = ?`, planID, appID).Scan(&name, &days, &priceText, &enabled)
+	queryErr := db.QueryRow(`SELECT app_id, name, duration_days, CAST(price AS CHAR), enabled
+		FROM license_plans WHERE id = ?`, planID).Scan(&planApp, &name, &days, &priceText, &enabled)
 	if queryErr != nil || enabled != 1 {
 		return "", "", 0, errors.New("套餐不存在或未启用")
+	}
+	if planApp != appID {
+		return "", "", 0, errCommercialPlanAppMismatch
 	}
 	priceCents, err = yuanTextToCents(priceText)
 	if err != nil || priceCents <= 0 {
 		return "", "", 0, errors.New("套餐价格不正确")
 	}
 	return name, salePeriodFromDuration(days), priceCents, nil
-}
-
-func validateCommercialAppSettings(grace *int, features *[]string) error {
-	days := storeGraceDefaultDays
-	if grace != nil {
-		days = *grace
-	}
-	var featureList []string
-	if features != nil {
-		featureList = *features
-	}
-	_, err := normalizeStoreSettings(sourceStoreSettings{GraceDays: days, CommercialFeatures: featureList})
-	return err
-}
-
-func applyCommercialProductChoice(db *sql.DB, appID int64, on *bool, grace *int, revoke *bool, features *[]string) (bool, string, error) {
-	if on == nil {
-		return false, "", nil
-	}
-	switched, err := setCommercialProduct(db, appID, *on)
-	if err != nil {
-		return false, "", err
-	}
-	if *on {
-		if err := saveCommercialAppSettings(db, grace, revoke, features); err != nil {
-			return switched, "", err
-		}
-	}
-	if switched {
-		return true, "已切换为本站商业版产品，原应用已关闭出售", nil
-	}
-	return false, "", nil
 }
 
 // commercialSaleShared 是和具体应用无关的出售条件，列表里只算一次。

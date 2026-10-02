@@ -39,6 +39,15 @@ if [[ -n "${AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY:-}" ]]; then
   LDFLAGS="$LDFLAGS -X auto_pro/handler.embeddedStoreSnapshotPublicKey=${AUTH_PRO_STORE_SNAPSHOT_PUBLIC_KEY}"
   printf 'store snapshot public key: embed via ldflags\n'
 fi
+# 本站在源站上所属的商业版应用。留空时归入源站「接收老客户端」的那个应用。
+if [[ -n "${AUTH_PRO_STORE_PRODUCT_APP_KEY:-}" ]]; then
+  if [[ ! "${AUTH_PRO_STORE_PRODUCT_APP_KEY}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]]; then
+    echo "AUTH_PRO_STORE_PRODUCT_APP_KEY 只能包含字母、数字、下划线和短横线" >&2
+    exit 1
+  fi
+  LDFLAGS="$LDFLAGS -X auto_pro/handler.embeddedStoreProductAppKey=${AUTH_PRO_STORE_PRODUCT_APP_KEY}"
+  printf 'store product app key: %s\n' "$AUTH_PRO_STORE_PRODUCT_APP_KEY"
+fi
 export GOCACHE="${GOCACHE:-$ROOT_DIR/.cache/go-build}"
 mkdir -p "$GOCACHE"
 

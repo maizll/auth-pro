@@ -215,17 +215,9 @@ func TestSourceDeveloperAdApplicationAcceptsUploadedImageURL(t *testing.T) {
 	}
 }
 
-func TestSourceDeveloperStarterPackAndSkill(t *testing.T) {
+func TestSourceDeveloperStarterPack(t *testing.T) {
 	router, _ := sourceStationRouter(t)
 	_, dev, _ := sourceApproveDeveloper(t, router, "dev-starter", "secret1")
-
-	skill := sourceJSON(t, router, http.MethodGet, "/api/v1/source/developer/skill.md", dev, "")
-	if skill.Code != http.StatusOK || !strings.Contains(skill.Body.String(), "name: auth-pro-plugin-template") {
-		t.Fatalf("skill.md=%s", skill.Body.String())
-	}
-	if !strings.Contains(skill.Body.String(), "plugin.json") || !strings.Contains(skill.Body.String(), "template.json") {
-		t.Fatalf("skill must mention manifests: %s", skill.Body.String())
-	}
 
 	zipRec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/source/developer/starter.zip", nil)
@@ -266,8 +258,10 @@ func TestSourceDeveloperStarterPackAndSkill(t *testing.T) {
 	if _, err := fillTemplateManifest(sourcePackageManifest{}, templateJSON, "template.json"); err != nil {
 		t.Fatalf("example template.json rejected: %v", err)
 	}
-	if _, ok := found["SKILL.md"]; !ok {
-		t.Fatal("starter zip missing SKILL.md")
+	for name := range found {
+		if strings.HasPrefix(name, ".cursor/") || strings.HasSuffix(name, "SKILL.md") {
+			t.Fatalf("入门包不应再带 AI 技能文件: %s", name)
+		}
 	}
 	if _, ok := found["docs/plugin-package.md"]; !ok {
 		t.Fatal("starter zip missing plugin docs")

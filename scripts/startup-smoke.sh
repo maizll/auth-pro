@@ -204,8 +204,9 @@ stop_server() {
 migration_marked() {
   local database="$1"
   local marked
-  marked="$(mysql_exec -N -e "SELECT COUNT(*) FROM schema_migrations WHERE name='app_repo_bindings_v1'" "${database}" 2>/dev/null || true)"
-  [[ "${marked}" == "1" ]]
+  # 仓库绑定和按应用拆分商业版两步迁移都要写上标记。
+  marked="$(mysql_exec -N -e "SELECT COUNT(*) FROM schema_migrations WHERE name IN ('app_repo_bindings_v1', 'per_app_commercial_v1')" "${database}" 2>/dev/null || true)"
+  [[ "${marked}" == "2" ]]
 }
 
 assert_up() {

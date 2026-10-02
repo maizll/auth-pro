@@ -537,26 +537,19 @@ func maybeRevokeBindingsAfterPassword(db *sql.DB, ownerType string, ownerID int6
 	if err := ensurePaidStoreSchema(db); err != nil {
 		return
 	}
-	settings, err := loadEffectiveStoreSettings(db)
-	if err != nil || settings.RevokeOnPasswordChange == nil || !*settings.RevokeOnPasswordChange {
-		return
-	}
-	_, _ = db.Exec(`UPDATE store_bindings SET status = 'revoked', revoked_at = NOW(), revoke_reason = 'password_changed'
-		WHERE owner_type = ? AND owner_id = ? AND status = 'active'`, ownerType, ownerID)
+	// 只撤销开了「改密后解绑」的应用下的绑定，各应用互不影响。
+	_, _ = db.Exec(`UPDATE store_bindings b
+		JOIN app_commercial_settings s ON s.app_id = b.app_id AND s.revoke_on_password_change = 1
+		SET b.status = 'revoked', b.revoked_at = NOW(), b.revoke_reason = 'password_changed'
+		WHERE b.owner_type = ? AND b.owner_id = ? AND b.status = 'active'`, ownerType, ownerID)
 }
 
 func guardProductDomainChange(db *sql.DB, licenseID int64, newDomain string, admin bool) error {
 	if db == nil || licenseID <= 0 {
 		return nil
 	}
-	settings, err := loadEffectiveStoreSettings(db)
-	if err != nil || settings.ProductAppKey == "" {
-		return nil
-	}
-	var appKey, licenseType, oldDomain string
-	err = db.QueryRow(`SELECT a.app_key, l.type, COALESCE((SELECT domain FROM license_domains WHERE license_id = l.id ORDER BY id LIMIT 1), '')
-		FROM licenses l JOIN apps a ON a.id = l.app_id WHERE l.id = ?`, licenseID).Scan(&appKey, &licenseType, &oldDomain)
-	if err != nil || appKey != settings.ProductAppKey || licenseType != "domain" {
+	licenseType, oldDomain, ok := commercialDomainLicense(db, licenseID)
+	if !ok || licenseType != "domain" {
 		return nil
 	}
 	if normalizeLicenseDomain(oldDomain) == normalizeLicenseDomain(newDomain) {
@@ -579,13 +572,8 @@ func finishProductDomainChange(db *sql.DB, licenseID int64, oldDomain, newDomain
 	if db == nil || licenseID <= 0 {
 		return
 	}
-	settings, err := loadEffectiveStoreSettings(db)
-	if err != nil || settings.ProductAppKey == "" {
-		return
-	}
-	var appKey, licenseType string
-	err = db.QueryRow(`SELECT a.app_key, l.type FROM licenses l JOIN apps a ON a.id = l.app_id WHERE l.id = ?`, licenseID).Scan(&appKey, &licenseType)
-	if err != nil || appKey != settings.ProductAppKey || licenseType != "domain" {
+	licenseType, _, ok := commercialDomainLicense(db, licenseID)
+	if !ok || licenseType != "domain" {
 		return
 	}
 	if normalizeLicenseDomain(oldDomain) == normalizeLicenseDomain(newDomain) {
@@ -595,4 +583,12 @@ func finishProductDomainChange(db *sql.DB, licenseID int64, oldDomain, newDomain
 		WHERE license_id = ? AND status = 'active'`, licenseID)
 	_, _ = db.Exec(`INSERT INTO license_domain_changes (license_id, old_domain, new_domain, actor) VALUES (?, ?, ?, ?)`,
 		licenseID, oldDomain, normalizeLicenseDomain(newDomain), trimStoreText(actor, 50))
+}
+
+// commercialDomainLicense 读出商业版应用（出售中或已停售）下授权的类型和当前域名。普通应用的授权返回 ok=false。
+func commercialDomainLicense(db *sql.DB, licenseID int64) (licenseType, domain string, ok bool) {
+	err := db.QueryRow(`SELECT l.type, COALESCE((SELECT domain FROM license_domains WHERE license_id = l.id ORDER BY id LIMIT 1), '')
+		FROM licenses l JOIN app_commercial_settings s ON s.app_id = l.app_id AND s.mode <> 'off'
+		WHERE l.id = ?`, licenseID).Scan(&licenseType, &domain)
+	return licenseType, domain, err == nil
 }

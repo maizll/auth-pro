@@ -26,10 +26,6 @@ func PlanList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化套餐授权方式失败: " + err.Error()})
 		return
 	}
-	if err := ensureCommercialProductColumn(db); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取商业版产品失败"})
-		return
-	}
 	if err := ensureSiteChangeSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化更换次数失败"})
 		return
@@ -56,10 +52,11 @@ func PlanList(c *gin.Context) {
 	}
 
 	query := fmt.Sprintf(`
-		SELECT p.id, p.app_id, a.app_name, COALESCE(a.commercial_product, 0), p.name, p.license_type, p.duration_days, p.price,
+		SELECT p.id, p.app_id, a.app_name, IF(COALESCE(cs.mode, 'off') <> 'off', 1, 0), p.name, p.license_type, p.duration_days, p.price,
 		       COALESCE(p.max_sites, 0), COALESCE(p.free_site_changes, -1), p.site_change_price, p.sort, p.enabled, p.remark, p.created_at
 		FROM license_plans p
 		LEFT JOIN apps a ON a.id = p.app_id
+		LEFT JOIN app_commercial_settings cs ON cs.app_id = p.app_id
 		WHERE %s
 		ORDER BY a.id ASC, p.sort ASC, p.id ASC
 	`, strings.Join(where, " AND "))
