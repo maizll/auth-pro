@@ -20,72 +20,17 @@ import (
 )
 
 const (
-	// licenseVerifyRateAttempts 是同一 IP + app_key 在滑动窗口内允许的公开校验次数。
+	// licenseVerifyRateAttempts 是同一 IP + app_key 每分钟允许的公开校验次数（令牌桶容量，按每秒 20 次回补）。
 	// 业务常在每次请求里校验。1200 次/分钟挡住空转把 verify_logs 打满，同时给单台应用服务器留出余量。
 	licenseVerifyRateAttempts = 1200
 	licenseVerifyRateWindow   = time.Minute
-	licenseVerifyRatePruneAt  = 1024
 )
-
-type licenseVerifyRateLimiter struct {
-	mu     sync.Mutex
-	limit  int
-	window time.Duration
-	hits   map[string][]time.Time
-}
-
-func newLicenseVerifyRateLimiter(limit int, window time.Duration) *licenseVerifyRateLimiter {
-	return &licenseVerifyRateLimiter{limit: limit, window: window, hits: make(map[string][]time.Time)}
-}
-
-// allow 按时间戳做滑动窗口，超限的请求不记入窗口，避免拒绝本身把窗口永远撑满。
-func (limiter *licenseVerifyRateLimiter) allow(key string, now time.Time) bool {
-	limiter.mu.Lock()
-	defer limiter.mu.Unlock()
-	if len(limiter.hits) > licenseVerifyRatePruneAt {
-		limiter.pruneExpired(now)
-	}
-	cutoff := now.Add(-limiter.window)
-	kept := make([]time.Time, 0, limiter.limit)
-	for _, hit := range limiter.hits[key] {
-		if hit.After(cutoff) {
-			kept = append(kept, hit)
-		}
-	}
-	if len(kept) >= limiter.limit {
-		if len(kept) == 0 {
-			delete(limiter.hits, key)
-		} else {
-			limiter.hits[key] = kept
-		}
-		return false
-	}
-	limiter.hits[key] = append(kept, now)
-	return true
-}
-
-func (limiter *licenseVerifyRateLimiter) pruneExpired(now time.Time) {
-	cutoff := now.Add(-limiter.window)
-	for key, hits := range limiter.hits {
-		kept := hits[:0]
-		for _, hit := range hits {
-			if hit.After(cutoff) {
-				kept = append(kept, hit)
-			}
-		}
-		if len(kept) == 0 {
-			delete(limiter.hits, key)
-			continue
-		}
-		limiter.hits[key] = kept
-	}
-}
 
 func licenseVerifyRateKey(clientIP, appKey string) string {
 	return clientIP + "\x00" + appKey
 }
 
-var licenseVerifyLimiter = newLicenseVerifyRateLimiter(licenseVerifyRateAttempts, licenseVerifyRateWindow)
+var licenseVerifyLimiter = newRateLimiter(licenseVerifyRateAttempts, licenseVerifyRateWindow)
 
 func licenseVerifyUnsignedFailureBody() gin.H {
 	return gin.H{

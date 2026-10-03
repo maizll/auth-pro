@@ -36,6 +36,7 @@
         :user-data="currentUserData"
         @submit="handleDialogSubmit"
       />
+      <BalanceDialog v-model="balanceVisible" :user="balanceUser" @done="refreshData" />
     </ElCard>
   </div>
 </template>
@@ -47,6 +48,7 @@
   import { fetchDeleteUser, fetchGetUserList } from '@/api/system-manage'
   import UserSearch from './modules/user-search.vue'
   import UserDialog from './modules/user-dialog.vue'
+  import BalanceDialog from './modules/balance-dialog.vue'
   import { ElTag, ElMessage } from 'element-plus'
   import request from '@/utils/http'
   import { showCaughtError } from '@/utils/http/error-toast'
@@ -159,11 +161,13 @@
             h(RowActions, {
               primary: [{ key: 'edit', label: '编辑' }],
               more: [
+                { key: 'balance', label: '调整余额' },
                 { key: 'impersonate', label: '代登录' },
                 { key: 'delete', label: '删除', danger: true }
               ],
               onClick: (action: RowActionItem) => {
                 if (action.key === 'edit') showDialog('edit', row)
+                else if (action.key === 'balance') openBalance(row)
                 else if (action.key === 'impersonate') void loginAsUser(row)
                 else if (action.key === 'delete') void deleteUser(row)
               }
@@ -189,6 +193,13 @@
   const handleSearch = (params: Api.SystemManage.UserSearchParams) => {
     replaceSearchParams(params)
     getData()
+  }
+
+  const balanceVisible = ref(false)
+  const balanceUser = ref<Partial<UserListItem>>({})
+  const openBalance = (row: UserListItem) => {
+    balanceUser.value = row
+    balanceVisible.value = true
   }
 
   /**

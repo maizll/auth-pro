@@ -38,7 +38,7 @@ var (
 	errCatalogPackageSHA         = errors.New(catalogPackageSHAText)
 	errPackageHostBlocked        = errors.New(catalogPackageHostText)
 	catalogPackageIDPattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,80}$`)
-	catalogPackageLimiter        = newProductUpdateRateLimiter(30, time.Minute)
+	catalogPackageLimiter        = newRateLimiter(30, time.Minute)
 )
 
 // catalogBuyerPackageURL 是写进公开目录的下载地址。客户端只认这个地址。

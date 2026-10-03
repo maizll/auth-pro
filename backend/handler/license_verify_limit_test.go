@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,28 +21,96 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestLicenseVerifyRateLimiterSlidesByIPAndAppKey(t *testing.T) {
-	limiter := newLicenseVerifyRateLimiter(2, time.Minute)
+func TestLicenseVerifyRateLimiterBucketsByIPAndAppKey(t *testing.T) {
+	limiter := newRateLimiter(2, time.Minute)
 	start := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
 	key := licenseVerifyRateKey("203.0.113.10", "demo-app")
-	if !limiter.allow(key, start) || !limiter.allow(key, start.Add(30*time.Second)) {
-		t.Fatal("hits inside the window were rejected")
+	for i := 0; i < 2; i++ {
+		if !limiter.allow(key, start) {
+			t.Fatal("桶容量以内的请求被拒绝")
+		}
 	}
-	if limiter.allow(key, start.Add(30*time.Second)) {
-		t.Fatal("third hit inside the same window was accepted")
+	if limiter.allow(key, start.Add(time.Second)) {
+		t.Fatal("桶空了还放行")
 	}
 	if !limiter.allow(licenseVerifyRateKey("203.0.113.10", "other-app"), start) {
-		t.Fatal("a different app_key shared the window")
+		t.Fatal("不同 app_key 共用了一个桶")
 	}
 	if !limiter.allow(licenseVerifyRateKey("203.0.113.11", "demo-app"), start) {
-		t.Fatal("a different IP shared the window")
+		t.Fatal("不同 IP 共用了一个桶")
 	}
-	if !limiter.allow(key, start.Add(61*time.Second)) {
-		t.Fatal("the oldest hit did not slide out of the window")
+	// 每分钟 2 次 = 每 30 秒回补 1 个。
+	if !limiter.allow(key, start.Add(30*time.Second)) {
+		t.Fatal("过了 30 秒没有回补令牌")
 	}
-	if limiter.allow(key, start.Add(61*time.Second)) {
-		t.Fatal("the newer hit was dropped before the window elapsed")
+	if limiter.allow(key, start.Add(31*time.Second)) {
+		t.Fatal("回补速度超过每分钟 2 次")
 	}
+	for i := 0; i < 2; i++ {
+		if !limiter.allow(key, start.Add(10*time.Minute)) {
+			t.Fatal("长时间不来后桶没有回满")
+		}
+	}
+	if limiter.allow(key, start.Add(10*time.Minute)) {
+		t.Fatal("回满后也不能超过容量")
+	}
+}
+
+// 复现 P2：来源超过 1024 个后，老限流器每个请求都在全局锁里扫一遍全部来源，每个来源还预分配 1200 个时间戳。
+// 新限流器 5000 个来源轮换时的耗时应和单一来源同一量级，记住的来源数也有上限。
+func TestRateLimiterManySourcesStayFastAndBounded(t *testing.T) {
+	const requests = 200000
+	start := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+	measure := func(sources int) time.Duration {
+		limiter := newRateLimiter(1200, time.Minute)
+		keys := make([]string, sources)
+		for index := range keys {
+			keys[index] = licenseVerifyRateKey("198.51."+strconv.Itoa(index/250)+"."+strconv.Itoa(index%250), "demo-app")
+		}
+		began := time.Now()
+		for index := 0; index < requests; index++ {
+			limiter.allow(keys[index%sources], start.Add(time.Duration(index)*time.Millisecond))
+		}
+		return time.Since(began)
+	}
+	single := measure(1)
+	many := measure(5000)
+	if many > single*4+50*time.Millisecond {
+		t.Fatalf("5000 个来源耗时 %v，单一来源 %v，来源多时明显变慢", many, single)
+	}
+
+	limiter := newRateLimiter(1200, time.Minute)
+	for index := 0; index < 400000; index++ {
+		limiter.allow("forged-"+strconv.Itoa(index), start)
+	}
+	if got := limiter.size(); got > rateLimiterShards*rateLimiterShardMaxKey {
+		t.Fatalf("记住的来源 %d 个，超过上限 %d", got, rateLimiterShards*rateLimiterShardMaxKey)
+	}
+	// 一个窗口后旧来源被清掉。
+	limiter.allow("fresh", start.Add(2*time.Minute))
+	for index := 0; index < rateLimiterShards*4; index++ {
+		limiter.allow("fresh-"+strconv.Itoa(index), start.Add(2*time.Minute))
+	}
+	if got := limiter.size(); got > rateLimiterShards*8 {
+		t.Fatalf("过了一个窗口仍记着 %d 个来源", got)
+	}
+}
+
+func BenchmarkRateLimiter5000Sources(b *testing.B) {
+	limiter := newRateLimiter(1200, time.Minute)
+	keys := make([]string, 5000)
+	for index := range keys {
+		keys[index] = "198.51.100." + strconv.Itoa(index)
+	}
+	now := time.Now()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		index := 0
+		for pb.Next() {
+			limiter.allow(keys[index%len(keys)], now)
+			index++
+		}
+	})
 }
 
 func TestLicenseVerifyRateLimitSkipsVerifyLog(t *testing.T) {
@@ -155,7 +224,7 @@ func useLicenseVerifyLimitBudget(t *testing.T, limit int) {
 	t.Helper()
 	previousLimiter := licenseVerifyLimiter
 	previousReady := appLicenseRequiredOK
-	licenseVerifyLimiter = newLicenseVerifyRateLimiter(limit, time.Minute)
+	licenseVerifyLimiter = newRateLimiter(limit, time.Minute)
 	appLicenseRequiredOK = true
 	t.Cleanup(func() {
 		licenseVerifyLimiter = previousLimiter

@@ -329,7 +329,16 @@ func AgentToggle(c *gin.Context) {
 		enabled = 0
 	}
 
-	_, err = db.Exec("UPDATE agents SET enabled = ? WHERE id = ?", enabled, id)
+	if enabled == 0 {
+		// 冻结时顺带作废已经发出的全部登录：以后解冻，旧登录也不会复活，代理需要重新登录。
+		if err := middleware.EnsurePasswordChangedAtColumn(db, "agents"); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "操作失败"})
+			return
+		}
+		_, err = db.Exec("UPDATE agents SET enabled = 0, password_changed_at = ? WHERE id = ?", middleware.NewPasswordChangeStamp(), id)
+	} else {
+		_, err = db.Exec("UPDATE agents SET enabled = 1 WHERE id = ?", id)
+	}
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "操作失败"})
 		return

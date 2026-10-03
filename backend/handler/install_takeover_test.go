@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -310,5 +312,112 @@ func TestInstallCreateAdminStillCreatesFirstAdmin(t *testing.T) {
 	}
 	if !config.IsInstalled() {
 		t.Fatal("fresh install did not write install.lock")
+	}
+}
+
+// useInstallProbeDBs 按库名给不同的假库，用来区分「现有配置的库」和「这次请求填的库」。
+// 和生产一样每次打开一个新连接池，调用方关掉也不影响下一次。
+func useInstallProbeDBs(t *testing.T, states map[string]*installProbeState) {
+	t.Helper()
+	registerInstallProbeDriver.Do(func() {
+		sql.Register(installProbeDriverName, installProbeDriver{})
+	})
+	prefix := strings.ReplaceAll(t.Name(), "/", "-") + "-"
+	for name, state := range states {
+		installProbeStates.Store(prefix+name, state)
+		key := prefix + name
+		t.Cleanup(func() { installProbeStates.Delete(key) })
+	}
+	previous := openInstallDatabase
+	openInstallDatabase = func(dsn string) (*sql.DB, error) {
+		cfg, err := mysql.ParseDSN(dsn)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := states[cfg.DBName]; !ok {
+			return nil, errors.New("unknown database " + cfg.DBName)
+		}
+		return sql.Open(installProbeDriverName, prefix+cfg.DBName)
+	}
+	t.Cleanup(func() { openInstallDatabase = previous })
+}
+
+// 复现 B2：install.lock 丢了，db.json 指向有数据的库；攻击者调 init-tables 填自己的空库，
+// 以前会覆盖 db.json 并建表，再调 create-admin 就成了超级管理员。
+func TestInstallLockLostCannotRepointToAnotherDatabase(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	dir := t.TempDir()
+	t.Setenv("AUTO_PRO_DATA_DIR", dir)
+	config.ClearCachedDBConfig()
+	t.Cleanup(config.ClearCachedDBConfig)
+	live := &config.DBConfig{Host: "127.0.0.1", Port: "3306", Database: "authpro_live", Username: "auth", Password: "live-pass"}
+	if err := config.SaveDBConfig(live); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(filepath.Join(dir, "db.json"))
+	liveState := &installProbeState{counts: map[string]int{"admins": 1, "licenses": 9}}
+	attackerState := &installProbeState{counts: map[string]int{}}
+	useInstallProbeDBs(t, map[string]*installProbeState{"authpro_live": liveState, "attacker_db": attackerState})
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = installJSONRequest(http.MethodPost, "/api/install/init-tables", `{"host":"203.0.113.50","port":"3306","database":"attacker_db","username":"evil","password":"x"}`)
+	InstallInitTables(ctx)
+	if recorder.Code != http.StatusForbidden || decodeInstallCode(t, recorder) != http.StatusForbidden {
+		t.Fatalf("改接空库应被拒绝 status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	after, _ := os.ReadFile(filepath.Join(dir, "db.json"))
+	if string(before) != string(after) {
+		t.Fatalf("db.json 被改写:\n%s", after)
+	}
+	assertNoInstallExec(t, attackerState, "DROP TABLE")
+	assertNoInstallExec(t, attackerState, "CREATE TABLE")
+
+	recorder = httptest.NewRecorder()
+	ctx, _ = gin.CreateTestContext(recorder)
+	ctx.Request = installJSONRequest(http.MethodPost, "/api/install/create-admin", `{"adminUsername":"attacker","adminPassword":"secret-pass"}`)
+	InstallCreateAdmin(ctx)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("create-admin 应被拒绝 status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertNoInstallExec(t, liveState, "INSERT INTO admins")
+	if config.IsInstalled() {
+		t.Fatal("被拒绝后不应写 install.lock")
+	}
+}
+
+// 现有配置连不上时同样拒绝（没法确认是不是已经装过）；现有库是空的（装到一半）可以换库重装。
+func TestInstallExistingConfigUnreachableOrEmpty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	dir := t.TempDir()
+	t.Setenv("AUTO_PRO_DATA_DIR", dir)
+	config.ClearCachedDBConfig()
+	t.Cleanup(config.ClearCachedDBConfig)
+	if err := config.SaveDBConfig(&config.DBConfig{Host: "127.0.0.1", Port: "3306", Database: "half_done", Username: "a", Password: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	halfDone := &installProbeState{fail: errors.New("connection refused")}
+	fresh := &installProbeState{counts: map[string]int{}}
+	useInstallProbeDBs(t, map[string]*installProbeState{"half_done": halfDone, "fresh_db": fresh})
+	body := `{"host":"127.0.0.1","port":"3306","database":"fresh_db","username":"a","password":"b"}`
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = installJSONRequest(http.MethodPost, "/api/install/init-tables", body)
+	InstallInitTables(ctx)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("现有配置连不上应拒绝 status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	halfDone.mu.Lock()
+	halfDone.fail = nil
+	halfDone.counts = map[string]int{}
+	halfDone.mu.Unlock()
+	recorder = httptest.NewRecorder()
+	ctx, _ = gin.CreateTestContext(recorder)
+	ctx.Request = installJSONRequest(http.MethodPost, "/api/install/init-tables", body)
+	InstallInitTables(ctx)
+	if recorder.Code != http.StatusOK || decodeInstallCode(t, recorder) != http.StatusOK {
+		t.Fatalf("现有库为空时应允许换库 status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

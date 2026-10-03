@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,14 +11,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"auto_pro/config"
-
-	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -29,24 +25,17 @@ const (
 	officialUpdateDefaultRepository = "maizll/auth-pro"
 	officialUpdateUnavailable       = "暂时无法获取更新"
 
-	// 官网专用只读令牌：只授权服务端仓库、只给 Contents 只读。加密后放在数据目录 store/ 下，权限 0600。
-	// 保存了它，官网更新只用它，失败就直接报出来，不再退回别的令牌或匿名，免得仓库改私有后才发现令牌早就失效。
-	officialUpdateTokenFile    = "official-update-token"
-	officialUpdateTokenKeyFile = "official-update.key"
-
-	officialCredentialToken     = "official_token"
-	officialCredentialSaved     = "saved_token"
-	officialCredentialAnonymous = "anonymous"
+	// 1.8.5–1.8.7 单独保存的「官网更新令牌」文件。1.8.8 起不再使用，启动时删除，见 RemoveLegacyOfficialUpdateToken。
+	legacyOfficialUpdateTokenFile    = "official-update-token"
+	legacyOfficialUpdateTokenKeyFile = "official-update.key"
 )
 
-var officialUpdateTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_]{20,255}$`)
-
-// officialUpdateCheck 记下官网最近一次读取发布仓库用的是哪种凭据、成没成功。只放内存，重启后重新记。
+// officialUpdateCheck 记下官网最近一次读取发布仓库用的是哪个令牌、成没成功。只放内存，重启后重新记。
 type officialUpdateCheck struct {
-	Credential string    `json:"credential"`
-	OK         bool      `json:"ok"`
-	Status     int       `json:"status,omitempty"`
-	At         time.Time `json:"at"`
+	OK     bool      `json:"ok"`
+	Source string    `json:"source"`
+	Reason string    `json:"reason,omitempty"`
+	At     time.Time `json:"at"`
 }
 
 var officialUpdateLastCheck struct {
@@ -133,43 +122,25 @@ func fetchOfficialReleaseAsset(ctx context.Context, releaseRef, assetName string
 	if err != nil {
 		return nil, err
 	}
-	tokens, kinds, dedicated := officialUpdateTokens()
+	sources := productUpdateTokenSources()
+	tokens := make([]string, len(sources))
+	for index, source := range sources {
+		tokens[index] = source.Token
+	}
 	payload, used, err := fetchGitHubReleaseAssetWith(ctx, owner, repo, releaseRef, assetName, tokens)
 	record := &officialUpdateCheck{OK: err == nil, At: time.Now()}
-	if err == nil && used >= 0 && used < len(kinds) {
-		record.Credential = kinds[used]
+	if err == nil && used >= 0 && used < len(sources) {
+		record.Source = sources[used].Label
 	} else {
-		record.Credential = kinds[len(kinds)-1]
-		record.Status = productUpdateHTTPStatus(err)
+		record.Reason = officialUpdateFetchReason(productUpdateHTTPStatus(err))
 	}
 	officialUpdateLastCheck.mu.Lock()
 	officialUpdateLastCheck.value = record
 	officialUpdateLastCheck.mu.Unlock()
-	if err != nil && dedicated {
-		// 只在官网后台显示。客户站拿不到这段说明。
-		return nil, errors.New("官网更新令牌读取失败：" + officialUpdateFetchReason(productUpdateHTTPStatus(err)))
-	}
 	return payload, err
 }
 
-// officialUpdateTokens 返回官网读取发布仓库要依次尝试的令牌，以及每个令牌属于哪种凭据。
-// 保存了专用只读令牌就只用它；没保存时沿用分发客户包的那组令牌，最后匿名（仓库改私有后匿名会失败）。
-func officialUpdateTokens() ([]string, []string, bool) {
-	if token, err := loadOfficialUpdateToken(); err == nil && token != "" {
-		return []string{token}, []string{officialCredentialToken}, true
-	}
-	tokens := productUpdateTokenCandidates()
-	kinds := make([]string, len(tokens))
-	for index, token := range tokens {
-		if token == "" {
-			kinds[index] = officialCredentialAnonymous
-		} else {
-			kinds[index] = officialCredentialSaved
-		}
-	}
-	return tokens, kinds, false
-}
-
+// officialUpdateFetchReason 把读取失败的状态码说成大白话。依次试过所有令牌，这里是最后一个的结果。
 func officialUpdateFetchReason(status int) string {
 	switch status {
 	case http.StatusUnauthorized:
@@ -177,7 +148,7 @@ func officialUpdateFetchReason(status int) string {
 	case http.StatusForbidden:
 		return "令牌没有读取权限，或请求太频繁"
 	case http.StatusNotFound:
-		return "读不到这个仓库的发布：令牌没有选中该仓库，或仓库还没有发布"
+		return "存储管理里的令牌都读不到这个仓库的发布（令牌没有选中该仓库，或仓库还没有发布）"
 	case 0:
 		return "连不上代码托管站"
 	default:
@@ -185,66 +156,9 @@ func officialUpdateFetchReason(status int) string {
 	}
 }
 
-func officialUpdateTokenPath() string {
-	return filepath.Join(config.GetDataDir(), "store", officialUpdateTokenFile)
-}
-
-func loadOfficialUpdateToken() (string, error) {
-	payload, err := os.ReadFile(officialUpdateTokenPath())
-	if err != nil {
-		return "", err
-	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(payload)))
-	if err != nil {
-		return "", err
-	}
-	key, err := loadOrCreateStoreFileKey(officialUpdateTokenKeyFile)
-	if err != nil {
-		return "", err
-	}
-	plain, err := openStoreSecret(key, raw)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(plain)), nil
-}
-
-// saveOfficialUpdateToken 加密保存专用只读令牌。传空字符串表示删除，官网回到原来的令牌顺序。
-func saveOfficialUpdateToken(token string) error {
-	token = strings.TrimSpace(token)
-	path := officialUpdateTokenPath()
-	if token == "" {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		return nil
-	}
-	if !officialUpdateTokenPattern.MatchString(token) {
-		return errors.New("令牌格式不对：只能是字母、数字和下划线，长度 20 到 255")
-	}
-	key, err := loadOrCreateStoreFileKey(officialUpdateTokenKeyFile)
-	if err != nil {
-		return err
-	}
-	blob, err := sealStoreSecret(key, []byte(token))
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(base64.StdEncoding.EncodeToString(blob)), 0600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
-
-// officialUpdateSourceView 是在线更新页「官网更新来源」一栏的数据。只在官网返回。
+// officialUpdateSourceView 是在线更新页「更新来源」那一行的数据。只在官网返回。
 type officialUpdateSourceView struct {
 	Repository string               `json:"repository"`
-	TokenSaved bool                 `json:"tokenSaved"`
-	TokenHint  string               `json:"tokenHint"`
 	LastCheck  *officialUpdateCheck `json:"lastCheck,omitempty"`
 }
 
@@ -256,12 +170,6 @@ func currentOfficialUpdateSource() *officialUpdateSourceView {
 	if owner, repo, err := officialUpdateRepository(); err == nil {
 		view.Repository = owner + "/" + repo
 	}
-	if token, err := loadOfficialUpdateToken(); err == nil && token != "" {
-		view.TokenSaved = true
-		if len(token) > 4 {
-			view.TokenHint = token[len(token)-4:]
-		}
-	}
 	officialUpdateLastCheck.mu.Lock()
 	if officialUpdateLastCheck.value != nil {
 		copyCheck := *officialUpdateLastCheck.value
@@ -271,80 +179,31 @@ func currentOfficialUpdateSource() *officialUpdateSourceView {
 	return view
 }
 
-// AdminOfficialUpdateTokenSave 保存或删除官网专用只读令牌。客户站没有这一项。
-func AdminOfficialUpdateTokenSave(c *gin.Context) {
-	if !officialSite() {
-		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "只有官网需要设置更新令牌"})
-		return
-	}
-	var req struct {
-		Token string `json:"token"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
-		return
-	}
-	if err := saveOfficialUpdateToken(req.Token); err != nil {
-		if strings.HasPrefix(err.Error(), "令牌格式") {
-			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
-			return
-		}
-		log.Printf("save official update token failed: %v", err)
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存令牌失败"})
-		return
-	}
-	msg := "令牌已保存，官网更新以后只用这个令牌"
-	if strings.TrimSpace(req.Token) == "" {
-		msg = "令牌已删除"
-	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg, "data": currentOfficialUpdateSource()})
-}
-
-// officialUpdateSourceTest 是「测试读取」的结果：令牌能不能读到最新清单，匿名能不能读到（能读到说明仓库还是公开的）。
-type officialUpdateSourceTest struct {
-	TokenOK           bool   `json:"tokenOk"`
-	TokenMessage      string `json:"tokenMessage"`
-	LatestVersion     string `json:"latestVersion,omitempty"`
-	AnonymousReadable bool   `json:"anonymousReadable"`
-}
-
-// AdminOfficialUpdateSourceTest 只读不装：用已保存的令牌读一次 latest.json，再匿名读一次发布信息。
-func AdminOfficialUpdateSourceTest(c *gin.Context) {
-	if !officialSite() {
-		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "只有官网需要设置更新令牌"})
-		return
-	}
-	owner, repo, err := officialUpdateRepository()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": err.Error()})
-		return
-	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Minute)
-	defer cancel()
-	result := officialUpdateSourceTest{}
-	token, tokenErr := loadOfficialUpdateToken()
-	if tokenErr != nil || token == "" {
-		result.TokenMessage = "还没有保存官网更新令牌"
-	} else {
-		body, _, fetchErr := fetchGitHubReleaseAssetWith(ctx, owner, repo, "latest", "latest.json", []string{token})
-		if fetchErr != nil {
-			result.TokenMessage = officialUpdateFetchReason(productUpdateHTTPStatus(fetchErr))
-		} else {
-			var manifest onlineUpdateManifest
-			if json.Unmarshal(body, &manifest) == nil && strings.TrimSpace(manifest.Version) != "" {
-				result.TokenOK = true
-				result.LatestVersion = strings.TrimPrefix(strings.TrimSpace(manifest.Version), "v")
-				result.TokenMessage = "令牌可以读取最新版本 v" + result.LatestVersion
-			} else {
-				result.TokenMessage = "读到的更新清单不是有效的 JSON"
-			}
+// RemoveLegacyOfficialUpdateToken 删除 1.8.5–1.8.7 单独保存的官网更新令牌（密文和它的密钥一起删）。
+// 为什么直接删而不是迁进存储管理：
+//   - 站长决定只保留一套令牌顺序（存储管理），旧入口已删，留着用不到的密钥文件只会增加泄露面；
+//   - 它是只读令牌，放进存储管理会因为不能写而一直报错；
+//   - 服务端仓库目前仍是公开的（1.7.0 及更早的客户站要直读），删掉后官网照样能匿名或用存储令牌更新；
+//     改私有前，存储检查里的「改为私有」说明会自动检查现有令牌能不能读它。
+//
+// 删了文件才通知一次超级管理员，提醒到代码托管站撤销那个令牌。返回是否删过。
+func RemoveLegacyOfficialUpdateToken() bool {
+	dir := filepath.Join(config.GetDataDir(), "store")
+	removed := false
+	for _, name := range []string{legacyOfficialUpdateTokenFile, legacyOfficialUpdateTokenFile + ".tmp", legacyOfficialUpdateTokenKeyFile} {
+		path := filepath.Join(dir, name)
+		if err := os.Remove(path); err == nil {
+			removed = true
+		} else if !errors.Is(err, os.ErrNotExist) {
+			log.Printf("remove legacy official update token %s failed: %v", name, err)
 		}
 	}
-	releaseURL := strings.TrimRight(productUpdateGitHubAPI, "/") + "/repos/" + owner + "/" + repo + "/releases/latest"
-	if _, anonErr := productUpdateFetch(ctx, releaseURL, "", "application/vnd.github+json"); anonErr == nil {
-		result.AnonymousReadable = true
+	if removed {
+		notifyAllAdmins(notificationTabNotice, "旧的官网更新令牌已删除",
+			"1.8.8 起官网更新统一使用存储管理里的令牌，之前在在线更新页单独保存的令牌已从服务器删除。如果它在别处没用，可以到代码托管站撤销。",
+			"/source-station/storage-monitor", "official_update_token_removed", "system", "official-update-token")
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": result})
+	return removed
 }
 
 // redactOfficialUpdateLocations 去掉清单里的下载地址，避免后台接口把仓库地址带出去。

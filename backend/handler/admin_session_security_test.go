@@ -462,6 +462,9 @@ func (conn *adminSessionConn) QueryContext(_ context.Context, query string, args
 			columns: []string{"email", "nickname", "enabled"},
 			values:  [][]driver.Value{{conn.state.user.email, conn.state.user.nickname, conn.state.user.enabled}},
 		}, nil
+	case strings.Contains(query, "SELECT enabled FROM agents WHERE id"):
+		// RequireAgent 每次请求复查代理是否被冻结。
+		return &adminSessionRows{columns: []string{"enabled"}, values: [][]driver.Value{{conn.state.agent.enabled}}}, nil
 	case strings.Contains(query, "FROM agents WHERE id"):
 		return &adminSessionRows{
 			columns: []string{"email", "name", "balance", "enabled"},

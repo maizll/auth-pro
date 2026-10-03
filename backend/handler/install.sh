@@ -1914,7 +1914,7 @@ baota_write_nginx_snippet() {
 #     proxy_http_version 1.1;
 #     proxy_set_header Host \$host;
 #     proxy_set_header X-Real-IP \$remote_addr;
-#     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+#     proxy_set_header X-Forwarded-For \$remote_addr;
 #     proxy_set_header X-Forwarded-Proto \$scheme;
 # }
 
@@ -1942,7 +1942,7 @@ location ^~ /assets/ {
     proxy_http_version 1.1;
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-For \$remote_addr;
     proxy_set_header X-Forwarded-Proto \$scheme;
     proxy_hide_header Cache-Control;
     add_header Cache-Control "public, max-age=31536000, immutable" always;
@@ -1954,7 +1954,7 @@ location = /index.html {
     proxy_http_version 1.1;
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-For \$remote_addr;
     proxy_set_header X-Forwarded-Proto \$scheme;
     proxy_hide_header Cache-Control;
     proxy_hide_header Pragma;
@@ -2070,7 +2070,7 @@ def with_assets(src):
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_hide_header Cache-Control;
         add_header Cache-Control "public, max-age=31536000, immutable" always;
@@ -2092,7 +2092,7 @@ if marker in text or "location = /backend-unavailable.html" in text:
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_hide_header Cache-Control;
         proxy_hide_header Pragma;
@@ -2121,7 +2121,7 @@ block = f"""
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_hide_header Cache-Control;
         proxy_hide_header Pragma;
@@ -3766,7 +3766,7 @@ menu_uninstall_site() {
 
 menu_render() {
   menu_tty_print "$(menu_blue "========================================")"
-  menu_tty_print "$(menu_blue "  auth-pro 1.8.7")"
+  menu_tty_print "$(menu_blue "  auth-pro 1.8.8")"
   menu_tty_print "$(menu_blue "========================================")"
   menu_tty_print "  $(menu_green "1")  安装新站点"
   menu_tty_print "  $(menu_green "2")  升级站点"

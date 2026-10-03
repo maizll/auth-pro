@@ -206,10 +206,11 @@
                     </ElFormItem>
                     <div class="preview-box">
                       <div class="preview-title">预览</div>
-                      <div
-                        class="preview-content"
-                        v-html="renderPreview(form.purchaseContent, form.purchaseContentType)"
-                      ></div>
+                      <MailPreviewFrame
+                        :content="form.purchaseContent"
+                        :content-type="form.purchaseContentType"
+                        height="280px"
+                      />
                     </div>
                   </div>
                 </ElTabPane>
@@ -270,10 +271,11 @@
                     </ElFormItem>
                     <div class="preview-box">
                       <div class="preview-title">预览</div>
-                      <div
-                        class="preview-content"
-                        v-html="renderPreview(form.expireContent, form.expireContentType)"
-                      ></div>
+                      <MailPreviewFrame
+                        :content="form.expireContent"
+                        :content-type="form.expireContentType"
+                        height="280px"
+                      />
                     </div>
                   </div>
                 </ElTabPane>
@@ -334,10 +336,11 @@
                     </ElFormItem>
                     <div class="preview-box">
                       <div class="preview-title">预览</div>
-                      <div
-                        class="preview-content"
-                        v-html="renderPreview(form.openedContent, form.openedContentType)"
-                      ></div>
+                      <MailPreviewFrame
+                        :content="form.openedContent"
+                        :content-type="form.openedContentType"
+                        height="280px"
+                      />
                     </div>
                   </div>
                 </ElTabPane>
@@ -394,6 +397,7 @@
 
 <script setup lang="ts">
   import type { FormInstance, FormRules } from 'element-plus'
+  import MailPreviewFrame from '@/components/business/mail-preview/MailPreviewFrame.vue'
   import { showCaughtError } from '@/utils/http/error-toast'
   import {
     fetchMailConfig,
@@ -679,11 +683,6 @@
       form.openedContent += value
     }
   }
-
-  const renderPreview = (content: string, contentType: 'text' | 'html') => {
-    if (contentType === 'html') return content
-    return content.replace(/\n/g, '<br />')
-  }
 </script>
 
 <style scoped lang="scss">
@@ -902,15 +901,6 @@
     .preview-title {
       margin-bottom: 10px;
       font-weight: 600;
-    }
-
-    .preview-content {
-      min-height: 120px;
-      padding: 12px;
-      overflow: auto;
-      border-radius: 8px;
-      background: #fff;
-      color: #333;
     }
 
     @media (max-width: 640px) {

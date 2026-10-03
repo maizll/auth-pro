@@ -8,10 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/gin-gonic/gin"
 )
 
 func TestOfficialUpdateUsesAuthProNotClientRepo(t *testing.T) {
@@ -147,8 +146,8 @@ func manifestAcceptedBy170(manifest onlineUpdateManifest) error {
 	return nil
 }
 
-// 保存了官网专用只读令牌后只用它：仓库改私有（匿名 404）后照样能读；令牌失效时直接报原因，不退回匿名。
-func TestOfficialUpdateDedicatedTokenAfterPrivate(t *testing.T) {
+// 仓库改私有后：存储管理里的令牌能读就用它，记下“用的是哪个存储令牌”；读不了只记原因，不再有单独的令牌入口。
+func TestOfficialUpdateUsesStorageTokenAfterPrivate(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -162,14 +161,11 @@ func TestOfficialUpdateDedicatedTokenAfterPrivate(t *testing.T) {
 	t.Setenv(officialUpdateRepoEnv, "")
 	t.Cleanup(SetSourceStationStoreForTest(newMemorySourceStore()))
 
-	const good = "github_pat_readonly_0123456789abcdef"
+	const good = "github_pat_storage_0123456789abcdef"
 	sum := strings.Repeat("ef", 32)
-	var seen []string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		seen = append(seen, auth)
 		// 模拟私有仓库：不带正确令牌一律 404。
-		if auth != "Bearer "+good {
+		if r.Header.Get("Authorization") != "Bearer "+good {
 			http.NotFound(w, r)
 			return
 		}
@@ -182,62 +178,62 @@ func TestOfficialUpdateDedicatedTokenAfterPrivate(t *testing.T) {
 	defer upstream.Close()
 	productUpdateGitHubAPI = upstream.URL
 
-	// 没保存令牌：沿用原来的顺序，最后匿名，私有仓库读不到。
+	// 没有任何令牌：只剩匿名，私有仓库读不到，记下原因（页面用中性颜色显示，不报红）。
 	if _, err := fetchOnlineUpdateManifest(); err == nil {
 		t.Fatal("没有令牌时私有仓库不应能读到")
 	}
-	if view := currentOfficialUpdateSource(); view == nil || view.TokenSaved || view.LastCheck == nil || view.LastCheck.Credential != officialCredentialAnonymous || view.LastCheck.OK {
+	if view := currentOfficialUpdateSource(); view == nil || view.LastCheck == nil || view.LastCheck.OK || view.LastCheck.Source != "" || view.LastCheck.Reason == "" {
 		t.Fatalf("应记下匿名读取失败: %+v", view)
 	}
 
-	if err := saveOfficialUpdateToken("bad token!"); err == nil {
-		t.Fatal("格式不对的令牌应被拒绝")
-	}
-	if err := saveOfficialUpdateToken(good); err != nil {
+	sealed, err := sealStorageSecret(good)
+	if err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(officialUpdateTokenPath())
-	if err != nil || info.Mode().Perm() != 0600 {
-		t.Fatalf("令牌文件权限应为 0600: %v %v", info, err)
+	loc := storageLocation{ID: newStorageID(), Name: "安装包仓库", Kind: packageStorageGitHub, Role: storageRolePrimary, Owner: "acme", Repo: "packages", SecretSealed: sealed}
+	if err := saveStorageBlob(storageConfigBlob{Locations: []storageLocation{loc}}); err != nil {
+		t.Fatal(err)
 	}
-	if raw, _ := os.ReadFile(officialUpdateTokenPath()); strings.Contains(string(raw), good) {
-		t.Fatal("令牌不应明文落盘")
-	}
-	seen = nil
 	manifest, err := fetchOnlineUpdateManifest()
 	if err != nil || manifest.Version != "1.8.6" {
-		t.Fatalf("专用令牌应能读到私有仓库: %+v err=%v", manifest, err)
-	}
-	for _, auth := range seen {
-		if auth != "Bearer "+good {
-			t.Fatalf("保存了专用令牌后不应再试别的凭据: %q", auth)
-		}
+		t.Fatalf("存储令牌应能读到私有仓库: %+v err=%v", manifest, err)
 	}
 	view := currentOfficialUpdateSource()
-	if !view.TokenSaved || view.TokenHint != "cdef" || view.LastCheck.Credential != officialCredentialToken || !view.LastCheck.OK {
+	if view.LastCheck == nil || !view.LastCheck.OK || view.LastCheck.Source != "存储「安装包仓库」的令牌" || view.Repository != "maizll/auth-pro" {
 		t.Fatalf("来源信息不对: %+v %+v", view, view.LastCheck)
 	}
-
-	// 测试读取：令牌能读，匿名读不到（说明仓库已私有）。
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/system/update/official-token/test", nil)
-	AdminOfficialUpdateSourceTest(ctx)
-	if body := recorder.Body.String(); !strings.Contains(body, `"tokenOk":true`) || !strings.Contains(body, `"anonymousReadable":false`) || !strings.Contains(body, "1.8.6") {
-		t.Fatalf("测试读取结果不对: %s", body)
+	raw, _ := json.Marshal(view)
+	if strings.Contains(string(raw), good) {
+		t.Fatal("来源信息不应带出令牌")
 	}
+}
 
-	// 令牌失效：报出原因，不退回匿名。
-	if err := saveOfficialUpdateToken("github_pat_expired_000000000000000"); err != nil {
+// 老站升级：1.8.5–1.8.7 单独保存的令牌文件和密钥一并删掉，只删一次。
+func TestRemoveLegacyOfficialUpdateToken(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AUTO_PRO_DATA_DIR", dir)
+	t.Cleanup(SetNotificationStoreForTest(newMemoryNotificationStore()))
+	store := filepath.Join(dir, "store")
+	if err := os.MkdirAll(store, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fetchOnlineUpdateManifest(); err == nil || !strings.Contains(err.Error(), "官网更新令牌读取失败") {
-		t.Fatalf("令牌失效应直接报原因: %v", err)
+	for _, name := range []string{legacyOfficialUpdateTokenFile, legacyOfficialUpdateTokenKeyFile, "storage-locations.key"} {
+		if err := os.WriteFile(filepath.Join(store, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := saveOfficialUpdateToken(""); err != nil {
-		t.Fatal(err)
+	if !RemoveLegacyOfficialUpdateToken() {
+		t.Fatal("有旧令牌文件时应删除并返回 true")
 	}
-	if _, err := os.Stat(officialUpdateTokenPath()); !os.IsNotExist(err) {
-		t.Fatal("清空后令牌文件应删除")
+	for _, name := range []string{legacyOfficialUpdateTokenFile, legacyOfficialUpdateTokenKeyFile} {
+		if _, err := os.Stat(filepath.Join(store, name)); !os.IsNotExist(err) {
+			t.Fatalf("%s 应已删除", name)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(store, "storage-locations.key")); err != nil {
+		t.Fatal("不能误删存储管理的密钥")
+	}
+	if RemoveLegacyOfficialUpdateToken() {
+		t.Fatal("第二次启动不应再删、再通知")
 	}
 }

@@ -35,6 +35,10 @@ func main() {
 	}
 
 	r := gin.Default()
+	// 只信任本机反代转来的客户端地址，伪造的 X-Forwarded-For 不再能换 IP。
+	if err := middleware.TrustLocalProxiesOnly(r); err != nil {
+		log.Fatalf("设置可信代理失败: %v", err)
+	}
 	appStoreServer := appstore.NewServer(handler.NewAppStoreTemplateRepository())
 
 	// CORS
@@ -98,7 +102,7 @@ func main() {
 
 		// 代理端（需鉴权）
 		agentSecured := api.Group("/agent-panel")
-		agentSecured.Use(middleware.JWTAuth(), middleware.RequireFreshPassword("agents"))
+		agentSecured.Use(middleware.JWTAuth(), middleware.RequireAgent(), middleware.RequireFreshPassword("agents"))
 		{
 			agentSecured.GET("/apps", handler.AgentPanelAppList)
 			agentSecured.GET("/apps/purchase", handler.AgentPanelPurchaseApps)
@@ -241,6 +245,7 @@ func main() {
 			secured.GET("/user/list", handler.AdminUserList)
 			userWrites.POST("/user/create", handler.AdminUserCreate)
 			userWrites.PUT("/user/:id", handler.AdminUserUpdate)
+			userWrites.POST("/user/:id/balance", handler.AdminUserBalanceAdjust)
 			userWrites.PUT("/user/:id/toggle", handler.AdminUserToggle)
 			userWrites.DELETE("/user/:id", handler.AdminUserDelete)
 			superSecured.POST("/user/:id/impersonate", handler.AdminImpersonateUser)
@@ -292,8 +297,6 @@ func main() {
 			superSecured.POST("/system/update/upload/apply", handler.AdminOnlineUpdateUploadApply)
 			superSecured.GET("/system/update/jobs/:id", handler.AdminOnlineUpdateJob)
 			// 官网专用只读更新令牌。客户站调用返回 403。
-			superSecured.POST("/system/update/official-token", handler.AdminOfficialUpdateTokenSave)
-			superSecured.POST("/system/update/official-token/test", handler.AdminOfficialUpdateSourceTest)
 			secured.GET("/license/dashboard", handler.LicenseDashboard)
 			secured.GET("/dashboard/overview", handler.AdminDashboardOverview)
 			secured.GET("/dashboard/cards", handler.AdminDashboardCards)
@@ -540,6 +543,8 @@ func runStartupMigrations() {
 	if err := handler.WarmHotPathSchema(db); err != nil {
 		log.Printf("warm hot path schema failed: %v", err)
 	}
+	// 1.8.5–1.8.7 单独保存的官网更新令牌已不用，删掉文件（理由见函数注释）。
+	handler.RemoveLegacyOfficialUpdateToken()
 	// 结构迁移已经记完，再迁官网仓库。放在这里，读令牌不会绕回尚未结束的迁移。
 	handler.ScheduleOfficialAppRepoMigration()
 	handler.StartPaidOriginHealthCheck()

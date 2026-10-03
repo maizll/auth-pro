@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -21,6 +22,34 @@ type storageObjectInfo struct {
 	Name    string
 	Size    int64
 	Updated time.Time
+	// Tag 只有 GitHub、Gitee 有：文件所在的发布标签，页面据此分组。
+	Tag string
+}
+
+// gitReleaseListPages 列仓库发布最多翻几页（每页 100 个）。
+const gitReleaseListPages = 10
+
+// gitReleaseAsset 是 GitHub、Gitee 发布附件里分组要用的字段。
+type gitReleaseAsset struct {
+	Name      string    `json:"name"`
+	Size      int64     `json:"size"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type gitReleaseListing struct {
+	TagName string            `json:"tag_name"`
+	Assets  []gitReleaseAsset `json:"assets"`
+}
+
+func gitReleaseObjects(loc storageLocation, releases []gitReleaseListing) []storageObjectInfo {
+	out := make([]storageObjectInfo, 0)
+	for _, release := range releases {
+		for _, asset := range release.Assets {
+			key := loc.Owner + "/" + loc.Repo + "/" + release.TagName + "/" + asset.Name
+			out = append(out, storageObjectInfo{Key: key, Name: asset.Name, Size: asset.Size, Updated: asset.UpdatedAt, Tag: release.TagName})
+		}
+	}
+	return out
 }
 
 func readLocationObject(ctx context.Context, loc storageLocation, secret, key string) ([]byte, error) {
@@ -270,69 +299,64 @@ func listLocationObjects(ctx context.Context, loc storageLocation, secret string
 }
 
 func listGitHubObjects(ctx context.Context, loc storageLocation, secret string) ([]storageObjectInfo, error) {
-	rawURL := strings.TrimRight(sourceGitHubAPIBase, "/") + "/repos/" + url.PathEscape(loc.Owner) + "/" + url.PathEscape(loc.Repo) + "/releases?per_page=30"
-	status, payload, err := githubPaidJSON(ctx, http.MethodGet, rawURL, secret, nil)
-	if err != nil {
-		return nil, errors.New("无法连接 GitHub，请稍后再试")
-	}
-	if status == http.StatusUnauthorized {
-		return nil, errors.New("GitHub 令牌无效或已过期")
-	}
-	if status == http.StatusNotFound {
-		return nil, errors.New("找不到该 GitHub 仓库，请核对所有者和仓库名")
-	}
-	if status == http.StatusForbidden {
-		return nil, errors.New("GitHub 令牌没有读取该仓库的权限")
-	}
-	if status < 200 || status >= 300 {
-		return nil, errors.New("读取 GitHub 仓库文件失败")
-	}
-	var releases []gitHubReleaseDTO
-	if err := json.Unmarshal(payload, &releases); err != nil {
-		return nil, errors.New("读取 GitHub 仓库文件失败")
-	}
-	out := make([]storageObjectInfo, 0)
-	for _, release := range releases {
-		for _, asset := range release.Assets {
-			key := loc.Owner + "/" + loc.Repo + "/" + release.TagName + "/" + asset.Name
-			out = append(out, storageObjectInfo{Key: key, Name: asset.Name})
+	all := make([]gitReleaseListing, 0)
+	for page := 1; page <= gitReleaseListPages; page++ {
+		rawURL := strings.TrimRight(sourceGitHubAPIBase, "/") + "/repos/" + url.PathEscape(loc.Owner) + "/" + url.PathEscape(loc.Repo) + "/releases?per_page=100&page=" + strconv.Itoa(page)
+		status, payload, err := githubPaidJSON(ctx, http.MethodGet, rawURL, secret, nil)
+		if err != nil {
+			return nil, errors.New("无法连接 GitHub，请稍后再试")
+		}
+		if status == http.StatusUnauthorized {
+			return nil, errors.New("GitHub 令牌无效或已过期")
+		}
+		if status == http.StatusNotFound {
+			return nil, errors.New("找不到该 GitHub 仓库，请核对所有者和仓库名")
+		}
+		if status == http.StatusForbidden {
+			return nil, errors.New("GitHub 令牌没有读取该仓库的权限")
+		}
+		if status < 200 || status >= 300 {
+			return nil, errors.New("读取 GitHub 仓库文件失败")
+		}
+		var releases []gitReleaseListing
+		if err := json.Unmarshal(payload, &releases); err != nil {
+			return nil, errors.New("读取 GitHub 仓库文件失败")
+		}
+		all = append(all, releases...)
+		if len(releases) < 100 {
+			break
 		}
 	}
-	return out, nil
+	return gitReleaseObjects(loc, all), nil
 }
 
 func listGiteeObjects(ctx context.Context, loc storageLocation, secret string) ([]storageObjectInfo, error) {
-	rawURL := strings.TrimRight(sourceGiteeAPIBase, "/") + "/repos/" + url.PathEscape(loc.Owner) + "/" + url.PathEscape(loc.Repo) + "/releases?page=1&per_page=30&access_token=" + url.QueryEscape(secret)
-	status, payload, err := sourceReleaseJSON(ctx, http.MethodGet, rawURL, nil, nil)
-	if err != nil {
-		return nil, errors.New("无法连接 Gitee，请稍后再试")
-	}
-	if status == http.StatusUnauthorized || status == http.StatusForbidden {
-		return nil, errors.New("Gitee 令牌无效，或没有该仓库的读取权限")
-	}
-	if status == http.StatusNotFound {
-		return nil, errors.New("找不到该 Gitee 仓库，请核对所有者和仓库名")
-	}
-	if status < 200 || status >= 300 {
-		return nil, errors.New("读取 Gitee 仓库文件失败")
-	}
-	var releases []struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name string `json:"name"`
-		} `json:"assets"`
-	}
-	if err := json.Unmarshal(payload, &releases); err != nil {
-		return nil, errors.New("读取 Gitee 仓库文件失败")
-	}
-	out := make([]storageObjectInfo, 0)
-	for _, release := range releases {
-		for _, asset := range release.Assets {
-			key := loc.Owner + "/" + loc.Repo + "/" + release.TagName + "/" + asset.Name
-			out = append(out, storageObjectInfo{Key: key, Name: asset.Name})
+	all := make([]gitReleaseListing, 0)
+	for page := 1; page <= gitReleaseListPages; page++ {
+		rawURL := strings.TrimRight(sourceGiteeAPIBase, "/") + "/repos/" + url.PathEscape(loc.Owner) + "/" + url.PathEscape(loc.Repo) + "/releases?page=" + strconv.Itoa(page) + "&per_page=100&access_token=" + url.QueryEscape(secret)
+		status, payload, err := sourceReleaseJSON(ctx, http.MethodGet, rawURL, nil, nil)
+		if err != nil {
+			return nil, errors.New("无法连接 Gitee，请稍后再试")
+		}
+		if status == http.StatusUnauthorized || status == http.StatusForbidden {
+			return nil, errors.New("Gitee 令牌无效，或没有该仓库的读取权限")
+		}
+		if status == http.StatusNotFound {
+			return nil, errors.New("找不到该 Gitee 仓库，请核对所有者和仓库名")
+		}
+		if status < 200 || status >= 300 {
+			return nil, errors.New("读取 Gitee 仓库文件失败")
+		}
+		var releases []gitReleaseListing
+		if err := json.Unmarshal(payload, &releases); err != nil {
+			return nil, errors.New("读取 Gitee 仓库文件失败")
+		}
+		all = append(all, releases...)
+		if len(releases) < 100 {
+			break
 		}
 	}
-	return out, nil
+	return gitReleaseObjects(loc, all), nil
 }
 
 func deleteLocationObject(ctx context.Context, loc storageLocation, secret, key string) error {
@@ -608,7 +632,7 @@ func probeGitRepo(ctx context.Context, loc storageLocation, secret string, githu
 		}
 		_ = json.Unmarshal(payload, &repo)
 		if !repo.Private {
-			return errors.New(githubPaidPublicRepoText)
+			return &storageRepoPublicError{kind: packageStorageGitHub, owner: loc.Owner, repo: loc.Repo, text: githubPaidPublicRepoText}
 		}
 		if !repo.Permissions.Push {
 			return errors.New("令牌可以读取该仓库，但没有写入权限。上传安装包需要 Contents 读写。")
@@ -640,7 +664,7 @@ func probeGitRepo(ctx context.Context, loc storageLocation, secret string, githu
 	}
 	_ = json.Unmarshal(payload, &repo)
 	if !repo.Private {
-		return errors.New("该 Gitee 仓库是公开的，不能存放收费安装包。请改用私有仓库。")
+		return &storageRepoPublicError{kind: packageStorageGitee, owner: loc.Owner, repo: loc.Repo, text: "该 Gitee 仓库是公开的，不能存放收费安装包。请改为私有仓库。"}
 	}
 	if !repo.Permission.Push {
 		return errors.New("令牌可以读取该 Gitee 仓库，但没有写入权限。")

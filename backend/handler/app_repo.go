@@ -571,6 +571,13 @@ func appRepoHealthRows(ctx context.Context) []storageHealthRow {
 			continue
 		}
 		state, stateErr := lookupGitHubPaidRepoState(ctx, token, owner, repo)
+		if stateErr == nil && state == githubPaidRepoPublic {
+			markAppRepoDegraded(appID)
+			rows = append(rows, storageHealthRow{
+				Level: "problem", LocationName: "仓库绑定", Target: name, Message: name + "：" + owner + "/" + repo + " 是公开仓库，任何人都能下载里面的收费包。绑定仍保留，不会自动下架。",
+			}.withMakePrivate(packageStorageGitHub, owner, repo))
+			continue
+		}
 		if stateErr != nil || state != githubPaidRepoPrivate {
 			markAppRepoDegraded(appID)
 			rows = append(rows, storageHealthRow{

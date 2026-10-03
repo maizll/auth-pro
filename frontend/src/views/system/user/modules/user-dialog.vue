@@ -28,7 +28,7 @@
           placeholder="留空则不修改密码"
         />
       </ElFormItem>
-      <ElFormItem label="余额" prop="balance">
+      <ElFormItem v-if="dialogType === 'add'" label="初始余额" prop="balance">
         <ElInputNumber
           v-model="formData.balance"
           :min="0"
@@ -36,6 +36,12 @@
           :step="100"
           controls-position="right"
         />
+      </ElFormItem>
+      <ElFormItem v-else label="余额">
+        <span class="balance-readonly">
+          ¥{{ Number(formData.balance || 0).toFixed(2) }}
+          <em>在列表「更多 → 调整余额」里增减，会记流水</em>
+        </span>
       </ElFormItem>
     </ElForm>
     <template #footer>
@@ -162,8 +168,7 @@
           const userId = props.userData?.userId
           const payload: any = {
             email: formData.email,
-            nickname: formData.nickname,
-            balance: formData.balance
+            nickname: formData.nickname
           }
           if (formData.password) {
             payload.password = formData.password
@@ -181,3 +186,16 @@
     })
   }
 </script>
+
+<style scoped lang="scss">
+  .balance-readonly {
+    color: var(--el-text-color-primary);
+
+    em {
+      margin-left: 8px;
+      font-size: 12px;
+      font-style: normal;
+      color: var(--el-text-color-secondary);
+    }
+  }
+</style>

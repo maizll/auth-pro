@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -38,10 +39,15 @@ func checkStorageLocations(ctx context.Context) {
 			continue
 		}
 		if probeErr := probeStorageLocation(ctx, loc, secret); probeErr != nil {
-			rows = append(rows, storageHealthRow{
+			row := storageHealthRow{
 				Level: "problem", LocationID: loc.ID, LocationName: loc.Name, Target: "连接",
 				Message: loc.Name + "：" + healthSentence(probeErr) + "相关安装包不会自动下架。",
-			})
+			}
+			var public *storageRepoPublicError
+			if errors.As(probeErr, &public) {
+				row = row.withMakePrivate(public.kind, public.owner, public.repo)
+			}
+			rows = append(rows, row)
 			continue
 		}
 		rows = append(rows, storageHealthRow{
@@ -79,6 +85,9 @@ func checkStorageLocations(ctx context.Context) {
 		})
 	}
 	rows = append(rows, appRepoHealthRows(ctx)...)
+	if row, ok := officialUpdateHealthRow(ctx); ok {
+		rows = append(rows, row)
+	}
 	blob.Health = rows
 	blob.CheckedAt = time.Now().UTC()
 	_ = saveStorageBlob(blob)

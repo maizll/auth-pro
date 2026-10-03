@@ -97,7 +97,7 @@
             <pre>{{ current.content }}</pre>
           </ElTabPane>
           <ElTabPane label="HTML预览" name="preview">
-            <div class="html-preview" v-html="current.content"></div>
+            <MailPreviewFrame :content="current.content" height="420px" />
           </ElTabPane>
         </ElTabs>
       </div>
@@ -107,6 +107,7 @@
 
 <script setup lang="ts">
   import AppDialog from '@/components/core/dialog/AppDialog.vue'
+  import MailPreviewFrame from '@/components/business/mail-preview/MailPreviewFrame.vue'
   import {
     fetchMailLogDetail,
     fetchMailLogList,
@@ -240,15 +241,6 @@
         white-space: pre-wrap;
         border-radius: 10px;
         background: var(--art-bg-color);
-      }
-
-      .html-preview {
-        max-height: 420px;
-        padding: 16px;
-        overflow: auto;
-        border: 1px solid var(--art-border-color);
-        border-radius: 10px;
-        background: #fff;
       }
     }
   }

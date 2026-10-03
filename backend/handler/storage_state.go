@@ -66,6 +66,12 @@ type storageHealthRow struct {
 	LocationName string `json:"locationName"`
 	Target       string `json:"target"`
 	Message      string `json:"message"`
+	// 以下仅在仓库是公开的时填写：前端据此给出「改为私有」按钮。
+	Action   string `json:"action,omitempty"`
+	Kind     string `json:"kind,omitempty"`
+	Owner    string `json:"owner,omitempty"`
+	Repo     string `json:"repo,omitempty"`
+	Official bool   `json:"official,omitempty"`
 }
 
 // storageConfigBlob 是存储管理的全部服务端状态。

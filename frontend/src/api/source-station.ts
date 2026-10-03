@@ -624,6 +624,8 @@ export interface StorageObjectRow {
   item?: string
   sha256?: string
   orphan?: boolean
+  /** GitHub、Gitee 文件所在的发布标签 */
+  tag?: string
 }
 
 interface StorageZipData {
@@ -632,12 +634,44 @@ interface StorageZipData {
 }
 
 export interface StorageHealthRow {
+  /** ok 正常；problem 有问题；notice 提醒（不算故障） */
   level: string
   locationId?: string
   locationName?: string
   target: string
   message: string
+  /** make_private：仓库是公开的，可以改为私有 */
+  action?: string
+  kind?: 'github' | 'gitee'
+  owner?: string
+  repo?: string
+  /** 官网自更新来源仓库：只给步骤，不能一键改 */
+  official?: boolean
 }
+
+interface MakePrivateTokenRead {
+  label: string
+  /** yes 能读；no 读不到；unknown 暂时无法确认 */
+  state: 'yes' | 'no' | 'unknown'
+  note: string
+}
+
+export interface MakePrivateCheck {
+  kind: string
+  owner: string
+  repo: string
+  official: boolean
+  allowed: boolean
+  reason?: string
+  tokenLabel?: string
+  consequences?: string[]
+  steps?: string[]
+  tokens?: MakePrivateTokenRead[]
+  readable?: boolean
+  summary?: string
+}
+
+type MakePrivateTarget = { kind: string; owner: string; repo: string }
 
 export function fetchStorageLocations() {
   return request.get<StorageLocationsData>({ url: `${BASE}/storage/locations` })
@@ -741,6 +775,25 @@ export function runStorageHealth() {
     url: `${BASE}/storage/health/run`,
     data: {},
     showSuccessMessage: true,
+    timeout: PACKAGE_TIMEOUT
+  })
+}
+
+export function checkMakeRepoPrivate(target: MakePrivateTarget) {
+  return request.post<MakePrivateCheck>({
+    url: `${BASE}/storage/make-private/check`,
+    data: target,
+    timeout: PACKAGE_TIMEOUT
+  })
+}
+
+export function makeRepoPrivate(target: MakePrivateTarget, confirm: string) {
+  return request.post<{ checkedAt?: string; list: StorageHealthRow[] | null }>({
+    url: `${BASE}/storage/make-private`,
+    data: { ...target, confirm },
+    showSuccessMessage: true,
+    // 失败原因（缺什么权限）在弹框里显示，不再弹全局提示。
+    showErrorMessage: false,
     timeout: PACKAGE_TIMEOUT
   })
 }

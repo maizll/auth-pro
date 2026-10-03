@@ -252,6 +252,8 @@ func RequireSuperAdmin() gin.HandlerFunc {
 }
 
 // RequireAgent 仅允许代理商角色访问，需置于 JWTAuth 之后。
+// 每次请求复查 agents.enabled：后台冻结代理后，他手里还没过期的登录立刻失效，
+// 不能再改授权、换密钥、解绑站点、改资料或提工单。
 func RequireAgent() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetString("role") != "agent" {
@@ -259,11 +261,14 @@ func RequireAgent() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		if !agentStillActive(c) {
+			return
+		}
 		c.Next()
 	}
 }
 
-// RequireDeveloper 允许软件源开发者 JWT，或已绑定开发者资格的代理商 JWT。
+// RequireDeveloper 允许软件源开发者 JWT，或已绑定开发者资格的代理商 JWT。代理商同样复查是否已冻结。
 func RequireDeveloper() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role := c.GetString("role")
@@ -272,6 +277,37 @@ func RequireDeveloper() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		if role == "agent" && !agentStillActive(c) {
+			return
+		}
 		c.Next()
 	}
+}
+
+// agentStillActive 查库确认代理账号还在且没被冻结；不通过时已写好 401 并中止请求。
+func agentStillActive(c *gin.Context) bool {
+	db, err := config.DB()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "代理状态校验失败"})
+		c.Abort()
+		return false
+	}
+	var enabled sql.NullBool
+	err = db.QueryRow("SELECT enabled FROM agents WHERE id = ?", c.GetUint("user_id")).Scan(&enabled)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "代理账户不存在或已失效"})
+		c.Abort()
+		return false
+	case err != nil:
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "代理状态校验失败"})
+		c.Abort()
+		return false
+	}
+	if !enabled.Valid || !enabled.Bool {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "代理账户已冻结，请联系管理员"})
+		c.Abort()
+		return false
+	}
+	return true
 }
