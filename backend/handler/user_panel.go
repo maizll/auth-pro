@@ -180,6 +180,10 @@ func UserRegister(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误，请检查邮箱、验证码和密码长度"})
 		return
 	}
+	if msg := displayNameError(req.Nickname); msg != "" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": msg})
+		return
+	}
 	if req.Phone != "" && !phoneRegexp.MatchString(req.Phone) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "手机号格式不正确"})
 		return
@@ -1309,9 +1313,16 @@ func UserUpdateProfile(c *gin.Context) {
 		return
 	}
 
+	req.Nickname = strings.TrimSpace(req.Nickname)
 	if req.Nickname == "" && req.Email == "" && req.Phone == nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "请至少修改一项"})
 		return
+	}
+	if req.Nickname != "" {
+		if msg := displayNameError(req.Nickname); msg != "" {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": msg})
+			return
+		}
 	}
 
 	db, err := config.DB()

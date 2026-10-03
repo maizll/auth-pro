@@ -99,6 +99,11 @@ func InstallInitTables(c *gin.Context) {
 		Password: req.Password,
 	}
 
+	if refused := installExistingDatabaseRefusal(cfg); refused != "" {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": refused})
+		return
+	}
+
 	dsn := config.GetDSN(cfg)
 	db, err := openInstallDatabase(dsn)
 	if err != nil {
@@ -226,6 +231,39 @@ func InstallCreateAdmin(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "安装完成"})
+}
+
+// installExistingDatabaseRefusal 防止 install.lock 丢失后被人改接到他自己准备的空库：
+// 本机已经有数据库配置（db.json 或环境变量）且指向别的库时，先连现有配置看一眼，
+// 现有库里有数据、或者连不上没法确认，就拒绝，不覆盖现有配置。返回空字符串表示可以继续。
+// 现有配置指向的就是这次填的库时交给后面的「库里是否已有数据」检查；现有库是空的（上次装到一半）可以换库重装。
+func installExistingDatabaseRefusal(requested *config.DBConfig) string {
+	existing, err := config.LoadDBConfig()
+	if err != nil || existing == nil || strings.TrimSpace(existing.Host) == "" {
+		return ""
+	}
+	if sameInstallDatabase(existing, requested) {
+		return ""
+	}
+	db, err := openInstallDatabase(config.GetDSN(existing))
+	if err != nil {
+		return "本站已有数据库配置，但现在连不上，无法确认是否已经安装，已拒绝改接别的数据库"
+	}
+	defer db.Close()
+	occupied, err := installDatabaseHasData(db)
+	if err != nil {
+		return "本站已有数据库配置，但现在连不上，无法确认是否已经安装，已拒绝改接别的数据库"
+	}
+	if occupied {
+		return "本站已经连着一个有数据的数据库，不能改接别的库。如果是 install.lock 丢了，请从备份恢复它"
+	}
+	return ""
+}
+
+func sameInstallDatabase(a, b *config.DBConfig) bool {
+	return strings.EqualFold(strings.TrimSpace(a.Host), strings.TrimSpace(b.Host)) &&
+		strings.TrimSpace(a.Port) == strings.TrimSpace(b.Port) &&
+		strings.TrimSpace(a.Database) == strings.TrimSpace(b.Database)
 }
 
 // installDataTables 是安装写接口用来判断「库里已经有本系统数据」的表。

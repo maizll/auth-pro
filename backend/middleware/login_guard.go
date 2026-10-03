@@ -8,9 +8,11 @@ import (
 // 登录防爆破策略：
 //   - 同一 IP+账号：窗口内连续失败 5 次锁定 10 分钟
 //   - 同一 IP（任意账号）：窗口内失败 20 次锁定 10 分钟，防止横向喷洒
+//   - 同一账号（不论来自哪些 IP）：窗口内失败 30 次锁定 10 分钟，挡住换很多真实 IP 的分布式猜密码
 const (
 	maxLoginFailuresPerAccount = 5
 	maxLoginFailuresPerIP      = 20
+	maxLoginFailuresAnyIP      = 30
 	loginLockDuration          = 10 * time.Minute
 	loginAttemptWindow         = 10 * time.Minute
 	loginGuardMaxEntries       = 10000
@@ -31,6 +33,7 @@ var guard = &loginGuard{attempts: make(map[string]*loginAttempt)}
 
 func loginAccountKey(ip, account string) string { return "acct|" + ip + "|" + account }
 func loginIPKey(ip string) string               { return "ip|" + ip }
+func loginAnyIPKey(account string) string       { return "user|" + account }
 
 func (g *loginGuard) attemptFor(key string, now time.Time) *loginAttempt {
 	a, ok := g.attempts[key]
@@ -54,7 +57,7 @@ func LoginLockRemaining(ip, account string) time.Duration {
 	defer guard.mu.Unlock()
 
 	var remaining time.Duration
-	for _, key := range []string{loginAccountKey(ip, account), loginIPKey(ip)} {
+	for _, key := range []string{loginAccountKey(ip, account), loginIPKey(ip), loginAnyIPKey(account)} {
 		if a, ok := guard.attempts[key]; ok && now.Before(a.lockedUntil) {
 			if d := a.lockedUntil.Sub(now); d > remaining {
 				remaining = d
@@ -77,6 +80,7 @@ func RecordLoginFailure(ip, account string) {
 	}{
 		{loginAccountKey(ip, account), maxLoginFailuresPerAccount},
 		{loginIPKey(ip), maxLoginFailuresPerIP},
+		{loginAnyIPKey(account), maxLoginFailuresAnyIP},
 	}
 	for _, l := range limits {
 		a := guard.attemptFor(l.key, now)
@@ -89,7 +93,8 @@ func RecordLoginFailure(ip, account string) {
 	}
 }
 
-// RecordLoginSuccess 登录成功后清除该账号的失败计数。
+// RecordLoginSuccess 登录成功后清除该 IP+账号的失败计数。
+// 按账号累计的计数不清：分布式猜密码时，真主人登录一次不应该把攻击者的进度清零。
 func RecordLoginSuccess(ip, account string) {
 	guard.mu.Lock()
 	defer guard.mu.Unlock()

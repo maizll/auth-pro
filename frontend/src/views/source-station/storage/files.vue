@@ -1,14 +1,14 @@
-<!-- 按存储位置浏览安装包：看压缩包内容、下载、校验、复制和删除。 -->
+<!-- 按存储位置浏览安装包：按客户端版本、收费插件、收费模板分组，每个版本一行；可查看、下载、校验、复制和删除。 -->
 <template>
   <div class="storage-files art-full-height">
     <ElCard class="art-table-card" shadow="never">
       <ArtTableHeader :loading="loading" @refresh="loadObjects">
         <template #left>
-          <ElSpace wrap>
+          <div class="files-toolbar">
             <ElSelect
               v-model="locationId"
               placeholder="选择存储"
-              style="width: 220px"
+              class="location-select"
               @change="loadObjects"
             >
               <ElOption
@@ -18,39 +18,87 @@
                 :value="item.id"
               />
             </ElSelect>
+            <ElInput
+              v-model="keyword"
+              class="search-input"
+              clearable
+              placeholder="搜索版本、插件、文件名"
+            />
             <ElButton @click="router.push('/source-station/storage')">返回存储列表</ElButton>
-          </ElSpace>
+          </div>
         </template>
       </ArtTableHeader>
-      <ArtTable :loading="loading" :data="rows" :columns="columns">
-        <template #name="{ row }">
-          <span class="cell-one-line">{{ row.name }}</span>
+      <ElTabs v-model="activeGroup" class="group-tabs">
+        <ElTabPane v-for="group in visibleGroups" :key="group.key" :name="group.key">
+          <template #label>
+            <span>{{ group.label }}</span>
+            <span class="group-count">{{ groups[group.key].length }}</span>
+          </template>
+        </ElTabPane>
+      </ElTabs>
+      <ArtTable :loading="loading" :data="activeRows" :columns="columns" row-key="id">
+        <template #version="{ row }">
+          <div class="version-cell">
+            <span class="version-title">{{ rowTitle(row) }}</span>
+            <ElTag v-if="row.legacy" size="small" type="info" effect="plain">旧格式</ElTag>
+            <ElTag v-if="row.orphan" size="small" type="info">孤儿文件</ElTag>
+          </div>
         </template>
-        <template #item="{ row }">
-          <ElTag v-if="row.orphan" size="small" type="info">孤儿文件</ElTag>
-          <span v-else class="cell-one-line">{{ row.item || '-' }}</span>
-        </template>
-        <template #sha256="{ row }">
-          <span class="cell-one-line">{{ row.sha256 || '-' }}</span>
+        <template #files="{ row }">
+          <div class="file-chips">
+            <span v-for="item in row.files" :key="item.key" class="file-chip">{{
+              fileLabel(item)
+            }}</span>
+          </div>
         </template>
         <template #size="{ row }">{{ formatSize(row.size) }}</template>
         <template #updatedAt="{ row }">
           <span class="cell-one-line">{{ formatTime(row.updatedAt) }}</span>
         </template>
+        <template #item="{ row }">
+          <span class="cell-one-line">{{ row.item || '-' }}</span>
+        </template>
         <template #operation="{ row }">
           <RowActions
-            :primary="[{ key: 'zip', label: '查看' }]"
+            :primary="[{ key: 'files', label: '文件' }]"
             :more="[
-              { key: 'download', label: '下载' },
+              { key: 'download', label: '下载安装包' },
+              { key: 'manifest', label: '下载 latest.json', hidden: !row.hasManifest },
               { key: 'verify', label: '重新校验' },
-              { key: 'copy', label: '复制到' },
-              { key: 'delete', label: '删除', danger: true }
+              { key: 'copy', label: '复制到' }
             ]"
-            @click="(action) => onRow(row, action.key)"
+            @click="(action) => onVersion(row, action.key)"
           />
         </template>
       </ArtTable>
     </ElCard>
+
+    <AppDialog v-model="filesVisible" :title="filesTitle" size="lg" flow="long" destroy-on-close>
+      <p v-if="current" class="tag-line">发布标签 {{ current.tag || '-' }}</p>
+      <ElTable v-if="current" :data="current.files" size="small" row-key="key">
+        <ElTableColumn prop="name" label="文件" min-width="200" show-overflow-tooltip />
+        <ElTableColumn label="大小" width="96">
+          <template #default="{ row }">{{ formatSize(row.size) }}</template>
+        </ElTableColumn>
+        <ElTableColumn label="校验码" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.sha256 || '-' }}</template>
+        </ElTableColumn>
+        <ElTableColumn label="操作" width="132" fixed="right">
+          <template #default="{ row }">
+            <RowActions
+              :primary="[{ key: 'zip', label: '查看', hidden: !row.name.endsWith('.zip') }]"
+              :more="[
+                { key: 'download', label: '下载' },
+                { key: 'verify', label: '重新校验' },
+                { key: 'copy', label: '复制到' },
+                { key: 'delete', label: '删除', danger: true }
+              ]"
+              @click="(action) => onFile(row, action.key)"
+            />
+          </template>
+        </ElTableColumn>
+      </ElTable>
+    </AppDialog>
 
     <AppDialog v-model="zipVisible" title="压缩包内容" size="xl" flow="short" destroy-on-close>
       <p class="zip-name cell-one-line">{{ zipName }}</p>
@@ -101,6 +149,13 @@
     type StorageLocation,
     type StorageObjectRow
   } from '@/api/source-station'
+  import {
+    PACKAGE_GROUPS,
+    filterPackageRows,
+    groupPackageFiles,
+    type PackageGroupKey,
+    type PackageVersionRow
+  } from './package-groups'
 
   defineOptions({ name: 'SourceStationStorageFiles' })
 
@@ -121,14 +176,50 @@
 
   const copyTargets = computed(() => locations.value.filter((item) => item.id !== locationId.value))
 
-  const { columns } = useTableColumns<StorageObjectRow>(() => [
-    { prop: 'name', label: '文件名', minWidth: 180, useSlot: true },
+  const keyword = ref('')
+  const activeGroup = ref<PackageGroupKey>('client')
+  const groups = computed(() => groupPackageFiles(rows.value))
+  // 「其他」没有文件时不显示；前三组始终显示，便于看出缺了哪类。
+  const visibleGroups = computed(() =>
+    PACKAGE_GROUPS.filter((group) => group.key !== 'other' || groups.value.other.length)
+  )
+  const activeRows = computed(() =>
+    filterPackageRows(groups.value[activeGroup.value], keyword.value)
+  )
+
+  // 搜索时当前分组没有结果、别的分组有，就自动切过去。
+  watch(keyword, () => {
+    if (activeRows.value.length) return
+    const hit = visibleGroups.value.find(
+      (group) => filterPackageRows(groups.value[group.key], keyword.value).length
+    )
+    if (hit) activeGroup.value = hit.key
+  })
+
+  const { columns } = useTableColumns<PackageVersionRow>(() => [
+    { prop: 'version', label: '版本', minWidth: 200, useSlot: true },
+    { prop: 'files', label: '文件', minWidth: 160, useSlot: true },
     { prop: 'size', label: '大小', width: 100, useSlot: true },
     { prop: 'updatedAt', label: '时间', minWidth: 160, useSlot: true },
     { prop: 'item', label: '对应条目', minWidth: 160, useSlot: true },
-    { prop: 'sha256', label: '校验码', minWidth: 180, useSlot: true },
-    { prop: 'operation', label: '操作', width: 148, fixed: 'right', useSlot: true }
+    { prop: 'operation', label: '操作', width: 168, fixed: 'right', useSlot: true }
   ])
+
+  const filesVisible = ref(false)
+  const current = ref<PackageVersionRow | null>(null)
+  const filesTitle = computed(() => (current.value ? `${rowTitle(current.value)} 的文件` : '文件'))
+
+  function rowTitle(row: PackageVersionRow) {
+    if (row.group === 'client') return row.version || row.tag
+    if (row.group === 'other') return row.tag || row.main.name
+    return row.version ? `${row.name} ${row.version}` : row.name
+  }
+
+  function fileLabel(file: StorageObjectRow) {
+    if (file.name === 'latest.json') return 'latest.json'
+    if (/\.(zip|tar\.gz|tgz)$/i.test(file.name)) return '安装包'
+    return file.name
+  }
 
   function formatSize(size?: number) {
     const value = Number(size || 0)
@@ -161,6 +252,10 @@
     try {
       const data = await fetchStorageObjects(locationId.value)
       rows.value = data.list || []
+      if (!groups.value[activeGroup.value].length) {
+        activeGroup.value =
+          PACKAGE_GROUPS.find((group) => groups.value[group.key].length)?.key || 'client'
+      }
     } finally {
       loading.value = false
     }
@@ -177,7 +272,21 @@
     zipVisible.value = true
   }
 
-  async function onRow(row: StorageObjectRow, key: string) {
+  async function onVersion(row: PackageVersionRow, key: string) {
+    if (key === 'files') {
+      current.value = row
+      filesVisible.value = true
+      return
+    }
+    if (key === 'manifest') {
+      const manifest = row.files.find((item) => item.name === 'latest.json')
+      if (manifest) await onFile(manifest, 'download')
+      return
+    }
+    await onFile(row.main, key)
+  }
+
+  async function onFile(row: StorageObjectRow, key: string) {
     if (key === 'zip') {
       await openZip(row)
       return
@@ -211,6 +320,15 @@
       }
       await deleteStorageObject(locationId.value, row.key, typed)
       await loadObjects()
+      // 文件弹框里删完后同步刷新；这个版本的文件都删光就关掉弹框。
+      if (current.value) {
+        const tag = current.value.tag
+        const next = Object.values(groups.value)
+          .flat()
+          .find((item) => item.tag === tag)
+        current.value = next || null
+        filesVisible.value = Boolean(next)
+      }
     }
   }
 
@@ -232,6 +350,86 @@
 </script>
 
 <style scoped lang="scss">
+  .files-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+  }
+
+  .location-select {
+    width: 220px;
+  }
+
+  .search-input {
+    width: 240px;
+  }
+
+  .group-tabs {
+    margin-bottom: 4px;
+
+    :deep(.el-tabs__header) {
+      margin-bottom: 8px;
+    }
+  }
+
+  .group-count {
+    display: inline-block;
+    min-width: 20px;
+    padding: 0 6px;
+    margin-left: 6px;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--el-text-color-secondary);
+    text-align: center;
+    background: var(--el-fill-color-light);
+    border-radius: 9px;
+  }
+
+  .version-cell {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .version-title {
+    font-weight: 500;
+    color: var(--el-text-color-primary);
+    word-break: break-all;
+  }
+
+  .file-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .file-chip {
+    padding: 0 8px;
+    font-size: 12px;
+    line-height: 20px;
+    color: var(--el-color-primary);
+    white-space: nowrap;
+    background: var(--el-color-primary-light-9);
+    border-radius: 4px;
+  }
+
+  .tag-line {
+    margin: 0 0 10px;
+    font-size: 13px;
+    color: var(--art-gray-600);
+    word-break: break-all;
+  }
+
+  @media (width <= 640px) {
+    .location-select,
+    .search-input {
+      width: 100%;
+    }
+  }
+
   .zip-name,
   .preview-title {
     margin: 0 0 8px;

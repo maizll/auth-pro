@@ -143,11 +143,7 @@
         @refresh="loadHistory(true)"
       />
 
-      <OfficialUpdateSource
-        v-if="officialSource"
-        :source="officialSource"
-        @changed="handleSourceChanged"
-      />
+      <OfficialUpdateSource v-if="officialSource" :source="officialSource" />
 
       <div class="update-section package-section">
         <div class="section-header">
@@ -224,9 +220,6 @@
       status.value?.officialSource ||
       null
   )
-  const handleSourceChanged = (next: OfficialUpdateSourceView) => {
-    sourceOverride.value = next
-  }
   // 检查失败时接口不带更新来源，重新取一次，页面上能看到这次用的是哪种凭据、为什么失败。
   const refreshOfficialSource = async () => {
     try {
@@ -485,8 +478,8 @@
       border-radius: 12px;
 
       &.latest.available {
-        background: rgba(var(--art-primary-rgb), 0.07);
-        border-color: rgba(var(--art-primary-rgb), 0.18);
+        background: var(--el-color-primary-light-9);
+        border-color: var(--el-color-primary-light-8);
       }
 
       .version-label {

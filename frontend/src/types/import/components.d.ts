@@ -154,6 +154,7 @@ declare module 'vue' {
     HorizontalSubmenu: typeof import('./../../components/core/layouts/art-menus/art-horizontal-menu/widget/HorizontalSubmenu.vue')['default']
     LicenseVersionsDialog: typeof import('./../../components/core/panels/LicenseVersionsDialog.vue')['default']
     LoginLeftView: typeof import('./../../components/core/views/login/LoginLeftView.vue')['default']
+    MailPreviewFrame: typeof import('./../../components/business/mail-preview/MailPreviewFrame.vue')['default']
     MenuLayoutSettings: typeof import('./../../components/core/layouts/art-settings-panel/widget/MenuLayoutSettings.vue')['default']
     MenuStyleSettings: typeof import('./../../components/core/layouts/art-settings-panel/widget/MenuStyleSettings.vue')['default']
     PanelThemeToggle: typeof import('./../../components/core/theme/PanelThemeToggle.vue')['default']

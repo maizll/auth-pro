@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"auto_pro/config"
 	"auto_pro/middleware"
@@ -132,6 +133,11 @@ func AdminUserCreate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误，请检查邮箱格式和密码长度"})
 		return
 	}
+	req.Nickname = strings.TrimSpace(req.Nickname)
+	if msg := displayNameError(req.Nickname); msg != "" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": msg})
+		return
+	}
 
 	db, err := config.DB()
 	if err != nil {
@@ -146,18 +152,30 @@ func AdminUserCreate(c *gin.Context) {
 		return
 	}
 
-	hash, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-
-	balance := 0.0
+	var initialCents int64
 	if req.Balance != nil {
-		balance = *req.Balance
+		initialCents = floatAmountToCents(*req.Balance)
+	}
+	if initialCents < 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "初始余额不能小于 0"})
+		return
 	}
 
-	_, err = db.Exec("INSERT INTO users (email, password_hash, nickname, balance) VALUES (?, ?, ?, ?)",
-		req.Email, string(hash), req.Nickname, balance)
+	hash, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+
+	// 先按 0 元开户，初始余额走调整余额的同一条路，带流水和操作日志。
+	result, err := db.Exec("INSERT INTO users (email, password_hash, nickname, balance) VALUES (?, ?, ?, 0)",
+		req.Email, string(hash), req.Nickname)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "创建失败"})
 		return
+	}
+	if initialCents > 0 {
+		userID, _ := result.LastInsertId()
+		if _, err := adjustUserBalance(db, userID, initialCents, "开户初始余额", c.GetUint("user_id"), c.ClientIP()); err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "用户已创建，但初始余额没有加上，请到「调整余额」里重试"})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "创建成功"})
@@ -167,11 +185,11 @@ func AdminUserCreate(c *gin.Context) {
 func AdminUserUpdate(c *gin.Context) {
 	id := c.Param("id")
 
+	// 不收余额：余额只能用「调整余额」按增减量改，见 user_balance.go。
 	type updateReq struct {
-		Nickname string   `json:"nickname"`
-		Email    string   `json:"email"`
-		Password string   `json:"password"`
-		Balance  *float64 `json:"balance"`
+		Nickname string `json:"nickname"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 	var req updateReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -188,7 +206,12 @@ func AdminUserUpdate(c *gin.Context) {
 	sets := ""
 	args := []interface{}{}
 
+	req.Nickname = strings.TrimSpace(req.Nickname)
 	if req.Nickname != "" {
+		if msg := displayNameError(req.Nickname); msg != "" {
+			c.JSON(http.StatusOK, gin.H{"code": 400, "msg": msg})
+			return
+		}
 		sets += "nickname = ?"
 		args = append(args, req.Nickname)
 	}
@@ -204,13 +227,6 @@ func AdminUserUpdate(c *gin.Context) {
 		}
 		sets += "email = ?"
 		args = append(args, req.Email)
-	}
-	if req.Balance != nil {
-		if sets != "" {
-			sets += ", "
-		}
-		sets += "balance = ?"
-		args = append(args, *req.Balance)
 	}
 	if req.Password != "" {
 		if len(req.Password) < 6 {

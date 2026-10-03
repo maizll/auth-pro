@@ -117,12 +117,8 @@ func AgentPanelUpdateProfile(c *gin.Context) {
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
-	if req.Name == "" {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "名称不能为空"})
-		return
-	}
-	if len([]rune(req.Name)) > 50 {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "名称过长"})
+	if msg := displayNameError(req.Name); msg != "" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": msg})
 		return
 	}
 

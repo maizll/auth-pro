@@ -72,38 +72,9 @@ func productUpdateHTTPStatus(err error) int {
 	return 0
 }
 
-type productUpdateRateLimiter struct {
-	mu     sync.Mutex
-	hits   map[string][]time.Time
-	limit  int
-	window time.Duration
-}
-
-func newProductUpdateRateLimiter(limit int, window time.Duration) *productUpdateRateLimiter {
-	return &productUpdateRateLimiter{hits: make(map[string][]time.Time), limit: limit, window: window}
-}
-
-func (limiter *productUpdateRateLimiter) allow(key string, now time.Time) bool {
-	limiter.mu.Lock()
-	defer limiter.mu.Unlock()
-	cutoff := now.Add(-limiter.window)
-	kept := make([]time.Time, 0, limiter.limit)
-	for _, hit := range limiter.hits[key] {
-		if hit.After(cutoff) {
-			kept = append(kept, hit)
-		}
-	}
-	if len(kept) >= limiter.limit {
-		limiter.hits[key] = kept
-		return false
-	}
-	limiter.hits[key] = append(kept, now)
-	return true
-}
-
 var (
-	productUpdateJSONLimiter    = newProductUpdateRateLimiter(productUpdateJSONLimit, productUpdateRateWindow)
-	productUpdatePackageLimiter = newProductUpdateRateLimiter(productUpdatePackageLimit, productUpdateRateWindow)
+	productUpdateJSONLimiter    = newRateLimiter(productUpdateJSONLimit, productUpdateRateWindow)
+	productUpdatePackageLimiter = newRateLimiter(productUpdatePackageLimit, productUpdateRateWindow)
 	productUpdateCacheMu        sync.Mutex
 	productUpdateLatestCache    struct {
 		body      []byte
@@ -191,7 +162,7 @@ func ProductUpdatePackage(c *gin.Context) {
 	c.FileAttachment(path, fileName)
 }
 
-func productUpdateAllow(c *gin.Context, limiter *productUpdateRateLimiter) bool {
+func productUpdateAllow(c *gin.Context, limiter *rateLimiter) bool {
 	if limiter.allow(c.ClientIP(), time.Now()) {
 		return true
 	}
@@ -645,19 +616,27 @@ func productUpdateRepository() (string, string, error) {
 // productUpdateTokenCandidates 先用收费仓库令牌，再用 Release 设置里的令牌，最后匿名。
 // 默认仓库是私有的，没有令牌会失败。环境变量改到公开仓库时，匿名这一步仍能成功。
 // 两处都没有令牌时只试匿名，不新建配置项。
-func productUpdateTokenCandidates() []string {
+// productUpdateTokenSource 是读取发布仓库时要依次尝试的一个令牌，Label 是给站长看的来源说明。
+type productUpdateTokenSource struct {
+	Token string
+	Label string
+}
+
+// productUpdateTokenSources 按固定顺序列出令牌：软件源设置里的收费仓库令牌、存储管理里的 GitHub 令牌、
+// Release 设置里的令牌，最后匿名。官网自己更新、分发客户包、仓库导入都用这一个顺序。
+func productUpdateTokenSources() []productUpdateTokenSource {
 	seen := map[string]struct{}{}
-	list := make([]string, 0, 3)
-	add := func(token string) {
+	list := make([]productUpdateTokenSource, 0, 4)
+	add := func(token, label string) {
 		token = strings.TrimSpace(token)
 		if _, ok := seen[token]; ok {
 			return
 		}
 		seen[token] = struct{}{}
-		list = append(list, token)
+		list = append(list, productUpdateTokenSource{Token: token, Label: label})
 	}
 	if token, err := loadGitHubPaidToken(); err == nil {
-		add(token)
+		add(token, "收费仓库设置里的令牌")
 	}
 	// 存储管理里的 GitHub 令牌。从仓库导入列出 Release 时和旧的收费仓库令牌是同一批凭证。
 	if blob, blobErr := loadStorageBlob(); blobErr == nil {
@@ -667,18 +646,27 @@ func productUpdateTokenCandidates() []string {
 			}
 			secret, secretErr := locationSecret(loc)
 			if secretErr == nil {
-				add(secret)
+				add(secret, "存储「"+loc.Name+"」的令牌")
 			}
 		}
 	}
 	if settings, err := currentSourceStationStore().GetReleaseSettings(); err == nil {
 		settings = normalizeReleaseSettings(settings)
 		if settings.Provider == "github" {
-			add(settings.Token)
+			add(settings.Token, "Release 设置里的令牌")
 		}
 	}
-	add("")
+	add("", "匿名读取")
 	return list
+}
+
+func productUpdateTokenCandidates() []string {
+	sources := productUpdateTokenSources()
+	tokens := make([]string, len(sources))
+	for index, source := range sources {
+		tokens[index] = source.Token
+	}
+	return tokens
 }
 
 func resetProductUpdateStateForTest() {
@@ -688,8 +676,8 @@ func resetProductUpdateStateForTest() {
 	productUpdateReleasesCache.body = nil
 	productUpdateReleasesCache.expiresAt = time.Time{}
 	productUpdateCacheMu.Unlock()
-	productUpdateJSONLimiter = newProductUpdateRateLimiter(productUpdateJSONLimit, productUpdateRateWindow)
-	productUpdatePackageLimiter = newProductUpdateRateLimiter(productUpdatePackageLimit, productUpdateRateWindow)
+	productUpdateJSONLimiter = newRateLimiter(productUpdateJSONLimit, productUpdateRateWindow)
+	productUpdatePackageLimiter = newRateLimiter(productUpdatePackageLimit, productUpdateRateWindow)
 	productUpdateGitHubAPI = "https://api.github.com"
 	loadProductUpdateRecords = loadProductUpdateRecordsFromDB
 }

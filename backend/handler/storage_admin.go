@@ -411,7 +411,7 @@ func AdminStorageObjects(c *gin.Context) {
 		rows = append(rows, gin.H{
 			"key": object.Key, "name": object.Name, "size": object.Size,
 			"updatedAt": when, "item": label, "sha256": sha,
-			"orphan": !registered && label == "",
+			"orphan": !registered && label == "", "tag": object.Tag,
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": rows}})

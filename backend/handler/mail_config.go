@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"html"
 	"mime"
 	"net"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 )
@@ -799,8 +801,8 @@ func sendBusinessMail(db *sql.DB, cfg mailConfig, eventType string, ctx licenseM
 		contentTemplate = cfg.OpenedContent
 		contentType = cfg.OpenedContentType
 	}
-	subject := renderMailTemplate(subjectTemplate, vars)
-	content := renderMailTemplate(contentTemplate, vars)
+	subject := renderMailTemplate(subjectTemplate, vars, false)
+	content := renderMailTemplate(contentTemplate, vars, normalizeMailContentType(contentType) == "html")
 	logID, inserted := createMailLog(db, eventType, ctx.OwnerType, ctx.OwnerID, ctx.LicenseID, ctx.Recipient, subject, content, remindDays, eventKey(eventType, ctx.LicenseID, remindDays))
 	if !inserted {
 		return
@@ -866,12 +868,18 @@ func buildMailVars(db *sql.DB, ctx licenseMailContext, daysLeft int) map[string]
 	}
 }
 
-func renderMailTemplate(template string, vars map[string]string) string {
-	result := template
+// renderMailTemplate 一次性替换模板变量。HTML 邮件里的变量值先做 HTML 转义：
+// 昵称、应用名等来自用户输入，原样拼进 HTML 会变成存储型 XSS（邮件日志预览、收件人的邮箱客户端）。
+// 用 strings.Replacer 单遍替换，变量值里即使带着 {{licenseKey}} 这样的字样也不会被二次展开。
+func renderMailTemplate(template string, vars map[string]string, htmlContent bool) string {
+	pairs := make([]string, 0, len(vars)*2)
 	for key, value := range vars {
-		result = strings.ReplaceAll(result, key, value)
+		if htmlContent {
+			value = html.EscapeString(value)
+		}
+		pairs = append(pairs, key, value)
 	}
-	return result
+	return strings.NewReplacer(pairs...).Replace(template)
 }
 
 func sendSMTPMail(cfg mailConfig, msg mailMessage) error {
@@ -1035,6 +1043,23 @@ func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
 			return value
+		}
+	}
+	return ""
+}
+
+// displayNameError 检查用户昵称、代理名称：会进邮件和后台页面，只允许 1–50 个可见字符，不收尖括号和控制字符。
+// 返回空字符串表示可用。邮件里另外做了转义，这里是第二道。
+func displayNameError(name string) string {
+	if name == "" {
+		return "名称不能为空"
+	}
+	if len([]rune(name)) > 50 {
+		return "名称过长，最多 50 个字"
+	}
+	for _, r := range name {
+		if r == '<' || r == '>' || unicode.IsControl(r) {
+			return "名称里不能有尖括号或控制字符"
 		}
 	}
 	return ""

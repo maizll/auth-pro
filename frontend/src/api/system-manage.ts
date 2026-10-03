@@ -185,6 +185,14 @@ export function fetchDeleteUser(id: number) {
   })
 }
 
+// 调整用户余额：amount 为正是增加、为负是扣减，remark 记进流水
+export function fetchAdjustUserBalance(id: number, amount: number, remark: string) {
+  return request.post<{ balance: string }>({
+    url: `/api/user/${id}/balance`,
+    data: { amount, remark }
+  })
+}
+
 // 获取角色列表
 export function fetchGetRoleList(params: Api.SystemManage.RoleSearchParams) {
   return request.get<Api.SystemManage.RoleList>({

@@ -354,7 +354,7 @@
       height: 44px;
       font-size: 22px;
       color: var(--art-primary);
-      background: rgba(var(--art-primary-rgb), 0.1);
+      background: var(--el-color-primary-light-9);
       border-radius: 14px;
     }
 
@@ -477,8 +477,8 @@
         background-color 0.2s ease;
 
       &:hover {
-        background: rgba(var(--art-primary-rgb), 0.06);
-        border-color: rgba(var(--art-primary-rgb), 0.16);
+        background: var(--el-color-primary-light-9);
+        border-color: var(--el-color-primary-light-8);
       }
 
       .trend-date {

@@ -179,7 +179,7 @@ func TestProductUpdateRateLimit(t *testing.T) {
 	loadProductUpdateRecords = func() ([]productUpdateRecord, error) {
 		return nil, errProductUpdateUnavailable
 	}
-	productUpdateJSONLimiter = newProductUpdateRateLimiter(2, productUpdateRateWindow)
+	productUpdateJSONLimiter = newRateLimiter(2, productUpdateRateWindow)
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	RegisterProductUpdateRoutes(router.Group("/api"))
