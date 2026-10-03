@@ -68,14 +68,14 @@
       </ElAlert>
       <ElAlert
         v-else-if="job?.status === 'failed'"
-        title="更新失败，已尝试回滚"
+        :title="failedBeforeInstall ? '更新没有执行，网站没有改动' : '更新失败，已尝试回滚'"
         type="error"
         show-icon
         :closable="false"
         class="update-alert"
       >
         <p>{{ job.error || job.message || '新版本没有健康启动' }}</p>
-        <p>{{ restartRecovery }}</p>
+        <p v-if="!failedBeforeInstall">{{ restartRecovery }}</p>
       </ElAlert>
 
       <div v-if="job" ref="jobSectionRef" class="update-section job-section">
@@ -141,73 +141,14 @@
         <ElEmpty v-else description="暂无更新日志" :image-size="72" />
       </div>
 
-      <div class="update-section history-section">
-        <div class="section-header">
-          <div>
-            <strong>历史版本</strong>
-            <span class="section-description">仅展示版本记录和更新日志</span>
-          </div>
-          <ElButton link type="primary" :loading="historyLoading" @click="loadHistory(true)">
-            刷新记录
-          </ElButton>
-        </div>
-        <ElAlert
-          v-if="historyError"
-          :title="historyError"
-          type="info"
-          show-icon
-          :closable="false"
-          class="history-alert"
-        />
-        <ElSkeleton v-if="historyLoading && !historyReleases.length" :rows="4" animated />
-        <ElTimeline v-else-if="historyReleases.length" class="release-timeline">
-          <ElTimelineItem
-            v-for="release in historyReleases"
-            :key="release.version"
-            :timestamp="formatDate(release.releasedAt)"
-            placement="top"
-          >
-            <div class="release-card">
-              <div class="release-header">
-                <div class="release-version">
-                  <strong>v{{ release.version }}</strong>
-                  <ElTag size="small" effect="plain">{{
-                    updateChannelLabel(release.channel)
-                  }}</ElTag>
-                  <ElTag
-                    v-if="isCurrentRelease(release.version)"
-                    size="small"
-                    type="info"
-                    effect="plain"
-                  >
-                    当前版本
-                  </ElTag>
-                  <ElTag
-                    v-if="isLatestRelease(release.version)"
-                    size="small"
-                    type="success"
-                    effect="plain"
-                  >
-                    最新版本
-                  </ElTag>
-                </div>
-              </div>
-              <div v-if="release.notes.length" class="release-notes">
-                <div
-                  v-for="(note, noteIndex) in release.notes"
-                  :key="`${release.version}-${noteIndex}`"
-                  class="release-note"
-                >
-                  <span class="release-note-dot" />
-                  <span>{{ note }}</span>
-                </div>
-              </div>
-              <ElText v-else type="info" size="small">该版本未记录更新日志</ElText>
-            </div>
-          </ElTimelineItem>
-        </ElTimeline>
-        <ElEmpty v-else description="暂无历史版本记录" :image-size="72" />
-      </div>
+      <ReleaseHistory
+        :releases="historyReleases"
+        :current-version="currentVersion"
+        :latest-version="latest?.version || historyReleases[0]?.version"
+        :loading="historyLoading"
+        :error="historyError"
+        @refresh="loadHistory(true)"
+      />
 
       <OfficialUpdateSource
         v-if="officialSource"
@@ -256,6 +197,7 @@
   } from '@/api/update'
   import { HttpError } from '@/utils/http/error'
   import OfficialUpdateSource from './OfficialUpdateSource.vue'
+  import ReleaseHistory from './ReleaseHistory.vue'
   import { setBackendUnreachableRedirectPaused } from '@/utils/http/backend-unavailable'
   import { UPDATE_RESTART_RECOVERY, clearRestartStart } from './restart-timeout'
   import { latestVersionStatus, updateChannelLabel } from './status-label'
@@ -353,6 +295,11 @@
     if (job.value.status === 'restarting') return Math.max(95, normalizedProgress)
     return normalizedProgress
   })
+  // 下载和验签（进度不超过 50%）阶段失败时还没动网站文件，不提回滚和进程守护。
+  const stoppedBeforeInstall = (progress: number | undefined) => Number(progress) <= 50
+  const failedBeforeInstall = computed(
+    () => job.value?.status === 'failed' && stoppedBeforeInstall(job.value.progress)
+  )
   const jobProgressStatus = computed(() => {
     if (job.value?.status === 'success') return 'success' as const
     if (job.value?.status === 'failed') return 'exception' as const
@@ -551,7 +498,9 @@
         ...job.value,
         status: 'failed',
         error: reason,
-        message: '更新失败，已回滚到更新前的版本'
+        message: stoppedBeforeInstall(job.value.progress)
+          ? '更新没有执行，网站没有改动'
+          : '更新失败，已回滚到更新前的版本'
       }
     }
     finishRestartWait()
@@ -626,16 +575,6 @@
       failed: 'danger'
     }
     return types[value] || 'primary'
-  }
-
-  const normalizedVersion = (value?: string) => (value || '').trim().replace(/^v/i, '')
-
-  const isCurrentRelease = (version: string) =>
-    normalizedVersion(version) === normalizedVersion(currentVersion.value)
-
-  const isLatestRelease = (version: string) => {
-    const knownLatestVersion = latest.value?.version || historyReleases.value[0]?.version
-    return normalizedVersion(version) === normalizedVersion(knownLatestVersion)
   }
 
   const formatBytes = (value?: number) => {
@@ -792,58 +731,6 @@
           color: var(--el-color-success);
         }
       }
-    }
-
-    .history-alert {
-      margin-bottom: 16px;
-    }
-
-    .release-timeline {
-      padding-left: 4px;
-    }
-
-    .release-card {
-      padding: 16px;
-      background: var(--art-gray-100);
-      border: 1px solid var(--art-border-color);
-      border-radius: 10px;
-    }
-
-    .release-version {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-
-      strong {
-        margin-right: 2px;
-        font-size: 16px;
-        color: var(--art-gray-900);
-      }
-    }
-
-    .release-notes {
-      display: grid;
-      gap: 8px;
-      margin-top: 12px;
-    }
-
-    .release-note {
-      display: flex;
-      align-items: flex-start;
-      gap: 9px;
-      font-size: 13px;
-      line-height: 1.6;
-      color: var(--art-gray-700);
-    }
-
-    .release-note-dot {
-      flex: 0 0 5px;
-      width: 5px;
-      height: 5px;
-      margin-top: 8px;
-      background: var(--el-color-primary);
-      border-radius: 50%;
     }
 
     .package-grid {

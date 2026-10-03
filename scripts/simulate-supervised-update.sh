@@ -5,7 +5,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ART="${AUTH_PRO_SIM_ARTIFACTS:-/opt/cursor/artifacts}"
+# 日志默认放系统临时目录，AUTH_PRO_SIM_ARTIFACTS 可以改到别处。
+ART="${AUTH_PRO_SIM_ARTIFACTS:-${TMPDIR:-/tmp}/auth-pro-sim-artifacts}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/auth-pro-sim.XXXXXX")"
 mkdir -p "$ART"
 LOG="$ART/supervised-update.log"
@@ -165,15 +166,9 @@ make_package() {
   cp "$WORK/backend-unavailable.html" "$stage/backend-unavailable.html"
   cp "$binary" "$stage/backend/auth_pro"
   chmod 755 "$stage/backend/auth_pro"
-  python3 - "$stage/manifest.json" "$version" <<'PY'
-import json, sys
-json.dump({
-    "version": sys.argv[2],
-    "frontendDir": ".",
-    "backendFile": "backend/auth_pro",
-    "requiredFiles": [],
-}, open(sys.argv[1], "w"), ensure_ascii=False)
-PY
+  # 1.8.6 起在线更新强制验签：用正式签名工具写清单，需要环境变量 AUTH_PRO_UPDATE_SIGNING_KEY（发布私钥）。
+  AUTH_PRO_REQUIRE_UPDATE_SIGNATURE=1 go -C "$ROOT/backend" run ./cmd/release-sign manifest "$stage" "$version" >/dev/null \
+    || fail "签名失败：请设置 AUTH_PRO_UPDATE_SIGNING_KEY 为发布私钥"
   tar -czf "$outdir/www/$name" -C "$stage" .
   python3 - "$outdir/www" "$name" "$version" <<'PY'
 import hashlib, json, os, sys

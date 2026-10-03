@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -19,6 +21,7 @@ import (
 	"time"
 
 	"auto_pro/config"
+	"auto_pro/updatesign"
 )
 
 func validOnlineUpdateManifestForTest() *onlineUpdateManifest {
@@ -478,27 +481,96 @@ func TestExecuteOnlineUpdateRejectsWrongSignature(t *testing.T) {
 	}
 }
 
-func TestExecuteOnlineUpdateAcceptsMatchingGitHubDigestBeforeExtract(t *testing.T) {
-	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
-	body := []byte("package-bytes-not-a-tar")
-	sum := sha256.Sum256(body)
-	hexSum := hex.EncodeToString(sum[:])
-	packagePath := filepath.Join(t.TempDir(), "pkg.tar.gz")
-	if err := os.WriteFile(packagePath, body, 0600); err != nil {
+// TestExecuteOnlineUpdateVerifiesReleaseSignatureBeforeExtract 覆盖 1.8.6 起的强制验签：
+// 正常签名包能走到解压之后；没签名、别的私钥签的、签完又改过的包都在解压前被拒，下载的包也删掉。
+func TestExecuteOnlineUpdateVerifiesReleaseSignatureBeforeExtract(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
 		t.Fatal(err)
 	}
-	manifest := signedOnlineUpdateManifest(hexSum, int64(len(body)))
-	restore := stubOnlineUpdateApply(t, func(string, *onlineUpdateManifest) (string, error) {
-		return packagePath, nil
-	})
-	defer restore()
-
-	err := executeOnlineUpdate("job-digest-match", manifest)
-	if err == nil || strings.Contains(err.Error(), "签名") || strings.Contains(err.Error(), "摘要") {
-		t.Fatalf("matching GitHub digest was rejected: %v", err)
+	_, otherPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "tar.gz") {
-		t.Fatalf("expected extract to run after signature verification, got %v", err)
+	onlineUpdatePublicKeyForTest = pub
+	t.Cleanup(func() { onlineUpdatePublicKeyForTest = nil })
+
+	build := func(t *testing.T, key ed25519.PrivateKey, tamper bool) string {
+		dir := t.TempDir()
+		writeFrontendTree(t, dir, "<html>v1.0.1</html>", "console.log(1)")
+		if err := os.WriteFile(filepath.Join(dir, "version.json"), []byte(`{"version":"1.0.1"}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(dir, "backend"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "backend", "auth_pro"), []byte("binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := updatesign.WriteManifest(dir, "1.0.1", key); err != nil {
+			t.Fatal(err)
+		}
+		if tamper {
+			if err := os.WriteFile(filepath.Join(dir, "backend", "auth_pro"), []byte("evil"), 0755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		packagePath := filepath.Join(t.TempDir(), "auth_pro-full-v1.0.1.tar.gz")
+		if out, err := exec.Command("tar", "-czf", packagePath, "-C", dir, ".").CombinedOutput(); err != nil {
+			t.Fatalf("tar: %v %s", err, out)
+		}
+		return packagePath
+	}
+	apply := func(t *testing.T, packagePath string) error {
+		t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+		t.Setenv("AUTO_PRO_FRONTEND_DIR", filepath.Join(t.TempDir(), "missing-frontend"))
+		body, err := os.ReadFile(packagePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(body)
+		manifest := signedOnlineUpdateManifest(hex.EncodeToString(sum[:]), int64(len(body)))
+		manifest.Actions.BackupDatabase = false
+		restore := stubOnlineUpdateApply(t, func(string, *onlineUpdateManifest) (string, error) {
+			return packagePath, nil
+		})
+		defer restore()
+		return executeOnlineUpdate("job-signature", manifest)
+	}
+
+	t.Run("正常签名包通过验签并解压", func(t *testing.T) {
+		err := apply(t, build(t, priv, false))
+		if err == nil || !strings.Contains(err.Error(), "前端目录") {
+			t.Fatalf("signed package should pass signature and extraction, got %v", err)
+		}
+	})
+	cases := []struct {
+		name   string
+		key    ed25519.PrivateKey
+		tamper bool
+		want   string
+	}{
+		{"没签名", nil, false, "没有官方签名"},
+		{"别的私钥签名", otherPriv, false, "没有通过官方签名校验"},
+		{"签完又改过", priv, true, "没有通过官方签名校验"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			packagePath := build(t, tc.key, tc.tamper)
+			err := apply(t, packagePath)
+			if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "网站没有任何改动") {
+				t.Fatalf("want %q, got %v", tc.want, err)
+			}
+			if strings.Contains(strings.ToLower(err.Error()), "github") {
+				t.Fatalf("customer-facing error mentions the code host: %v", err)
+			}
+			if _, statErr := os.Stat(packagePath); !os.IsNotExist(statErr) {
+				t.Fatalf("rejected package should be removed: %v", statErr)
+			}
+			if _, statErr := os.Stat(filepath.Join(config.GetUpdateDir(), "job-signature", "staging")); !os.IsNotExist(statErr) {
+				t.Fatalf("rejected package must not be extracted: %v", statErr)
+			}
+		})
 	}
 }
 

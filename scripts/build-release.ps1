@@ -127,16 +127,12 @@ try {
   Pop-Location
 }
 
-Write-Host "[4/5] Writing manifest..."
-$Manifest = @{
-  version = $Version
-  frontendDir = '.'
-  backendFile = 'backend/auth_pro'
-  requiredFiles = @()
-} | ConvertTo-Json -Depth 4
-$ManifestPath = Join-Path $PackageDir 'manifest.json'
-$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-[System.IO.File]::WriteAllText($ManifestPath, $Manifest + [Environment]::NewLine, $Utf8NoBom)
+Write-Host "[4/5] Writing signed manifest..."
+# 和 build-release.sh 一样交给签名工具写 manifest.json：有 AUTH_PRO_UPDATE_SIGNING_KEY 就签名。
+go -C $BackendDir run ./cmd/release-sign manifest $PackageDir $Version
+if ($LASTEXITCODE -ne 0) {
+  throw "Failed to write signed manifest"
+}
 
 Write-Host "[5/5] Creating tar.gz package and latest.json..."
 if (Test-Path $PackagePath) {

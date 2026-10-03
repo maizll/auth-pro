@@ -4,6 +4,9 @@
 没有可用的 MySQL 时以退出码 77 结束，供 go test 跳过。
 域名校验走真实 HTTPS：文档地址 203.0.113.10、本机 CA、SNI 反代。
 不改生产代码里的私网/443 限制。
+测试 CA 只交给本脚本和它启动的进程（SSL_CERT_FILE），不装进系统证书库。
+结束时停进程和 nginx、还原 /etc/hosts 和 lo 地址、删测试库和 1.5.8 工作树；
+通过时连运行目录一起删，失败时保留运行目录里的日志和截图（AUTH_PRO_E2E_KEEP=1 时通过也保留）。
 """
 
 from __future__ import annotations
@@ -31,7 +34,9 @@ BIN_158 = os.path.join(BIN_DIR, "auth-pro-158")
 WT_158 = "/tmp/auth-pro-158"
 COMMIT_158 = "9db6c4492bb259ef3022c4e25072f1dcd9a983ea"
 FRONTEND = os.path.join(ROOT, "frontend", "dist")
-ART = "/opt/cursor/artifacts/screenshots"
+ART = os.environ.get("AUTH_PRO_E2E_ARTIFACTS") or os.path.join(RUNTIME, "artifacts")
+CA_CRT = os.path.join(RUNTIME, "certs", "ca.crt")
+HOSTS_BEGIN, HOSTS_END = "# BEGIN auth-pro-e2e", "# END auth-pro-e2e"
 IP = "203.0.113.10"
 SOURCE_HOST = "source.auth-pro.test"
 BUYER_HOST = "buyer.auth-pro.test"
@@ -112,20 +117,12 @@ def setup_databases() -> None:
 
 def setup_network() -> str:
     run(["sudo", "-n", "ip", "addr", "add", f"{IP}/32", "dev", "lo"], capture_output=True)
-    hosts = "/etc/hosts"
-    begin, end = "# BEGIN auth-pro-e2e", "# END auth-pro-e2e"
-    block = f"{begin}\n{IP} {SOURCE_HOST} {BUYER_HOST}\n{end}\n"
-    current = open(hosts, encoding="utf-8").read()
-    if begin in current:
-        pre, rest = current.split(begin, 1)
-        _, post = rest.split(end, 1)
-        current = pre + post.lstrip("\n")
-    open("/tmp/auth-pro-e2e-hosts", "w", encoding="utf-8").write(current.rstrip() + "\n" + block)
-    run(["sudo", "-n", "cp", "/tmp/auth-pro-e2e-hosts", hosts], capture_output=True)
+    block = f"{HOSTS_BEGIN}\n{IP} {SOURCE_HOST} {BUYER_HOST}\n{HOSTS_END}\n"
+    write_hosts(hosts_without_block().rstrip() + "\n" + block)
 
     cert_dir = os.path.join(RUNTIME, "certs")
     os.makedirs(cert_dir, exist_ok=True)
-    ca_key, ca_crt = os.path.join(cert_dir, "ca.key"), os.path.join(cert_dir, "ca.crt")
+    ca_key, ca_crt = os.path.join(cert_dir, "ca.key"), CA_CRT
     tls_key, tls_crt = os.path.join(cert_dir, "tls.key"), os.path.join(cert_dir, "tls.crt")
     csr = os.path.join(cert_dir, "tls.csr")
     ext = os.path.join(cert_dir, "san.cnf")
@@ -134,8 +131,15 @@ def setup_network() -> str:
         "basicConstraints=CA:FALSE\n"
         "keyUsage=digitalSignature,keyEncipherment\n"
         "extendedKeyUsage=serverAuth\n"
+        "subjectKeyIdentifier=hash\n"
+        "authorityKeyIdentifier=keyid\n"
     )
-    run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", ca_key, "-out", ca_crt, "-days", "2", "-nodes", "-subj", "/CN=auth-pro-e2e-ca"], capture_output=True)
+    # CA 必须带 CA:TRUE 和 keyCertSign，Python 3.13 起默认严格校验，缺了会报 CA cert does not include key usage extension。
+    run(
+        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", ca_key, "-out", ca_crt, "-days", "2", "-nodes", "-subj", "/CN=auth-pro-e2e-ca",
+         "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign", "-addext", "subjectKeyIdentifier=hash"],
+        capture_output=True,
+    )
     run(["openssl", "req", "-newkey", "rsa:2048", "-keyout", tls_key, "-out", csr, "-nodes", "-subj", "/CN=source.auth-pro.test"], capture_output=True)
     signed = run(
         ["openssl", "x509", "-req", "-in", csr, "-CA", ca_crt, "-CAkey", ca_key, "-CAcreateserial", "-out", tls_crt, "-days", "2", "-extfile", ext],
@@ -143,10 +147,6 @@ def setup_network() -> str:
     )
     if signed.returncode != 0:
         raise Fail(signed.stderr or "openssl sign failed")
-    run(["sudo", "-n", "cp", ca_crt, "/usr/local/share/ca-certificates/auth-pro-e2e.crt"], capture_output=True)
-    updated = run(["sudo", "-n", "update-ca-certificates"], capture_output=True)
-    if updated.returncode != 0:
-        raise Fail(updated.stderr or "update-ca-certificates failed")
 
     nginx_conf = os.path.join(RUNTIME, "nginx.conf")
     open(nginx_conf, "w", encoding="utf-8").write(
@@ -191,6 +191,38 @@ http {{
     if started.returncode != 0:
         raise Fail((started.stderr or "") + (started.stdout or "") + open(os.path.join(RUNTIME, "nginx-error.log"), encoding="utf-8", errors="replace").read())
     return ca_crt
+
+
+def hosts_without_block() -> str:
+    current = open("/etc/hosts", encoding="utf-8").read()
+    if HOSTS_BEGIN not in current:
+        return current
+    pre, rest = current.split(HOSTS_BEGIN, 1)
+    _, post = rest.split(HOSTS_END, 1)
+    return pre.rstrip("\n") + "\n" + post.lstrip("\n")
+
+
+def write_hosts(text: str) -> None:
+    tmp = os.path.join(RUNTIME, "hosts.new")
+    open(tmp, "w", encoding="utf-8").write(text)
+    run(["sudo", "-n", "cp", tmp, "/etc/hosts"], capture_output=True)
+
+
+def cleanup_environment(passed: bool) -> None:
+    """撤掉本次对机器做的所有改动。通过时连运行目录一起删。"""
+    stop_named()
+    nginx_conf = os.path.join(RUNTIME, "nginx.conf")
+    if os.path.exists(os.path.join(RUNTIME, "nginx.pid")):
+        run(["sudo", "-n", "nginx", "-c", nginx_conf, "-s", "stop"], capture_output=True)
+    if os.path.isdir(RUNTIME) and HOSTS_BEGIN in open("/etc/hosts", encoding="utf-8").read():
+        write_hosts(hosts_without_block())
+    run(["sudo", "-n", "ip", "addr", "del", f"{IP}/32", "dev", "lo"], capture_output=True)
+    run(["git", "worktree", "remove", "--force", WT_158], cwd=ROOT, capture_output=True)
+    run(["sudo", "-n", "mysql", "-e", f"DROP DATABASE IF EXISTS {SOURCE_DB}; DROP DATABASE IF EXISTS {BUYER_DB}; DROP DATABASE IF EXISTS {UPGRADE_DB};"], capture_output=True)
+    if passed and os.environ.get("AUTH_PRO_E2E_KEEP") != "1":
+        shutil.rmtree(RUNTIME, ignore_errors=True)
+    else:
+        log(f"运行目录保留在 {RUNTIME}（日志和截图）")
 
 
 def build_159(public_key: str = "") -> None:
@@ -251,6 +283,8 @@ def start_server(name: str, binary: str, port: int, database: str, data_dir: str
             "PORT": str(port),
             "HOST": "127.0.0.1",
             "CGO_ENABLED": "1",
+            # Go 进程只信任本次的测试 CA，访问 source.auth-pro.test 时能校验证书。
+            "SSL_CERT_FILE": CA_CRT,
         }
     )
     if extra_env:
@@ -781,8 +815,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    code = 1
     try:
-        sys.exit(main())
+        code = main()
     except Fail as exc:
         log("FAIL " + str(exc))
         for name in ("source", "buyer", "upgrade158", "upgrade159"):
@@ -794,4 +829,7 @@ if __name__ == "__main__":
         if os.path.exists(nginx_log):
             log("----- nginx -----")
             log(tail(nginx_log))
-        sys.exit(1)
+    finally:
+        if os.path.isdir(RUNTIME):
+            cleanup_environment(code == 0)
+    sys.exit(code)

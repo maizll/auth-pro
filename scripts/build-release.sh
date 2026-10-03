@@ -2,6 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# 发布签名私钥只交给第 4 步的签名工具。先收进不导出的变量，前端构建等子进程看不到它。
+UPDATE_SIGNING_KEY="${AUTH_PRO_UPDATE_SIGNING_KEY:-}"
+unset AUTH_PRO_UPDATE_SIGNING_KEY
 VERSION_FILE="$ROOT_DIR/VERSION"
 DEFAULT_VERSION="1.5.6"
 if [[ -f "$VERSION_FILE" ]]; then
@@ -89,8 +92,10 @@ rm -f "$BACKEND_DIR/handler/sdk_assets/go/authpro/"*_test.go
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go -C "$BACKEND_DIR" build -trimpath -ldflags "$LDFLAGS" -o "$BACKEND_DIR/auto_pro_linux_amd64" .
 cp "$BACKEND_DIR/auto_pro_linux_amd64" "$PACKAGE_DIR/backend/auth_pro"
 
-printf '[4/5] Writing manifest...\n'
-printf '{\n  "version": "%s",\n  "frontendDir": ".",\n  "backendFile": "backend/auth_pro",\n  "requiredFiles": []\n}\n' "$VERSION" > "$PACKAGE_DIR/manifest.json"
+printf '[4/5] Writing signed manifest...\n'
+# manifest.json 记下每个文件的 SHA256 并用发布私钥签名，1.8.6 起的站点在线更新前会验签。
+# 没有私钥时写未签名清单（本地试打包用）；发布工作流设了 AUTH_PRO_REQUIRE_UPDATE_SIGNATURE=1，缺私钥直接失败。
+AUTH_PRO_UPDATE_SIGNING_KEY="$UPDATE_SIGNING_KEY" go -C "$BACKEND_DIR" run ./cmd/release-sign manifest "$PACKAGE_DIR" "$VERSION"
 
 printf '[5/5] Creating tar.gz package and latest.json...\n'
 rm -f "$PACKAGE_PATH"

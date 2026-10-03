@@ -478,51 +478,9 @@ func main() {
 	handler.StartMailReminderWorker()
 	handler.StartPurchaseOrderExpiryWorker()
 
-	// 兜底迁移：补齐购买订单字段，修正历史线上购买流水与价格快照
-	func() {
-		db, err := config.DB()
-		if err != nil {
-			return
-		}
-		if err := handler.EnsureAppVersionsTable(db); err != nil {
-			log.Printf("ensure app_versions table failed: %v", err)
-		}
-		if err := handler.EnsureAppPurchaseLicenseTypesColumn(db); err != nil {
-			log.Printf("ensure app purchase license types failed: %v", err)
-		}
-		if err := handler.EnsurePurchaseOrderUserIDColumn(db); err != nil {
-			log.Printf("ensure user_id column failed: %v", err)
-		}
-		if err := handler.EnsureLicensePurchasePriceSnapshotSchema(db); err != nil {
-			log.Printf("ensure license purchase price snapshots failed: %v", err)
-		}
-		if err := handler.EnsurePromotionCampaignSchema(db); err != nil {
-			log.Printf("ensure promotion campaign schema failed: %v", err)
-		}
-		if err := handler.EnsureAccountUpgradeSchema(db); err != nil {
-			log.Printf("ensure account upgrade schema failed: %v", err)
-		}
-		if err := ensureLicenseSiteLimitSchema(db); err != nil {
-			log.Printf("ensure license site limit schema failed: %v", err)
-		}
-		if err := handler.EnsureSiteChangeSchema(db); err != nil {
-			log.Printf("ensure site change schema failed: %v", err)
-		}
-		if err := handler.EnsureSitePagesSchema(db); err != nil {
-			log.Printf("ensure site pages schema failed: %v", err)
-		}
-		if err := handler.EnsureSourceStationSchema(); err != nil {
-			log.Fatalf("ensure source station schema failed: %v", err)
-		}
-		if err := handler.WarmHotPathSchema(db); err != nil {
-			log.Printf("warm hot path schema failed: %v", err)
-		}
-		// 结构迁移已经记完，再迁官网仓库。放在这里，读令牌不会绕回尚未结束的迁移。
-		handler.ScheduleOfficialAppRepoMigration()
-		handler.StartPaidOriginHealthCheck()
-		handler.EnsureNotificationSchema()
-		handler.BackfillLicensePurchaseTransactions(db)
-	}()
+	// 已安装的站点在这里跑启动迁移；网页向导装完时由安装接口调同一个函数，不用等重启。
+	handler.AfterInstall = runStartupMigrations
+	runStartupMigrations()
 
 	// 启动迁移都跑完了，当前就是要监听的版本。把目标版本等于本版本、却还停在重启中的更新任务记成完成。
 	handler.SettleOnlineUpdateJobsAfterRestart()
@@ -537,6 +495,53 @@ func main() {
 		}
 		log.Fatal("Server failed:", err)
 	}
+}
+
+// runStartupMigrations 是启动迁移：补齐购买订单字段，修正历史线上购买流水与价格快照，建源站和商业版的表。
+// 数据库还没配置（新站等网页向导）时直接返回；向导建完表、创建管理员后会再调一次。
+func runStartupMigrations() {
+	db, err := config.DB()
+	if err != nil {
+		return
+	}
+	if err := handler.EnsureAppVersionsTable(db); err != nil {
+		log.Printf("ensure app_versions table failed: %v", err)
+	}
+	if err := handler.EnsureAppPurchaseLicenseTypesColumn(db); err != nil {
+		log.Printf("ensure app purchase license types failed: %v", err)
+	}
+	if err := handler.EnsurePurchaseOrderUserIDColumn(db); err != nil {
+		log.Printf("ensure user_id column failed: %v", err)
+	}
+	if err := handler.EnsureLicensePurchasePriceSnapshotSchema(db); err != nil {
+		log.Printf("ensure license purchase price snapshots failed: %v", err)
+	}
+	if err := handler.EnsurePromotionCampaignSchema(db); err != nil {
+		log.Printf("ensure promotion campaign schema failed: %v", err)
+	}
+	if err := handler.EnsureAccountUpgradeSchema(db); err != nil {
+		log.Printf("ensure account upgrade schema failed: %v", err)
+	}
+	if err := ensureLicenseSiteLimitSchema(db); err != nil {
+		log.Printf("ensure license site limit schema failed: %v", err)
+	}
+	if err := handler.EnsureSiteChangeSchema(db); err != nil {
+		log.Printf("ensure site change schema failed: %v", err)
+	}
+	if err := handler.EnsureSitePagesSchema(db); err != nil {
+		log.Printf("ensure site pages schema failed: %v", err)
+	}
+	if err := handler.EnsureSourceStationSchema(); err != nil {
+		log.Fatalf("ensure source station schema failed: %v", err)
+	}
+	if err := handler.WarmHotPathSchema(db); err != nil {
+		log.Printf("warm hot path schema failed: %v", err)
+	}
+	// 结构迁移已经记完，再迁官网仓库。放在这里，读令牌不会绕回尚未结束的迁移。
+	handler.ScheduleOfficialAppRepoMigration()
+	handler.StartPaidOriginHealthCheck()
+	handler.EnsureNotificationSchema()
+	handler.BackfillLicensePurchaseTransactions(db)
 }
 
 func serveUntilSignal(handler http.Handler, addr string) error {

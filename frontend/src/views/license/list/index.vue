@@ -96,7 +96,7 @@
     </ElCard>
 
     <!-- 新增/编辑弹窗 -->
-    <ElDialog v-model="dialogVisible" :title="dialogTitle" width="560px" destroy-on-close>
+    <AppDialog v-model="dialogVisible" :title="dialogTitle" size="lg" flow="long" destroy-on-close>
       <ElForm :model="formData" :rules="formRules" ref="formRef" label-width="100px">
         <template v-if="!isEdit">
           <ElFormItem label="开通到" prop="ownerType">
@@ -191,10 +191,16 @@
         <ElButton @click="dialogVisible = false">取消</ElButton>
         <ElButton type="primary" :loading="submitting" @click="handleSubmit">确定</ElButton>
       </template>
-    </ElDialog>
+    </AppDialog>
 
     <!-- 密钥站点管理弹窗 -->
-    <ElDialog v-model="siteDialog.visible" title="密钥绑定站点" width="680px" destroy-on-close>
+    <AppDialog
+      v-model="siteDialog.visible"
+      title="密钥绑定站点"
+      size="xl"
+      flow="long"
+      destroy-on-close
+    >
       <ElAlert
         v-if="siteDialog.maxSites > 0"
         :title="`当前已绑定 ${siteDialog.list.length} / ${siteDialog.maxSites} 个站点，达到上限后新站点验证会被拒绝，可解绑释放名额。`"
@@ -236,12 +242,13 @@
           <ElEmpty description="暂无绑定站点" :image-size="60" />
         </template>
       </ElTable>
-    </ElDialog>
+    </AppDialog>
 
-    <ElDialog
+    <AppDialog
       v-model="quotaDialog.visible"
       title="调整剩余更换次数"
-      width="min(460px, 92vw)"
+      size="sm"
+      flow="short"
       destroy-on-close
     >
       <p class="quota-current">当前剩余：{{ quotaDialog.currentText }}</p>
@@ -264,12 +271,13 @@
           >确定</ElButton
         >
       </template>
-    </ElDialog>
+    </AppDialog>
 
-    <ElDialog
+    <AppDialog
       v-model="grantDialog.visible"
       title="开通商业版"
-      :width="narrow ? '92%' : '420px'"
+      size="sm"
+      flow="short"
       destroy-on-close
     >
       <p class="quota-current">为「{{ grantDialog.label }}」开通商业版</p>
@@ -287,7 +295,7 @@
           >开通</ElButton
         >
       </template>
-    </ElDialog>
+    </AppDialog>
 
     <ElDrawer
       v-model="detail.visible"

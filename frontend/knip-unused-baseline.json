@@ -64,7 +64,6 @@
     "src/api/ticket.ts:type:TicketListResponse",
     "src/api/update.ts:type:OnlineUpdateManifest",
     "src/api/update.ts:type:OnlineUpdatePackage",
-    "src/api/update.ts:type:OnlineUpdateRelease",
     "src/components/core/biz/status.ts:type:BizStatusView",
     "src/components/core/biz/status.ts:type:BizTagType",
     "src/components/core/layouts/art-notification/placement.ts:type:PanelPlacement",

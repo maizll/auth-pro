@@ -3,91 +3,179 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
   <title>后台服务暂时无法连接</title>
   <style>
-    :root { color-scheme: light; }
+    /* 配色跟后台一致：主色 #5D87FF，浅灰底，白卡片。nginx 在后端不可达时直接返回本页，所以样式和脚本都内联。 */
+    :root {
+      color-scheme: light dark;
+      --primary: #5d87ff;
+      --primary-soft: rgba(93, 135, 255, 0.12);
+      --bg: #f3f5fa;
+      --card: #ffffff;
+      --line: #e6e9f0;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --code: #eef2fb;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1218;
+        --card: #181c24;
+        --line: #2a2f3a;
+        --text: #e5e7eb;
+        --muted: #9ca3af;
+        --code: #222836;
+        --primary-soft: rgba(93, 135, 255, 0.18);
+      }
+    }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
-      font-family: "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
-      background: #f4f6f8;
-      color: #1f2933;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px;
+      font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(93, 135, 255, 0.14), transparent 45%),
+        radial-gradient(circle at 85% 90%, rgba(93, 135, 255, 0.10), transparent 40%),
+        var(--bg);
+      color: var(--text);
     }
-    main {
-      max-width: 720px;
-      margin: 0 auto;
-      padding: 48px 20px 64px;
+    .card {
+      width: 100%;
+      max-width: 460px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 12px 40px rgba(31, 41, 55, 0.08);
+      padding: 36px 32px 28px;
+      text-align: center;
     }
-    h1 { font-size: 28px; line-height: 1.35; margin: 0 0 12px; }
-    .lead { font-size: 16px; line-height: 1.7; margin: 0 0 28px; color: #52606d; }
-    section {
-      background: #fff;
-      border: 1px solid #e4e7eb;
-      border-radius: 12px;
-      padding: 20px 22px;
-      margin: 0 0 16px;
+    .is-down .card { max-width: 640px; }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 28px;
+      color: var(--muted);
+      font-size: 14px;
     }
-    h2 { font-size: 16px; margin: 0 0 10px; }
-    ul, ol { margin: 0; padding-left: 20px; }
-    li { margin: 6px 0; line-height: 1.6; }
+    .brand-mark {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #7aa0ff, #4a6fe8);
+      box-shadow: 0 6px 16px rgba(93, 135, 255, 0.35);
+    }
+    .spinner {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 22px;
+      border-radius: 50%;
+      border: 4px solid var(--primary-soft);
+      border-top-color: var(--primary);
+      animation: spin 0.9s linear infinite;
+    }
+    .is-down .spinner { width: 40px; height: 40px; border-width: 3px; margin-bottom: 18px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
+    h1 { font-size: 22px; line-height: 1.4; margin: 0 0 10px; }
+    .lead { font-size: 15px; line-height: 1.75; margin: 0 auto; color: var(--muted); max-width: 360px; }
+    .is-down .lead { max-width: none; }
+    .waited {
+      display: inline-block;
+      margin-top: 22px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: var(--primary-soft);
+      color: var(--primary);
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+    .help { margin-top: 26px; text-align: left; border-top: 1px solid var(--line); padding-top: 18px; }
+    .help h2 { font-size: 15px; margin: 18px 0 8px; }
+    .help h2:first-child { margin-top: 0; }
+    .help ul, .help ol { margin: 0; padding-left: 20px; color: var(--muted); }
+    .help li, .help p { margin: 6px 0; line-height: 1.65; font-size: 14px; color: var(--muted); }
     code {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 0.92em;
-      background: #f0f4f8;
-      padding: 0 4px;
+      font-size: 0.9em;
+      background: var(--code);
+      color: var(--text);
+      padding: 1px 5px;
       border-radius: 4px;
     }
-    .visitor { color: #52606d; }
     .updating { display: none; }
     .is-updating .updating { display: block; }
-    .is-updating .unavailable { display: none; }
-    .retry { font-size: 14px; color: #52606d; margin: 0 0 20px; }
+    .is-updating .down { display: none; }
+    @media (max-width: 480px) { .card { padding: 28px 20px 22px; } h1 { font-size: 20px; } }
   </style>
 </head>
-<body>
-  <main>
-    <!-- 在线更新的重启脚本在停后端前把 html 上的 data-update-since 写成当前时间，结束后清回 0。 -->
+<body class="is-down">
+  <main class="card" aria-live="polite">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l7 3v5c0 4.5-3 8.3-7 9.5C8 19.3 5 15.5 5 11V6l7-3z" />
+          <path d="M9 12l2 2 4-4" />
+        </svg>
+      </span>
+      <span id="site-name"></span>
+    </div>
+    <div class="spinner" aria-hidden="true"></div>
+    <!-- 在线更新的重启脚本停后端前把根元素上的更新标记写成当前时间，结束后清回 0。 -->
     <div class="updating">
       <h1>正在更新</h1>
-      <p class="lead">站点正在安装新版本，稍等几十秒会自动刷新。不用关闭页面，也不用手动操作。</p>
+      <p class="lead">站点正在安装新版本，通常一分钟内完成，好了会自动刷新。不用关闭页面，也不用手动操作。</p>
+      <span class="waited">已等待 <b id="waited">0</b> 秒</span>
     </div>
-    <div class="unavailable">
+    <div class="down">
       <h1>后台服务暂时无法连接</h1>
-      <p class="lead">站点页面依赖本机后端进程。现在连不上它，所以暂时打不开管理后台和接口。这不是你的浏览器坏了。</p>
+      <p class="lead">站点页面依赖本机后端进程，现在连不上它，所以暂时打不开管理后台和接口。这不是你的浏览器坏了，服务恢复后本页会自动刷新。</p>
+      <div class="help">
+        <h2>可能的原因</h2>
+        <ul>
+          <li>正在在线更新，服务正在切换并重启。</li>
+          <li>后端没有启动，或进程守护没有把它拉起来。</li>
+          <li>端口被旧的 auth_pro 占用，新进程起不来。</li>
+        </ul>
+        <h2>如果你是访客</h2>
+        <p>请稍后再试。若页面一直如此，把网址和时间告诉站点管理员即可，不需要自己处理服务器。</p>
+        <h2>管理员可以这样处理</h2>
+        <ol>
+          <li>打开宝塔「进程守护」，先停止本站点，避免杀掉之后立刻被拉起。</li>
+          <li>在服务器上查看谁占用了后端端口（默认 <code>19127</code>）：<code>ss -lptn | grep 19127</code>。</li>
+          <li>结束的应是本站 <code>backend/auth_pro</code>。不要结束无关进程。</li>
+          <li>确认 <code>backend/auth_pro</code> 存在且可执行。若在线更新没换上新文件，保留当前文件，由进程守护重新启动即可回到更新前的版本。</li>
+          <li>只通过进程守护启动：命令是网站根下的 <code>backend/start.sh</code>，运行目录是 <code>backend/</code>。不要再另开一个脱离守护的进程。</li>
+        </ol>
+      </div>
     </div>
-    <p class="retry" id="retry">服务恢复后本页会自动刷新。</p>
-    <section class="unavailable">
-      <h2>可能的原因</h2>
-      <ul>
-        <li>正在在线更新，服务正在切换并重启。</li>
-        <li>后端没有启动，或进程守护没有把它拉起来。</li>
-        <li>端口被旧的 auth_pro 占用，新进程起不来。</li>
-      </ul>
-    </section>
-    <section class="unavailable">
-      <h2>如果你是访客</h2>
-      <p class="visitor">请稍后再试。若页面一直如此，把网址和时间告诉站点管理员即可，不需要自己处理服务器。</p>
-    </section>
-    <section class="unavailable">
-      <h2>管理员可以这样处理</h2>
-      <ol>
-        <li>打开宝塔「进程守护」，先停止本站点，避免杀掉之后立刻被拉起。</li>
-        <li>在服务器上查看谁占用了后端端口（默认 <code>19127</code>）：<code>ss -lptn | grep 19127</code>。</li>
-        <li>结束的应是本站 <code>backend/auth_pro</code>。不要结束无关进程。</li>
-        <li>确认 <code>backend/auth_pro</code> 存在且可执行。若在线更新没换上新文件，保留当前文件，由进程守护重新启动即可回到更新前的版本。</li>
-        <li>只通过进程守护启动：命令是网站根下的 <code>backend/start.sh</code>，运行目录是 <code>backend/</code>。不要再另开一个脱离守护的进程。</li>
-      </ol>
-    </section>
   </main>
   <script>
     // 更新标记在 15 分钟内才算数：脚本异常退出没清掉标记时，过一会儿就回到普通说明。
     ;(function () {
+      var opened = Date.now()
       var since = Number(document.documentElement.getAttribute('data-update-since')) * 1000
-      var updating = since > 0 && Math.abs(Date.now() - since) < 15 * 60 * 1000
+      var updating = since > 0 && Math.abs(opened - since) < 15 * 60 * 1000
+      document.getElementById('site-name').textContent = window.location.hostname
       if (updating) {
-        document.documentElement.className = 'is-updating'
+        document.body.className = 'is-updating'
         document.title = '正在更新'
+        // 已等待秒数从脚本写标记的时刻算；服务器和电脑时钟对不上时改从打开本页算。
+        var start = since <= opened ? since : opened
+        var waited = document.getElementById('waited')
+        var tick = function () {
+          waited.textContent = String(Math.max(0, Math.floor((Date.now() - start) / 1000)))
+        }
+        tick()
+        window.setInterval(tick, 1000)
       }
       // 前端跳到本页前把原来的地址记在这里（frontend/src/utils/http/backend-unavailable.ts）。
       var returnKey = 'auth-pro-unavailable-from'

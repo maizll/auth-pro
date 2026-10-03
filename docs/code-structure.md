@@ -1,6 +1,6 @@
 # 代码结构与维护指南
 
-这份文档给接手源码的人用。产品版本以仓库根目录 `VERSION` 为准。当前是 **1.8.5**。
+这份文档给接手源码的人用。产品版本以仓库根目录 `VERSION` 为准。当前是 **1.8.6**。
 
 从这一版起，合并和发版前必须通过 `scripts/quality-check.sh`。检查失败时，GitHub 的 CI 和打标签发版都会停住，不会打出安装包。
 
@@ -13,6 +13,8 @@
 | `backend/config/` | 端口、数据目录、数据库连接。 |
 | `backend/middleware/` | 登录、安装锁、菜单权限。 |
 | `backend/payment/alipayf2f/` | 支付宝当面付。 |
+| `backend/updatesign/` | 在线更新包的发布签名：写清单、签名、验签。程序内置公钥在这里。 |
+| `backend/cmd/release-sign/` | 打包时写签名清单、发布时核对签名的命令行工具。不进发布包。 |
 | `frontend/` | 管理后台、用户端、代理端、开发者端。Vue 3 + Vite。 |
 | `frontend/src/views/` | 页面。后台菜单对应的页面在这里。 |
 | `frontend/src/api/` | 前端调用的接口函数。 |
@@ -50,7 +52,7 @@
 
 ### 在线更新
 
-后台页面是 `frontend/src/views/online-update/index.vue`，请求在 `frontend/src/api/update.ts`。页面不展示更新地址。
+后台页面是 `frontend/src/views/online-update/index.vue`（历史版本在同目录 `ReleaseHistory.vue`，分组和折叠规则在 `release-history.ts`），请求在 `frontend/src/api/update.ts`。页面不展示更新地址。
 
 客户站只向 `https://auth.maizll.com/api/v1/update/latest.json` 要清单，安装包和历史版本也走源站。实现在 `backend/handler/update.go`。源站对外提供这些清单和安装包的接口在 `backend/handler/update_distribute.go`，数据来自应用 `app_f93896d80066_5811` 的发布版本。后台从仓库导入安装包的共用逻辑在 `backend/handler/release_import.go`。
 
