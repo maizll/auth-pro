@@ -4,6 +4,8 @@
     <div id="app-content-header">
       <!-- 节日滚动 -->
       <ArtFestivalTextScroll v-if="!isFullPage" />
+      <!-- 强制更新横幅（仅超级管理员） -->
+      <ForceUpdateNotice v-if="!isFullPage" />
     </div>
 
     <RouterView v-if="isRefresh" v-slot="{ Component, route }" :style="contentStyle">
@@ -43,6 +45,7 @@
   import type { CSSProperties } from 'vue'
   import { useRoute } from 'vue-router'
   import { useAutoLayoutHeight } from '@/hooks/core/useLayoutHeight'
+  import ForceUpdateNotice from '@/views/online-update/ForceUpdateNotice.vue'
   import { useSettingStore } from '@/store/modules/setting'
   import { useWorktabStore } from '@/store/modules/worktab'
 

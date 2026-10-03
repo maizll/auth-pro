@@ -97,3 +97,61 @@ export function groupOpenByDefault(
   if (searching || index === 0) return true
   return group.releases.some((release) => releaseOpenByDefault(release.version, latest, current))
 }
+
+/** 数字版本号比较：a 比 b 新返回正数，旧返回负数；认不出的返回 null。 */
+export function compareReleaseVersions(a?: string, b?: string): number | null {
+  const parse = (value?: string) => {
+    const parts = normalizeVersion(value).split('.')
+    if (parts.length < 2 || parts.some((part) => !/^\d+$/.test(part))) return null
+    return parts.map(Number)
+  }
+  const left = parse(a)
+  const right = parse(b)
+  if (!left || !right) return null
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    const diff = (left[i] ?? 0) - (right[i] ?? 0)
+    if (diff) return diff
+  }
+  return 0
+}
+
+/**
+ * 当前版本之后、最新版本为止的每一版，新版本在前。这一次更新会直接装到最新版，中间的版本不用逐个装。
+ * releases.json 还没收录最新版时，用清单里的最新版补上，「落后几个版本」不会少算。
+ */
+export function pendingReleases(
+  releases: OnlineUpdateRelease[],
+  current?: string,
+  latest?: OnlineUpdateRelease | null
+): OnlineUpdateRelease[] {
+  const latestVersion = latest?.version
+  const newer = (version: string) => {
+    const afterCurrent = compareReleaseVersions(version, current)
+    const notAfterLatest = latestVersion ? compareReleaseVersions(version, latestVersion) : 0
+    return (
+      afterCurrent !== null && afterCurrent > 0 && notAfterLatest !== null && notAfterLatest <= 0
+    )
+  }
+  const seen = new Set<string>()
+  const list: OnlineUpdateRelease[] = []
+  for (const release of releases) {
+    const version = normalizeVersion(release.version)
+    if (!newer(version) || seen.has(version)) continue
+    seen.add(version)
+    // 最新版的说明以清单为准，和「立即更新」装的是同一份
+    if (latest && version === normalizeVersion(latestVersion) && latest.notes?.length) {
+      list.push({ ...release, notes: latest.notes })
+    } else {
+      list.push(release)
+    }
+  }
+  if (
+    latest &&
+    latestVersion &&
+    newer(latestVersion) &&
+    !seen.has(normalizeVersion(latestVersion))
+  ) {
+    list.push({ ...latest, version: normalizeVersion(latestVersion) })
+  }
+  return list.sort((a, b) => compareReleaseVersions(b.version, a.version) ?? 0)
+}

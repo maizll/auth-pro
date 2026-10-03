@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mobileScrollLayout } from './mobile-table'
+import { hasOwnDetailAction, mobileScrollLayout } from './mobile-table'
 
 const cols = [
   { type: 'index' as const, width: 60, label: '序号', mobileHidden: true },
@@ -28,3 +28,10 @@ const hidden = mobileScrollLayout([
 ])
 assert.equal(hidden.length, 1)
 assert.equal(hidden[0].fixed, 'right')
+
+// 操作列已有「详情」或「查看」时不再插入通用「详情」
+assert.equal(hasOwnDetailAction(['详情', '编辑', '更多']), true)
+assert.equal(hasOwnDetailAction([' 查看 ']), true)
+assert.equal(hasOwnDetailAction(['查看详情']), true)
+assert.equal(hasOwnDetailAction(['编辑', '删除', '更多']), false)
+assert.equal(hasOwnDetailAction([]), false)

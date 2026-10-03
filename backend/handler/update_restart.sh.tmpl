@@ -57,14 +57,16 @@ finish_job() {
 }
 
 # AUTH_PRO_BACKUP_FUNCS_BEGIN
-# 备份放到 /www/backup/auth-pro/<站点>/ 下。没有 /www 或建目录失败时返回非 0，调用方仍用网站旁边的旧路径。
+# 备份优先放到 /www/backup/auth-pro/<站点>/ 下。
+# 宝塔的 /www/backup 默认是 700 root，以 www 运行时常常建不出来，这时改放本站数据目录 $DATA_DIR/updates/backups/。
+# 数据目录一定归运行用户所有，且在 backend/ 里，nginx 不对外提供。不再往网站根旁边放，那里 www 通常也写不了。
 auth_pro_backup_log() {
   if [ -n "${LOG_FILE:-}" ]; then
     printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG_FILE" 2>/dev/null || true
   fi
 }
 
-auth_pro_backup_root() {
+auth_pro_central_backup_root() {
   if [ ! -d /www ]; then
     return 1
   fi
@@ -73,8 +75,22 @@ auth_pro_backup_root() {
     ""|.|..) return 1 ;;
   esac
   root="/www/backup/auth-pro/$site_name"
+  if ! mkdir -p "$root" 2>/dev/null || [ ! -w "$root" ]; then
+    return 1
+  fi
+  printf '%s\n' "$root"
+}
+
+auth_pro_backup_root() {
+  if auth_pro_central_backup_root; then
+    return 0
+  fi
+  if [ -z "${DATA_DIR:-}" ]; then
+    return 1
+  fi
+  root="$DATA_DIR/updates/backups"
   if ! mkdir -p "$root" 2>/dev/null; then
-    auth_pro_backup_log "无法创建 $root ，备份仍放在网站目录旁边，更新继续"
+    auth_pro_backup_log "无法创建 $root"
     return 1
   fi
   printf '%s\n' "$root"
@@ -99,8 +115,9 @@ auth_pro_move_backup() {
 }
 
 # 只迁移本站点严格匹配的旧目录。其它站点的备份不动。移动失败不删除。
+# 只有中央备份目录可用时才迁移。数据目录本身就是退路，旧的 baota-upgrade-* 原地保留。
 auth_pro_migrate_old_backups() {
-  root=$(auth_pro_backup_root) || return 0
+  root=$(auth_pro_central_backup_root) || return 0
   site_name=$(basename "$FRONTEND_CURRENT")
   parent=$(dirname "$FRONTEND_CURRENT")
   mkdir -p "$root/overlay" "$root/rename" "$root/upgrade" 2>/dev/null || {
@@ -148,25 +165,28 @@ auth_pro_prune_backups() {
     auth_pro_prune_paths "$root/rename"/* || true
     auth_pro_prune_paths "$root/upgrade"/* || true
   fi
-  auth_pro_prune_paths "$parent/$site_name".overlay-backup.* || true
-  auth_pro_prune_paths "$parent/$site_name".backup.* || true
+  # 中央目录可用时，数据目录里退路留下的备份也要清。
   if [ -n "${DATA_DIR:-}" ] && [ -d "$DATA_DIR/updates/backups" ]; then
+    auth_pro_prune_paths "$DATA_DIR/updates/backups/overlay"/* || true
+    auth_pro_prune_paths "$DATA_DIR/updates/backups/rename"/* || true
     auth_pro_prune_paths "$DATA_DIR/updates/backups"/baota-upgrade-* || true
   fi
+  # 1.8.8 及以前留在网站根旁边的旧备份。目录不可写时 rm 失败，不影响结果。
+  auth_pro_prune_paths "$parent/$site_name".overlay-backup.* || true
+  auth_pro_prune_paths "$parent/$site_name".backup.* || true
   return 0
 }
 
+# 打印本次前端备份的完整路径。中央目录和数据目录都建不出来时返回非 0，调用方停止更新。
 auth_pro_frontend_backup() {
   kind="$1"
   suffix="$2"
-  if root=$(auth_pro_backup_root); then
-    if mkdir -p "$root/$kind" 2>/dev/null; then
-      printf '%s\n' "$root/$kind/$(basename "$FRONTEND_CURRENT").$suffix.$TS"
-      return 0
-    fi
-    auth_pro_backup_log "无法创建 $root/$kind ，备份仍放在网站目录旁边"
+  root=$(auth_pro_backup_root) || return 1
+  if ! mkdir -p "$root/$kind" 2>/dev/null; then
+    auth_pro_backup_log "无法创建 $root/$kind"
+    return 1
   fi
-  printf '%s\n' "$FRONTEND_CURRENT.$suffix.$TS"
+  printf '%s\n' "$root/$kind/$(basename "$FRONTEND_CURRENT").$suffix.$TS"
 }
 # AUTH_PRO_BACKUP_FUNCS_END
 
@@ -216,7 +236,10 @@ if [ "$OVERLAY" = "1" ]; then
     finish_job failed "无法创建前端暂存目录，线上目录未改动"
     exit 1
   }
-  FRONTEND_BACKUP=$(auth_pro_frontend_backup overlay overlay-backup)
+  FRONTEND_BACKUP=$(auth_pro_frontend_backup overlay overlay-backup) || {
+    finish_job failed "无法创建前端备份目录（$DATA_DIR/updates/backups），线上目录未改动"
+    exit 1
+  }
   rm -rf "$STAGING"
   cp -a "$FRONTEND_SOURCE" "$STAGING" || {
     rm -rf "$STAGING"
@@ -228,7 +251,7 @@ if [ "$OVERLAY" = "1" ]; then
     finish_job failed "新前端缺少 index.html，线上目录未改动"
     exit 1
   fi
-  mkdir -p "$FRONTEND_BACKUP" || { rm -rf "$STAGING"; finish_job failed "无法创建前端备份目录"; exit 1; }
+  mkdir -p "$FRONTEND_BACKUP" || { rm -rf "$STAGING"; finish_job failed "无法创建前端备份目录 $FRONTEND_BACKUP ，线上目录未改动"; exit 1; }
   for name in $(ls -A "$STAGING"); do
     case "$name" in
       backend|manifest.json) continue ;;
@@ -288,7 +311,10 @@ else
     finish_job failed "无法创建前端暂存目录，线上目录未改动"
     exit 1
   }
-  FRONTEND_BACKUP=$(auth_pro_frontend_backup rename backup)
+  FRONTEND_BACKUP=$(auth_pro_frontend_backup rename backup) || {
+    finish_job failed "无法创建前端备份目录（$DATA_DIR/updates/backups），线上目录未改动"
+    exit 1
+  }
   rm -rf "$STAGING"
   cp -a "$FRONTEND_SOURCE" "$STAGING" || {
     rm -rf "$STAGING"

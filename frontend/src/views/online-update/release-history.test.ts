@@ -5,7 +5,9 @@ import {
   groupReleases,
   layoutGroups,
   majorGroupKey,
-  releaseOpenByDefault
+  releaseOpenByDefault,
+  compareReleaseVersions,
+  pendingReleases
 } from './release-history'
 
 const release = (version: string, notes: string[] = []) => ({
@@ -91,3 +93,32 @@ assert.equal(groupOpenByDefault(full[1], 1, '1.8.6', '1.7.8'), true)
 assert.equal(groupOpenByDefault(full[2], 2, '1.8.6', '1.8.6', true), true)
 
 console.log('release-history tests passed')
+
+// 落后多个版本：列出当前版本之后、最新版本为止的每一版，新版本在前
+{
+  const releases = [
+    release('1.8.9', ['第九版']),
+    release('1.8.8', ['第八版']),
+    release('1.8.7'),
+    release('1.8.6', ['当前这版']),
+    release('1.7.8', ['更早'])
+  ]
+  const latest = release('1.8.9', ['清单里的第九版'])
+  const pending = pendingReleases(releases, '1.8.6', latest)
+  assert.deepEqual(
+    pending.map((item) => item.version),
+    ['1.8.9', '1.8.8', '1.8.7']
+  )
+  assert.deepEqual(pending[0].notes, ['清单里的第九版'])
+  assert.equal(pendingReleases(releases, '1.8.9', latest).length, 0)
+  // releases.json 还没收录最新版时用清单补上
+  const lagging = pendingReleases(releases.slice(1), 'v1.8.7', latest)
+  assert.deepEqual(
+    lagging.map((item) => item.version),
+    ['1.8.9', '1.8.8']
+  )
+  // 比最新版还新的预发布记录不算
+  assert.equal(pendingReleases([release('1.9.0'), ...releases], '1.8.8', latest).length, 1)
+  assert.equal(compareReleaseVersions('1.10.0', '1.9.9')! > 0, true)
+  assert.equal(compareReleaseVersions('nightly', '1.0.0'), null)
+}

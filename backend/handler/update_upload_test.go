@@ -125,6 +125,10 @@ func TestOnlineUpdateUploadApplyUsesSamePipeline(t *testing.T) {
 	t.Cleanup(func() { config.AppVersion = previousVersion })
 	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
 	t.Setenv("AUTO_PRO_FRONTEND_DIR", filepath.Join(t.TempDir(), "missing-frontend"))
+	// 目录权限预检另有测试。这里前端目录故意不存在，预检放行，只看上传包是否走同一套检查。
+	previousPreflight := onlineUpdatePreflight
+	onlineUpdatePreflight = func() error { return nil }
+	t.Cleanup(func() { onlineUpdatePreflight = previousPreflight })
 	restore := stubOnlineUpdateApply(t, func(string, *onlineUpdateManifest) (string, error) {
 		t.Fatal("uploaded package must not be downloaded")
 		return "", nil
@@ -165,7 +169,7 @@ func TestOnlineUpdateUploadApplyUsesSamePipeline(t *testing.T) {
 		t.Fatalf("job should stop at backup or frontend dir in test env: %+v", job)
 	}
 	logs := strings.Join(job.Logs, "\n")
-	if !strings.Contains(logs, "使用上传的更新包") || !strings.Contains(logs, "已核对更新包的大小、哈希、官方签名和适用端") || !strings.Contains(logs, "更新包结构校验通过") {
+	if !strings.Contains(logs, "目录权限检查通过") || !strings.Contains(logs, "使用上传的更新包") || !strings.Contains(logs, "已核对更新包的大小、哈希、官方签名和适用端") || !strings.Contains(logs, "更新包结构校验通过") {
 		t.Fatalf("uploaded package should go through the same checks: %s", logs)
 	}
 

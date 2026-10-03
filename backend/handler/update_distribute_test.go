@@ -193,3 +193,103 @@ func TestProductUpdateRateLimit(t *testing.T) {
 		t.Fatalf("last status %d", last)
 	}
 }
+
+// 线上问题复现：版本管理里 1.8.7 填了「最低版本 1.8.0」（本意是低于它强制更新），
+// 以前原样写进 minVersion，1.7.8 客户站据此提示「当前版本过低，不能直接升级」并禁用立即更新。
+func TestProductUpdateMinVersionOnlyForcesOlderSites(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	resetProductUpdateStateForTest()
+	t.Cleanup(resetProductUpdateStateForTest)
+	path := filepath.Join(t.TempDir(), "pkg.tar.gz")
+	if err := os.WriteFile(path, []byte("package-bytes-1.8.7"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	loadProductUpdateRecords = func() ([]productUpdateRecord, error) {
+		return []productUpdateRecord{{
+			Version: "1.8.7", Title: "1.8.7", PublishedAt: time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC),
+			PackagePath: path, FileSize: 19, MinVersion: "1.8.0",
+		}}, nil
+	}
+	router := gin.New()
+	RegisterProductUpdateRoutes(router.Group("/api"))
+	fetch := func(userAgent string) onlineUpdateManifest {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/update/latest.json?appKey=app_test", nil)
+		if userAgent != "" {
+			req.Header.Set("User-Agent", userAgent)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+		}
+		var manifest onlineUpdateManifest
+		if err := json.Unmarshal(rec.Body.Bytes(), &manifest); err != nil {
+			t.Fatal(err)
+		}
+		return manifest
+	}
+	old := fetch("auth_pro-updater/1.7.8")
+	if old.MinVersion != "" || !old.Force {
+		t.Fatalf("1.7.8 应该拿到 force=true 且没有 minVersion: %+v", old)
+	}
+	if available, reason := onlineUpdateAvailable("1.7.8", &old); !available || reason != "" {
+		t.Fatalf("1.7.8 必须能直接升级到 1.8.7: available=%v reason=%q", available, reason)
+	}
+	if newer := fetch("auth_pro-updater/1.8.2"); newer.Force || newer.MinVersion != "" {
+		t.Fatalf("1.8.2 不低于阈值，不应强制: %+v", newer)
+	}
+	if unknown := fetch("curl/8.0"); unknown.Force || unknown.MinVersion != "" {
+		t.Fatalf("认不出版本时原样返回: %+v", unknown)
+	}
+	// 缓存里的清单不能被某个请求方改写
+	if again := fetch("auth_pro-updater/1.8.2"); again.Force {
+		t.Fatalf("缓存被改写: %+v", again)
+	}
+}
+
+// 1.8.8 及以前的客户站更新时跑的是自己程序里的旧脚本，以 www 运行时会因 /www/backup 进不去而回滚。
+// 官网只能在更新内容第一行提示修复命令；1.8.9 起的客户站和认不出版本的请求不加。
+func TestProductUpdateWritableHintOnlyForOldSites(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	resetProductUpdateStateForTest()
+	t.Cleanup(resetProductUpdateStateForTest)
+	path := filepath.Join(t.TempDir(), "pkg.tar.gz")
+	if err := os.WriteFile(path, []byte("package-bytes-1.8.9"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	loadProductUpdateRecords = func() ([]productUpdateRecord, error) {
+		return []productUpdateRecord{{
+			Version: "1.9.0", Title: "1.9.0", Changelog: "修好了一些问题",
+			PublishedAt: time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC), PackagePath: path, FileSize: 19,
+		}}, nil
+	}
+	router := gin.New()
+	RegisterProductUpdateRoutes(router.Group("/api"))
+	fetch := func(userAgent string) onlineUpdateManifest {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/update/latest.json?appKey=app_test", nil)
+		req.Header.Set("User-Agent", userAgent)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		var manifest onlineUpdateManifest
+		if err := json.Unmarshal(rec.Body.Bytes(), &manifest); err != nil {
+			t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+		}
+		return manifest
+	}
+	for _, ua := range []string{"auth_pro-updater/1.7.5", "auth_pro-updater/1.8.8"} {
+		got := fetch(ua)
+		if len(got.Notes) < 2 || !strings.Contains(got.Notes[0], "--repair-update-perms") || got.Notes[1] != "1.9.0" {
+			t.Fatalf("%s 应在第一行看到修复提示: %q", ua, got.Notes)
+		}
+		if got.Force {
+			t.Fatalf("%s 没有设最低版本，不应强制: %+v", ua, got)
+		}
+	}
+	for _, ua := range []string{"auth_pro-updater/1.8.9", "curl/8.0"} {
+		if got := fetch(ua); len(got.Notes) == 0 || strings.Contains(strings.Join(got.Notes, "\n"), "repair-update-perms") {
+			t.Fatalf("%s 不应看到修复提示: %q", ua, got.Notes)
+		}
+	}
+}

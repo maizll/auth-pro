@@ -43,6 +43,9 @@ import { resetRouterState } from '@/router/guards/beforeEach'
 import { useMenuStore } from './menu'
 import { StorageConfig } from '@/utils/storage/storage-config'
 
+/** 本次登录是否已经弹过强制更新说明；退出登录时清掉，下次登录再弹一次 */
+export const FORCE_NOTICE_DIALOG_KEY = 'force-update-dialog'
+
 /**
  * 用户状态管理
  * 管理用户登录状态、个人信息、语言设置、搜索历史、锁屏状态等
@@ -162,6 +165,8 @@ export const useUserStore = defineStore(
       // 注意：不清空工作台标签页，等下次登录时根据用户判断
       // 移除iframe路由缓存
       sessionStorage.removeItem('iframeRoutes')
+      // 下次登录再弹一次强制更新说明
+      sessionStorage.removeItem(FORCE_NOTICE_DIALOG_KEY)
       // 清空主页路径
       useMenuStore().setHomePath('')
       // 重置路由状态

@@ -8,26 +8,33 @@
           <p class="update-subtitle">整包更新网站页面和后台服务</p>
         </div>
         <div class="update-actions">
-          <ElButton
-            :icon="Refresh"
-            :loading="loading || historyLoading"
-            circle
-            @click="loadPage(true)"
-          />
-          <ElButton :icon="Search" :loading="checking" @click="handleCheck">检查更新</ElButton>
+          <ElButton size="small" :icon="Search" :loading="checking" @click="handleCheck">
+            检查更新
+          </ElButton>
           <UploadUpdatePackage
+            ref="uploadRef"
             :official="!!officialSource"
             :disabled="isJobActive"
+            :hide-trigger="narrow"
             @started="handleUploadStarted"
           />
+          <ElDropdown v-if="narrow" trigger="click" @command="uploadRef?.open()">
+            <ElButton size="small">更多</ElButton>
+            <template #dropdown>
+              <ElDropdownMenu>
+                <ElDropdownItem command="upload" :disabled="isJobActive">上传更新包</ElDropdownItem>
+              </ElDropdownMenu>
+            </template>
+          </ElDropdown>
           <ElButton
+            size="small"
             type="primary"
             :icon="Download"
             :disabled="!canApply"
             :loading="applying"
             @click="handleApply"
           >
-            立即更新
+            {{ applyLabel }}
           </ElButton>
         </div>
       </div>
@@ -96,9 +103,13 @@
           <span class="version-label">当前版本</span>
           <div class="version-value">
             <strong>v{{ currentVersion }}</strong>
-            <ElTag type="info" effect="plain">当前</ElTag>
+            <ElTag :type="behindCount ? 'danger' : 'info'" effect="plain">
+              {{ behindCount ? `落后 ${behindCount} 个版本` : '当前' }}
+            </ElTag>
           </div>
-          <span class="version-meta">{{ status?.buildTime || '未记录构建时间' }}</span>
+          <span class="version-meta">{{
+            status?.buildTime ? formatDate(status.buildTime) : '未记录构建时间'
+          }}</span>
         </div>
 
         <div class="version-item latest" :class="{ available: updateAvailable }">
@@ -122,10 +133,54 @@
 
       <div class="update-section">
         <div class="section-header">
-          <strong>更新内容</strong>
+          <div>
+            <strong>更新内容</strong>
+            <span v-if="behindCount" class="section-description">
+              v{{ currentVersion }} → v{{ latest?.version }}，共 {{ behindCount }} 个版本
+            </span>
+          </div>
           <ElText v-if="latest?.force" type="danger" size="small">强制更新</ElText>
         </div>
-        <div v-if="latest?.notes?.length" class="notes-list">
+        <template v-if="behindCount">
+          <p class="pending-tip">
+            {{
+              behindCount > 1
+                ? `一次更新会直接升到 v${latest?.version}，中间的 ${behindCount - 1} 个版本不用逐个安装。下面按版本列出这 ${behindCount} 个版本的全部更新内容。`
+                : `一次更新会升到 v${latest?.version}。`
+            }}
+          </p>
+          <div class="pending-list">
+            <div
+              v-for="(release, index) in shownPending"
+              :key="release.version"
+              class="pending-version"
+            >
+              <div class="pending-version-head">
+                <strong>v{{ release.version }}</strong>
+                <ElTag v-if="index === 0" type="success" effect="plain" size="small">最新</ElTag>
+                <span class="pending-date">{{ formatDay(release.releasedAt) }}</span>
+              </div>
+              <div v-if="release.notes.length" class="notes-list">
+                <div v-for="note in release.notes" :key="note" class="note-item">
+                  <ArtSvgIcon icon="ri:checkbox-circle-line" />
+                  <span>{{ note }}</span>
+                </div>
+              </div>
+              <p v-else class="pending-empty">这一版没有写更新说明</p>
+            </div>
+          </div>
+          <ElButton
+            v-if="pending.length > shownPending.length"
+            class="pending-more"
+            size="small"
+            text
+            type="primary"
+            @click="pendingExpanded = true"
+          >
+            展开其余 {{ pending.length - shownPending.length }} 个版本
+          </ElButton>
+        </template>
+        <div v-else-if="latest?.notes?.length" class="notes-list">
           <div v-for="note in latest.notes" :key="note" class="note-item">
             <ArtSvgIcon icon="ri:checkbox-circle-line" />
             <span>{{ note }}</span>
@@ -140,10 +195,24 @@
         :latest-version="latest?.version || historyReleases[0]?.version"
         :loading="historyLoading"
         :error="historyError"
-        @refresh="loadHistory(true)"
       />
 
       <OfficialUpdateSource v-if="officialSource" :source="officialSource" />
+
+      <div class="update-section auto-section">
+        <strong class="auto-title">自动更新</strong>
+        <ElSwitch
+          :model-value="autoUpdate"
+          :loading="autoSaving"
+          size="small"
+          @change="handleAutoChange"
+        />
+        <span class="auto-text">
+          收到强制更新时，在服务器时间{{
+            status?.autoWindow || '凌晨 3:00–5:00'
+          }}自动安装，同样核对签名、先备份，失败自动回退，结果记入操作日志。
+        </span>
+      </div>
 
       <div class="update-section package-section">
         <div class="section-header">
@@ -171,8 +240,10 @@
   import { appConfirm } from '@/utils/app-confirm'
   import { computed, nextTick, onMounted, ref, toRef } from 'vue'
   import { ElMessage } from 'element-plus'
-  import { Download, Refresh, Search } from '@element-plus/icons-vue'
+  import { Download, Search } from '@element-plus/icons-vue'
+  import { useWindowSize } from '@vueuse/core'
   import {
+    saveOnlineUpdateAuto,
     fetchOnlineUpdateApply,
     fetchOnlineUpdateCheck,
     fetchOnlineUpdateHistory,
@@ -187,8 +258,10 @@
   import OfficialUpdateSource from './OfficialUpdateSource.vue'
   import ReleaseHistory from './ReleaseHistory.vue'
   import UploadUpdatePackage from './UploadUpdatePackage.vue'
+  import { refreshForceNotice, setForceNotice } from './force-notice'
   import { UPDATE_RESTART_RECOVERY } from './restart-timeout'
   import { latestVersionStatus, updateChannelLabel } from './status-label'
+  import { pendingReleases } from './release-history'
   import { stoppedBeforeInstall, updateSession, watchUpdateJob } from './update-session'
 
   defineOptions({ name: 'OnlineUpdate' })
@@ -247,6 +320,19 @@
     if (!latest.value?.version) return ''
     return formatDate(latest.value.releasedAt)
   })
+  // 当前版本之后到最新版的每一版。隔了很多版没更新时，用户要知道落后几版、这次会装进哪些改动。
+  const pending = computed(() =>
+    updateAvailable.value
+      ? pendingReleases(historyReleases.value, currentVersion.value, latest.value)
+      : []
+  )
+  const behindCount = computed(() => pending.value.length)
+  // 版本多时先列最近 5 个，其余点一下再展开
+  const PENDING_PREVIEW = 5
+  const pendingExpanded = ref(false)
+  const shownPending = computed(() =>
+    pendingExpanded.value ? pending.value : pending.value.slice(0, PENDING_PREVIEW)
+  )
   const packageError = computed(() => checkResult.value?.packageError || '')
   const versionError = computed(() => checkResult.value?.versionError || '')
   const packageValid = computed(() => checkResult.value?.packageValid === true)
@@ -256,6 +342,30 @@
   const canApply = computed(
     () => checkResult.value?.canApply === true && !applying.value && !isJobActive.value
   )
+  // 检查过且没有可装的新版本时，主按钮直接写「已是最新」，不留一个看不出原因的灰按钮
+  const applyLabel = computed(() =>
+    checkResult.value && !updateAvailable.value && !isJobActive.value ? '已是最新' : '立即更新'
+  )
+  // 按钮一行排开；屏幕太窄放不下时把「上传更新包」收进「更多」
+  const { width: windowWidth } = useWindowSize()
+  const narrow = computed(() => windowWidth.value < 360)
+  const uploadRef = ref<InstanceType<typeof UploadUpdatePackage> | null>(null)
+
+  const autoUpdate = computed(() => status.value?.autoUpdate === true)
+  const autoSaving = ref(false)
+  const handleAutoChange = async (value: string | number | boolean) => {
+    autoSaving.value = true
+    try {
+      const notice = await saveOnlineUpdateAuto(value === true)
+      if (status.value) status.value.autoUpdate = notice.autoUpdate
+      setForceNotice(notice)
+      ElMessage.success(notice.autoUpdate ? '已开启自动更新' : '已关闭自动更新')
+    } catch {
+      // 失败提示由请求层给出，开关保持原状
+    } finally {
+      autoSaving.value = false
+    }
+  }
   const jobProgress = computed(() => {
     if (!job.value) return 0
     if (job.value.status === 'success') return 100
@@ -266,7 +376,8 @@
   })
   // 下载和验签阶段失败时还没动网站文件，不提回滚和进程守护。
   const failedBeforeInstall = computed(
-    () => job.value?.status === 'failed' && stoppedBeforeInstall(job.value.progress)
+    () =>
+      job.value?.status === 'failed' && stoppedBeforeInstall(job.value.progress, job.value.error)
   )
   const jobProgressStatus = computed(() => {
     if (job.value?.status === 'success') return 'success' as const
@@ -316,7 +427,9 @@
       checkResult.value = await fetchOnlineUpdateCheck()
       sourceOverride.value = null
       checkFailed.value = false
+      void loadStatus()
       void loadHistory(true)
+      void refreshForceNotice()
       if (checkResult.value.updateAvailable) {
         ElMessage.success(`发现新版本 v${checkResult.value.latest.version}`)
       } else {
@@ -335,15 +448,15 @@
   const handleApply = async () => {
     if (!latest.value) return
     try {
-      await appConfirm(
-        `确认更新到 v${latest.value.version}？更新过程中服务会短暂重启。`,
-        '在线更新',
-        {
-          confirmButtonText: '开始更新',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }
-      )
+      const span =
+        behindCount.value > 1
+          ? `将从 v${currentVersion.value} 直接升到 v${latest.value.version}（包含其间 ${behindCount.value} 个版本的全部改动）。`
+          : `确认更新到 v${latest.value.version}？`
+      await appConfirm(`${span}更新过程中服务会短暂重启。`, '在线更新', {
+        confirmButtonText: '开始更新',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
     } catch {
       return
     }
@@ -419,6 +532,13 @@
     return `${(value / 1024 / 1024).toFixed(2)} MB`
   }
 
+  const formatDay = (value?: string) => {
+    if (!value) return ''
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return ''
+    return date.toLocaleDateString()
+  }
+
   const formatDate = (value?: string) => {
     if (!value) return '-'
     const date = new Date(value)
@@ -455,13 +575,38 @@
       .update-actions {
         display: flex;
         flex-shrink: 0;
-        gap: 10px;
+        flex-wrap: nowrap;
+        gap: 8px;
         align-items: center;
+
+        :deep(.el-button + .el-button) {
+          margin-left: 0;
+        }
       }
     }
 
     .update-alert {
       margin-bottom: 12px;
+    }
+
+    .auto-section {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      align-items: center;
+
+      .auto-title {
+        font-size: 15px;
+        color: var(--art-gray-900);
+      }
+
+      .auto-text {
+        flex: 1;
+        min-width: 220px;
+        font-size: 13px;
+        line-height: 20px;
+        color: var(--art-gray-600);
+      }
     }
 
     .version-grid {
@@ -563,6 +708,53 @@
       }
     }
 
+    .pending-tip {
+      margin: 0 0 14px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--art-gray-600);
+    }
+
+    .pending-list {
+      display: grid;
+      gap: 16px;
+    }
+
+    .pending-version {
+      padding: 14px;
+      background: var(--art-gray-100);
+      border: 1px solid var(--art-border-color);
+      border-radius: 10px;
+
+      .pending-version-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+
+        strong {
+          font-size: 14px;
+          color: var(--art-gray-900);
+        }
+
+        .pending-date {
+          margin-left: auto;
+          font-size: 12px;
+          color: var(--art-gray-500);
+        }
+      }
+
+      .pending-empty {
+        margin: 0;
+        font-size: 13px;
+        color: var(--art-gray-500);
+      }
+    }
+
+    .pending-more {
+      margin-top: 10px;
+    }
+
     .package-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -651,13 +843,10 @@
       .update-header {
         flex-direction: column;
 
-        .update-actions {
-          flex-wrap: wrap;
-          width: 100%;
+        gap: 12px;
 
-          :deep(.el-button + .el-button) {
-            margin-left: 0;
-          }
+        .update-actions {
+          width: 100%;
         }
       }
     }

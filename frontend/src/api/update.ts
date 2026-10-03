@@ -72,6 +72,21 @@ export interface OnlineUpdateStatus {
   latest?: OnlineUpdateManifest | null
   runningJob?: OnlineUpdateJob | null
   officialSource?: OfficialUpdateSource | null
+  /** 自动更新开关：开了以后强制更新会在 autoWindow 时段自动安装 */
+  autoUpdate: boolean
+  autoWindow: string
+}
+
+/** 强制更新提醒：后台横幅和登录后弹框用 */
+export interface OnlineUpdateNotice {
+  force: boolean
+  version?: string
+  releasedAt?: string
+  notes?: string[]
+  autoUpdate: boolean
+  autoWindow: string
+  /** 这个版本自动安装失败过，不再自动重试 */
+  autoFailed?: boolean
 }
 
 export interface OnlineUpdateCheckResult {
@@ -119,6 +134,20 @@ export function fetchOnlineUpdateJob(id: string) {
   return request.get<OnlineUpdateJob>({
     url: `/api/system/update/jobs/${encodeURIComponent(id)}`,
     showErrorMessage: false
+  })
+}
+
+export function fetchOnlineUpdateNotice() {
+  return request.get<OnlineUpdateNotice>({
+    url: '/api/system/update/notice',
+    showErrorMessage: false
+  })
+}
+
+export function saveOnlineUpdateAuto(enabled: boolean) {
+  return request.put<OnlineUpdateNotice>({
+    url: '/api/system/update/auto',
+    data: { enabled }
   })
 }
 

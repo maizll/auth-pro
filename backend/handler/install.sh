@@ -394,6 +394,7 @@ baota_print_help() {
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- upgrade 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --repair-guardian 域名
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --repair-update-perms 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --reset-admin-password 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --status 域名
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --ssl 域名
@@ -432,6 +433,10 @@ upgrade 从官网取最新包，替换页面和 backend/auth_pro，保留 db.jso
   --yes, -y         不再询问
   --dry-run         只打印步骤，不改网站文件
   --repair-guardian 只修复本站点的进程守护。不停其它站点，不改数据库、站点程序和 Nginx
+  --repair-update-perms
+                    修复在线更新权限。进程守护以 www 运行、在线更新报「无法创建前端备份目录」时使用。
+                    建好 /www/backup/auth-pro/域名 并交给 www（只给 /www/backup 加进入权限，不开放列目录），
+                    把网站目录交给 www，再以 www 身份逐个试写。不停站点，不改数据库和 Nginx
   --reset-admin-password
                     本机 root 重设已装站点的管理员密码。有重设命令的程序直接运行，并带上网站根作为前端目录；1.7.5 这类旧程序改为直接更新数据库。不下载安装包，也不替换站点程序
   --reset-binary FILE
@@ -456,6 +461,7 @@ upgrade 从官网取最新包，替换页面和 backend/auth_pro，保留 db.jso
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- example.com --port 19127 --site-root /www/wwwroot/example.com
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- upgrade example.com
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --repair-guardian example.com
+  curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --repair-update-perms example.com
   curl -fsSL https://auth.maizll.com/install.sh | bash -s -- --reset-admin-password example.com
   bash install.sh --yes --site-root /www/wwwroot/example.com --package /tmp/auth_pro-full-vX.Y.Z.tar.gz
   bash install.sh upgrade --yes --site-root /www/wwwroot/example.com --package /tmp/auth_pro-full-vX.Y.Z.tar.gz --no-start
@@ -3552,6 +3558,136 @@ menu_show_status() {
   baota_report_db_reader
 }
 
+# 以 www 身份检查目录能不能写入和进入。
+baota_www_can_write() {
+  local dir="$1" quoted
+  id www >/dev/null 2>&1 || return 1
+  [[ -d "$dir" ]] || return 1
+  quoted="$(printf '%q' "$dir")"
+  if command -v runuser >/dev/null 2>&1; then
+    runuser -u www -- test -w "$dir" -a -x "$dir"
+    return
+  fi
+  su -s /bin/sh www -c "test -w ${quoted} -a -x ${quoted}"
+}
+
+# 修复在线更新权限（--repair-update-perms，菜单 12）。
+# 1.7.x 一条命令安装的老站：宝塔的 /www/backup 是 700 root，网站目录里也可能有 root 的文件。
+# 进程守护以 www 运行时，在线更新建不出备份目录就会失败回滚。
+# 老站更新时跑的是它自己程序里的旧更新脚本，官网改不了，只能在服务器上用 root 修一次。
+# 只动本站：给 /www/backup 加进入权限（不开放列目录）、建好本站备份目录、把网站目录和数据目录交给 www。
+menu_repair_update_perms() {
+  local data dir central="" failed=0
+  local -a dirs=()
+  [[ "$(id -u)" -eq 0 ]] || baota_die "请用 root 运行。没有改动任何文件。"
+  if ! id www >/dev/null 2>&1; then
+    baota_info "本机没有 www 用户，程序不是以 www 运行，在线更新不受这里的目录权限影响，不需要修复。"
+    return 0
+  fi
+  if central="$(baota_central_backup_root)"; then
+    baota_info "备份目录 ${central} 已交给 www"
+  else
+    central=""
+    baota_warn "无法准备 /www/backup 下的备份目录。1.8.9 起的在线更新会改把备份放在本站数据目录；1.8.8 及以前的版本仍会失败。"
+  fi
+  data="$(baota_data_dir)"
+  mkdir -p "$data/updates" || baota_die "无法创建 ${data}/updates"
+  # 宝塔给 .user.ini 加不可变属性。先去掉，交给 www 后再加回去，避免整次 chown 被这一份文件打断。
+  if [[ -f "$BAOTA_SITE_ROOT/.user.ini" ]]; then
+    chattr -i "$BAOTA_SITE_ROOT/.user.ini" 2>/dev/null || true
+  fi
+  chown -R www:www "$BAOTA_SITE_ROOT" || baota_warn "无法把 ${BAOTA_SITE_ROOT} 整个交给 www"
+  if [[ -f "$BAOTA_SITE_ROOT/.user.ini" ]]; then
+    chattr +i "$BAOTA_SITE_ROOT/.user.ini" 2>/dev/null || true
+  fi
+  case "$data" in
+    "$BAOTA_SITE_ROOT"|"$BAOTA_SITE_ROOT"/*) ;;
+    *) chown -R www:www "$data" || baota_warn "无法把 ${data} 交给 www" ;;
+  esac
+  baota_tighten_secrets
+  dirs=("$BAOTA_SITE_ROOT" "$BAOTA_SITE_ROOT/backend" "$data" "$data/updates")
+  while IFS= read -r dir; do
+    [[ -n "$dir" ]] && dirs+=("$dir")
+  done < <(find "$BAOTA_SITE_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name backend 2>/dev/null | sort)
+  if [[ -n "$central" ]]; then
+    dirs+=("$central")
+  fi
+  for dir in "${dirs[@]}"; do
+    [[ -d "$dir" ]] || continue
+    if baota_www_can_write "$dir"; then
+      baota_info "www 可以写入 ${dir}"
+    else
+      baota_warn "www 仍然写不进 ${dir}"
+      failed=1
+    fi
+  done
+  if [[ "$failed" -ne 0 ]]; then
+    baota_die "还有目录 www 写不进去，见上面的提示。请检查这些目录是否被加了不可变属性（lsattr）或挂载为只读。"
+  fi
+  menu_clear_stuck_update_job "$data"
+  baota_info "在线更新权限已修好。回到后台「在线更新」点「立即更新」即可。"
+}
+
+# 找出更新脚本已经写下「失败」、程序里却还停在「重启中」的任务，打印任务编号。
+# 1.8.8 及以前的程序在脚本停进程之前失败时（例如建不出备份目录），旧进程一直活着，
+# 内存里的任务不会结束，再点更新会提示「已有更新任务正在执行」。重启一次程序才能清掉。
+# 磁盘上的任务文件可能已被页面刷成「失败」，看不出内存状态。判断依据：最近一次结果是失败，
+# 且正在运行的进程比这个任务更早启动（正常的失败回滚会重启进程，进程就比任务晚）。
+baota_stuck_update_job() {
+  local updates="$1/updates" proc_start="$2" line id created created_at
+  [[ -d "$updates" && -n "$proc_start" ]] || return 1
+  line="$(python3 - "$updates" <<'PY'
+import glob, json, os, sys
+results = sorted(glob.glob(os.path.join(sys.argv[1], "*.json.result")), key=os.path.getmtime)
+if not results:
+    sys.exit(0)
+result = results[-1]
+try:
+    with open(result, encoding="utf-8") as handle:
+        first = handle.read().split("\n", 1)[0].strip()
+    with open(result[: -len(".result")], encoding="utf-8") as handle:
+        job = json.load(handle)
+except Exception:
+    sys.exit(0)
+if first == "failed":
+    print("%s %s" % (job.get("id") or "", job.get("createdAt") or ""))
+PY
+)"
+  id="${line%% *}"
+  created="${line#* }"
+  [[ -n "$id" && -n "$created" && "$created" != "$line" ]] || return 1
+  created_at="$(date -d "$created" +%s 2>/dev/null)" || return 1
+  (( proc_start < created_at )) || return 1
+  printf '%s\n' "$id"
+}
+
+# 本站监听进程的启动时间（秒）。没有进程时返回非 0。
+baota_site_process_start() {
+  local pid age
+  pid="$(baota_pids_for_port "$(baota_effective_port)" | head -n 1)"
+  [[ -n "$pid" ]] || return 1
+  age="$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')"
+  [[ "$age" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$(( $(date +%s) - age ))"
+}
+
+menu_clear_stuck_update_job() {
+  local data="$1" job started version
+  # 1.8.9 起程序会按结果文件自己结束这种任务，不需要重启
+  version="$(menu_site_version)"
+  if [[ "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]] && [[ "$(printf '%s\n1.8.9\n' "$version" | sort -V | head -n 1)" == "1.8.9" ]]; then
+    return 0
+  fi
+  started="$(baota_site_process_start)" || return 0
+  job="$(baota_stuck_update_job "$data" "$started")" || return 0
+  baota_warn "上一次在线更新（${job}）失败时程序没有重启，程序里还记着它，会挡住下一次更新。现在重启一次本站程序把它清掉，网站文件不受影响。"
+  if baota_find_supervisor && ( menu_service restart ); then
+    baota_info "本站程序已重启"
+    return 0
+  fi
+  baota_warn "没能自动重启。请在宝塔「软件商店 → 进程守护管理器」里重启本站，然后再点「立即更新」。"
+}
+
 menu_show_admin() {
   local dest
   dest="/root/auth-pro-${MENU_PICK_DOMAIN}.txt"
@@ -3766,7 +3902,7 @@ menu_uninstall_site() {
 
 menu_render() {
   menu_tty_print "$(menu_blue "========================================")"
-  menu_tty_print "$(menu_blue "  auth-pro 1.8.8")"
+  menu_tty_print "$(menu_blue "  auth-pro 1.8.9")"
   menu_tty_print "$(menu_blue "========================================")"
   menu_tty_print "  $(menu_green "1")  安装新站点"
   menu_tty_print "  $(menu_green "2")  升级站点"
@@ -3779,6 +3915,7 @@ menu_render() {
   menu_tty_print "  $(menu_green "9")  申请/续签 SSL 证书"
   menu_tty_print "  $(menu_green "10") 修改后台端口"
   menu_tty_print "  $(menu_red "11") 卸载站点"
+  menu_tty_print "  $(menu_green "12") 修复在线更新权限"
   menu_tty_print "  $(menu_green "0")  退出"
   menu_tty_print "$(menu_blue "========================================")"
 }
@@ -3917,6 +4054,11 @@ menu_main() {
       9) menu_action_ssl ;;
       10) menu_action_port ;;
       11) menu_action_uninstall ;;
+      12)
+        menu_pick_site || continue
+        menu_bind_site "$MENU_PICK_DOMAIN" "$MENU_PICK_ROOT"
+        menu_repair_update_perms
+        ;;
       0)
         menu_tty_print "已退出。"
         return 0
@@ -4009,6 +4151,7 @@ menu_cli() {
   case "$cmd" in
     --status) menu_show_status ;;
     --show-admin) menu_show_admin ;;
+    --repair-update-perms) menu_repair_update_perms ;;
     --start) menu_service start ;;
     --stop) menu_service stop ;;
     --restart) menu_service restart ;;
@@ -4040,7 +4183,7 @@ install_main() {
     return
   fi
   case "$1" in
-    --status|--show-admin|--stop|--restart|--backup|--restore|--change-port|--uninstall|--ssl)
+    --status|--show-admin|--stop|--restart|--backup|--restore|--change-port|--uninstall|--ssl|--repair-update-perms)
       menu_cli "$@"
       return
       ;;

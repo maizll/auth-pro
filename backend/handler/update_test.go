@@ -512,6 +512,10 @@ func TestExecuteOnlineUpdateVerifiesReleaseSignatureBeforeExtract(t *testing.T) 
 			return packagePath, nil
 		})
 		defer restore()
+		// 这里只验签名。目录权限预检另有测试，前端目录故意不存在，先跳过预检。
+		previousPreflight := onlineUpdatePreflight
+		onlineUpdatePreflight = func() error { return nil }
+		defer func() { onlineUpdatePreflight = previousPreflight }()
 		return executeOnlineUpdate("job-signature", manifest)
 	}
 
@@ -662,7 +666,7 @@ exec /bin/cp "$@"
 	if info, err := os.Lstat(liveDir); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		t.Fatalf("live frontend is no longer a directory: %v", err)
 	}
-	for _, pattern := range []string{liveDir + ".backup.*", liveDir + ".staging.*", filepath.Join(dataDir, "updates", "frontend-staging.*")} {
+	for _, pattern := range []string{liveDir + ".backup.*", liveDir + ".staging.*", filepath.Join(dataDir, "updates", "frontend-staging.*"), filepath.Join(dataDir, "updates", "backups", "rename", "*")} {
 		matches, err := filepath.Glob(pattern)
 		if err != nil {
 			t.Fatal(err)
@@ -708,7 +712,11 @@ func TestOnlineUpdateFrontendRenameSwitch(t *testing.T) {
 	if err != nil || string(extra) != "extra" {
 		t.Fatalf("switched frontend missing new asset: %q %v", extra, err)
 	}
-	backups, err := filepath.Glob(liveDir + ".backup.*")
+	// 没有 /www/backup 时备份放在数据目录，不再放到网站根旁边。
+	if sideways, _ := filepath.Glob(liveDir + ".backup.*"); len(sideways) != 0 {
+		t.Fatalf("backup was placed next to the site root: %v", sideways)
+	}
+	backups, err := filepath.Glob(filepath.Join(dataDir, "updates", "backups", "rename", "site.backup.*"))
 	if err != nil || len(backups) != 1 {
 		t.Fatalf("previous frontend backup = %v, %v", backups, err)
 	}

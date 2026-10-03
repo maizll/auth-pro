@@ -1,5 +1,5 @@
 import type { ColumnOption } from '@/types'
-import { mobileScrollLayout } from '@/utils/mobile-table'
+import { hasOwnDetailAction, mobileScrollLayout } from '@/utils/mobile-table'
 
 const MOBILE_QUERY = '(max-width: 767px)'
 
@@ -311,7 +311,16 @@ function ensureDetailButton(root: HTMLElement) {
   root.querySelectorAll('.el-table__body-wrapper tbody tr').forEach((row) => {
     if (!(row instanceof HTMLTableRowElement)) return
     const cell = row.children[opIndex]?.querySelector('.cell')
-    if (!(cell instanceof HTMLElement) || cell.querySelector('.table-row-detail')) return
+    if (!(cell instanceof HTMLElement)) return
+    // 页面自己有「详情」或「查看」时不再插入，已经插过的也拿掉（行内按钮可能比这里晚渲染）
+    const own = Array.from(cell.querySelectorAll('button, a, .el-button'))
+      .filter((node) => !node.closest('.table-row-detail'))
+      .map((node) => node.textContent || '')
+    if (hasOwnDetailAction(own)) {
+      cell.querySelectorAll('.table-row-detail').forEach((node) => node.remove())
+      return
+    }
+    if (cell.querySelector('.table-row-detail')) return
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'el-button el-button--primary is-link table-row-detail'
