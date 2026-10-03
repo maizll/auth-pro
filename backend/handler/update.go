@@ -1,6 +1,6 @@
 // 在线更新：从源站读取清单、校验安装包、解压并交给守护脚本重启。
 // 客户站只认 https://auth.maizll.com。页面、响应和日志不再出现仓库地址。
-// 安装包仍按清单里的 SHA256 和 signature 校验，备份、重启和回滚保持原样。
+// 下载完先核对大小和 SHA256，再用内置公钥验发布签名（见 updatesign），都通过才解压；备份、重启和回滚保持原样。
 
 package handler
 
@@ -8,6 +8,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -30,6 +31,7 @@ import (
 	"time"
 
 	"auto_pro/config"
+	"auto_pro/updatesign"
 
 	"github.com/gin-gonic/gin"
 )
@@ -41,6 +43,20 @@ const (
 // onlineUpdateManifestURLForTest 只给同包测试替换清单地址。
 // 正式构建不包含测试文件，也没有环境变量或后台入口能改这个地址。
 var onlineUpdateManifestURLForTest func() string
+
+// onlineUpdatePublicKeyForTest 只给同包测试换成测试公钥，正式构建只认 updatesign.PublicKey。
+var onlineUpdatePublicKeyForTest ed25519.PublicKey
+
+func onlineUpdatePublicKey() ed25519.PublicKey {
+	if onlineUpdatePublicKeyForTest != nil {
+		return onlineUpdatePublicKeyForTest
+	}
+	key, err := updatesign.ParsePublicKey(updatesign.PublicKey)
+	if err != nil {
+		panic("内置发布公钥格式不对：" + err.Error())
+	}
+	return key
+}
 
 func onlineUpdateManifestURL() string {
 	if onlineUpdateManifestURLForTest != nil {
@@ -125,7 +141,7 @@ type onlineUpdateStore struct {
 var updateStore = &onlineUpdateStore{jobs: make(map[string]*onlineUpdateJob)}
 
 // 应用阶段的下载可以在测试里替换。默认仍走真实下载。
-// 完整性只核对清单里的 SHA256 和 signature，不再回源站以外的地址查摘要。
+// 下载后核对清单里的大小和 SHA256，再验包内的发布签名，不再回源站以外的地址查摘要。
 var (
 	downloadOnlineUpdatePackageForApply = downloadOnlineUpdatePackage
 )
@@ -681,8 +697,9 @@ func requireOnlineUpdatePackageFileName(version, fileName string) error {
 	return nil
 }
 
-// validateOnlineUpdateSignature 要求清单签名等于 sha256:<包哈希>。
-// 源站原样转发发布时写入的签名。下载完成后再对文件重算哈希，对不上就拒绝安装。
+// validateOnlineUpdateSignature 要求清单的 signature 字段等于 sha256:<包哈希>。
+// 这个字段只是哈希的另一种写法，不是真签名；1.8.5 及更早的站点要求它必须存在，所以发布时照旧写。
+// 真正的发布签名在安装包里面，下载后由 verifyDownloadedOnlineUpdatePackage 验。
 func validateOnlineUpdateSignature(manifest *onlineUpdateManifest) error {
 	if manifest == nil {
 		return errors.New("更新包缺少独立签名")
@@ -1084,7 +1101,7 @@ func executeOnlineUpdate(jobID string, manifest *onlineUpdateManifest) error {
 	if err := verifyDownloadedOnlineUpdatePackage(manifest, packagePath); err != nil {
 		return err
 	}
-	appendOnlineUpdateLog(jobID, "已核对更新包的大小、哈希和签名")
+	appendOnlineUpdateLog(jobID, "已核对更新包的大小、哈希和官方签名")
 	appendOnlineUpdateLog(jobID, "更新包下载完成")
 	updateOnlineUpdateProgress(jobID, 50, "更新包下载完成")
 
@@ -1263,7 +1280,24 @@ func verifyDownloadedOnlineUpdatePackage(manifest *onlineUpdateManifest, package
 	if !strings.EqualFold(strings.TrimSpace(manifest.Package.Signature), onlineUpdateSignatureForSHA256(sum)) {
 		return errors.New("更新包签名与 SHA256 不一致")
 	}
+	// 1.8.6 起必须有发布签名。验不过就删掉下载的包，网站什么都没动。
+	if err := updatesign.VerifyPackage(packagePath, manifest.Version, onlineUpdatePublicKey()); err != nil {
+		_ = os.Remove(packagePath)
+		return onlineUpdateSignatureFailure(err)
+	}
 	return nil
+}
+
+// onlineUpdateSignatureFailure 把验签失败换成站长看得懂的话。客户站也会看到，不提代码托管站。
+func onlineUpdateSignatureFailure(err error) error {
+	const tail = "为了网站安全已停止更新，网站没有任何改动。请稍后再试，一直这样请联系官方。"
+	switch {
+	case errors.Is(err, updatesign.ErrUnsigned):
+		return errors.New("这个更新包没有官方签名，不是正式发布的版本，" + tail)
+	case errors.Is(err, updatesign.ErrBadSignature), errors.Is(err, updatesign.ErrTampered):
+		return errors.New("这个更新包没有通过官方签名校验，可能在下载途中损坏或被人改过，" + tail)
+	}
+	return fmt.Errorf("核对更新包签名失败（%v），%s", err, tail)
 }
 
 func hashOnlineUpdateFile(path string) (string, error) {

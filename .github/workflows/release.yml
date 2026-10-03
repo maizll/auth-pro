@@ -84,6 +84,9 @@ jobs:
           AUTO_PRO_UPDATE_PACKAGE_BASE_URL: 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}'
           AUTO_PRO_UPDATE_RELEASES_URL: 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/releases.json'
           AUTO_PRO_REQUIRE_GIT_RELEASE_NOTES: '1'
+          # 发布签名私钥只在这里用。打包脚本收进不导出的变量，只交给签名工具；没配置机密时直接失败，不发没签名的包。
+          AUTH_PRO_UPDATE_SIGNING_KEY: ${{ secrets.AUTH_PRO_UPDATE_SIGNING_KEY }}
+          AUTH_PRO_REQUIRE_UPDATE_SIGNATURE: '1'
         # 发布说明以仓库 docs/release-notes-<version>.txt 为准；缺文件时回退到 git 提交说明。
         run: |
           set -euo pipefail
@@ -128,6 +131,8 @@ jobs:
           test ! -e "$VERIFY_DIR/baota-install.sh"
           test ! -e "$VERIFY_DIR/baota-upgrade.sh"
           test ! -e "$VERIFY_DIR/baota-lib.sh"
+          # 用程序内置公钥核对包内签名，和站点在线更新走同一段代码。
+          go -C backend run ./cmd/release-sign verify "$PWD/$PACKAGE" "$VERSION"
           node -e '
             const crypto = require("node:crypto")
             const fs = require("node:fs")

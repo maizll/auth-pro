@@ -20,6 +20,10 @@ var schemaSQL string
 //go:embed menu_seed.sql
 var menuSeedSQL string
 
+// AfterInstall 由 main 设为启动迁移。网页向导装完后同步跑一遍，
+// 不重启也能用上迁移建的表（例如商业版设置表 app_commercial_settings，缺了新建出售商业版的应用会报 1146）。
+var AfterInstall func()
+
 // openInstallDatabase 供测试替换，生产环境仍打开 MySQL。
 var openInstallDatabase = func(dsn string) (*sql.DB, error) {
 	return sql.Open("mysql", dsn)
@@ -215,6 +219,10 @@ func InstallCreateAdmin(c *gin.Context) {
 	if err := config.CreateLockFile(); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "message": "创建锁文件失败: " + err.Error()})
 		return
+	}
+
+	if AfterInstall != nil {
+		AfterInstall()
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "安装完成"})

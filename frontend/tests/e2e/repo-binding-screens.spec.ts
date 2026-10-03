@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page, type Route } from '@playwright/test'
@@ -8,7 +9,9 @@ const productVersion = readFileSync(
   'utf8'
 ).trim()
 
-const shotDir = '/opt/cursor/artifacts/screenshots'
+// 截图默认放系统临时目录，AUTH_PRO_E2E_ARTIFACTS 可以改到别处，不写死某台机器的目录。
+const shotDir =
+  process.env.AUTH_PRO_E2E_ARTIFACTS || path.join(os.tmpdir(), 'auth-pro-e2e', 'screenshots')
 const shots = {
   unbindDesktop: `${shotDir}/screen-unbind-desktop.png`,
   unbindPhone: `${shotDir}/screen-unbind-phone.png`,
