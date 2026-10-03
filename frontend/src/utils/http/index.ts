@@ -22,6 +22,7 @@ import {
   BACKEND_UNAVAILABLE_PAGE,
   backendUnreachableTracker,
   isBackendUnreachableFailure,
+  rememberBackendUnavailableReturn,
   shouldRedirectToBackendUnavailable
 } from './backend-unavailable'
 import { $t } from '@/locales'
@@ -101,6 +102,7 @@ function noteBackendUnreachable(
   const tripped = backendUnreachableTracker.record(isBackendUnreachableFailure(status, hasResponse))
   if (!tripped || typeof window === 'undefined') return
   if (!shouldRedirectToBackendUnavailable(window.location.pathname)) return
+  rememberBackendUnavailableReturn(window.sessionStorage, window.location)
   window.location.assign(BACKEND_UNAVAILABLE_PAGE)
 }
 

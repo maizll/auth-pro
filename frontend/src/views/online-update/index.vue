@@ -209,6 +209,12 @@
         <ElEmpty v-else description="暂无历史版本记录" :image-size="72" />
       </div>
 
+      <OfficialUpdateSource
+        v-if="officialSource"
+        :source="officialSource"
+        @changed="handleSourceChanged"
+      />
+
       <div class="update-section package-section">
         <div class="section-header">
           <strong>更新包</strong>
@@ -242,12 +248,14 @@
     fetchOnlineUpdateHistory,
     fetchOnlineUpdateJob,
     fetchOnlineUpdateStatus,
+    OfficialUpdateSource as OfficialUpdateSourceView,
     OnlineUpdateCheckResult,
     OnlineUpdateHistory,
     OnlineUpdateJob,
     OnlineUpdateStatus
   } from '@/api/update'
   import { HttpError } from '@/utils/http/error'
+  import OfficialUpdateSource from './OfficialUpdateSource.vue'
   import { setBackendUnreachableRedirectPaused } from '@/utils/http/backend-unavailable'
   import { UPDATE_RESTART_RECOVERY, clearRestartStart } from './restart-timeout'
   import { latestVersionStatus, updateChannelLabel } from './status-label'
@@ -289,6 +297,27 @@
   let updateWatching = false
   let pollClock: UpdatePollClock = { startedAt: 0, restartingSince: 0 }
 
+  // 只有官网返回更新来源；检查更新后用最新的读取结果。
+  const sourceOverride = ref<OfficialUpdateSourceView | null>(null)
+  const officialSource = computed(
+    () =>
+      sourceOverride.value ||
+      checkResult.value?.officialSource ||
+      status.value?.officialSource ||
+      null
+  )
+  const handleSourceChanged = (next: OfficialUpdateSourceView) => {
+    sourceOverride.value = next
+  }
+  // 检查失败时接口不带更新来源，重新取一次，页面上能看到这次用的是哪种凭据、为什么失败。
+  const refreshOfficialSource = async () => {
+    try {
+      const next = (await fetchOnlineUpdateStatus()).officialSource
+      if (next) sourceOverride.value = next
+    } catch {
+      // 状态接口也连不上时保持原样，错误提示由检查更新给出。
+    }
+  }
   const latest = computed(() => checkResult.value?.latest || status.value?.latest || null)
   const currentVersion = computed(
     () => checkResult.value?.currentVersion || status.value?.currentVersion || '-'
@@ -368,6 +397,7 @@
     checking.value = true
     try {
       checkResult.value = await fetchOnlineUpdateCheck()
+      sourceOverride.value = null
       checkFailed.value = false
       void loadHistory(true)
       if (checkResult.value.updateAvailable) {
@@ -377,6 +407,7 @@
       }
     } catch (error: any) {
       checkFailed.value = true
+      void refreshOfficialSource()
       if (handleUpdateError(error)) return
       ElMessage.error(error?.message || '检查更新失败')
     } finally {

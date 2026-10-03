@@ -32,9 +32,26 @@ log() {
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG_FILE"
 }
 
+# AUTH_PRO_PAGE_FUNCS_BEGIN
+# 后端重启期间 nginx 返回网站根的 backend-unavailable.html。
+# 页面根元素的 data-update-since 不是 0 时，页面显示「正在更新」并自动轮询，后端回来就刷新。
+# 后端停之前写上当前时间，更新结束（成功或回滚）后清回 0。页面里没有这个属性时什么也不改。
+set_update_marker() {
+  page="$FRONTEND_CURRENT/backend-unavailable.html"
+  [ -f "$page" ] || return 0
+  if sed "s/data-update-since=\"[0-9]*\"/data-update-since=\"$1\"/" "$page" > "$page.tmp" 2>/dev/null; then
+    mv -f "$page.tmp" "$page" 2>/dev/null || rm -f "$page.tmp"
+  else
+    rm -f "$page.tmp"
+  fi
+  return 0
+}
+# AUTH_PRO_PAGE_FUNCS_END
+
 finish_job() {
   status="$1"
   reason="${2:-}"
+  set_update_marker 0
   printf '%s\n%s\n' "$status" "$reason" > "$JOB_RESULT.tmp"
   mv -f "$JOB_RESULT.tmp" "$JOB_RESULT"
 }
@@ -310,6 +327,8 @@ fi
 
 BACKUP_BIN="$APP_BIN.backup.$TS"
 APP_STAGE="$APP_BIN.next.$TS"
+# 接下来要停后端。静态说明页先切到「正在更新」。
+set_update_marker "$(date +%s)"
 
 rollback_frontend() {
   if [ "$FRONTEND_MODE" = "overlay" ]; then
@@ -691,6 +710,7 @@ write_pending_handoff() {
     printf 'TS=%s\n' "$(sq "$TS")"
   } > "$pending/handoff.sh" || return 1
   sed -n '/^# AUTH_PRO_BACKUP_FUNCS_BEGIN$/,/^# AUTH_PRO_BACKUP_FUNCS_END$/p' "$0" >> "$pending/handoff.sh" || return 1
+  sed -n '/^# AUTH_PRO_PAGE_FUNCS_BEGIN$/,/^# AUTH_PRO_PAGE_FUNCS_END$/p' "$0" >> "$pending/handoff.sh" || return 1
   cat >> "$pending/handoff.sh" <<'HANDOFF_FUNCS'
 log_handoff() {
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG_FILE"
@@ -699,6 +719,7 @@ log_handoff() {
 finish_handoff() {
   status="$1"
   reason="${2:-}"
+  set_update_marker 0
   printf '%s\n%s\n' "$status" "$reason" > "${JOB_RESULT}.tmp"
   mv -f "${JOB_RESULT}.tmp" "$JOB_RESULT"
 }

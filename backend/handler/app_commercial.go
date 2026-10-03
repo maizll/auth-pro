@@ -497,6 +497,8 @@ type appCommercialSaveResult struct {
 	Mode          string `json:"mode"`
 	LegacyDefault bool   `json:"legacyDefault"`
 	Notice        string `json:"notice,omitempty"`
+	// PreviousMode 是保存前的出售状态，出售状态变了要记审计。
+	PreviousMode string `json:"-"`
 }
 
 // saveAppCommercial 保存一个应用的商业版设置。关闭有效授权的应用要走 closeAppCommercial。
@@ -505,7 +507,7 @@ func saveAppCommercial(db *sql.DB, appID int64, in *appCommercialInput, actor in
 	if err != nil {
 		return appCommercialSaveResult{}, err
 	}
-	result := appCommercialSaveResult{Mode: current.Mode, LegacyDefault: current.LegacyDefault}
+	result := appCommercialSaveResult{Mode: current.Mode, LegacyDefault: current.LegacyDefault, PreviousMode: current.Mode}
 	if in.empty() {
 		return result, nil
 	}
@@ -647,10 +649,14 @@ type appCommercialCloseResult struct {
 	Mode    string `json:"mode"`
 	Revoked int64  `json:"revoked"`
 	Msg     string `json:"msg"`
+	// 审计用：应用名，以及老客户端改到了哪里（空表示没改）。
+	AppName      string `json:"-"`
+	LegacyChange string `json:"-"`
 }
 
 // closeAppCommercial 停止出售。stop 只停新售，已售权益照常；revoke 同时把本应用的商业版权益改为 revoked，绑定保留。
-func closeAppCommercial(db *sql.DB, appID int64, req appCommercialCloseRequest, actor int64, super bool) (appCommercialCloseResult, error) {
+// 作废时在同一个事务里给每条被作废的授权写一条「撤销商业版」操作记录，授权详情里能看到是谁、因为哪个应用作废的。
+func closeAppCommercial(db *sql.DB, appID int64, req appCommercialCloseRequest, actor int64, actorName string, super bool) (appCommercialCloseResult, error) {
 	current, err := loadAppCommercial(db, appID)
 	if err != nil {
 		return appCommercialCloseResult{}, err
@@ -708,6 +714,13 @@ func closeAppCommercial(db *sql.DB, appID int64, req appCommercialCloseRequest, 
 	}
 	var revoked int64
 	if action == "revoke" {
+		if _, err := tx.Exec(`INSERT INTO license_operation_logs (license_id, action, target, detail, actor)
+			SELECT DISTINCT e.license_id, 'revoke_edition', '', ?, ?
+			FROM main_license_editions e JOIN licenses l ON l.id = e.license_id
+			WHERE l.app_id = ? AND e.edition = 'commercial' AND e.status = 'active'`,
+			trimStoreText("作废应用「"+current.AppName+"」的商业版", 500), trimStoreText(actorName, 80), appID); err != nil {
+			return appCommercialCloseResult{}, err
+		}
 		res, err := tx.Exec(`UPDATE main_license_editions e JOIN licenses l ON l.id = e.license_id
 			SET e.status = 'revoked', e.updated_at = NOW()
 			WHERE l.app_id = ? AND e.edition = 'commercial' AND e.status = 'active'`, appID)
@@ -719,7 +732,13 @@ func closeAppCommercial(db *sql.DB, appID int64, req appCommercialCloseRequest, 
 	if err := tx.Commit(); err != nil {
 		return appCommercialCloseResult{}, err
 	}
-	out := appCommercialCloseResult{Mode: appCommercialModeStopped, Revoked: revoked, Msg: "已停止新售，已售出的商业版照常使用"}
+	out := appCommercialCloseResult{Mode: appCommercialModeStopped, Revoked: revoked, Msg: "已停止新售，已售出的商业版照常使用", AppName: current.AppName}
+	if changeLegacy {
+		out.LegacyChange = "不再接收老客户端"
+		if legacyTarget.AppID > 0 {
+			out.LegacyChange = "老客户端改到「" + legacyTarget.AppName + "」"
+		}
+	}
 	if action == "revoke" {
 		out.Msg = fmt.Sprintf("已停止新售并作废 %d 条商业版权益，客户站下次刷新回到免费版。已付款订单请另行退款", revoked)
 	}
@@ -757,7 +776,7 @@ func AppCommercialCloseHandler(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库连接失败"})
 		return
 	}
-	result, err := closeAppCommercial(db, appID, req, currentAdminID(c), c.GetString("role_code") == "R_SUPER")
+	result, err := closeAppCommercial(db, appID, req, currentAdminID(c), c.GetString("username"), c.GetString("role_code") == "R_SUPER")
 	if err != nil {
 		code := 400
 		if errors.Is(err, errAppCommercialSuperRequired) {
@@ -768,15 +787,48 @@ func AppCommercialCloseHandler(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": code, "msg": err.Error()})
 		return
 	}
-	detail := "停止新售商业版"
+	action, detail := "stop_app_commercial", "「"+result.AppName+"」停止新售商业版，已售权益照常"
 	if strings.TrimSpace(req.Action) == "revoke" {
-		detail = fmt.Sprintf("停止新售并作废 %d 条商业版权益", result.Revoked)
+		action, detail = "revoke_app_commercial", fmt.Sprintf("「%s」停止新售并作废 %d 条商业版权益", result.AppName, result.Revoked)
 	}
-	_ = currentSourceStationStore().AppendAudit(sourceAuditEntry{
-		ActorType: "admin", ActorName: c.GetString("username"), Action: "close_app_commercial",
+	if result.LegacyChange != "" {
+		detail += "；" + result.LegacyChange
+	}
+	auditAppCommercial(c, appID, action, detail)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": result.Msg, "data": result})
+}
+
+// auditAppCommercial 把商业版出售状态的变化写进审计日志（软件源「审计日志」里能查到）。
+// 写失败不影响已经提交的操作，但要留在服务日志里，不能悄悄丢掉。
+func auditAppCommercial(c *gin.Context, appID int64, action, detail string) {
+	err := currentSourceStationStore().AppendAudit(sourceAuditEntry{
+		ActorType: "admin", ActorName: c.GetString("username"), Action: action,
 		TargetType: "app", TargetID: fmt.Sprint(appID), Detail: detail,
 	})
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": result.Msg, "data": result})
+	if err != nil {
+		log.Printf("写商业版审计日志失败 app=%d action=%s: %v", appID, action, err)
+	}
+}
+
+// auditAppCommercialModeChange 在应用弹框里改了出售状态（开始出售、恢复出售、转为普通应用）时记审计。
+func auditAppCommercialModeChange(c *gin.Context, appID int64, saved appCommercialSaveResult) {
+	if saved.PreviousMode == saved.Mode {
+		return
+	}
+	auditAppCommercial(c, appID, "app_commercial_mode",
+		"商业版出售状态从「"+appCommercialModeLabel(saved.PreviousMode)+"」改为「"+appCommercialModeLabel(saved.Mode)+"」")
+}
+
+// appCommercialModeLabel 是审计里出售状态的中文名。
+func appCommercialModeLabel(mode string) string {
+	switch mode {
+	case appCommercialModeSelling:
+		return "出售中"
+	case appCommercialModeStopped:
+		return "已停售"
+	default:
+		return "普通应用"
+	}
 }
 
 // appCommercialRejectArchive 出售中的应用不能归档，要先停售。

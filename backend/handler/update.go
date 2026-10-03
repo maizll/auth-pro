@@ -231,6 +231,7 @@ func AdminOnlineUpdateStatus(c *gin.Context) {
 			"serviceName":    config.GetServiceName(),
 			"latest":         cachedOnlineUpdateManifest(),
 			"runningJob":     runningOnlineUpdateJob(),
+			"officialSource": currentOfficialUpdateSource(),
 		},
 	})
 }
@@ -253,6 +254,7 @@ func AdminOnlineUpdateCheck(c *gin.Context) {
 		"packageValid":   packageErr == nil,
 		"packageError":   errorText(packageErr),
 		"versionError":   versionErr,
+		"officialSource": currentOfficialUpdateSource(),
 	}
 	if available {
 		data["updateAvailable"] = true
@@ -987,6 +989,38 @@ func reconcileOnlineUpdateJobResult(job *onlineUpdateJob) *onlineUpdateJob {
 	job.UpdatedAt = time.Now()
 	persistOnlineUpdateJob(job)
 	return job
+}
+
+// SettleOnlineUpdateJobsAfterRestart 在新进程完成启动迁移、即将开始监听时调用。
+// 有的守护方式会在旧进程退出时连同更新脚本一起结束，结果文件没写，任务就一直停在 restarting，
+// 版本接口也一直报「重启中」。这里看到目标版本就是当前运行的版本，说明已经换上新程序，把任务记成完成。
+// 版本不一致的任务不动：可能是回滚后旧版本先起来了，结果由更新脚本写。
+func SettleOnlineUpdateJobsAfterRestart() {
+	entries, err := os.ReadDir(config.GetUpdateDir())
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		job := loadOnlineUpdateJob(strings.TrimSuffix(name, ".json"))
+		if job == nil || (job.Status != "running" && job.Status != "restarting") {
+			continue
+		}
+		if !sameProductVersion(job.Version, config.AppVersion) {
+			continue
+		}
+		now := time.Now()
+		job.Status = "success"
+		job.Message = "更新完成"
+		job.Progress = 100
+		job.Error = ""
+		job.Logs = append(job.Logs, fmt.Sprintf("%s 新进程已启动，当前版本 v%s，更新完成", now.Format("15:04:05"), strings.TrimPrefix(config.AppVersion, "v")))
+		job.UpdatedAt = now
+		persistOnlineUpdateJob(job)
+	}
 }
 
 func runningOnlineUpdateJob() *onlineUpdateJob {

@@ -1,6 +1,9 @@
 /** 后端连不上时跳转的静态说明页，随前端构建产物发布。 */
 export const BACKEND_UNAVAILABLE_PAGE = '/backend-unavailable.html'
 
+/** 跳转前记下原地址，说明页等后端恢复后回到这里。public/backend-unavailable.html 读同一个键。 */
+const BACKEND_UNAVAILABLE_RETURN_KEY = 'auth-pro-unavailable-from'
+
 /** 连续这么多次网络错误或 502/503/504 后离开当前页。 */
 export const BACKEND_UNAVAILABLE_THRESHOLD = 3
 
@@ -49,6 +52,18 @@ export function setBackendUnreachableRedirectPaused(paused: boolean): void {
 
 export function isBackendUnreachableRedirectPaused(): boolean {
   return redirectPaused
+}
+
+/** 记下当前地址再跳到说明页。sessionStorage 不可用时只是回不到原页，不影响跳转。 */
+export function rememberBackendUnavailableReturn(storage: Storage, location: Location): void {
+  try {
+    storage.setItem(
+      BACKEND_UNAVAILABLE_RETURN_KEY,
+      `${location.pathname}${location.search}${location.hash}`
+    )
+  } catch {
+    // 隐私模式等情况下写不进去，忽略。
+  }
 }
 
 export function shouldRedirectToBackendUnavailable(pagePath: string): boolean {

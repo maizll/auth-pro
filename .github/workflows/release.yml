@@ -63,13 +63,20 @@ jobs:
 
       - name: Restore release history
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # 用工作流自带的令牌读上一版的 releases.json，仓库改成私有后照样能读（匿名下载会 404）。
+        # 一版都没发过时从空历史开始；查询或下载失败就停下，不能悄悄把历史版本记录弄丢。
         run: |
           set -euo pipefail
           mkdir -p release/packages
-          curl --fail --silent --show-error --location \
-            --proto '=https' --max-redirs 5 \
-            'https://github.com/${{ github.repository }}/releases/latest/download/releases.json' \
-            --output release/packages/releases.json || rm -f release/packages/releases.json
+          PUBLISHED="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq length)"
+          if [[ "$PUBLISHED" == "0" ]]; then
+            echo "还没有任何发布，历史版本记录从空开始"
+            exit 0
+          fi
+          gh release download --repo "$GITHUB_REPOSITORY" --pattern releases.json --dir release/packages --clobber
+          test -s release/packages/releases.json
 
       - name: Build release package
         shell: bash

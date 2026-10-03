@@ -533,15 +533,21 @@ func productUpdateBodyLeaks(body []byte) bool {
 }
 
 // fetchGitHubReleaseAsset 用已保存的令牌读取某个 Release 附件。
-// 分发客户包和官网自己更新都走这里，避免两套下载。仓库名由调用方传入。
+// 分发客户包和官网自己更新都走 fetchGitHubReleaseAssetWith，避免两套下载。仓库名由调用方传入。
 func fetchGitHubReleaseAsset(ctx context.Context, owner, repo, releaseRef, assetName string) ([]byte, error) {
-	if owner == "" || repo == "" || !safeOnlineUpdateAssetName(assetName) {
-		return nil, errProductUpdateUnavailable
+	payload, _, err := fetchGitHubReleaseAssetWith(ctx, owner, repo, releaseRef, assetName, productUpdateTokenCandidates())
+	return payload, err
+}
+
+// fetchGitHubReleaseAssetWith 按给定顺序逐个令牌尝试，返回成功时用的是第几个令牌。
+// 全部失败时返回最后一次的 productUpdateFetchError，调用方可以用 productUpdateHTTPStatus 区分 401、404 和断网。
+func fetchGitHubReleaseAssetWith(ctx context.Context, owner, repo, releaseRef, assetName string, tokens []string) ([]byte, int, error) {
+	if owner == "" || repo == "" || !safeOnlineUpdateAssetName(assetName) || len(tokens) == 0 {
+		return nil, -1, errProductUpdateUnavailable
 	}
 	releaseURL := strings.TrimRight(productUpdateGitHubAPI, "/") + "/repos/" + owner + "/" + repo + "/releases/" + releaseRef
-	tokens := productUpdateTokenCandidates()
-	var lastErr error
-	for _, token := range tokens {
+	var lastErr error = errProductUpdateUnavailable
+	for index, token := range tokens {
 		body, fetchErr := productUpdateFetch(ctx, releaseURL, token, "application/vnd.github+json")
 		if fetchErr != nil {
 			lastErr = fetchErr
@@ -549,19 +555,16 @@ func fetchGitHubReleaseAsset(ctx context.Context, owner, repo, releaseRef, asset
 		}
 		assetURL, assetErr := productUpdateAssetAPIURL(body, assetName)
 		if assetErr != nil {
-			return nil, errProductUpdateUnavailable
+			return nil, index, errProductUpdateUnavailable
 		}
 		payload, payloadErr := productUpdateFetch(ctx, assetURL, token, "application/octet-stream")
 		if payloadErr != nil {
 			lastErr = payloadErr
 			continue
 		}
-		return payload, nil
+		return payload, index, nil
 	}
-	if lastErr != nil {
-		return nil, errProductUpdateUnavailable
-	}
-	return nil, errProductUpdateUnavailable
+	return nil, -1, lastErr
 }
 
 func productUpdateAssetAPIURL(body []byte, assetName string) (string, error) {

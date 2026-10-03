@@ -262,6 +262,7 @@ func AppCreate(c *gin.Context) {
 		if saved.Notice != "" {
 			msg = "应用已创建。" + saved.Notice
 		}
+		auditAppCommercialModeChange(c, id, saved)
 	}
 	_, _ = rememberCreateRequest(req.RequestID, id)
 	bound, repoErr := finishAppCreateRepo(c.Request.Context(), id, appKey, req.Name, req.RepoAction, req.Repo)
@@ -397,6 +398,7 @@ func AppUpdate(c *gin.Context) {
 			return
 		}
 		commercial = &saved
+		auditAppCommercialModeChange(c, appID, saved)
 		if saved.Notice != "" {
 			msg = "更新成功。" + saved.Notice
 		}

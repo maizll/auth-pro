@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -213,6 +214,29 @@ func TestTwoAppsCommercialMariaDB(t *testing.T) {
 	if bindingStatus != "active" {
 		t.Fatalf("作废不应吊销绑定 status=%s", bindingStatus)
 	}
+
+	// 停售和作废都要进审计日志；作废还要在被作废的授权上留一条操作记录，云盘的授权不受影响。
+	audits, err := currentSourceStationStore().ListAudit(20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]string{}
+	for _, entry := range audits {
+		if entry.TargetType == "app" && entry.TargetID == "2" {
+			seen[entry.Action] = entry.Detail
+		}
+	}
+	if !strings.Contains(seen["stop_app_commercial"], "博客系统") || !strings.Contains(seen["revoke_app_commercial"], "作废 1 条") {
+		t.Fatalf("停售或作废没有写进审计日志: %v", seen)
+	}
+	var blogOps, cloudOps int
+	var opActor, opDetail string
+	mustScanPAC(t, db, `SELECT COUNT(*) FROM license_operation_logs WHERE license_id = 200 AND action = 'revoke_edition'`, &blogOps)
+	mustScanPAC(t, db, `SELECT COUNT(*) FROM license_operation_logs WHERE license_id = 100`, &cloudOps)
+	mustScanPAC(t, db, `SELECT actor, detail FROM license_operation_logs WHERE license_id = 200 ORDER BY id DESC LIMIT 1`, &opActor, &opDetail)
+	if blogOps != 1 || cloudOps != 0 || opActor != "tester" || !strings.Contains(opDetail, "博客系统") {
+		t.Fatalf("作废的授权操作记录不对 blog=%d cloud=%d actor=%s detail=%s", blogOps, cloudOps, opActor, opDetail)
+	}
 	if snap, _, err := signedSnapshotForLicense(db, 100); err != nil || snap.Edition != storeEditionCommercial {
 		t.Fatalf("作废博客不应影响云盘的商业版: %+v err=%v", snap, err)
 	}
@@ -222,7 +246,7 @@ func TestTwoAppsCommercialMariaDB(t *testing.T) {
 		t.Fatalf("恢复出售失败: %v", body)
 	}
 	legacyTo := int64(2)
-	if _, err := closeAppCommercial(db, 1, appCommercialCloseRequest{Action: "stop", LegacyTo: &legacyTo}, 1, false); err != nil {
+	if _, err := closeAppCommercial(db, 1, appCommercialCloseRequest{Action: "stop", LegacyTo: &legacyTo}, 1, "tester", false); err != nil {
 		t.Fatal(err)
 	}
 	if legacy, err := resolveStoreProductApp(db, ""); err != nil || legacy.AppID != 2 {
@@ -337,6 +361,9 @@ func openPerAppCommercialDB(t *testing.T, prefix string) *sql.DB {
 		t.Fatal(err)
 	}
 	markCommercialGapMigrations(t, db)
+	if err := migrateLicenseOperationLogs(db); err != nil {
+		t.Fatal(err)
+	}
 	mustExecPAC(t, db, `ALTER TABLE apps
 		ADD COLUMN app_secret VARCHAR(128) NOT NULL DEFAULT '',
 		ADD COLUMN license_required TINYINT(1) NOT NULL DEFAULT 1,

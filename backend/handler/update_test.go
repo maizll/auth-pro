@@ -937,3 +937,66 @@ func requireFrontendOnlyGuard(t *testing.T, script string) {
 		t.Fatal("generated script must finish frontend-only before stopping the process")
 	}
 }
+
+// 停后端前把静态说明页切到「正在更新」，结束时清回 0；守护交接文件里也带同一个函数。
+func TestUpdateScriptMarksUnavailablePageWhileRestarting(t *testing.T) {
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("没有 sh")
+	}
+	root := t.TempDir()
+	page, err := os.ReadFile(filepath.Join("..", "..", "frontend", "public", "backend-unavailable.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), `data-update-since="0"`) {
+		t.Fatal("静态说明页缺少 data-update-since 标记")
+	}
+	live := filepath.Join(root, "site")
+	source := filepath.Join(root, "new")
+	for _, dir := range []string{live, source} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pagePath := filepath.Join(live, "backend-unavailable.html")
+	if err := os.WriteFile(pagePath, page, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTO_PRO_DATA_DIR", filepath.Join(root, "data"))
+	scriptPath := writeFrontendSwitchScript(t, source, live, "1.0.1")
+	raw, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	guard := strings.Index(text, `if [ "$FRONTEND_ONLY" = "1" ]; then`)
+	mark := strings.Index(text, `set_update_marker "$(date +%s)"`)
+	stop := strings.Index(text, `if ! stop_old_process; then`)
+	if guard < 0 || mark < guard || stop < mark {
+		t.Fatal("标记要在只换前端的分支之后、停旧进程之前写上")
+	}
+	if !strings.Contains(text, `sed -n '/^# AUTH_PRO_PAGE_FUNCS_BEGIN$/,/^# AUTH_PRO_PAGE_FUNCS_END$/p' "$0" >> "$pending/handoff.sh"`) {
+		t.Fatal("守护交接文件要带上清除标记的函数")
+	}
+	begin := strings.Index(text, "# AUTH_PRO_PAGE_FUNCS_BEGIN")
+	end := strings.Index(text, "# AUTH_PRO_PAGE_FUNCS_END")
+	funcs := text[begin:end]
+	run := func(value string) string {
+		body := "FRONTEND_CURRENT='" + live + "'\n" + funcs + "\nset_update_marker " + value + "\n"
+		if output, err := exec.Command(shell, "-c", body).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", err, output)
+		}
+		current, err := os.ReadFile(pagePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(current)
+	}
+	if got := run("1767225600"); !strings.Contains(got, `data-update-since="1767225600"`) || strings.Count(got, "data-update-since=\"") != 1 {
+		t.Fatal("没有写上更新标记")
+	}
+	if got := run("0"); got != string(page) {
+		t.Fatal("清除标记后页面应恢复原样")
+	}
+}
