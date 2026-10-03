@@ -195,7 +195,6 @@
         :latest-version="latest?.version || historyReleases[0]?.version"
         :loading="historyLoading"
         :error="historyError"
-        @refresh="loadHistory(true)"
       />
 
       <OfficialUpdateSource v-if="officialSource" :source="officialSource" />

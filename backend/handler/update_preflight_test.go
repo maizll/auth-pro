@@ -220,3 +220,41 @@ func TestOnlineUpdateOverlayBackupFallsBackToDataDir(t *testing.T) {
 		t.Fatalf("backup was placed next to the site root: %v", sideways)
 	}
 }
+
+// 更新脚本在停旧进程之前失败（例如建不出备份目录）时，旧进程不会重启。
+// 以前内存里的任务一直是「重启中」，页面看不到原因，再点更新提示「已有更新任务正在执行」，只能重启站点。
+// 现在查询任务或开始下一次更新时，按脚本写下的结果文件把它结掉。
+func TestOnlineUpdateRestartingJobSettlesFromResultWithoutRestart(t *testing.T) {
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	updateStore.mu.Lock()
+	previousJobs, previousRunning := updateStore.jobs, updateStore.runningID
+	updateStore.jobs = map[string]*onlineUpdateJob{}
+	updateStore.runningID = ""
+	updateStore.mu.Unlock()
+	t.Cleanup(func() {
+		updateStore.mu.Lock()
+		updateStore.jobs, updateStore.runningID = previousJobs, previousRunning
+		updateStore.mu.Unlock()
+	})
+
+	job := createOnlineUpdateJob("1.9.0")
+	finishOnlineUpdateJob(job.ID, "restarting", "服务正在切换并重启", nil)
+	if reserveOnlineUpdateJob() {
+		t.Fatal("a job without a result must still block the next update")
+	}
+	if got := snapshotOnlineUpdateJob(job.ID); got == nil || got.Status != "restarting" {
+		t.Fatalf("job without a result should stay restarting: %+v", got)
+	}
+
+	reason := "无法创建前端备份目录 /www/backup/auth-pro/demo/overlay ，线上目录未改动"
+	if err := os.WriteFile(onlineUpdateJobStatePath(job.ID)+".result", []byte("failed\n"+reason+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got := snapshotOnlineUpdateJob(job.ID)
+	if got == nil || got.Status != "failed" || got.Error != reason {
+		t.Fatalf("job should settle from the result file: %+v", got)
+	}
+	if !reserveOnlineUpdateJob() {
+		t.Fatal("the next update should be allowed after the failed result")
+	}
+}

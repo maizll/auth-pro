@@ -3624,7 +3624,42 @@ menu_repair_update_perms() {
   if [[ "$failed" -ne 0 ]]; then
     baota_die "还有目录 www 写不进去，见上面的提示。请检查这些目录是否被加了不可变属性（lsattr）或挂载为只读。"
   fi
+  menu_clear_stuck_update_job "$data"
   baota_info "在线更新权限已修好。回到后台「在线更新」点「立即更新」即可。"
+}
+
+# 找出更新脚本已经写下「失败」、程序里却还停在「重启中」的任务，打印任务编号。
+# 1.8.8 及以前的程序在脚本停进程之前失败时（例如建不出备份目录），旧进程一直活着，
+# 内存里的任务不会结束，再点更新会提示「已有更新任务正在执行」。重启一次程序才能清掉。
+baota_stuck_update_job() {
+  local updates="$1/updates"
+  [[ -d "$updates" ]] || return 1
+  python3 - "$updates" <<'PY'
+import glob, json, os, sys
+for result in sorted(glob.glob(os.path.join(sys.argv[1], "*.json.result"))):
+    try:
+        with open(result, encoding="utf-8") as handle:
+            first = handle.read().split("\n", 1)[0].strip()
+        with open(result[: -len(".result")], encoding="utf-8") as handle:
+            job = json.load(handle)
+    except Exception:
+        continue
+    if first == "failed" and job.get("status") in ("running", "restarting"):
+        print(job.get("id") or os.path.basename(result))
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
+menu_clear_stuck_update_job() {
+  local data="$1" job
+  job="$(baota_stuck_update_job "$data")" || return 0
+  baota_warn "上一次在线更新（${job}）因为目录权限失败了，程序里还记着它，会挡住下一次更新。现在重启一次本站程序把它清掉，网站文件不受影响。"
+  if baota_find_supervisor && ( menu_service restart ); then
+    baota_info "本站程序已重启"
+    return 0
+  fi
+  baota_warn "没能自动重启。请在宝塔「软件商店 → 进程守护管理器」里重启本站，然后再点「立即更新」。"
 }
 
 menu_show_admin() {

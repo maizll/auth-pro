@@ -87,3 +87,14 @@ export function mobileScrollLayout<T extends ColumnOption>(cols: T[]): ColumnOpt
 export function layoutMobileColumns(cols: ColumnOption[]) {
   return mobileScrollLayout(cols)
 }
+
+/**
+ * 操作列里已经有自己的「详情」或「查看」按钮时，不再插入通用的「详情」。
+ * 以前每行都插，授权列表变成「详情 编辑 详情 更多」，邮件日志变成「详情 详情」。
+ */
+export function hasOwnDetailAction(labels: string[]): boolean {
+  return labels.some((label) => {
+    const text = label.replace(/\s+/g, '')
+    return text.includes('详情') || text === '查看'
+  })
+}

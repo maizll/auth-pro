@@ -6,7 +6,6 @@
         <strong>历史版本</strong>
         <span v-if="releases.length">共 {{ releases.length }} 个版本</span>
       </div>
-      <ElButton link type="primary" :loading="loading" @click="emit('refresh')">刷新记录</ElButton>
     </div>
     <div ref="searchRef" class="history-search">
       <ElInput
@@ -148,7 +147,7 @@
     loading?: boolean
     error?: string
   }>()
-  const emit = defineEmits<{ refresh: [] }>()
+  // 不放「刷新记录」：页面顶部的「检查更新」会一并刷新历史版本
 
   const query = ref('')
   // 每组已加载的页数上限，没记的按一页

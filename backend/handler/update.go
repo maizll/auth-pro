@@ -847,12 +847,45 @@ func isHexSHA256(value string) bool {
 
 func reserveOnlineUpdateJob() bool {
 	updateStore.mu.Lock()
+	runningID := updateStore.runningID
+	updateStore.mu.Unlock()
+	// 更新脚本在停旧进程之前就失败时（例如建不出备份目录），旧进程一直活着，任务会停在「重启中」挡住下一次更新。
+	// 先按脚本写下的结果文件把它结掉。
+	if runningID != "" && runningID != "reserved" {
+		settleOnlineUpdateJobFromResult(runningID)
+	}
+	updateStore.mu.Lock()
 	defer updateStore.mu.Unlock()
 	if updateStore.runningID != "" {
 		return false
 	}
 	updateStore.runningID = "reserved"
 	return true
+}
+
+// settleOnlineUpdateJobFromResult 把内存里停在「重启中」的任务按更新脚本的结果文件结掉。
+// 脚本失败时旧进程没有被结束，不会重启，只有这里能让页面看到失败原因、让下一次更新能开始。
+func settleOnlineUpdateJobFromResult(id string) *onlineUpdateJob {
+	updateStore.mu.Lock()
+	job, ok := updateStore.jobs[id]
+	if ok {
+		job = cloneOnlineUpdateJob(job)
+	}
+	updateStore.mu.Unlock()
+	if !ok || job.Status != "restarting" {
+		return job
+	}
+	settled := reconcileOnlineUpdateJobResult(job)
+	if settled.Status == "restarting" {
+		return settled
+	}
+	updateStore.mu.Lock()
+	updateStore.jobs[id] = cloneOnlineUpdateJob(settled)
+	if updateStore.runningID == id {
+		updateStore.runningID = ""
+	}
+	updateStore.mu.Unlock()
+	return settled
 }
 
 func createOnlineUpdateJob(version string) *onlineUpdateJob {
@@ -956,6 +989,9 @@ func snapshotOnlineUpdateJob(id string) *onlineUpdateJob {
 	}
 	updateStore.mu.Unlock()
 	if ok {
+		if job.Status == "restarting" {
+			return settleOnlineUpdateJobFromResult(id)
+		}
 		return job
 	}
 	return loadOnlineUpdateJob(id)
