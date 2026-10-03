@@ -48,6 +48,8 @@ func checkOnlineUpdateWritable(frontendDir, dataDir, appBin string) error {
 
 	targets := []onlineUpdateWritableTarget{
 		{filepath.Join(dataDir, "updates"), "更新暂存和备份目录"},
+		// 程序先往这里写数据库备份，/www/backup 进不去时前端备份也放这里。用 root 跑过备份等命令后它可能归 root。
+		{filepath.Join(dataDir, "updates", "backups"), "更新备份目录"},
 		{filepath.Dir(appBin), "程序所在目录"},
 	}
 	if overlay {

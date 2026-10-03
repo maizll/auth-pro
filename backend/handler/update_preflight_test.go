@@ -258,3 +258,21 @@ func TestOnlineUpdateRestartingJobSettlesFromResultWithoutRestart(t *testing.T) 
 		t.Fatal("the next update should be allowed after the failed result")
 	}
 }
+
+// 用 root 跑过备份等命令后，数据目录里的 updates/backups 可能归 root。程序写数据库备份就会失败，预检要先点名。
+func TestOnlineUpdatePreflightNamesReadOnlyBackupDir(t *testing.T) {
+	skipPreflightAsRoot(t)
+	siteRoot, dataDir, appBin := preflightBaotaLayout(t)
+	backups := filepath.Join(dataDir, "updates", "backups")
+	if err := os.MkdirAll(backups, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(backups, 0555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(backups, 0755) })
+	err := checkOnlineUpdateWritable(siteRoot, dataDir, appBin)
+	if err == nil || !strings.Contains(err.Error(), backups+"（更新备份目录）") {
+		t.Fatalf("read-only backup dir must be named: %v", err)
+	}
+}

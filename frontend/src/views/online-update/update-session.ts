@@ -15,6 +15,7 @@ import {
   onlineUpdateWindow
 } from '@/utils/http/backend-unavailable'
 import { clearRestartStart } from './restart-timeout'
+import { stoppedBeforeInstall } from './status-label'
 import {
   clearUpdateWait,
   interpretUpdatePoll,
@@ -31,8 +32,7 @@ const POLL_INTERVAL_MS = 2000
 const DEFAULT_TIMEOUT_REASON =
   '在限定时间内没有确认新版本已经启动。若服务已经恢复，请刷新页面查看版本号。'
 
-/** 下载和验签（进度不超过 50%）阶段失败时还没动网站文件。 */
-export const stoppedBeforeInstall = (progress: number | undefined) => Number(progress) <= 50
+export { stoppedBeforeInstall }
 
 export const updateSession = reactive({
   job: null as OnlineUpdateJob | null,
@@ -182,7 +182,7 @@ function failUpdate(reason: string): void {
       ...updateSession.job,
       status: 'failed',
       error: reason,
-      message: stoppedBeforeInstall(updateSession.job.progress)
+      message: stoppedBeforeInstall(updateSession.job.progress, reason)
         ? '更新没有执行，网站没有改动'
         : '更新失败，已回滚到更新前的版本'
     }

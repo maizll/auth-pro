@@ -3631,30 +3631,56 @@ menu_repair_update_perms() {
 # 找出更新脚本已经写下「失败」、程序里却还停在「重启中」的任务，打印任务编号。
 # 1.8.8 及以前的程序在脚本停进程之前失败时（例如建不出备份目录），旧进程一直活着，
 # 内存里的任务不会结束，再点更新会提示「已有更新任务正在执行」。重启一次程序才能清掉。
+# 磁盘上的任务文件可能已被页面刷成「失败」，看不出内存状态。判断依据：最近一次结果是失败，
+# 且正在运行的进程比这个任务更早启动（正常的失败回滚会重启进程，进程就比任务晚）。
 baota_stuck_update_job() {
-  local updates="$1/updates"
-  [[ -d "$updates" ]] || return 1
-  python3 - "$updates" <<'PY'
+  local updates="$1/updates" proc_start="$2" line id created created_at
+  [[ -d "$updates" && -n "$proc_start" ]] || return 1
+  line="$(python3 - "$updates" <<'PY'
 import glob, json, os, sys
-for result in sorted(glob.glob(os.path.join(sys.argv[1], "*.json.result"))):
-    try:
-        with open(result, encoding="utf-8") as handle:
-            first = handle.read().split("\n", 1)[0].strip()
-        with open(result[: -len(".result")], encoding="utf-8") as handle:
-            job = json.load(handle)
-    except Exception:
-        continue
-    if first == "failed" and job.get("status") in ("running", "restarting"):
-        print(job.get("id") or os.path.basename(result))
-        sys.exit(0)
-sys.exit(1)
+results = sorted(glob.glob(os.path.join(sys.argv[1], "*.json.result")), key=os.path.getmtime)
+if not results:
+    sys.exit(0)
+result = results[-1]
+try:
+    with open(result, encoding="utf-8") as handle:
+        first = handle.read().split("\n", 1)[0].strip()
+    with open(result[: -len(".result")], encoding="utf-8") as handle:
+        job = json.load(handle)
+except Exception:
+    sys.exit(0)
+if first == "failed":
+    print("%s %s" % (job.get("id") or "", job.get("createdAt") or ""))
 PY
+)"
+  id="${line%% *}"
+  created="${line#* }"
+  [[ -n "$id" && -n "$created" && "$created" != "$line" ]] || return 1
+  created_at="$(date -d "$created" +%s 2>/dev/null)" || return 1
+  (( proc_start < created_at )) || return 1
+  printf '%s\n' "$id"
+}
+
+# 本站监听进程的启动时间（秒）。没有进程时返回非 0。
+baota_site_process_start() {
+  local pid age
+  pid="$(baota_pids_for_port "$(baota_effective_port)" | head -n 1)"
+  [[ -n "$pid" ]] || return 1
+  age="$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')"
+  [[ "$age" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$(( $(date +%s) - age ))"
 }
 
 menu_clear_stuck_update_job() {
-  local data="$1" job
-  job="$(baota_stuck_update_job "$data")" || return 0
-  baota_warn "上一次在线更新（${job}）因为目录权限失败了，程序里还记着它，会挡住下一次更新。现在重启一次本站程序把它清掉，网站文件不受影响。"
+  local data="$1" job started version
+  # 1.8.9 起程序会按结果文件自己结束这种任务，不需要重启
+  version="$(menu_site_version)"
+  if [[ "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]] && [[ "$(printf '%s\n1.8.9\n' "$version" | sort -V | head -n 1)" == "1.8.9" ]]; then
+    return 0
+  fi
+  started="$(baota_site_process_start)" || return 0
+  job="$(baota_stuck_update_job "$data" "$started")" || return 0
+  baota_warn "上一次在线更新（${job}）失败时程序没有重启，程序里还记着它，会挡住下一次更新。现在重启一次本站程序把它清掉，网站文件不受影响。"
   if baota_find_supervisor && ( menu_service restart ); then
     baota_info "本站程序已重启"
     return 0

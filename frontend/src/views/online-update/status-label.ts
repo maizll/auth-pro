@@ -17,3 +17,10 @@ export function latestVersionStatus(input: {
   if (!version) return input.unreachable ? '暂时连不上官网' : '未检查'
   return '已是最新'
 }
+
+/**
+ * 下载和验签（进度不超过 50%）阶段失败时还没动网站文件。
+ * 更新脚本在动文件之前失败时（如建不出备份目录）进度已到 95%，但原因里会写明「线上目录未改动」。
+ */
+export const stoppedBeforeInstall = (progress: number | undefined, reason?: string) =>
+  Number(progress) <= 50 || /线上目录未改动|网站没有任何改动/.test(reason || '')

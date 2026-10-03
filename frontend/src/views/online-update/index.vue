@@ -376,7 +376,8 @@
   })
   // 下载和验签阶段失败时还没动网站文件，不提回滚和进程守护。
   const failedBeforeInstall = computed(
-    () => job.value?.status === 'failed' && stoppedBeforeInstall(job.value.progress)
+    () =>
+      job.value?.status === 'failed' && stoppedBeforeInstall(job.value.progress, job.value.error)
   )
   const jobProgressStatus = computed(() => {
     if (job.value?.status === 'success') return 'success' as const
