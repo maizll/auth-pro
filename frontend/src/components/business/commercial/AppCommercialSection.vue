@@ -75,11 +75,8 @@
       <ElFormItem label="老客户端">
         <div class="app-commercial__full">
           <ElCheckbox :model-value="form.legacyDefault" @change="onLegacyChange">
-            接收未声明应用的老客户端（1.8.3 及更早）
+            老版本客户站（1.8.3 及以前）的购买和续费都算到这个应用
           </ElCheckbox>
-          <div class="form-tip">
-            全站只能有一个应用勾选。老客户端绑定、刷新和购买都会落到这个应用。已绑定的站点一律按绑定时的应用处理，不受这里影响。
-          </div>
         </div>
       </ElFormItem>
 

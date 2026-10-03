@@ -289,6 +289,9 @@ func main() {
 			superSecured.POST("/system/update/check", handler.AdminOnlineUpdateCheck)
 			superSecured.POST("/system/update/apply", handler.AdminOnlineUpdateApply)
 			superSecured.GET("/system/update/jobs/:id", handler.AdminOnlineUpdateJob)
+			// 官网专用只读更新令牌。客户站调用返回 403。
+			superSecured.POST("/system/update/official-token", handler.AdminOfficialUpdateTokenSave)
+			superSecured.POST("/system/update/official-token/test", handler.AdminOfficialUpdateSourceTest)
 			secured.GET("/license/dashboard", handler.LicenseDashboard)
 			secured.GET("/dashboard/overview", handler.AdminDashboardOverview)
 			secured.GET("/dashboard/cards", handler.AdminDashboardCards)
@@ -520,6 +523,9 @@ func main() {
 		handler.EnsureNotificationSchema()
 		handler.BackfillLicensePurchaseTransactions(db)
 	}()
+
+	// 启动迁移都跑完了，当前就是要监听的版本。把目标版本等于本版本、却还停在重启中的更新任务记成完成。
+	handler.SettleOnlineUpdateJobsAfterRestart()
 
 	// 启动。SIGTERM/SIGINT 先在时限内关闭监听，避免在线更新或进程守护停进程时端口一直不释放。
 	host := config.GetHost()

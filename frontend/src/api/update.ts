@@ -52,6 +52,26 @@ export interface OnlineUpdateJob {
   updatedAt: string
 }
 
+/** 官网读取发布仓库用的凭据，只在官网返回。 */
+export interface OfficialUpdateSource {
+  repository: string
+  tokenSaved: boolean
+  tokenHint: string
+  lastCheck?: {
+    credential: 'official_token' | 'saved_token' | 'anonymous'
+    ok: boolean
+    status?: number
+    at: string
+  }
+}
+
+export interface OfficialUpdateSourceTest {
+  tokenOk: boolean
+  tokenMessage: string
+  latestVersion?: string
+  anonymousReadable: boolean
+}
+
 export interface OnlineUpdateStatus {
   currentVersion: string
   buildTime: string
@@ -60,6 +80,7 @@ export interface OnlineUpdateStatus {
   serviceName: string
   latest?: OnlineUpdateManifest | null
   runningJob?: OnlineUpdateJob | null
+  officialSource?: OfficialUpdateSource | null
 }
 
 export interface OnlineUpdateCheckResult {
@@ -71,6 +92,7 @@ export interface OnlineUpdateCheckResult {
   packageValid: boolean
   packageError: string
   versionError: string
+  officialSource?: OfficialUpdateSource | null
 }
 
 export function fetchOnlineUpdateStatus() {
@@ -105,6 +127,21 @@ export function fetchOnlineUpdateApply() {
 export function fetchOnlineUpdateJob(id: string) {
   return request.get<OnlineUpdateJob>({
     url: `/api/system/update/jobs/${encodeURIComponent(id)}`,
+    showErrorMessage: false
+  })
+}
+
+export function saveOfficialUpdateToken(token: string) {
+  return request.post<OfficialUpdateSource>({
+    url: '/api/system/update/official-token',
+    data: { token },
+    showErrorMessage: false
+  })
+}
+
+export function testOfficialUpdateSource() {
+  return request.post<OfficialUpdateSourceTest>({
+    url: '/api/system/update/official-token/test',
     showErrorMessage: false
   })
 }
