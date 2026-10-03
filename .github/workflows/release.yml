@@ -87,6 +87,8 @@ jobs:
           # 发布签名私钥只在这里用。打包脚本收进不导出的变量，只交给签名工具；没配置机密时直接失败，不发没签名的包。
           AUTH_PRO_UPDATE_SIGNING_KEY: ${{ secrets.AUTH_PRO_UPDATE_SIGNING_KEY }}
           AUTH_PRO_REQUIRE_UPDATE_SIGNATURE: '1'
+          # 服务端仓库发的是官网包，客户端仓库发的是客户站包；写进包内并随包签名。
+          AUTH_PRO_PACKAGE_EDITION: ${{ github.event.repository.name == 'auth-pro' && 'official' || 'client' }}
         # 发布说明以仓库 docs/release-notes-<version>.txt 为准；缺文件时回退到 git 提交说明。
         run: |
           set -euo pipefail
@@ -106,6 +108,7 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.value }}
+          AUTH_PRO_PACKAGE_EDITION: ${{ github.event.repository.name == 'auth-pro' && 'official' || 'client' }}
         run: |
           set -euo pipefail
           PACKAGE="release/packages/auth_pro-full-v${VERSION}.tar.gz"
@@ -118,7 +121,8 @@ jobs:
             ./backend/auth_pro \
             ./index.html \
             ./baota-panel.py \
-            ./guardian-start.sh
+            ./guardian-start.sh \
+            ./backend/release.json
           file "$VERIFY_DIR/backend/auth_pro" | grep -Eq 'ELF 64-bit.*x86-64'
           bash -n "$VERIFY_DIR/guardian-start.sh"
           python3 -m py_compile "$VERIFY_DIR/baota-panel.py"
@@ -158,6 +162,10 @@ jobs:
             if (!Array.isArray(history.releases) || history.releases[0]?.version !== version) throw new Error("releases.json latest version mismatch")
             if (!Array.isArray(history.releases[0]?.notes) || history.releases[0].notes.length === 0) throw new Error("releases.json release notes missing")
             if (JSON.stringify(history.releases[0].notes) !== JSON.stringify(latest.notes)) throw new Error("release notes mismatch")
+            const info = JSON.parse(fs.readFileSync(path.join(verifyDir, "backend", "release.json"), "utf8"))
+            if (info.version !== version) throw new Error("package release info version mismatch")
+            if (info.edition !== process.env.AUTH_PRO_PACKAGE_EDITION) throw new Error("package edition mismatch")
+            if (JSON.stringify(info.notes) !== JSON.stringify(latest.notes)) throw new Error("package release notes mismatch")
           ' "$PACKAGE" "$VERIFY_DIR"
 
       - name: Publish GitHub Release

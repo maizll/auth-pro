@@ -40,7 +40,7 @@ func checkStorageLocations(ctx context.Context) {
 		if probeErr := probeStorageLocation(ctx, loc, secret); probeErr != nil {
 			rows = append(rows, storageHealthRow{
 				Level: "problem", LocationID: loc.ID, LocationName: loc.Name, Target: "连接",
-				Message: loc.Name + "：" + probeErr.Error() + "。相关安装包不会自动下架。",
+				Message: loc.Name + "：" + healthSentence(probeErr) + "相关安装包不会自动下架。",
 			})
 			continue
 		}
@@ -71,7 +71,7 @@ func checkStorageLocations(ctx context.Context) {
 		}
 		text := "在「" + loc.Name + "」里找不到安装包 " + copy.ItemID + " " + copy.Version + "。条目仍在目录中，不会自动下架。"
 		if existsErr != nil {
-			text = "暂时无法确认「" + loc.Name + "」里的安装包 " + copy.ItemID + " " + copy.Version + "：" + existsErr.Error() + "。不会自动下架。"
+			text = "暂时无法确认「" + loc.Name + "」里的安装包 " + copy.ItemID + " " + copy.Version + "：" + healthSentence(existsErr) + "不会自动下架。"
 		}
 		rows = append(rows, storageHealthRow{
 			Level: "problem", LocationID: loc.ID, LocationName: loc.Name,
@@ -178,4 +178,9 @@ func catalogObjectIndex() map[string]string {
 		add(kind, id, version, location, objectKey)
 	}
 	return out
+}
+
+// healthSentence 把错误说明收成一句以句号结尾的话。底层错误多数自带句号，直接再补会出现「。。」。
+func healthSentence(err error) string {
+	return strings.TrimRight(strings.TrimSpace(err.Error()), "。.！!") + "。"
 }

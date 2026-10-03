@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""商业版双站 MySQL 端到端，以及 v1.5.8 → 1.5.9 升级迁移。
+"""商业版双站 MySQL 端到端（每个应用单独出售商业版），以及 v1.5.8 → 当前版本的升级迁移。
+
+官网上两个应用各自出售、各有套餐；买家程序构建时写入所属应用标识，只能看到、买到自己那个应用的商业版，
+付款后订单和授权都记在这个应用名下，另一个应用不受影响。
 
 没有可用的 MySQL 时以退出码 77 结束，供 go test 跳过。
 域名校验走真实 HTTPS：文档地址 203.0.113.10、本机 CA、SNI 反代。
@@ -29,7 +32,7 @@ import urllib.request
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 RUNTIME = "/tmp/auth-pro-e2e"
 BIN_DIR = os.path.join(RUNTIME, "bin")
-BIN_159 = os.path.join(BIN_DIR, "auth-pro-159")
+BIN_NEW = os.path.join(BIN_DIR, "auth-pro-current")
 BIN_158 = os.path.join(BIN_DIR, "auth-pro-158")
 WT_158 = "/tmp/auth-pro-158"
 COMMIT_158 = "9db6c4492bb259ef3022c4e25072f1dcd9a983ea"
@@ -52,6 +55,11 @@ SOURCE_DB = "authpro_e2e_source"
 BUYER_DB = "authpro_e2e_buyer"
 UPGRADE_DB = "authpro_e2e_upgrade"
 PROCS: dict[str, subprocess.Popen] = {}
+# 官网上的两个商业版应用：买家程序属于 PRODUCT_A；PRODUCT_B 用来确认按应用隔离。
+PRODUCT_A = "商店产品"
+PRODUCT_B = "另一个产品"
+PLAN_A = "永久商业版"
+PLAN_B = "另一个产品年付"
 
 
 class Fail(Exception):
@@ -225,19 +233,23 @@ def cleanup_environment(passed: bool) -> None:
         log(f"运行目录保留在 {RUNTIME}（日志和截图）")
 
 
-def build_159(public_key: str = "") -> None:
+def build_current(public_key: str = "", product_key: str = "") -> None:
+    """构建当前代码。public_key 是官网快照公钥，product_key 是买家程序在官网上所属的应用标识。"""
     os.makedirs(BIN_DIR, exist_ok=True)
-    ldflags = ""
+    flags = []
     if public_key:
-        ldflags = f"-X auto_pro/handler.embeddedStoreSnapshotPublicKey={public_key}"
+        flags.append(f"-X auto_pro/handler.embeddedStoreSnapshotPublicKey={public_key}")
+    if product_key:
+        flags.append(f"-X auto_pro/handler.embeddedStoreProductAppKey={product_key}")
+    ldflags = " ".join(flags)
     # -tags e2e 只存在于测试构建，把买家源站指到 source.auth-pro.test。发布脚本不带这个标签。
-    cmd = ["go", "build", "-tags", "e2e", "-o", BIN_159]
+    cmd = ["go", "build", "-tags", "e2e", "-o", BIN_NEW]
     if ldflags:
         cmd.extend(["-ldflags", ldflags])
     cmd.append(".")
     proc = run(cmd, cwd=os.path.join(ROOT, "backend"), capture_output=True)
     if proc.returncode != 0:
-        raise Fail(proc.stderr or "go build 1.5.9 failed")
+        raise Fail(proc.stderr or "go build current failed")
 
 
 def build_158() -> None:
@@ -390,20 +402,24 @@ def sign_epay(params: dict[str, str], key: str) -> str:
     return digest
 
 
-def configure_source(base: str, token: str, ca: str) -> None:
+def create_selling_app(base: str, token: str, ca: str, name: str, legacy_default: bool, plan: str, price: float, days: int) -> dict:
+    """在官网建一个出售商业版的应用并配一个套餐。legacy_default 表示接收没写应用标识的老客户端。"""
     created = must_api(
         base,
         "POST",
         "/api/app/create",
         {
-            "name": "商店产品",
+            "name": name,
             "enabled": True,
             "remark": "e2e",
             "purchaseLicenseTypes": ["domain"],
-            "commercialProduct": True,
-            "graceDays": 7,
-            "revokeOnPasswordChange": True,
-            "commercialFeatures": ["multi_app"],
+            "commercial": {
+                "mode": "selling",
+                "legacyDefault": legacy_default,
+                "graceDays": 7,
+                "revokeOnPasswordChange": True,
+                "features": ["multi_app"],
+            },
         },
         token,
         ca,
@@ -415,10 +431,10 @@ def configure_source(base: str, token: str, ca: str) -> None:
         "/api/plan/create",
         {
             "appId": app_id,
-            "name": "永久商业版",
+            "name": plan,
             "licenseType": "",
-            "durationDays": 0,
-            "price": 12.34,
+            "durationDays": days,
+            "price": price,
             "maxSites": 0,
             "sort": 1,
             "enabled": True,
@@ -427,6 +443,11 @@ def configure_source(base: str, token: str, ca: str) -> None:
         token,
         ca,
     )
+    return created["data"]
+
+
+def configure_source(base: str, token: str, ca: str) -> None:
+    """官网基础配置：支付、买家账号、快照签名密钥。用这把密钥的公钥重新构建后，这个站才算官网。"""
     must_api(
         base,
         "PUT",
@@ -448,16 +469,51 @@ def configure_source(base: str, token: str, ca: str) -> None:
         raise Fail(f"unexpected keygen response {generated}")
 
 
-def assert_sale_ready(base: str, token: str, ca: str) -> None:
+def create_products(base: str, token: str, ca: str) -> str:
+    """官网上两个应用各自出售商业版，返回买家程序所属应用（PRODUCT_A）的应用标识。只有官网能开出售。"""
+    product = create_selling_app(base, token, ca, PRODUCT_A, True, PLAN_A, 12.34, 0)
+    create_selling_app(base, token, ca, PRODUCT_B, False, PLAN_B, 23.45, 365)
+    key = sql_query(SOURCE_DB, f"SELECT app_key FROM apps WHERE id={int(product['id'])}")
+    if not key:
+        raise Fail(f"读不到 {PRODUCT_A} 的应用标识")
+    return key
+
+
+def selling_apps(base: str, token: str, ca: str) -> dict[str, dict]:
     apps = must_api(base, "GET", "/api/app/list", token=token, ca=ca)["data"]
-    product = [item for item in apps if item.get("commercialProduct")]
-    if len(product) != 1:
-        raise Fail(f"expected one commercial product, got {apps}")
-    gaps = product[0].get("saleGaps") or []
-    if gaps:
-        raise Fail(f"sale gaps remain: {gaps}")
-    if product[0].get("name") != "商店产品":
-        raise Fail(product[0])
+    return {item["name"]: item for item in apps if (item.get("commercial") or {}).get("mode") == "selling"}
+
+
+def assert_sale_ready(base: str, token: str, ca: str) -> None:
+    """两个应用都在出售、没有缺项；只有 PRODUCT_A 接收老客户端。"""
+    selling = selling_apps(base, token, ca)
+    if set(selling) != {PRODUCT_A, PRODUCT_B}:
+        raise Fail(f"出售中的应用应为 {PRODUCT_A}、{PRODUCT_B}，实际 {sorted(selling)}")
+    for name, item in selling.items():
+        commercial = item["commercial"]
+        if commercial.get("saleGaps"):
+            raise Fail(f"{name} 还缺出售条件: {commercial['saleGaps']}")
+        if commercial.get("legacyDefault") != (name == PRODUCT_A):
+            raise Fail(f"{name} 的「接收老客户端」不对: {commercial}")
+        plans = [plan["name"] for plan in commercial.get("plans") or []]
+        expected = PLAN_A if name == PRODUCT_A else PLAN_B
+        if plans != [expected]:
+            raise Fail(f"{name} 的套餐应只有 {expected}，实际 {plans}")
+
+
+def assert_buyer_plans(buyer: str, token: str, ca: str) -> None:
+    """买家只看到自己所属应用的套餐，看不到另一个应用的。"""
+    deadline = time.time() + 20
+    names: list[str] = []
+    while time.time() < deadline:
+        code, parsed, raw = http_json(buyer + "/api/store/plans", token=token, ca=ca)
+        if isinstance(parsed, dict) and parsed.get("code") in (200, "200"):
+            names = [item.get("name") for item in ((parsed.get("data") or {}).get("list") or [])]
+            if names:
+                break
+        time.sleep(1)
+    if names != [PLAN_A]:
+        raise Fail(f"买家应只看到 {PLAN_A}，实际 {names}")
 
 
 def buyer_prepare(base: str, token: str, ca: str) -> None:
@@ -561,9 +617,21 @@ def assert_source_records(base: str, token: str, ca: str, database: str) -> None
         raise Fail(f"订单列表没有已支付商业版: {orders}")
     if float(orders.get("commercialPaidYuan") or 0) <= 0:
         raise Fail(f"商业版合计不正确: {orders}")
-    apps = sql_query(database, "SELECT COUNT(*) FROM apps WHERE commercial_product=1")
-    if apps != "1":
-        raise Fail("源站商业版产品标记不正确")
+    owners = sql_query(
+        database,
+        "SELECT DISTINCT a.app_name FROM store_purchase_orders o JOIN apps a ON a.id = o.app_id WHERE o.status='paid'",
+    )
+    if owners != PRODUCT_A:
+        raise Fail(f"已支付订单应只记在 {PRODUCT_A} 名下，实际 {owners!r}")
+    licensed = sql_query(
+        database,
+        "SELECT DISTINCT a.app_name FROM licenses l JOIN apps a ON a.id = l.app_id WHERE l.source IN ('store_purchase','store_bind')",
+    )
+    if licensed != PRODUCT_A:
+        raise Fail(f"商店授权应只属于 {PRODUCT_A}，实际 {licensed!r}")
+    selling = sql_query(database, "SELECT COUNT(*) FROM app_commercial_settings WHERE mode='selling'")
+    if selling != "2":
+        raise Fail(f"付款后出售中的应用数应仍为 2，实际 {selling}")
 
 
 def titles_of(nodes) -> list[str]:
@@ -612,12 +680,12 @@ def run_upgrade(ca: str) -> str:
     if menus_before != "4":
         raise Fail(f"1.5.8 应有 4 条旧商店菜单，实际 {menus_before}")
     stop_named("upgrade158")
-    start_server("upgrade159", BIN_159, 18083, UPGRADE_DB, data)
+    start_server("upgradeNew", BIN_NEW, 18083, UPGRADE_DB, data)
     token = must_api(base, "POST", "/api/auth/login", {"userName": ADMIN_USER, "password": ADMIN_PASS})["data"]["token"]
-    apps = must_api(base, "GET", "/api/app/list", token=token)["data"]
-    product = [item for item in apps if item.get("commercialProduct")]
-    if len(product) != 1 or product[0].get("appKey") != "shop":
-        raise Fail(f"迁移后商业版产品不正确: {apps}")
+    # 升级站不是官网，应用列表不带商业版设置，直接看库：原商业版应用迁成「出售中、接收老客户端」。
+    settings = sql_query(UPGRADE_DB, "SELECT a.app_key, s.mode, s.legacy_default FROM app_commercial_settings s JOIN apps a ON a.id = s.app_id")
+    if settings != "shop\tselling\t1":
+        raise Fail(f"迁移后应只有原商业版应用 shop 在出售并接收老客户端: {settings!r}")
     price = sql_query(UPGRADE_DB, "SELECT CAST(price AS CHAR), duration_days, remark FROM license_plans WHERE name='旧永久商业版'")
     if price.split("\t") != ["99.00", "0", "由商业版价格迁移"] and not price.startswith("99"):
         # MariaDB may return 99.00 or 99.0000 depending on scale.
@@ -632,16 +700,16 @@ def run_upgrade(ca: str) -> str:
     kept = sql_query(UPGRADE_DB, "SELECT source FROM licenses WHERE license_no='LIC-OLD-158'")
     if kept != "store_bind":
         raise Fail(f"旧授权被改写: {kept}")
-    old_order = sql_query(UPGRADE_DB, "SELECT status, title_snapshot FROM store_purchase_orders WHERE order_no='PPOLD158'")
-    if old_order != "paid\t旧永久商业版":
-        raise Fail(f"旧订单丢失: {old_order}")
+    old_order = sql_query(UPGRADE_DB, "SELECT status, title_snapshot, app_id FROM store_purchase_orders WHERE order_no='PPOLD158'")
+    if old_order != f"paid\t旧永久商业版\t{app_id}":
+        raise Fail(f"旧订单丢失或没有记到原商业版应用名下: {old_order}")
     for banned in ("商业版设置", "商店订单", "主授权与权益", "商业版收入"):
         if banned in titles:
             raise Fail(f"侧栏仍有旧菜单 {banned}: {titles}")
     for required in ("源站运营", "软件目录", "入驻审核", "公开目录", "广告投放", "源站设置"):
         if required not in titles:
             raise Fail(f"侧栏缺少中文菜单 {required}: {titles}")
-    log("upgrade 1.5.8 -> 1.5.9 ok")
+    log("upgrade 1.5.8 -> current ok")
     return token
 
 
@@ -741,15 +809,15 @@ def main() -> int:
     setup_databases()
     log("setup network")
     ca = setup_network()
-    log("build 1.5.9 and 1.5.8")
-    build_159()
+    log("build current and 1.5.8")
+    build_current()
     build_158()
     source_data = os.path.join(RUNTIME, "source")
     buyer_data = os.path.join(RUNTIME, "buyer")
     shutil.rmtree(source_data, ignore_errors=True)
     shutil.rmtree(buyer_data, ignore_errors=True)
-    start_server("source", BIN_159, 18081, SOURCE_DB, source_data)
-    start_server("buyer", BIN_159, 18082, BUYER_DB, buyer_data)
+    start_server("source", BIN_NEW, 18081, SOURCE_DB, source_data)
+    start_server("buyer", BIN_NEW, 18082, BUYER_DB, buyer_data)
     source = f"https://{SOURCE_HOST}"
     buyer = f"https://{BUYER_HOST}"
     # 确认 Go 与本脚本都能校验证书。安装走本机端口，避免安装接口的来源限制。
@@ -762,14 +830,21 @@ def main() -> int:
     configure_source(source, source_token, ca)
     pub = public_key_from_private(source_data)
     log(f"rebuild with test public key {pub}")
+    stop_named("source")
+    build_current(pub)
+    start_server("source", BIN_NEW, 18081, SOURCE_DB, source_data)
+    source_token = must_api(source, "POST", "/api/auth/login", {"userName": ADMIN_USER, "password": ADMIN_PASS}, ca=ca)["data"]["token"]
+    product_key = create_products(source, source_token, ca)
+    log(f"rebuild buyer program for product {product_key}")
     stop_named()
-    build_159(pub)
-    start_server("source", BIN_159, 18081, SOURCE_DB, source_data)
-    start_server("buyer", BIN_159, 18082, BUYER_DB, buyer_data)
+    build_current(pub, product_key)
+    start_server("source", BIN_NEW, 18081, SOURCE_DB, source_data)
+    start_server("buyer", BIN_NEW, 18082, BUYER_DB, buyer_data)
     source_token = must_api(source, "POST", "/api/auth/login", {"userName": ADMIN_USER, "password": ADMIN_PASS}, ca=ca)["data"]["token"]
     buyer_token = must_api(buyer, "POST", "/api/auth/login", {"userName": ADMIN_USER, "password": ADMIN_PASS}, ca=ca)["data"]["token"]
     assert_sale_ready(source, source_token, ca)
     buyer_prepare(buyer, buyer_token, ca)
+    assert_buyer_plans(buyer, buyer_token, ca)
     log("upgrade migration")
     run_upgrade(ca)
     state = {
@@ -780,6 +855,8 @@ def main() -> int:
         "adminPass": ADMIN_PASS,
         "buyerEmail": BUYER_EMAIL,
         "buyerPass": BUYER_PASS,
+        "planName": PLAN_A,
+        "otherPlanName": PLAN_B,
         "ca": ca,
         "artifacts": ART,
     }
@@ -820,7 +897,7 @@ if __name__ == "__main__":
         code = main()
     except Fail as exc:
         log("FAIL " + str(exc))
-        for name in ("source", "buyer", "upgrade158", "upgrade159"):
+        for name in ("source", "buyer", "upgrade158", "upgradeNew"):
             path = os.path.join(RUNTIME, f"{name}.log")
             if os.path.exists(path):
                 log(f"----- {name}.log -----")

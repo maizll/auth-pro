@@ -9,11 +9,14 @@
   >
     <RouterView></RouterView>
     <AppConfirmHost />
+    <OnlineUpdateBusyCard />
   </ElConfigProvider>
 </template>
 
 <script setup lang="ts">
   import AppConfirmHost from '@/components/core/dialog/AppConfirmHost.vue'
+  import OnlineUpdateBusyCard from '@/views/online-update/OnlineUpdateBusyCard.vue'
+  import { installUpdateSessionWatcher } from '@/views/online-update/update-session'
   import { useUserStore } from './store/modules/user'
   import zh from 'element-plus/es/locale/lang/zh-cn'
   import en from 'element-plus/es/locale/lang/en'
@@ -39,5 +42,6 @@
     checkStorageCompatibility()
     toggleTransition(false)
     systemUpgrade()
+    installUpdateSessionWatcher()
   })
 </script>

@@ -334,6 +334,9 @@ func StoreOrderQuery(c *gin.Context) {
 			return
 		}
 		data["snapshot"] = snapshot
+		if !addStoreSnapshotProof(c, data, responseProofStoreStat, row.BindingID, c.GetHeader(storeProductHeader), c.GetHeader("X-Store-Nonce"), snapshot) {
+			return
+		}
 	}
 	storeData(c, data)
 }

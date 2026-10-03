@@ -87,20 +87,12 @@ func licenseVerifyRateKey(clientIP, appKey string) string {
 
 var licenseVerifyLimiter = newLicenseVerifyRateLimiter(licenseVerifyRateAttempts, licenseVerifyRateWindow)
 
-func licenseVerifyUnsignedFailure(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
+func licenseVerifyUnsignedFailureBody() gin.H {
+	return gin.H{
 		"code": 403,
 		"msg":  "授权校验失败",
 		"data": gin.H{"result": "fail", "reason": "verify_failed"},
-	})
-}
-
-func licenseVerifyRateLimited(c *gin.Context) {
-	c.JSON(http.StatusTooManyRequests, gin.H{
-		"code": 429,
-		"msg":  "请求过于频繁，请稍后再试",
-		"data": gin.H{"result": "fail", "reason": "rate_limited"},
-	})
+	}
 }
 
 type licenseVerifyRequest struct {
@@ -110,6 +102,7 @@ type licenseVerifyRequest struct {
 	LicenseKey  string `json:"licenseKey"`
 	Timestamp   int64  `json:"timestamp" binding:"required"`
 	SignVersion string `json:"signVersion"`
+	Nonce       string `json:"nonce"`
 	Sign        string `json:"sign" binding:"required"`
 }
 
@@ -166,6 +159,8 @@ func ensureAppLicenseRequiredColumn(db *sql.DB) error {
 // 请求要有 appKey、签名、时间戳和域名或机器标识。签名不对时和「应用不存在」用同一种响应，避免探测出应用是否存在。
 // 时间戳超出 10 分钟返回 403。应用关闭授权开关时直接通过，并记一笔日志。
 // 授权被拉黑、吊销、过期或域名不匹配时返回对应 reason。只有完全找不到授权才记盗版，过期客户不算盗版。
+// v3 请求（signVersion=v3 + nonce）：10 分钟内同一 nonce 只认一次；每个响应都带 data.proof（Ed25519 签名），
+// 覆盖 appKey、域名、服务器 IP、授权码哈希、nonce、服务器时间和结果。v1/v2 老 SDK 的响应保持原样。
 func LicenseVerify(c *gin.Context) {
 	var req licenseVerifyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -181,13 +176,15 @@ func LicenseVerify(c *gin.Context) {
 	req.Domain = normalizeLicenseDomain(rawDomain)
 	req.ServerIP = normalizeLicenseServerIP(rawServerIP)
 	req.LicenseKey = rawLicenseKey
+	req.Nonce = strings.TrimSpace(req.Nonce)
 	req.Sign = strings.ToLower(strings.TrimSpace(req.Sign))
+	respond := licenseVerifyResponder(c, req)
 	if req.AppKey == "" {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误", "data": gin.H{"result": "fail", "reason": "bad_request"}})
 		return
 	}
 	if !licenseVerifyLimiter.allow(licenseVerifyRateKey(c.ClientIP(), req.AppKey), time.Now()) {
-		licenseVerifyRateLimited(c)
+		c.JSON(http.StatusTooManyRequests, gin.H{"code": 429, "msg": "请求过于频繁，请稍后再试", "data": gin.H{"result": "fail", "reason": "rate_limited"}})
 		return
 	}
 
@@ -206,7 +203,7 @@ func LicenseVerify(c *gin.Context) {
 	var licenseRequired bool
 	err = db.QueryRow("SELECT id, app_name, app_secret, license_required FROM apps WHERE app_key = ? AND enabled = 1", req.AppKey).Scan(&appID, &appName, &appSecret, &licenseRequired)
 	if err != nil {
-		licenseVerifyUnsignedFailure(c)
+		c.JSON(http.StatusOK, licenseVerifyUnsignedFailureBody())
 		return
 	}
 
@@ -214,33 +211,38 @@ func LicenseVerify(c *gin.Context) {
 	// 签名失败和未知应用返回同一类响应，不告诉调用方应用存不存在。
 	if !signValid {
 		writeVerifyLog(db, sql.NullInt64{}, appID, req.Domain, req.ServerIP, c.ClientIP(), "fail", "invalid_sign", c.GetHeader("User-Agent"))
-		licenseVerifyUnsignedFailure(c)
+		c.JSON(http.StatusOK, licenseVerifyUnsignedFailureBody())
 		return
 	}
 	req.SignVersion = signVersion
 
 	if req.Timestamp <= 0 || absInt64(time.Now().Unix()-req.Timestamp) > 600 {
 		writeVerifyLog(db, sql.NullInt64{}, appID, req.Domain, req.ServerIP, c.ClientIP(), "fail", "invalid_timestamp", c.GetHeader("User-Agent"))
-		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "请求已过期", "data": gin.H{"result": "fail", "reason": "invalid_timestamp"}})
+		respond(http.StatusOK, gin.H{"code": 403, "msg": "请求已过期", "data": gin.H{"result": "fail", "reason": "invalid_timestamp"}})
+		return
+	}
+	if signVersion == licenseSignVersionV3 && !requestNonces.remember("license:"+req.AppKey+":"+req.Nonce, time.Now()) {
+		writeVerifyLog(db, sql.NullInt64{}, appID, req.Domain, req.ServerIP, c.ClientIP(), "fail", "replayed_request", c.GetHeader("User-Agent"))
+		respond(http.StatusOK, gin.H{"code": 403, "msg": "重复的校验请求", "data": gin.H{"result": "fail", "reason": "replayed_request"}})
 		return
 	}
 
 	signTarget := licenseVerifySignTarget(req)
 	if signTarget == "" {
 		writeVerifyLog(db, sql.NullInt64{}, appID, req.Domain, req.ServerIP, c.ClientIP(), "fail", "empty_target", c.GetHeader("User-Agent"))
-		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "授权目标不能为空", "data": gin.H{"result": "fail", "reason": "empty_target"}})
+		respond(http.StatusOK, gin.H{"code": 403, "msg": "授权目标不能为空", "data": gin.H{"result": "fail", "reason": "empty_target"}})
 		return
 	}
 
 	if isLicenseTargetBlacklisted(db, appID, req.Domain, req.ServerIP) {
 		writeVerifyLog(db, sql.NullInt64{}, appID, req.Domain, req.ServerIP, c.ClientIP(), "blacklisted", "target_blacklisted", c.GetHeader("User-Agent"))
-		c.JSON(http.StatusOK, licenseVerifyFailureBody("target_blacklisted"))
+		respond(http.StatusOK, licenseVerifyFailureBody("target_blacklisted"))
 		return
 	}
 
 	if !licenseRequired {
 		writeVerifyLog(db, sql.NullInt64{}, appID, req.Domain, req.ServerIP, c.ClientIP(), "pass", "license_not_required", c.GetHeader("User-Agent"))
-		c.JSON(http.StatusOK, gin.H{
+		respond(http.StatusOK, gin.H{
 			"code": 200,
 			"msg":  "应用无需授权验证",
 			"data": gin.H{
@@ -270,16 +272,83 @@ func LicenseVerify(c *gin.Context) {
 		if reason == "license_not_found" && isPiracyDetectionEnabled() {
 			recordPiracyHit(db, appID, req.Domain, req.ServerIP)
 		}
-		c.JSON(http.StatusOK, licenseVerifyFailureBody(reason))
+		respond(http.StatusOK, licenseVerifyFailureBody(reason))
 		return
 	}
 
 	writeVerifyLog(db, sql.NullInt64{Int64: license.ID, Valid: true}, appID, req.Domain, req.ServerIP, c.ClientIP(), "pass", "", c.GetHeader("User-Agent"))
-	c.JSON(http.StatusOK, gin.H{
+	respond(http.StatusOK, gin.H{
 		"code": 200,
 		"msg":  "授权有效",
 		"data": licenseVerifySuccessData(appName, license),
 	})
+}
+
+// licenseVerifyResponder 返回写响应的函数。只有请求签名核对通过之后的结果才经过这里签名：
+// 参数错误、应用不存在、请求签名不对、限流和服务端故障都不签名，SDK 当成「暂时连不上」走离线宽限，
+// 这样转发请求的假服务器也拿不到带签名的拒绝去顶掉客户的离线宽限。
+// 请求是 v3 且 nonce 合法时给 data 加 proof；签不了名（私钥不可用）时
+// 不发未签名的结果，统一改成 500，SDK 按「连不上授权站」进离线宽限，不会把伪造的通过当真。
+func licenseVerifyResponder(c *gin.Context, req licenseVerifyRequest) func(int, gin.H) {
+	wantProof := normalizeLicenseSignVersion(req.SignVersion) == licenseSignVersionV3 && validProofNonce(req.Nonce)
+	return func(status int, body gin.H) {
+		if !wantProof {
+			c.JSON(status, body)
+			return
+		}
+		data, _ := body["data"].(gin.H)
+		if data == nil {
+			data = gin.H{}
+			body["data"] = data
+		}
+		proof, err := licenseVerifyProof(req, data, time.Now().Unix())
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "授权站签名密钥不可用", "data": gin.H{"result": "fail", "reason": "response_sign_unavailable"}})
+			return
+		}
+		data["proof"] = proof
+		c.JSON(status, body)
+	}
+}
+
+// licenseVerifyProof 生成 data.proof。域名和 IP 用服务端规范化后的值，授权码只放 SHA-256（空授权码为空串）。
+func licenseVerifyProof(req licenseVerifyRequest, data gin.H, serverTime int64) (gin.H, error) {
+	fields, keyHash := licenseVerifyProofFields(req, data, serverTime)
+	signature, err := signResponseProof(responseProofLicense, fields)
+	if err != nil {
+		return nil, err
+	}
+	return gin.H{
+		"appKey": req.AppKey, "domain": req.Domain, "serverIp": req.ServerIP, "licenseKeyHash": keyHash,
+		"nonce": req.Nonce, "serverTime": serverTime, "signature": signature,
+	}, nil
+}
+
+// licenseVerifyProofFields 是 SDK 校验响应的签名字段，顺序和 docs/api-sdk.md、各语言 SDK 一致，不能改。
+func licenseVerifyProofFields(req licenseVerifyRequest, data gin.H, serverTime int64) ([]proofField, string) {
+	keyHash := ""
+	if req.LicenseKey != "" {
+		keyHash = sha256SumHex([]byte(req.LicenseKey))
+	}
+	text := func(key string) string {
+		value, _ := data[key].(string)
+		return value
+	}
+	expireTs := ""
+	if v, ok := data["expireTs"].(int64); ok {
+		expireTs = unixText(v)
+	}
+	return []proofField{
+		{"appKey", req.AppKey},
+		{"domain", req.Domain},
+		{"serverIp", req.ServerIP},
+		{"licenseKeyHash", keyHash},
+		{"nonce", req.Nonce},
+		{"serverTime", unixText(serverTime)},
+		{"result", text("result")},
+		{"reason", text("reason")},
+		{"expireTs", expireTs},
+	}, keyHash
 }
 
 // evaluateLicenseForTarget 复用公开授权校验里「黑名单 → 匹配 → 实名 → 吊销 → 过期 → 密钥站点」的判定。
@@ -504,6 +573,11 @@ func licenseVerifySignValid(req licenseVerifyRequest, appSecret, rawDomain, rawS
 	switch requestedVersion {
 	case "2", licenseSignVersionV2:
 		return licenseSignVersionV2, hmac.Equal([]byte(req.Sign), []byte(licenseVerifyV2Sign(req, appSecret)))
+	case "3", licenseSignVersionV3:
+		if !validProofNonce(req.Nonce) {
+			return "", false
+		}
+		return licenseSignVersionV3, hmac.Equal([]byte(req.Sign), []byte(licenseVerifyV3Sign(req, appSecret)))
 	case "", "1", licenseSignVersionV1:
 		targets := []string{licenseVerifySignTarget(req), licenseVerifyRawSignTarget(rawDomain, rawServerIP, rawLicenseKey)}
 		for _, target := range targets {
@@ -575,7 +649,16 @@ func licenseVerifySuccessData(appName string, license matchedLicense) gin.H {
 		"planName": license.PlanName,
 		"type":     license.Type,
 		"expireAt": formatVerifyExpireAt(license.ExpiredAt),
+		// expireTs 是到期的 Unix 秒，0 表示永久。签进 proof，SDK 的离线缓存不会用到授权过期之后。
+		"expireTs": verifyExpireUnix(license.ExpiredAt),
 	}
+}
+
+func verifyExpireUnix(expiredAt sql.NullTime) int64 {
+	if !expiredAt.Valid {
+		return 0
+	}
+	return expiredAt.Time.Unix()
 }
 
 func formatVerifyExpireAt(expiredAt sql.NullTime) string {

@@ -4,7 +4,17 @@ const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
+const os = require('os');
+const path = require('path');
 const { URL } = require('url');
+
+// 授权响应签名的用途标记，签名原文第一行。
+const LICENSE_PROOF_KIND = 'auth-pro-license-v3';
+// 校验通过的结果默认缓存 5 分钟；连不上授权站时最近一次验签通过的结果最多再用 72 小时（从授权站签名时间算起）。
+const DEFAULT_CACHE_TTL = 300;
+const DEFAULT_OFFLINE_GRACE = 72 * 3600;
+// Ed25519 公钥的 SPKI DER 前缀，后面接 32 字节原始公钥。
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 
 let config = {};
 let booted = false;
@@ -54,20 +64,166 @@ function moduleEnabled(name) {
   return false;
 }
 
+// verify 校验授权。overrides 可覆盖 licenseKey / domain / serverIp；
+// 浏览器代理转发时再传浏览器给的 nonce，这时不读写本机缓存，结果原样交给浏览器验签。
 function verify(overrides) {
   ensureConfig();
+  let publicKey;
+  try {
+    publicKey = loadPublicKey();
+  } catch (err) {
+    return Promise.reject(err);
+  }
+  overrides = overrides || {};
   const ctx = requestContext(overrides);
-  const timestamp = Math.floor(Date.now() / 1000);
+  const relay = Boolean(overrides.nonce && String(overrides.nonce).trim());
+  const nonce = relay ? String(overrides.nonce).trim() : crypto.randomBytes(16).toString('hex');
+  const file = cachePath(ctx);
+  const now = Math.floor(Date.now() / 1000);
+  if (!relay) {
+    const entry = readCache(file, ctx, publicKey);
+    if (entry && now - entry.savedAt < positiveOr(cfg('cacheTtl', 0), DEFAULT_CACHE_TTL)) {
+      return Promise.resolve(entryResult(entry, 'cached'));
+    }
+  }
+  let sign;
+  try {
+    sign = v2Sign(['v3', cfg('appKey', ''), ctx.licenseKey, ctx.domain, ctx.serverIp, String(now), nonce]);
+  } catch (err) {
+    return Promise.reject(err);
+  }
   const payload = {
     appKey: cfg('appKey', ''),
     domain: ctx.domain,
     serverIp: ctx.serverIp,
     licenseKey: ctx.licenseKey,
-    timestamp,
-    signVersion: 'v2',
-    sign: v2Sign(['v2', cfg('appKey', ''), ctx.licenseKey, ctx.domain, ctx.serverIp, String(timestamp)]),
+    timestamp: now,
+    signVersion: 'v3',
+    nonce,
+    sign,
   };
-  return httpJson('POST', '/api/license/verify', payload).then((body) => normalizeResult(body, true));
+  return httpJson('POST', '/api/license/verify', payload).then(
+    (body) => {
+      if (verifyLicenseProof(publicKey, ctx.licenseKey, nonce, body) === null) {
+        return offlineResult(file, ctx, publicKey, relay, body, null);
+      }
+      const result = normalizeResult(body, true);
+      if (!relay) {
+        if (result.ok) {
+          writeCache(file, { savedAt: now, nonce, body });
+        } else {
+          // 授权站明确拒绝（签名有效）：立刻失效，不再用旧缓存放行。
+          try { fs.unlinkSync(file); } catch (err) { /* 没有缓存 */ }
+        }
+      }
+      return result;
+    },
+    (err) => offlineResult(file, ctx, publicKey, relay, null, err)
+  );
+}
+
+// offlineResult 处理连不上授权站或响应验签不过：宽限期内沿用上次验签通过的结果，否则拒绝。
+// 网络错误且没有可用缓存时抛错；验签不过时返回 ok=false，data.unverified=true。
+function offlineResult(file, ctx, publicKey, relay, body, netErr) {
+  if (!relay) {
+    const entry = readCache(file, ctx, publicKey);
+    const now = Math.floor(Date.now() / 1000);
+    if (entry && now <= entry.serverTime + positiveOr(cfg('offlineGrace', 0), DEFAULT_OFFLINE_GRACE) && (!entry.expireTs || now < entry.expireTs)) {
+      return entryResult(entry, 'offline');
+    }
+  }
+  if (netErr) throw netErr;
+  const result = normalizeResult(body, true);
+  result.ok = false;
+  result.data = Object.assign({}, result.data || {}, { unverified: true });
+  if (!result.message) result.message = '授权响应无法验证';
+  return result;
+}
+
+function loadPublicKey() {
+  const raw = Buffer.from(String(cfg('publicKey', '') || '').trim(), 'base64');
+  if (raw.length !== 32) {
+    throw new Error('缺少或无效的 publicKey，请在授权站后台重新下载接入包，或从「接入开发」页复制授权响应公钥填入 config.json');
+  }
+  return crypto.createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, raw]), format: 'der', type: 'spki' });
+}
+
+// verifyLicenseProof 核对 data.proof：appKey、nonce、授权码哈希必须是自己这次发出的，
+// 再按接入文档的规则拼出原文用公钥验签。域名和 IP 取 proof 里授权站规范化后的值，它们已在 v3 请求签名里和 nonce 绑在一起。
+// 通过返回签名里的服务器时间，不通过返回 null。
+function verifyLicenseProof(publicKey, licenseKey, nonce, body) {
+  const data = body && body.data;
+  const proof = data && data.proof;
+  if (!proof || typeof proof !== 'object') return null;
+  const appKey = String(cfg('appKey', ''));
+  const keyHash = licenseKey ? crypto.createHash('sha256').update(licenseKey).digest('hex') : '';
+  if (proof.appKey !== appKey || proof.nonce !== nonce || proof.licenseKeyHash !== keyHash) return null;
+  if (typeof proof.serverTime !== 'number' || typeof proof.signature !== 'string' || proof.signature.indexOf('ed25519:') !== 0) return null;
+  const fields = [
+    ['appKey', appKey],
+    ['domain', text(proof.domain)],
+    ['serverIp', text(proof.serverIp)],
+    ['licenseKeyHash', keyHash],
+    ['nonce', nonce],
+    ['serverTime', String(Math.trunc(proof.serverTime))],
+    ['result', text(data.result)],
+    ['reason', text(data.reason)],
+    ['expireTs', typeof data.expireTs === 'number' ? String(Math.trunc(data.expireTs)) : ''],
+  ];
+  let message = LICENSE_PROOF_KIND + '\n';
+  for (const [key, value] of fields) {
+    message += key + '=' + value.replace(/[\r\n]/g, ' ') + '\n';
+  }
+  const signature = Buffer.from(proof.signature.slice('ed25519:'.length), 'base64');
+  try {
+    return crypto.verify(null, Buffer.from(message, 'utf8'), publicKey, signature) ? Math.trunc(proof.serverTime) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+// 校验缓存写在临时目录，读出时重新验签，手改文件没有用。
+function cachePath(ctx) {
+  const key = [cfg('baseUrl', ''), cfg('appKey', ''), ctx.licenseKey, ctx.domain, ctx.serverIp].join('\n');
+  return path.join(os.tmpdir(), 'authpro-' + crypto.createHash('sha256').update(key).digest('hex').slice(0, 24) + '.json');
+}
+
+function readCache(file, ctx, publicKey) {
+  let entry;
+  try {
+    entry = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    return null;
+  }
+  if (!entry || !normalizeResult(entry.body, true).ok) return null;
+  const serverTime = verifyLicenseProof(publicKey, ctx.licenseKey, entry.nonce, entry.body);
+  if (serverTime === null) return null;
+  const expireTs = entry.body.data && typeof entry.body.data.expireTs === 'number' ? entry.body.data.expireTs : 0;
+  return { savedAt: Number(entry.savedAt) || 0, nonce: entry.nonce, body: entry.body, serverTime, expireTs };
+}
+
+function writeCache(file, entry) {
+  try {
+    fs.writeFileSync(file + '.tmp', JSON.stringify(entry), { mode: 0o600 });
+    fs.renameSync(file + '.tmp', file);
+  } catch (err) {
+    // 写不了缓存不影响这次结果。
+  }
+}
+
+function entryResult(entry, flag) {
+  const result = normalizeResult(entry.body, true);
+  result.data = Object.assign({}, result.data || {}, { [flag]: true });
+  return result;
+}
+
+function positiveOr(value, fallback) {
+  const n = Number(value);
+  return n > 0 ? n : fallback;
+}
+
+function text(value) {
+  return typeof value === 'string' ? value : '';
 }
 
 function checkUpdate(currentVersion, overrides) {
@@ -190,6 +346,7 @@ function httpJson(method, path, payload) {
       }
     );
     req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('请求授权站超时')));
     if (method === 'POST' && body) req.write(body);
     req.end();
   });

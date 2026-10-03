@@ -249,10 +249,13 @@ func finishBuyerBind(c *gin.Context, account, password, role string) (int, error
 	data, _ := login["data"].(map[string]any)
 	challengeID, _ := data["challengeId"].(string)
 	var confirmed map[string]any
-	if err := callSourceJSON(http.MethodPost, "/api/v1/store/auth/confirm", map[string]any{"challengeId": challengeID}, nil, &confirmed); err != nil {
+	// nonce 让官网把这次确认签进 snapshotProof，productKey 是本程序所属应用，一起签进去。老官网忽略这两个字段。
+	nonce := randomHex(16)
+	confirmBody := map[string]any{"challengeId": challengeID, "nonce": nonce, "productKey": storeProductKey()}
+	if err := callSourceJSON(http.MethodPost, "/api/v1/store/auth/confirm", confirmBody, nil, &confirmed); err != nil {
 		return 400, err
 	}
-	if err := persistBuyerBind(confirmed, account, role); err != nil {
+	if err := persistBuyerBind(confirmed, nonce, account, role); err != nil {
 		return 500, err
 	}
 	return 200, nil
@@ -484,7 +487,8 @@ func BuyerStoreOrderCreate(c *gin.Context) {
 func BuyerStoreOrderQuery(c *gin.Context) {
 	orderNo := strings.TrimSpace(c.Param("orderNo"))
 	var payload map[string]any
-	if err := signedSourceJSON(http.MethodGet, "/api/v1/store/orders/"+orderNo, nil, &payload); err != nil {
+	call, err := signedSourceCall(http.MethodGet, "/api/v1/store/orders/"+orderNo, "/api/v1/store/orders/"+orderNo, nil, &payload)
+	if err != nil {
 		if storeFailSource(c, err) {
 			return
 		}
@@ -494,7 +498,8 @@ func BuyerStoreOrderQuery(c *gin.Context) {
 	if data, ok := payload["data"].(map[string]any); ok {
 		if snap, ok := data["snapshot"].(map[string]any); ok {
 			source, _ := data["editionSource"].(string)
-			_ = saveSnapshotMap(snap, true, false, "", source)
+			check := sourceProofCheck{Kind: responseProofStoreStat, Binding: call.BindingID, Product: storeProductKey(), Nonce: call.Nonce, Data: data}
+			_ = saveSnapshotMap(snap, check, "", source)
 		}
 	}
 	c.JSON(http.StatusOK, payload)

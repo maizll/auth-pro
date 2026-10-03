@@ -45,31 +45,69 @@ async function openMenu() {
   await page.waitForTimeout(400)
 }
 
+// 开通商业版弹框：电脑宽度下打开「升级商业版」，登录绑定后截图套餐页，付款在下面的手机宽度里走。
+async function desktopUpgradeDialogShot() {
+  const desktop = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    ignoreHTTPSErrors: true,
+    deviceScaleFactor: 1
+  })
+  const view = await desktop.newPage()
+  view.setDefaultTimeout(20000)
+  try {
+    await view.goto(`${state.buyer}/admin`, { waitUntil: 'domcontentloaded' })
+    await view.locator('input').nth(0).fill(state.adminUser)
+    await view.locator('input[type="password"]').fill(state.adminPass)
+    await view.getByRole('button', { name: '登录' }).click()
+    await view.waitForURL((url) => !url.pathname.startsWith('/admin'), { timeout: 20000 })
+    await view.goto(`${state.buyer}/license/apps`, { waitUntil: 'domcontentloaded' })
+    await view.locator('#app-header').getByRole('button', { name: '升级商业版' }).click()
+    const dialog = view.getByRole('dialog', { name: '升级商业版' })
+    await dialog.waitFor()
+    await dialog.getByPlaceholder('邮箱或账号').fill(state.buyerEmail)
+    await dialog.getByPlaceholder('仅用于本次登录，不会保存').fill(state.buyerPass)
+    await dialog.getByRole('button', { name: '登录并绑定' }).click()
+    // 买家程序属于第一个应用，只能看到这个应用的套餐。
+    await dialog.getByText(state.planName).first().waitFor()
+    if (await dialog.getByText(state.otherPlanName).count()) {
+      throw new Error('开通弹框里出现了另一个应用的套餐')
+    }
+    await view.waitForTimeout(800)
+    await view.screenshot({ path: shot('desktop-buyer-upgrade-dialog.png') })
+  } finally {
+    await desktop.close()
+  }
+}
+
 try {
   if (process.env.AUTH_PRO_E2E_RECAPTURE !== '1') {
+    console.log('desktop upgrade dialog')
+    await desktopUpgradeDialogShot()
     console.log('buyer login')
     await login(state.buyer)
     await page.goto(`${state.buyer}/license/apps`, { waitUntil: 'domcontentloaded' })
     await page.locator('#app-header').getByRole('button', { name: '升级商业版' }).click()
     await page.getByRole('dialog', { name: '升级商业版' }).waitFor()
-    await page.getByPlaceholder('邮箱或账号').fill(state.buyerEmail)
-    await page.getByPlaceholder('仅用于本次登录，不会保存').fill(state.buyerPass)
-    await page.getByRole('button', { name: '登录并绑定' }).click()
-    await page.getByText('已绑定').first().waitFor()
+    // 电脑宽度那一步已经绑定，这里直接看到套餐。
+    await page
+      .getByRole('dialog', { name: '升级商业版' })
+      .getByText(state.planName)
+      .first()
+      .waitFor()
     await page.waitForFunction(() => {
       const button = [...document.querySelectorAll('button')].find((item) =>
-        item.textContent?.includes('生成付款码')
+        item.textContent?.includes('立即支付')
       )
       return button && !button.disabled
     })
-    await page.getByRole('button', { name: '生成付款码' }).click()
+    await page.getByRole('button', { name: /立即支付/ }).click()
     await page.locator('.upgrade-qr canvas, .upgrade-qr svg').first().waitFor()
     await page.screenshot({ path: shot('phone-buyer-pay-qr.png') })
     await page
       .getByRole('dialog', { name: '升级商业版' })
       .waitFor({ state: 'hidden', timeout: 40000 })
     await page.goto(`${state.buyer}/plugin-store`, { waitUntil: 'domcontentloaded' })
-    await page.locator('#app-header').getByRole('button', { name: '商业版 永久授权' }).waitFor()
+    await page.locator('#app-header').getByRole('button', { name: '商业版 永久' }).waitFor()
     await page.getByText('浏览并安装插件和首页模板').waitFor()
     await page.locator('#app-header').getByRole('button', { name: '商业版' }).waitFor()
     if (await page.getByRole('button', { name: '升级商业版' }).count()) {
@@ -97,14 +135,14 @@ try {
   console.log('source shots')
   await login(state.source)
   await page.goto(`${state.source}/license/apps`, { waitUntil: 'domcontentloaded' })
-  await page.getByText('商业版产品').first().waitFor()
-  await page.getByText('可售').first().waitFor()
+  // 每个应用单独出售：两个应用都显示「出售中」。
+  await page.getByText('商业版 · 出售中').nth(1).waitFor()
   await page.screenshot({ path: shot('phone-app-sale-status.png') })
   await page.getByRole('button', { name: '编辑' }).first().click()
-  const saleSwitch = page.getByText('作为本站商业版出售')
+  const saleSwitch = page.getByText('出售商业版', { exact: true }).first()
   await saleSwitch.waitFor()
   await saleSwitch.evaluate((el) => el.scrollIntoView({ block: 'start' }))
-  const advanced = page.getByText('高级设置', { exact: true })
+  const advanced = page.getByText('高级设置（本应用单独生效）', { exact: true })
   if (await advanced.isVisible().catch(() => false)) await advanced.click()
   await page.getByText('离线宽限天数').waitFor()
   await page.getByText('离线宽限天数').evaluate((el) => el.scrollIntoView({ block: 'nearest' }))
@@ -112,7 +150,8 @@ try {
   await page.keyboard.press('Escape')
 
   await page.goto(`${state.source}/license/plans`, { waitUntil: 'domcontentloaded' })
-  await page.getByText('永久商业版').first().waitFor()
+  await page.getByText(state.planName).first().waitFor()
+  await page.getByText(state.otherPlanName).first().waitFor()
   await page.screenshot({ path: shot('phone-license-plans.png') })
 
   await page.goto(`${state.source}/license/list`, { waitUntil: 'domcontentloaded' })

@@ -13,6 +13,8 @@ import (
 const (
 	licenseSignVersionV1 = "v1"
 	licenseSignVersionV2 = "v2"
+	// v3 = v2 再加请求随机数 nonce；服务端记住 10 分钟内用过的 nonce，响应带 Ed25519 签名并回显 nonce。
+	licenseSignVersionV3 = "v3"
 )
 
 var (
@@ -34,6 +36,8 @@ func normalizeLicenseSignVersion(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "2", licenseSignVersionV2:
 		return licenseSignVersionV2
+	case "3", licenseSignVersionV3:
+		return licenseSignVersionV3
 	default:
 		return licenseSignVersionV1
 	}
@@ -113,6 +117,14 @@ func licenseVerifyV2Canonical(req licenseVerifyRequest) string {
 func licenseVerifyV2Sign(req licenseVerifyRequest, appSecret string) string {
 	mac := hmac.New(sha256.New, []byte(appSecret))
 	_, _ = mac.Write([]byte(licenseVerifyV2Canonical(req)))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// licenseVerifyV3Sign 的原文：首行 v3，其余和 v2 相同，最后一行是 nonce。
+func licenseVerifyV3Sign(req licenseVerifyRequest, appSecret string) string {
+	canonical := licenseSignVersionV3 + strings.TrimPrefix(licenseVerifyV2Canonical(req), licenseSignVersionV2) + "\n" + req.Nonce
+	mac := hmac.New(sha256.New, []byte(appSecret))
+	_, _ = mac.Write([]byte(canonical))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
@@ -196,7 +208,7 @@ func checkKeyLicenseSiteOnce(db *sql.DB, licenseID int64, target licenseSiteTarg
 }
 
 func requireKeyLicenseSite(db *sql.DB, licenseID int64, domain, serverIP, signVersion string) error {
-	allowCreate := normalizeLicenseSignVersion(signVersion) == licenseSignVersionV2
+	allowCreate := normalizeLicenseSignVersion(signVersion) != licenseSignVersionV1
 	err := checkKeyLicenseSite(db, licenseID, domain, serverIP, allowCreate)
 	if errors.Is(err, errLicenseSiteNotBound) && !allowCreate {
 		return errLicenseSignatureUpgrade

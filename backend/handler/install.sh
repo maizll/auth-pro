@@ -3766,7 +3766,7 @@ menu_uninstall_site() {
 
 menu_render() {
   menu_tty_print "$(menu_blue "========================================")"
-  menu_tty_print "$(menu_blue "  auth-pro 1.8.6")"
+  menu_tty_print "$(menu_blue "  auth-pro 1.8.7")"
   menu_tty_print "$(menu_blue "========================================")"
   menu_tty_print "  $(menu_green "1")  安装新站点"
   menu_tty_print "  $(menu_green "2")  升级站点"

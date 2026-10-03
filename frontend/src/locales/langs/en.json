@@ -4,15 +4,16 @@
     "forbidden": "Access to this resource is forbidden",
     "notFound": "The requested resource does not exist",
     "methodNotAllowed": "Request method not allowed",
-    "requestTimeout": "Request timeout, please try again later",
+    "requestTimeout": "The server took too long to answer. Please try again later.",
     "internalServerError": "Internal server error, please try again later",
-    "badGateway": "Bad gateway error, please try again later",
-    "serviceUnavailable": "Service temporarily unavailable, please try again later",
-    "gatewayTimeout": "Gateway timeout, please try again later",
+    "badGateway": "The server is not answering right now, it may be restarting. Please try again later.",
+    "serviceUnavailable": "The server is busy right now. Please try again later.",
+    "gatewayTimeout": "The server took too long to answer. Please try again later.",
     "requestCancelled": "Request cancelled",
-    "networkError": "Network connection error, please check your connection",
+    "networkError": "Can't reach the server right now. Your network may be unstable or the server may be restarting.",
     "requestFailed": "Request failed",
-    "requestConfigError": "Request configuration error"
+    "requestConfigError": "Request configuration error",
+    "retry": "Retry"
   },
   "topBar": {
     "search": {

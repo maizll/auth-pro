@@ -625,6 +625,11 @@ export function fetchDownloadSDKPack(payload: {
   })
 }
 
+/** 本站授权响应公钥：SDK 用它验证授权校验响应确实来自本站 */
+export function fetchLicenseResponseKey() {
+  return request.get<{ publicKey: string }>({ url: '/api/sdk/response-key' })
+}
+
 // ==================== 套餐 ====================
 
 /** 套餐列表（不分页，按应用/关键词/状态过滤） */

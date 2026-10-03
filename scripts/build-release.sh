@@ -51,6 +51,12 @@ if [[ -n "${AUTH_PRO_STORE_PRODUCT_APP_KEY:-}" ]]; then
   LDFLAGS="$LDFLAGS -X auto_pro/handler.embeddedStoreProductAppKey=${AUTH_PRO_STORE_PRODUCT_APP_KEY}"
   printf 'store product app key: %s\n' "$AUTH_PRO_STORE_PRODUCT_APP_KEY"
 fi
+# 适用端写进包内 backend/release.json 并随包签名：official 是官网包，client 是客户站包，站点拒绝装另一端的包。
+PACKAGE_EDITION="${AUTH_PRO_PACKAGE_EDITION:-client}"
+if [[ "$PACKAGE_EDITION" != "official" && "$PACKAGE_EDITION" != "client" ]]; then
+  echo "AUTH_PRO_PACKAGE_EDITION 只能是 official 或 client：$PACKAGE_EDITION" >&2
+  exit 1
+fi
 export GOCACHE="${GOCACHE:-$ROOT_DIR/.cache/go-build}"
 mkdir -p "$GOCACHE"
 
@@ -92,7 +98,12 @@ rm -f "$BACKEND_DIR/handler/sdk_assets/go/authpro/"*_test.go
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go -C "$BACKEND_DIR" build -trimpath -ldflags "$LDFLAGS" -o "$BACKEND_DIR/auto_pro_linux_amd64" .
 cp "$BACKEND_DIR/auto_pro_linux_amd64" "$PACKAGE_DIR/backend/auth_pro"
 
-printf '[4/5] Writing signed manifest...\n'
+printf '[4/5] Writing release info and signed manifest...\n'
+# 版本、适用端和更新说明写进包内，上传更新包时只靠这一个文件就能展示和验签。latest.json 用同一份说明。
+node "$ROOT_DIR/scripts/write-release-manifests.mjs" --release-info "$PACKAGE_DIR/backend/release.json" "$PACKAGE_EDITION" \
+  "$LATEST_PATH" "$RELEASES_PATH" "$VERSION" "$BUILD_TIME"
+AUTO_PRO_RELEASE_NOTES="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).notes))' "$PACKAGE_DIR/backend/release.json")"
+export AUTO_PRO_RELEASE_NOTES
 # manifest.json 记下每个文件的 SHA256 并用发布私钥签名，1.8.6 起的站点在线更新前会验签。
 # 没有私钥时写未签名清单（本地试打包用）；发布工作流设了 AUTH_PRO_REQUIRE_UPDATE_SIGNATURE=1，缺私钥直接失败。
 AUTH_PRO_UPDATE_SIGNING_KEY="$UPDATE_SIGNING_KEY" go -C "$BACKEND_DIR" run ./cmd/release-sign manifest "$PACKAGE_DIR" "$VERSION"

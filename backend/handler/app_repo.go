@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -777,7 +778,7 @@ func copyListedRepoPrefix(ctx context.Context, items []releaseImportListItem, fr
 		if !strings.HasPrefix(item.Tag, prefix) || item.AssetName == "" {
 			continue
 		}
-		payload, err := fetchGitHubReleaseAsset(ctx, fromOwner, fromRepo, "tags/"+urlPathTag(item.Tag), item.AssetName)
+		payload, err := fetchGitHubReleaseAsset(ctx, fromOwner, fromRepo, releaseTagRef(item.Tag), item.AssetName)
 		if err != nil {
 			return copied, fmt.Errorf("复制 %s 失败", item.Tag)
 		}
@@ -793,7 +794,7 @@ func copyListedRepoPrefix(ctx context.Context, items []releaseImportListItem, fr
 		if _, err := pushGitHubRelease(ctx, settings, manifest, payload); err != nil {
 			return copied, fmt.Errorf("写入 %s 失败", item.Tag)
 		}
-		again, err := fetchGitHubReleaseAsset(ctx, toOwner, toRepo, "tags/"+urlPathTag(item.Tag), item.AssetName)
+		again, err := fetchGitHubReleaseAsset(ctx, toOwner, toRepo, releaseTagRef(item.Tag), item.AssetName)
 		if err != nil {
 			return copied, fmt.Errorf("核对 %s 失败", item.Tag)
 		}
@@ -806,8 +807,10 @@ func copyListedRepoPrefix(ctx context.Context, items []releaseImportListItem, fr
 	return copied, nil
 }
 
-func urlPathTag(tag string) string {
-	return strings.ReplaceAll(tag, "/", "%2F")
+// releaseTagRef 把标签拼成 Release 接口的 tags/<标签>。标签可以带位置前缀（client/v1.8.6），
+// 斜杠要转义，否则会拼成 /releases/client/v1.8.6 而 404。所有按标签读 Release 的地方都用它。
+func releaseTagRef(tag string) string {
+	return "tags/" + url.PathEscape(strings.TrimSpace(tag))
 }
 
 // errReleaseSourceAbsent 表示源仓库不存在。空列表不是错误，调用方看到零条发布即可。
@@ -1042,7 +1045,7 @@ func copyClassifiedReleases(ctx context.Context, fromOwner, fromRepo, toOwner, t
 }
 
 func copyOneRelease(ctx context.Context, fromOwner, fromRepo, toOwner, toRepo, fromTag, toTag, asset string) error {
-	payload, err := fetchGitHubReleaseAsset(ctx, fromOwner, fromRepo, "tags/"+urlPathTag(fromTag), asset)
+	payload, err := fetchGitHubReleaseAsset(ctx, fromOwner, fromRepo, releaseTagRef(fromTag), asset)
 	if err != nil {
 		return fmt.Errorf("复制 %s 失败", fromTag)
 	}
@@ -1061,7 +1064,7 @@ func pushVerifiedRelease(ctx context.Context, owner, repo, tag, asset string, pa
 	if _, err := pushGitHubRelease(ctx, settings, manifest, payload); err != nil {
 		return fmt.Errorf("写入 %s 失败", tag)
 	}
-	again, err := fetchGitHubReleaseAsset(ctx, owner, repo, "tags/"+urlPathTag(tag), asset)
+	again, err := fetchGitHubReleaseAsset(ctx, owner, repo, releaseTagRef(tag), asset)
 	if err != nil {
 		return fmt.Errorf("核对 %s 失败", tag)
 	}
@@ -1092,7 +1095,7 @@ func writeClientAppKeyManifest(ctx context.Context, owner, repo, appKey string) 
 		return nil
 	}
 	doc := map[string]any{}
-	if body, err := fetchGitHubReleaseAsset(ctx, owner, repo, "tags/"+urlPathTag(tag), "latest.json"); err == nil {
+	if body, err := fetchGitHubReleaseAsset(ctx, owner, repo, releaseTagRef(tag), "latest.json"); err == nil {
 		_ = json.Unmarshal(body, &doc)
 	}
 	if doc == nil {

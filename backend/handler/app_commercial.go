@@ -301,6 +301,15 @@ func syncLegacyCommercialFlag(db *sql.DB) error {
 	return err
 }
 
+// syncLegacyCommercialFlagIfReady 在按应用出售的设置表已经建好时同步 commercial_product。
+func syncLegacyCommercialFlagIfReady(db *sql.DB) error {
+	ready, err := catalogTableExists(db, "app_commercial_settings")
+	if err != nil || !ready {
+		return err
+	}
+	return syncLegacyCommercialFlag(db)
+}
+
 // ---------- 读取 ----------
 
 const appCommercialSelect = `SELECT a.id, a.app_key, a.app_name, a.enabled,

@@ -102,10 +102,10 @@
   function formatUpdated(value: string) {
     const date = new Date(value)
     if (Number.isNaN(date.getTime())) return ''
-    const month = date.getUTCMonth() + 1
-    const day = date.getUTCDate()
-    const hour = String(date.getUTCHours()).padStart(2, '0')
-    const minute = String(date.getUTCMinutes()).padStart(2, '0')
+    const month = date.getMonth() + 1
+    const day = date.getDate()
+    const hour = String(date.getHours()).padStart(2, '0')
+    const minute = String(date.getMinutes()).padStart(2, '0')
     return `${month}月${day}日 ${hour}:${minute}`
   }
 

@@ -68,6 +68,7 @@ func testSDKPackInput(modules []string, language string) sdkPackInput {
 		AppName:   "演示应用",
 		AppKey:    "app_demo_1",
 		AppSecret: "sk_live_demo_secret_aaa",
+		PublicKey: "pwAizm/sOyWCu+qi8+Dl/xJr0Upuamh5u7vL3wGT14A=",
 		BaseURL:   "https://auth.example.com",
 		Modules:   modules,
 		Language:  language,

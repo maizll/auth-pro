@@ -34,6 +34,7 @@
 <script setup lang="ts">
   import { useTableColumns } from '@/hooks/core/useTableColumns'
   import { fetchStorageHealth, runStorageHealth, type StorageHealthRow } from '@/api/source-station'
+  import { formatLocalDateTime } from '@/utils/local-time'
 
   defineOptions({ name: 'SourceStationStorageMonitor' })
 
@@ -44,7 +45,7 @@
   const intervalText = ref('每小时检查一次。出问题只提醒，不会自动下架。')
 
   const summary = computed(() => {
-    const when = formatTime(checkedAt.value)
+    const when = formatLocalDateTime(checkedAt.value)
     const problems = rows.value.filter((row) => row.level === 'problem').length
     if (!when) return '还没有检查记录。点「立即检查」会连上各存储并确认安装包还在。'
     if (!problems) return `${when} 检查完成，存储可以连接，已登记的安装包都在。`
@@ -57,11 +58,6 @@
     { prop: 'target', label: '对象', minWidth: 140, useSlot: true },
     { prop: 'message', label: '说明', minWidth: 240, useSlot: true }
   ])
-
-  function formatTime(value?: string) {
-    if (!value || value.startsWith('0001')) return ''
-    return value.replace('T', ' ').replace('Z', '').slice(0, 19)
-  }
 
   function apply(data: { checkedAt?: string; list: StorageHealthRow[] | null; interval: string }) {
     rows.value = data.list || []

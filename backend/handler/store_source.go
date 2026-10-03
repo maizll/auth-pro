@@ -61,8 +61,6 @@ var (
 	storeOrderRate                storeRateWindow
 	storeStatusRate               storeRateWindow
 	storeTicketRate               storeRateWindow
-	storeNonceMu                  sync.Mutex
-	storeNonces                   = map[string]time.Time{}
 	stationChallengePermitAltPort bool
 )
 
@@ -71,18 +69,7 @@ func rememberStoreNonce(nonce string, now time.Time) bool {
 	if len(nonce) < 16 {
 		return false
 	}
-	storeNonceMu.Lock()
-	defer storeNonceMu.Unlock()
-	for key, exp := range storeNonces {
-		if !now.Before(exp) {
-			delete(storeNonces, key)
-		}
-	}
-	if _, exists := storeNonces[nonce]; exists {
-		return false
-	}
-	storeNonces[nonce] = now.Add(10 * time.Minute)
-	return true
+	return requestNonces.remember("store:"+nonce, now)
 }
 
 func storeFail(c *gin.Context, code int, msg string) {
@@ -384,6 +371,9 @@ func StoreAuthLogin(c *gin.Context) {
 func StoreAuthConfirm(c *gin.Context) {
 	var req struct {
 		ChallengeID string `json:"challengeId"`
+		// Nonce 和 ProductKey 是 1.8.7 起客户站带来的，只用来签 snapshotProof。应用仍以登录时记下的为准。
+		Nonce      string `json:"nonce"`
+		ProductKey string `json:"productKey"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.ChallengeID) == "" {
 		storeFail(c, 400, "参数错误")
@@ -515,14 +505,35 @@ func StoreAuthConfirm(c *gin.Context) {
 		storeFail(c, 500, err.Error())
 		return
 	}
-	storeData(c, gin.H{
+	data := gin.H{
 		"bindingId":     bindingID,
 		"bindingSecret": hex.EncodeToString(secret),
 		"account":       gin.H{"name": display, "role": ownerType},
 		"mainLicense":   gin.H{"licenseNo": licenseNo, "domain": domain, "edition": snapshot.Edition, "editionExpireAt": snapshot.EditionExpireAt, "licenseExpireAt": snapshot.LicenseExpireAt},
 		"snapshot":      snapshot,
 		"product":       gin.H{"name": product.AppName},
-	})
+	}
+	if !addStoreSnapshotProof(c, data, responseProofStoreBind, bindingID, req.ProductKey, req.Nonce, snapshot) {
+		return
+	}
+	storeData(c, data)
+}
+
+// addStoreSnapshotProof 在快照响应里加 snapshotProof：用快照私钥把绑定号、应用标识、域名、请求方的随机数、服务器时间和快照签名一起签名。
+// 客户站拿自己发出的随机数验签，假服务器伪造不了，重放旧响应也对不上。随机数不合规（老客户站确认时不带）就不加，老客户站本来也不看。
+// 签不了名返回 false 并写 500，和快照签不了名一样不发响应。
+func addStoreSnapshotProof(c *gin.Context, data gin.H, kind, binding, product, nonce string, snapshot storeSnapshot) bool {
+	nonce = strings.TrimSpace(nonce)
+	if !validProofNonce(nonce) {
+		return true
+	}
+	key, err := loadStoreSnapshotPrivateKey()
+	if err != nil {
+		storeFail(c, 500, "签发快照失败")
+		return false
+	}
+	data["snapshotProof"] = signResponseProofWith(key, kind, storeSnapshotProofFields(binding, strings.TrimSpace(product), nonce, snapshot))
+	return true
 }
 
 func storeAuthenticateAccount(db *sql.DB, role, account, password, ip string) (int64, string, error) {
@@ -856,12 +867,16 @@ func StoreStatus(c *gin.Context) {
 		return
 	}
 	// 刷新时带上当前绑定的登录账号，买家快照里没有名字的旧数据可以补上。
-	storeData(c, gin.H{
+	data := gin.H{
 		"snapshot": snapshot,
 		"account":  gin.H{"name": storeAccountLogin(db, ownerType, ownerID), "role": ownerType},
 		// 来源不进签名快照。1.7.1 客户站按结构体重算签名，多一个字段会验签失败。
 		"editionSource": loadCommercialEditionSource(db, row.LicenseID),
-	})
+	}
+	if !addStoreSnapshotProof(c, data, responseProofStoreStat, row.BindingID, c.GetHeader(storeProductHeader), c.GetHeader("X-Store-Nonce"), snapshot) {
+		return
+	}
+	storeData(c, data)
 }
 
 // storeAccountLogin 取绑定账号用来展示。用户优先邮箱，代理优先邮箱或联系方式，都没有再用名称。

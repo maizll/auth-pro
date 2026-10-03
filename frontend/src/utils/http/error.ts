@@ -25,6 +25,7 @@ import { AxiosError } from 'axios'
 import { ApiStatus } from './status'
 import { $t } from '@/locales'
 import { claimErrorToast, errorToastText } from './error-toast'
+import { onlineUpdateWindow } from './backend-unavailable'
 
 // 错误响应接口
 export interface ErrorResponse {
@@ -63,6 +64,10 @@ export class HttpError extends Error {
   public readonly method?: string
   /** 拦截器已经弹出过这条错误时为 true，页面 catch 不要再弹一次。 */
   public displayed = false
+  /** 没收到任何响应（断网、超时、服务重启中连接被拒）。 */
+  public readonly noResponse: boolean
+  /** HTTP 状态码；没收到响应时为 undefined。 */
+  public readonly status?: number
 
   constructor(
     message: string,
@@ -71,11 +76,15 @@ export class HttpError extends Error {
       data?: unknown
       url?: string
       method?: string
+      noResponse?: boolean
+      status?: number
     }
   ) {
     super(message)
     this.name = 'HttpError'
     this.code = code
+    this.noResponse = options?.noResponse === true
+    this.status = options?.status
     this.data = options?.data
     this.timestamp = new Date().toISOString()
     this.url = options?.url
@@ -136,7 +145,8 @@ export function handleError(error: AxiosError<ErrorResponse>): never {
   if (!error.response) {
     throw new HttpError($t('httpMsg.networkError'), ApiStatus.error, {
       url: requestConfig?.url,
-      method: requestConfig?.method?.toUpperCase()
+      method: requestConfig?.method?.toUpperCase(),
+      noResponse: true
     })
   }
 
@@ -147,7 +157,8 @@ export function handleError(error: AxiosError<ErrorResponse>): never {
   throw new HttpError(message, statusCode || ApiStatus.error, {
     data: error.response.data,
     url: requestConfig?.url,
-    method: requestConfig?.method?.toUpperCase()
+    method: requestConfig?.method?.toUpperCase(),
+    status: statusCode
   })
 }
 
@@ -167,12 +178,28 @@ export function showError(error: HttpError, showMessage: boolean = true): void {
 
 const duplicateErrorToastLedger = new Map<string, number>()
 
+/** 在线更新窗口里请求层静音的时间。页面 catch 里紧跟着弹的错误（例如「加载失败」）也是重启造成的，一并不弹。 */
+const QUIET_FOLLOW_UP_MS = 2000
+let lastQuietFailureAt = 0
+
+/** 请求层在在线更新窗口里吞掉一个连不上的错误时调用。 */
+export function noteQuietUpdateFailure(error: HttpError): void {
+  error.displayed = true
+  lastQuietFailureAt = Date.now()
+  console.warn('[HTTP] 在线更新重启中，暂不提示：', error.toLogData())
+}
+
+function quietFollowUpToast(): boolean {
+  return onlineUpdateWindow() !== null && Date.now() - lastQuietFailureAt < QUIET_FOLLOW_UP_MS
+}
+
 function installDuplicateErrorToastGuard(): void {
   const current = ElMessage.error as typeof ElMessage.error & { __deduped?: boolean }
   if (current.__deduped) return
   const notify = current.bind(ElMessage)
   const wrapped = ((message?: unknown, ...rest: unknown[]) => {
     const text = errorToastText(message)
+    if (quietFollowUpToast()) return
     if (text && !claimErrorToast(text, Date.now(), duplicateErrorToastLedger)) return
     return notify(message as string, ...(rest as []))
   }) as typeof ElMessage.error & { __deduped?: boolean }

@@ -149,6 +149,7 @@
 <script setup lang="ts">
   import { ElMessage } from 'element-plus'
   import { useRouter } from 'vue-router'
+  import { formatLocalDateTime } from '@/utils/local-time'
   import { useNarrowScreen } from '@/hooks/core/useNarrowScreen'
   import {
     fetchLicenseAppList,
@@ -247,7 +248,7 @@
   }
 
   const money = (cents: number) => `¥${(cents / 100).toFixed(2)}`
-  const day = (value?: string) => (value ? value.replace('T', ' ').slice(0, 16) : '--')
+  const day = (value?: string) => formatLocalDateTime(value, false) || '--'
   const periodText = (value?: string) =>
     ({ permanent: '永久', yearly: '按年', monthly: '按月' })[value || ''] || value || '--'
 
