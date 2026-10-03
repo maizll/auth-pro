@@ -70,7 +70,7 @@ echarts.use([
 
 // 导出 echarts 实例和类型
 export { echarts }
-export type { EChartsOption, BarSeriesOption } from 'echarts'
+export type { EChartsOption } from 'echarts'
 
 // 导出常用的图形工具
 export const graphic = echarts.graphic

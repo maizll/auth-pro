@@ -414,3 +414,79 @@ func TestNotificationDeferredHooksStayRoleScoped(t *testing.T) {
 		t.Fatal("agent list leaked user deferred events")
 	}
 }
+
+// 管理员改密通知以前链到首页「/」，点开没有任何可处理的东西。现在链到账号设置页；用户、代理各回自己的资料页。
+func TestNotifyPasswordChangedLinksToAccountPage(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	notifyPasswordChanged(notificationRoleAdmin, 1)
+	notifyPasswordChanged(notificationRoleUser, 88)
+	notifyPasswordChanged(notificationRoleAgent, 77)
+	for _, tc := range []struct {
+		token, want string
+	}{
+		{sourceAdminToken(t), "/system/user-center"},
+		{notificationToken(t, "user", 88, "user88"), "/user/profile"},
+		{notificationToken(t, "agent", 77, "agent77"), "/agent-panel/profile"},
+	} {
+		rec := sourceJSON(t, router, http.MethodGet, "/api/v1/notifications?tab=notice", tc.token, "")
+		var body struct {
+			Data struct {
+				List []struct {
+					EventType string `json:"eventType"`
+					Link      string `json:"link"`
+				} `json:"list"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Data.List) != 1 || body.Data.List[0].EventType != "password_changed" || body.Data.List[0].Link != tc.want {
+			t.Fatalf("password_changed link want %s, got %s", tc.want, rec.Body.String())
+		}
+	}
+}
+
+// 通知中心按页取：带 page/size 时多取一条判断还有没有下一页；不带时仍是顶栏的「最近 50 条」。
+func TestNotificationListPaging(t *testing.T) {
+	router, _ := sourceStationRouter(t)
+	user := notificationToken(t, "user", 88, "user88")
+	for i := 0; i < 5; i++ {
+		notifyRole(notificationRoleUser, 88, notificationTabMessage, "订单已支付 "+itoa64(int64(i)), "授权已开通", "/user/licenses", "order_paid", "order", itoa64(int64(i)))
+	}
+	page := func(query string) (titles []string, hasMore bool, raw string) {
+		rec := sourceJSON(t, router, http.MethodGet, "/api/v1/notifications?tab=message&"+query, user, "")
+		var body struct {
+			Data struct {
+				List []struct {
+					Title string `json:"title"`
+				} `json:"list"`
+				HasMore bool `json:"hasMore"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range body.Data.List {
+			titles = append(titles, item.Title)
+		}
+		return titles, body.Data.HasMore, rec.Body.String()
+	}
+	first, more, raw := page("page=1&size=2")
+	if len(first) != 2 || !more || first[0] != "订单已支付 4" {
+		t.Fatalf("page 1 = %s", raw)
+	}
+	second, more, raw := page("page=2&size=2")
+	if len(second) != 2 || !more || second[0] != "订单已支付 2" {
+		t.Fatalf("page 2 = %s", raw)
+	}
+	last, more, raw := page("page=3&size=2")
+	if len(last) != 1 || more || last[0] != "订单已支付 0" {
+		t.Fatalf("page 3 = %s", raw)
+	}
+	if all, _, raw := page(""); len(all) != 5 {
+		t.Fatalf("unpaged list should keep returning everything up to 50: %s", raw)
+	}
+	if capped, _, raw := page("page=1&size=1000"); len(capped) != 5 || !strings.Contains(raw, `"size":100`) {
+		t.Fatalf("size should be capped at 100: %s", raw)
+	}
+}

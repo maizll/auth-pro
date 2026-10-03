@@ -276,7 +276,8 @@
       "epayConfig": "Payment",
       "paymentOrders": "Orders",
       "mailConfig": "Mail",
-      "mailLogs": "Mail Logs"
+      "mailLogs": "Mail Logs",
+      "notifications": "Notifications"
     },
     "pluginStore": "App Store",
     "homeTemplate": "Home Templates",

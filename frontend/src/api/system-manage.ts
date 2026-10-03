@@ -227,22 +227,6 @@ export function fetchDeleteRole(id: number) {
   })
 }
 
-// 获取角色菜单权限
-export function fetchRoleMenus(id: number) {
-  return request.get<any>({
-    url: `/api/role/${id}/menus`
-  })
-}
-
-// 更新角色菜单权限
-export function fetchUpdateRoleMenus(id: number, menuIds: number[]) {
-  return request.put<any>({
-    url: `/api/role/${id}/menus`,
-    data: { menuIds },
-    showSuccessMessage: true
-  })
-}
-
 // 获取菜单列表（侧边栏动态路由用）
 export function fetchGetMenuList() {
   return request.get<AppRouteRecord[]>({
@@ -686,57 +670,7 @@ export function fetchHomeTemplateList(refresh = false) {
   })
 }
 
-export function fetchUploadHomeTemplate(data: FormData) {
-  return request.post<{ id: number }>({
-    url: '/api/system/home-templates/upload',
-    data,
-    timeout: 120_000
-  })
-}
-
 // ========== 内置软件源（内嵌远程仓库） ==========
-
-/** 内置源提供的首页模板目录条目 */
-export interface SoftwareSourceTemplate {
-  id: string
-  name: string
-  description: string
-  version: string
-  previewUrl: string
-  author: TemplateAuthor
-  schemaVersion: number
-  sha256: string
-  templateUrl: string
-  templatePath: string
-}
-
-/** 内置源提供的插件目录条目 */
-export interface SoftwareSourcePlugin {
-  id: string
-  category: string
-  name: string
-  description: string
-  homepage: string
-  icon: string
-  version: string
-  official: boolean
-  author: TemplateAuthor
-}
-
-export interface SoftwareSourceData {
-  name: string
-  sourceType: string
-  schemaVersion: number
-  homeTemplates: SoftwareSourceTemplate[]
-  plugins: SoftwareSourcePlugin[]
-}
-
-/** 读取 Go 后端内置软件源的目录清单（公开接口，无需鉴权） */
-export function fetchSoftwareSourcePlugins() {
-  return request.get<SoftwareSourceData>({
-    url: '/api/software-source/plugins'
-  })
-}
 
 export function fetchRetargetPluginSource(
   id: number,

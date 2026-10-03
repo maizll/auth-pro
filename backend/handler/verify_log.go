@@ -155,6 +155,13 @@ func VerifyLogClear(c *gin.Context) {
 		return
 	}
 
+	// 先记下谁、什么时候清空了多少条；日志写不进去就不清。
+	var rows int64
+	_ = db.QueryRow("SELECT COUNT(*) FROM verify_logs").Scan(&rows)
+	if err := recordAdminOperation(db, c, "verify_logs_clear", "verify_logs", 0, map[string]any{"rows": rows}); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "记录操作日志失败，未清空"})
+		return
+	}
 	_, err = db.Exec("TRUNCATE TABLE verify_logs")
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "清空失败"})

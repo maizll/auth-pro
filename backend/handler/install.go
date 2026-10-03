@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 
 	"auto_pro/config"
 
@@ -142,11 +143,22 @@ func InstallInitTables(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "数据表安装完成"})
 }
 
+// installCreateAdminMu 把「检查库里没有管理员 → 插入 → 写锁文件」串成一次只走一个。
+// 以前两个请求同时点「创建管理员」能建出两个超级管理员。
+var installCreateAdminMu sync.Mutex
+
 // InstallCreateAdmin 创建管理员并完成安装
 func InstallCreateAdmin(c *gin.Context) {
 	var req createAdminRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+
+	installCreateAdminMu.Lock()
+	defer installCreateAdminMu.Unlock()
+	if config.IsInstalled() {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "系统已经安装完成，拒绝重复创建超级管理员"})
 		return
 	}
 
@@ -197,13 +209,17 @@ func InstallCreateAdmin(c *gin.Context) {
 		return
 	}
 
-	// 插入管理员
-	_, err = db.Exec(
-		"INSERT INTO admins (username, password_hash, nickname, role_id, enabled) VALUES (?, ?, '超级管理员', 1, 1)",
+	// 插入管理员。库里已经有管理员时不插（别的进程或连接抢先建了），影响行数不是 1 就拒绝。
+	result, err := db.Exec(
+		"INSERT INTO admins (username, password_hash, nickname, role_id, enabled) SELECT ?, ?, '超级管理员', 1, 1 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM admins)",
 		adminUsername, string(hash),
 	)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "message": "创建管理员失败: " + err.Error()})
+		return
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "系统已存在管理员，拒绝重复创建超级管理员"})
 		return
 	}
 

@@ -937,6 +937,51 @@ rm -rf "$tmp"
 ' bash "$ROOT/backend/handler"
 ok "旧备份只迁移本站点，失败时不删除，每类可只留 3 份"
 
+# 线上站点：/www/backup/auth-pro/<域名> 归 www，但权限是 drw-------，www 进不去，在线更新建不出备份子目录。
+# 修复命令（--repair-update-perms / 菜单 12）要给这些目录补上所有者 rwx 再试写。
+# 这里让当前用户扮演 www：id、runuser、chown、chattr 换成桩，修复和试写都走 install.sh 里的真实函数。
+REPAIR_OUT="$WORKDIR/repair-perms.out"
+if ! bash -c '
+set -euo pipefail
+SCRIPT_DIR="$1"
+source "$SCRIPT_DIR/install.sh"
+tmp=$(mktemp -d)
+trap "chmod -R u+rwx \"\$tmp\" 2>/dev/null || true; rm -rf \"\$tmp\"" EXIT
+id() { case "${1:-}" in -u) echo 0 ;; www) return 0 ;; *) command id "$@" ;; esac; }
+runuser() { [[ "$1" == "-u" && "$2" == "www" && "$3" == "--" ]] || return 1; shift 3; "$@"; }
+chown() { return 0; }
+chattr() { return 0; }
+menu_clear_stuck_update_job() { return 0; }
+BAOTA_BACKUP_BASE="$tmp/www/backup"
+BAOTA_SITE_ROOT="$tmp/www/wwwroot/demo.example"
+data="$BAOTA_SITE_ROOT/backend"
+central="$BAOTA_BACKUP_BASE/auth-pro/demo.example"
+mkdir -p "$BAOTA_BACKUP_BASE" "$BAOTA_SITE_ROOT/assets" "$data/updates/backups/overlay" "$central/overlay/demo.example.overlay-backup.20260101120000"
+printf "PORT=19127\nAUTO_PRO_DATA_DIR=%s\n" "$data" > "$data/baota.env"
+chmod 600 "$central/overlay/demo.example.overlay-backup.20260101120000" "$central/overlay" "$central"
+chmod 600 "$data/updates/backups/overlay" "$data/updates/backups"
+if runuser -u www -- test -x "$central"; then
+  echo "没有复现：600 的备份目录 www 应该进不去" >&2
+  exit 1
+fi
+menu_repair_update_perms
+for dir in "$central" "$central/overlay" "$central/overlay/demo.example.overlay-backup.20260101120000" "$data/updates/backups" "$data/updates/backups/overlay"; do
+  mode=$(stat -c %a "$dir")
+  if [[ "$mode" != "700" ]]; then
+    echo "修复后 $dir 权限是 $mode，应为 700（只补所有者 rwx）" >&2
+    exit 1
+  fi
+done
+mode=$(stat -c %a "$BAOTA_SITE_ROOT/assets")
+[[ "$mode" == "755" ]] || { echo "已有权限的目录不应被改动：assets 是 $mode" >&2; exit 1; }
+' bash "$ROOT/backend/handler" >"$REPAIR_OUT" 2>&1; then
+  cat "$REPAIR_OUT" >&2
+  fail "备份目录是 600 时修复命令没有修好"
+fi
+grep -q 'www 可以写入 .*/auth-pro/demo.example$' "$REPAIR_OUT" || { cat "$REPAIR_OUT" >&2; fail "修复命令没有确认 www 能写入中央备份目录"; }
+grep -q '在线更新权限已修好' "$REPAIR_OUT" || fail "修复命令没有报告修好"
+ok "备份目录归 www 但权限是 600 时，修复命令补上所有者 rwx 后 www 能进入写入"
+
 # 面板返回值只进变量。标准输出里不能出现 AUTH_PRO_*。
 FAKE_BIN="$WORKDIR/fake-btpython"
 mkdir -p "$FAKE_BIN"

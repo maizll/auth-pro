@@ -136,9 +136,10 @@
     { path: '/developer-panel/ads', title: '申请广告', icon: 'ri:advertisement-line' },
     { path: '/developer-panel/guide', title: '开发文档', icon: 'ri:book-open-line' }
   ]
-  const titleMap: Record<string, string> = Object.fromEntries(
-    menuItems.map((item) => [item.path, item.title])
-  )
+  const titleMap: Record<string, string> = {
+    ...Object.fromEntries(menuItems.map((item) => [item.path, item.title])),
+    '/developer-panel/notifications': '通知中心'
+  }
   const currentTitle = computed(() => titleMap[route.path] || '开发者工作台')
   const developerName = computed(() => {
     try {

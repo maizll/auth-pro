@@ -1597,12 +1597,13 @@ func backupDatabaseForOnlineUpdate(jobID string) error {
 	if err != nil {
 		return fmt.Errorf("读取数据库配置失败，无法执行更新前备份：%w", err)
 	}
+	// 数据库备份含全部业务数据：目录只给运行用户（0700），文件 0600。
 	backupDir := filepath.Join(config.GetUpdateDir(), "backups")
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
+	if err := os.MkdirAll(backupDir, 0700); err != nil {
 		return fmt.Errorf("创建数据库备份目录失败：%w", err)
 	}
 	backupPath := filepath.Join(backupDir, fmt.Sprintf("db-%s.sql", time.Now().Format("20060102150405")))
-	out, err := os.Create(backupPath)
+	out, err := os.OpenFile(backupPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("创建数据库备份文件失败：%w", err)
 	}

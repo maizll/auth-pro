@@ -680,6 +680,7 @@
 
     .preset-chip {
       padding: 5px 14px;
+      white-space: nowrap;
       border-radius: 16px;
       font-size: 13px;
       font-weight: 500;

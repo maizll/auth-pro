@@ -197,7 +197,7 @@ func notifyPasswordChanged(role string, userID int64) {
 	link := "/user/profile"
 	switch role {
 	case notificationRoleAdmin:
-		link = "/"
+		link = "/system/user-center"
 	case notificationRoleAgent:
 		link = "/agent-panel/profile"
 	}

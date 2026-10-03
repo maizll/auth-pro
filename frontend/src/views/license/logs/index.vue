@@ -11,7 +11,9 @@
       <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
         <template #left>
           <ElSpace wrap>
-            <ElButton type="danger" plain @click="handleClear" v-ripple>清空日志</ElButton>
+            <ElButton v-roles="'R_SUPER'" type="danger" plain @click="handleClear" v-ripple>
+              清空日志
+            </ElButton>
           </ElSpace>
         </template>
       </ArtTableHeader>

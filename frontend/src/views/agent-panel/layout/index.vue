@@ -235,7 +235,8 @@
     '/agent-panel/finance': '我的财务',
     '/agent-panel/tickets': '我的工单',
     '/agent-panel/profile': '个人设置',
-    '/agent-panel/become-developer': '开发者入驻'
+    '/agent-panel/become-developer': '开发者入驻',
+    '/agent-panel/notifications': '通知中心'
   }
 
   const currentTitle = computed(() => titleMap[route.path] || '概览')

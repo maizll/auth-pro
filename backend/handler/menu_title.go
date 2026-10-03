@@ -57,6 +57,7 @@ var menuTitleZH = map[string]string{
 	"menus.system.user":                  "用户管理",
 	"menus.system.role":                  "角色管理",
 	"menus.system.userCenter":            "个人中心",
+	"menus.system.notifications":         "通知中心",
 	"menus.system.developerDoc":          "开发文档",
 	"menus.system.menu":                  "菜单管理",
 	"menus.system.config":                "系统配置",

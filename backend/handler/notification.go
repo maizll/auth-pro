@@ -27,6 +27,9 @@ const (
 	notificationTabTodo    = "todo"
 
 	notificationListLimit = 50
+	// 通知中心分页：每页默认 20 条，最多 100 条。
+	notificationPageSizeDefault = 20
+	notificationPageSizeMax     = 100
 )
 
 // Tab mapping (stable for all four roles):
@@ -71,6 +74,7 @@ type notificationListFilter struct {
 	Category string
 	Unread   bool
 	Limit    int
+	Offset   int
 }
 
 type notificationStore interface {
@@ -140,19 +144,56 @@ func ListNotifications(c *gin.Context) {
 		return
 	}
 	unread := strings.TrimSpace(c.Query("unread")) == "1" || strings.EqualFold(c.Query("unread"), "true")
-	items, err := currentNotificationStore().List(notificationListFilter{
+	filter := notificationListFilter{
 		notificationRecipient: recipient,
 		Category:              tab,
 		Unread:                unread,
 		Limit:                 notificationListLimit,
-	})
+	}
+	// 带 page 时按页取（通知中心）；不带时保持顶栏原来的「最近 50 条」。多取一条判断还有没有下一页。
+	page, size, paged := notificationPageParams(c)
+	if paged {
+		filter.Limit = size + 1
+		filter.Offset = (page - 1) * size
+	}
+	items, err := currentNotificationStore().List(filter)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取通知失败"})
 		return
 	}
+	if !paged {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
+			"list": notificationViews(items), "total": len(items),
+		}})
+		return
+	}
+	hasMore := len(items) > size
+	if hasMore {
+		items = items[:size]
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
-		"list": notificationViews(items), "total": len(items),
+		"list": notificationViews(items), "total": len(items), "page": page, "size": size, "hasMore": hasMore,
 	}})
+}
+
+// notificationPageParams 读 page/size。没有 page 时返回 paged=false。
+func notificationPageParams(c *gin.Context) (page, size int, paged bool) {
+	raw := strings.TrimSpace(c.Query("page"))
+	if raw == "" {
+		return 0, 0, false
+	}
+	page, err := strconv.Atoi(raw)
+	if err != nil || page < 1 {
+		page = 1
+	}
+	size, err = strconv.Atoi(strings.TrimSpace(c.Query("size")))
+	if err != nil || size < 1 {
+		size = notificationPageSizeDefault
+	}
+	if size > notificationPageSizeMax {
+		size = notificationPageSizeMax
+	}
+	return page, size, true
 }
 
 func NotificationUnreadCount(c *gin.Context) {
@@ -485,6 +526,7 @@ func (store *memoryNotificationStore) List(filter notificationListFilter) ([]inA
 		limit = notificationListLimit
 	}
 	out := make([]inAppNotification, 0)
+	skipped := 0
 	for i := len(store.items) - 1; i >= 0; i-- {
 		item := store.items[i]
 		if !filter.matches(item) {
@@ -494,6 +536,10 @@ func (store *memoryNotificationStore) List(filter notificationListFilter) ([]inA
 			continue
 		}
 		if filter.Unread && item.ReadAt != nil {
+			continue
+		}
+		if skipped < filter.Offset {
+			skipped++
 			continue
 		}
 		out = append(out, item)
@@ -645,6 +691,10 @@ func (mysqlNotificationStore) List(filter notificationListFilter) ([]inAppNotifi
 	}
 	query += " ORDER BY created_at DESC, id DESC LIMIT ?"
 	args = append(args, limit)
+	if filter.Offset > 0 {
+		query += " OFFSET ?"
+		args = append(args, filter.Offset)
+	}
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err

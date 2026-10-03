@@ -97,6 +97,32 @@ func TestSuperImpersonateWritesAuditAndKeepsLastLogin(t *testing.T) {
 	}
 }
 
+// B4：超级管理员被停用或降权后，他之前发出的代登录令牌立刻失效。
+func TestImpersonationTokenDiesWithOperator(t *testing.T) {
+	for _, change := range []struct {
+		name  string
+		apply func(state *adminSessionState)
+	}{
+		{name: "disabled", apply: func(state *adminSessionState) { state.setEnabled(1, false) }},
+		{name: "demoted", apply: func(state *adminSessionState) { state.setRoleCode(1, "R_ADMIN") }},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			state := newAdminSessionState(t)
+			router := useAdminSessionRouter(t, state)
+			issued := performJSON(router, http.MethodPost, "/api/user/8/impersonate", signAdminToken(t, 1, "R_SUPER"), "203.0.113.8:1234", nil)
+			token := responseDataString(t, issued, "accessToken")
+			if before := performJSON(router, http.MethodGet, "/api/user-panel/audit-operator", token, "198.51.100.20:9", nil); responseCode(t, before) != 200 {
+				t.Fatalf("impersonation before change = %d %s", before.Code, before.Body.String())
+			}
+			change.apply(state)
+			after := performJSON(router, http.MethodGet, "/api/user-panel/audit-operator", token, "198.51.100.20:9", nil)
+			if after.Code != http.StatusUnauthorized || responseCode(t, after) != 401 {
+				t.Fatalf("impersonation after operator %s = %d %s", change.name, after.Code, after.Body.String())
+			}
+		})
+	}
+}
+
 func TestRefreshTokenRejectedAsAccessToken(t *testing.T) {
 	state := newAdminSessionState(t)
 	router := useAdminSessionRouter(t, state)

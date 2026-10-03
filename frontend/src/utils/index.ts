@@ -26,6 +26,3 @@ export * from './http'
 
 // 表单相关
 export * from './form'
-
-// socket 相关
-export * from './socket'

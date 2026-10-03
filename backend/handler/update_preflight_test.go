@@ -139,7 +139,7 @@ func TestOnlineUpdatePreflightRenameNeedsParent(t *testing.T) {
 // 宝塔站点给出一键修复命令，地址取本站的更新源，域名取网站根的目录名。
 func TestOnlineUpdatePreflightBaotaRepairCommand(t *testing.T) {
 	msg := describeOnlineUpdateWritableFailure(
-		[]onlineUpdateWritableTarget{{"/www/wwwroot/ce.example.com", "网站目录"}},
+		[]onlineUpdateWritableTarget{{dir: "/www/wwwroot/ce.example.com", label: "网站目录"}},
 		"/www/wwwroot/ce.example.com", true)
 	want := "/install.sh | bash -s -- --repair-update-perms ce.example.com"
 	if !strings.Contains(msg, want) || !strings.Contains(msg, "curl -fsSL https://") || !strings.Contains(msg, "root") {
@@ -274,5 +274,37 @@ func TestOnlineUpdatePreflightNamesReadOnlyBackupDir(t *testing.T) {
 	err := checkOnlineUpdateWritable(siteRoot, dataDir, appBin)
 	if err == nil || !strings.Contains(err.Error(), backups+"（更新备份目录）") {
 		t.Fatalf("read-only backup dir must be named: %v", err)
+	}
+}
+
+// 线上见过备份目录归运行用户、权限却是 600：能看到进不去。预检要说「无法进入」，并给出补进入权限的命令。
+func TestOnlineUpdatePreflightNamesUnenterableDir(t *testing.T) {
+	skipPreflightAsRoot(t)
+	root := t.TempDir()
+	siteRoot := filepath.Join(root, "sites", "site")
+	dataDir := filepath.Join(root, "data")
+	appBin := filepath.Join(root, "bin", "auth_pro")
+	backups := filepath.Join(dataDir, "updates", "backups")
+	for _, dir := range []string{siteRoot, backups, filepath.Dir(appBin)} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(backups, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(backups, 0755) })
+	err := checkOnlineUpdateWritable(siteRoot, dataDir, appBin)
+	if err == nil {
+		t.Fatal("a 600 backup directory must fail the preflight")
+	}
+	msg := err.Error()
+	for _, want := range []string{"网站没有任何改动", "无法进入：" + backups + "（更新备份目录）", "chmod u+rwx " + backups} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("message %q should contain %q", msg, want)
+		}
+	}
+	if strings.Contains(msg, "没有权限写入") {
+		t.Fatalf("only the unenterable directory failed, message should not list write failures: %q", msg)
 	}
 }
