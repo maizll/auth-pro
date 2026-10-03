@@ -35,10 +35,31 @@ const PublicKey = "XdqSTM1ERgKflfBtxWnXAsFUU4b1OXBIqrqvRlPk0d4="
 // ManifestName 是包根目录里的清单文件名。它自己不在 files 里。
 const ManifestName = "manifest.json"
 
+// ReleaseInfoName 是包内的发布信息（版本、适用端、更新说明），1.8.7 起打包时写入。
+// 它和其它文件一样记在 files 里，受签名保护；在线更新只替换 backend/auth_pro，这个文件不会装到站点上。
+const ReleaseInfoName = "backend/release.json"
+
+// 包的适用端。
+const (
+	EditionOfficial = "official"
+	EditionClient   = "client"
+)
+
+// ReleaseInfo 是 backend/release.json 的内容。
+type ReleaseInfo struct {
+	Version    string   `json:"version"`
+	Edition    string   `json:"edition"`
+	Channel    string   `json:"channel"`
+	MinVersion string   `json:"minVersion"`
+	ReleasedAt string   `json:"releasedAt"`
+	Notes      []string `json:"notes"`
+}
+
 const (
 	signaturePrefix  = "ed25519:"
 	signedTextHeader = "auth-pro-update-v1"
 	maxManifestBytes = 8 << 20
+	maxReleaseInfo   = 256 << 10
 )
 
 var (
@@ -139,22 +160,35 @@ func WriteManifest(dir, version string, key ed25519.PrivateKey) error {
 	return os.WriteFile(filepath.Join(dir, ManifestName), append(raw, '\n'), 0644)
 }
 
-// VerifyPackage 在解压之前核对 tar.gz：清单签名用 pub 验证通过、清单版本等于 version，
-// 包里每个普通文件都在清单里且哈希一致，清单列出的文件一个不少，也没有重名文件。
-// 只读不写盘。返回的错误可以用 errors.Is 区分 ErrUnsigned、ErrBadSignature、ErrTampered。
+// VerifyPackage 在解压之前核对 tar.gz：InspectPackage 通过，且签名的版本等于 version。
+// 返回的错误可以用 errors.Is 区分 ErrUnsigned、ErrBadSignature、ErrTampered。
 func VerifyPackage(packagePath, version string, pub ed25519.PublicKey) error {
+	m, _, err := InspectPackage(packagePath, pub)
+	if err != nil {
+		return err
+	}
+	if m.Version != version {
+		return fmt.Errorf("%w：签名的版本是 %s，不是 %s", ErrTampered, m.Version, version)
+	}
+	return nil
+}
+
+// InspectPackage 读一遍 tar.gz 并验签：清单签名用 pub 验证通过，包里每个普通文件都在清单里且哈希一致，
+// 清单列出的文件一个不少，也没有重名文件。验过之后返回清单和包内发布信息（老包没有发布信息时为 nil）。
+// 只读不写盘。上传更新包时靠它从包本身认出版本，不需要另外的签名文件。
+func InspectPackage(packagePath string, pub ed25519.PublicKey) (*Manifest, *ReleaseInfo, error) {
 	file, err := os.Open(packagePath)
 	if err != nil {
-		return fmt.Errorf("读取更新包失败：%w", err)
+		return nil, nil, fmt.Errorf("读取更新包失败：%w", err)
 	}
 	defer file.Close()
 	gz, err := gzip.NewReader(file)
 	if err != nil {
-		return fmt.Errorf("%w：不是有效的 tar.gz", ErrTampered)
+		return nil, nil, fmt.Errorf("%w：不是有效的 tar.gz", ErrTampered)
 	}
 	defer gz.Close()
 
-	var manifestRaw []byte
+	var manifestRaw, infoRaw []byte
 	seen := map[string]string{}
 	reader := tar.NewReader(gz)
 	for {
@@ -163,58 +197,73 @@ func VerifyPackage(packagePath, version string, pub ed25519.PublicKey) error {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("%w：包已损坏", ErrTampered)
+			return nil, nil, fmt.Errorf("%w：包已损坏", ErrTampered)
 		}
 		name := path.Clean(strings.TrimPrefix(header.Name, "./"))
 		if header.Typeflag == tar.TypeDir {
 			continue
 		}
 		if header.Typeflag != tar.TypeReg && header.Typeflag != 0 {
-			return fmt.Errorf("%w：包里有不允许的文件类型 %s", ErrTampered, header.Name)
+			return nil, nil, fmt.Errorf("%w：包里有不允许的文件类型 %s", ErrTampered, header.Name)
 		}
 		if _, dup := seen[name]; dup || (name == ManifestName && manifestRaw != nil) {
-			return fmt.Errorf("%w：包里有重名文件 %s", ErrTampered, name)
+			return nil, nil, fmt.Errorf("%w：包里有重名文件 %s", ErrTampered, name)
 		}
 		if name == ManifestName {
 			manifestRaw, err = io.ReadAll(io.LimitReader(reader, maxManifestBytes+1))
 			if err != nil || len(manifestRaw) > maxManifestBytes {
-				return fmt.Errorf("%w：清单读取失败", ErrTampered)
+				return nil, nil, fmt.Errorf("%w：清单读取失败", ErrTampered)
 			}
 			continue
 		}
 		hash := sha256.New()
-		if _, err := io.Copy(hash, reader); err != nil {
-			return fmt.Errorf("%w：包已损坏", ErrTampered)
+		var source io.Reader = reader
+		var info bytes.Buffer
+		if name == ReleaseInfoName {
+			source = io.TeeReader(io.LimitReader(reader, maxReleaseInfo+1), &info)
+		}
+		if _, err := io.Copy(hash, source); err != nil {
+			return nil, nil, fmt.Errorf("%w：包已损坏", ErrTampered)
+		}
+		if name == ReleaseInfoName {
+			if info.Len() > maxReleaseInfo {
+				return nil, nil, fmt.Errorf("%w：发布信息过大", ErrTampered)
+			}
+			infoRaw = info.Bytes()
 		}
 		seen[name] = hex.EncodeToString(hash.Sum(nil))
 	}
 	if manifestRaw == nil {
-		return ErrUnsigned
+		return nil, nil, ErrUnsigned
 	}
 	var m Manifest
 	if err := json.Unmarshal(bytes.TrimPrefix(manifestRaw, []byte{0xEF, 0xBB, 0xBF}), &m); err != nil {
-		return fmt.Errorf("%w：清单不是有效的 JSON", ErrTampered)
+		return nil, nil, fmt.Errorf("%w：清单不是有效的 JSON", ErrTampered)
 	}
 	encoded := strings.TrimPrefix(strings.TrimSpace(m.Signature), signaturePrefix)
 	if encoded == "" || encoded == strings.TrimSpace(m.Signature) {
-		return ErrUnsigned
+		return nil, nil, ErrUnsigned
 	}
 	sig, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil || len(sig) != ed25519.SignatureSize || !ed25519.Verify(pub, m.signedText(), sig) {
-		return ErrBadSignature
-	}
-	if m.Version != version {
-		return fmt.Errorf("%w：签名的版本是 %s，不是 %s", ErrTampered, m.Version, version)
+		return nil, nil, ErrBadSignature
 	}
 	if len(seen) != len(m.Files) {
-		return fmt.Errorf("%w：文件数量不一致", ErrTampered)
+		return nil, nil, fmt.Errorf("%w：文件数量不一致", ErrTampered)
 	}
 	for name, sum := range seen {
 		if m.Files[name] != sum {
-			return fmt.Errorf("%w：%s", ErrTampered, name)
+			return nil, nil, fmt.Errorf("%w：%s", ErrTampered, name)
 		}
 	}
-	return nil
+	if infoRaw == nil {
+		return &m, nil, nil
+	}
+	var info ReleaseInfo
+	if err := json.Unmarshal(bytes.TrimPrefix(infoRaw, []byte{0xEF, 0xBB, 0xBF}), &info); err != nil {
+		return nil, nil, fmt.Errorf("%w：发布信息不是有效的 JSON", ErrTampered)
+	}
+	return &m, &info, nil
 }
 
 func hashFile(full string) (string, error) {

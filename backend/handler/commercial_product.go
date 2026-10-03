@@ -50,6 +50,11 @@ func ensureCommercialProductColumn(db *sql.DB) error {
 				return err
 			}
 		}
+		// 从 1.5.8 及更早直接升级时，按应用出售的迁移先跑、这一列后补，列里全是 0。
+		// 按默认应用补上标记，否则下面的旧价格迁移找不到商业版应用，老价格不会搬到套餐里。
+		if err := syncLegacyCommercialFlagIfReady(db); err != nil {
+			return err
+		}
 	}
 	commercialProductColumnOK = true
 	return nil

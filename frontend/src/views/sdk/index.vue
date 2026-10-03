@@ -102,6 +102,19 @@
           >timestamp 与服务器时间误差需在 10 分钟内</ElDescriptionsItem
         >
         <ElDescriptionsItem label="通过条件">code = 200 且 data.result = pass</ElDescriptionsItem>
+        <ElDescriptionsItem label="v3（推荐）" :span="2"
+          >在 v2 规范串末尾再加一行随机数 nonce（16–64 位字母数字），请求带 signVersion = v3 和
+          nonce。响应的 data.proof 是本站的 Ed25519 签名，覆盖应用、域名、nonce
+          和结果，用下面的公钥验签，假服务器和重放的旧响应都通不过。下载的接入包已自动处理；下面的代码示例只演示请求签名，自写接入时请按接入文档补上验签。</ElDescriptionsItem
+        >
+        <ElDescriptionsItem label="授权响应公钥" :span="2">
+          <div class="public-key-row">
+            <code>{{ responsePublicKey || '读取中…' }}</code>
+            <ElButton v-if="responsePublicKey" size="small" @click="copyCode(responsePublicKey)"
+              >复制</ElButton
+            >
+          </div>
+        </ElDescriptionsItem>
       </ElDescriptions>
     </ElCard>
 
@@ -136,6 +149,7 @@
   import {
     fetchDownloadSDKPack,
     fetchLicenseAppList,
+    fetchLicenseResponseKey,
     type LicenseAppItem
   } from '@/api/license-manage'
 
@@ -166,6 +180,7 @@
   const route = useRoute()
   const apps = ref<LicenseAppItem[]>([])
   const generating = ref(false)
+  const responsePublicKey = ref('')
   const packForm = reactive({
     appId: undefined as number | undefined,
     language: 'php' as SdkPackLanguage,
@@ -229,7 +244,18 @@
     }
   }
 
-  onMounted(loadApps)
+  const loadResponseKey = async () => {
+    try {
+      responsePublicKey.value = (await fetchLicenseResponseKey())?.publicKey || ''
+    } catch {
+      // 公共请求层已提示。
+    }
+  }
+
+  onMounted(() => {
+    loadApps()
+    loadResponseKey()
+  })
 
   const sdkExamples = [
     {
@@ -600,6 +626,17 @@ export async function verifyLicense({ domain, serverIp = '', licenseKey = '' }) 
 </script>
 
 <style scoped lang="scss">
+  .public-key-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+
+    code {
+      word-break: break-all;
+    }
+  }
+
   .sdk-page {
     display: flex;
     flex-direction: column;

@@ -288,6 +288,8 @@ func main() {
 			superSecured.GET("/system/update/history", handler.AdminOnlineUpdateHistory)
 			superSecured.POST("/system/update/check", handler.AdminOnlineUpdateCheck)
 			superSecured.POST("/system/update/apply", handler.AdminOnlineUpdateApply)
+			superSecured.POST("/system/update/upload", handler.AdminOnlineUpdateUpload)
+			superSecured.POST("/system/update/upload/apply", handler.AdminOnlineUpdateUploadApply)
 			superSecured.GET("/system/update/jobs/:id", handler.AdminOnlineUpdateJob)
 			// 官网专用只读更新令牌。客户站调用返回 403。
 			superSecured.POST("/system/update/official-token", handler.AdminOfficialUpdateTokenSave)
@@ -333,6 +335,7 @@ func main() {
 			secured.GET("/app-commercial/context", handler.AppCommercialContext)
 			// 打包下载不改业务数据，仍只要求管理员身份。
 			secured.POST("/sdk/pack", handler.AdminSDKPackDownload)
+			secured.GET("/sdk/response-key", handler.AdminLicenseResponseKey)
 			licenseApps.POST("/app/create", handler.AppCreate)
 			licenseApps.POST("/app/store-snapshot-key", handler.AppEnsureStoreSnapshotKey)
 			licenseApps.PUT("/app/:id", handler.AppUpdate)

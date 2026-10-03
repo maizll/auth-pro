@@ -60,6 +60,8 @@ type sdkPackInput struct {
 	AppName   string
 	AppKey    string
 	AppSecret string
+	// PublicKey 是本站授权响应公钥，写进 config.json，SDK 用它验证授权校验响应确实来自本站。
+	PublicKey string
 	BaseURL   string
 	Modules   []string
 	Language  string
@@ -77,6 +79,7 @@ type sdkPackConfigJSON struct {
 	AppID      int64           `json:"appId"`
 	AppKey     string          `json:"appKey"`
 	AppSecret  string          `json:"appSecret,omitempty"`
+	PublicKey  string          `json:"publicKey,omitempty"`
 	Modules    map[string]bool `json:"modules"`
 	LicenseKey string          `json:"licenseKey,omitempty"`
 	Domain     string          `json:"domain,omitempty"`
@@ -204,10 +207,11 @@ func sdkPackModuleFlags(modules []string) map[string]bool {
 
 func sdkPackBuildConfigJSON(input sdkPackInput, modules []string, includeSecret bool) ([]byte, error) {
 	cfg := sdkPackConfigJSON{
-		BaseURL: input.BaseURL,
-		AppID:   input.AppID,
-		AppKey:  input.AppKey,
-		Modules: sdkPackModuleFlags(modules),
+		BaseURL:   input.BaseURL,
+		AppID:     input.AppID,
+		AppKey:    input.AppKey,
+		PublicKey: input.PublicKey,
+		Modules:   sdkPackModuleFlags(modules),
 	}
 	if includeSecret {
 		cfg.AppSecret = input.AppSecret
@@ -264,6 +268,10 @@ func buildSDKPack(input sdkPackInput) ([]byte, string, error) {
 		sdkPackHasModule(modules, sdkPackModulePiracy) ||
 		sdkPackHasModule(modules, sdkPackModuleUpdate)
 	includeSecret := needSign && lang != "browser"
+	input.PublicKey = strings.TrimSpace(input.PublicKey)
+	if (sdkPackHasModule(modules, sdkPackModuleLicense) || sdkPackHasModule(modules, sdkPackModulePiracy)) && input.PublicKey == "" {
+		return nil, "", errors.New("授权响应公钥不可用，无法生成接入包")
+	}
 
 	safeRoot := sdkPackRootName(lang, appKey)
 	root := safeRoot + "/"
@@ -468,6 +476,12 @@ func AdminSDKPackDownload(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "读取应用失败"})
 		return
 	}
+	publicKey, err := LicenseResponsePublicKey()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "授权响应签名密钥不可用"})
+		return
+	}
+	app.PublicKey = publicKey
 	app.BaseURL = req.BaseURL
 	app.Modules = req.Modules
 	app.Language = req.Language
@@ -480,4 +494,14 @@ func AdminSDKPackDownload(c *gin.Context) {
 	c.Header("Cache-Control", "private, no-store")
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Data(http.StatusOK, "application/zip", payload)
+}
+
+// AdminLicenseResponseKey 返回本站授权响应公钥，给「接入开发」页展示，自写接入代码的客户用它验 data.proof。
+func AdminLicenseResponseKey(c *gin.Context) {
+	publicKey, err := LicenseResponsePublicKey()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "授权响应签名密钥不可用"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"publicKey": publicKey}})
 }

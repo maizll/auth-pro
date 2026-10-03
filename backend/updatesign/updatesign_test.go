@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -175,5 +176,42 @@ func TestBuiltInPublicKeyParses(t *testing.T) {
 	}
 	if _, err := ParsePrivateKey("bm90LWEta2V5"); err == nil {
 		t.Fatal("short private key accepted")
+	}
+}
+
+// TestInspectPackageReadsReleaseInfo 核对上传更新包时能从包本身读出签名版本和发布信息；
+// 发布信息被改过时验签不过，老包没有发布信息时返回 nil。
+func TestInspectPackageReadsReleaseInfo(t *testing.T) {
+	pub, priv := newKey(t)
+	dir := writePackageDir(t)
+	info := `{"version":"9.9.9","edition":"client","channel":"stable","minVersion":"1.0.0","releasedAt":"2026-10-03T00:00:00Z","notes":["修复问题"]}`
+	if err := os.WriteFile(filepath.Join(dir, "backend", "release.json"), []byte(info), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteManifest(dir, "9.9.9", priv); err != nil {
+		t.Fatal(err)
+	}
+	m, got, err := InspectPackage(tarDir(t, dir, nil), pub)
+	if err != nil {
+		t.Fatalf("签名正确的包应该通过：%v", err)
+	}
+	if m.Version != "9.9.9" || got == nil || got.Edition != EditionClient || got.Version != "9.9.9" || len(got.Notes) != 1 {
+		t.Fatalf("发布信息读取不对：%+v %+v", m, got)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "backend", "release.json"), []byte(strings.Replace(info, "client", "official", 1)), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := InspectPackage(tarDir(t, dir, nil), pub); !errors.Is(err, ErrTampered) {
+		t.Fatalf("改过适用端的包应该被拒：%v", err)
+	}
+
+	old := writePackageDir(t)
+	if err := WriteManifest(old, "9.9.8", priv); err != nil {
+		t.Fatal(err)
+	}
+	m, got, err = InspectPackage(tarDir(t, old, nil), pub)
+	if err != nil || m.Version != "9.9.8" || got != nil {
+		t.Fatalf("老包应该通过且没有发布信息：%v %+v", err, got)
 	}
 }

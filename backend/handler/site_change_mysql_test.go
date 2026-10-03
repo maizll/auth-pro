@@ -18,7 +18,8 @@ import (
 
 func TestSiteChangeQuotaMariaDB(t *testing.T) {
 	control := openAppUpdateControlDB(t)
-	defer control.Close()
+	// 关连接要排在删库之后（Cleanup 后进先出），否则删库时连接已关、测试库会留下
+	t.Cleanup(func() { control.Close() })
 	databaseName := "authpro_sitechg_" + strconv.Itoa(os.Getpid())
 	if _, err := control.Exec("CREATE DATABASE `" + databaseName + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
 		t.Fatal(err)

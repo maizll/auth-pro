@@ -79,7 +79,20 @@ func TestSettleOnlineUpdateJobsAfterRestart(t *testing.T) {
 	}
 	write("Udone", "restarting", "v"+config.AppVersion)
 	write("Uother", "restarting", "9.9.9")
-	SettleOnlineUpdateJobsAfterRestart()
+	previous := settleScriptWindow
+	settleScriptWindow = 50 * time.Millisecond
+	t.Cleanup(func() { settleScriptWindow = previous })
+	ids := unsettledOnlineUpdateJobs()
+	if len(ids) != 1 || ids[0] != "Udone" {
+		t.Fatalf("只有目标版本是当前版本的任务待收尾: %v", ids)
+	}
+	// 等待期内不能抢先记成功。
+	waitStart := time.Now()
+	go waitAndSettleOnlineUpdateJobs(ids, waitStart, 5*time.Millisecond)
+	if early := loadOnlineUpdateJob("Udone"); early == nil || early.Status != "restarting" {
+		t.Fatalf("健康检查结束前不应记成功: %+v", early)
+	}
+	waitAndSettleOnlineUpdateJobs(ids, waitStart, 5*time.Millisecond)
 
 	done := loadOnlineUpdateJob("Udone")
 	if done == nil || done.Status != "success" || done.Progress != 100 || len(done.Logs) != 1 {
@@ -90,5 +103,47 @@ func TestSettleOnlineUpdateJobsAfterRestart(t *testing.T) {
 	}
 	if hint := latestOnlineUpdateHint(); hint == nil || hint.JobID != "Udone" || hint.Status != "success" {
 		t.Fatalf("版本接口应报告完成: %+v", hint)
+	}
+}
+
+// 守护交接还在时要等守护写结果：健康检查失败回滚的任务，后台从头到尾都不能显示成功。
+func TestSettleWaitsForGuardianResult(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AUTO_PRO_DATA_DIR", dataDir)
+	updates := filepath.Join(dataDir, "updates")
+	if err := os.MkdirAll(filepath.Join(updates, "pending-restart"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(updates, "pending-restart", "handoff.sh"), []byte("#"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(onlineUpdateJob{ID: "Ubad", Status: "restarting", Version: "v" + config.AppVersion, Logs: []string{}, UpdatedAt: time.Now()})
+	if err := os.WriteFile(filepath.Join(updates, "Ubad.json"), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	previousScript, previousGuardian := settleScriptWindow, settleGuardianWindow
+	settleScriptWindow = 0
+	settleGuardianWindow = func() time.Duration { return time.Hour }
+	t.Cleanup(func() { settleScriptWindow, settleGuardianWindow = previousScript, previousGuardian })
+
+	done := make(chan struct{})
+	go func() {
+		waitAndSettleOnlineUpdateJobs([]string{"Ubad"}, time.Now(), 5*time.Millisecond)
+		close(done)
+	}()
+	time.Sleep(50 * time.Millisecond)
+	if job := loadOnlineUpdateJob("Ubad"); job == nil || job.Status != "restarting" {
+		t.Fatalf("守护还在检查，任务不应记成功: %+v", job)
+	}
+	if err := os.WriteFile(filepath.Join(updates, "Ubad.json.result"), []byte("failed\n健康检查失败\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("守护写了结果后应停止等待")
+	}
+	if job := loadOnlineUpdateJob("Ubad"); job == nil || job.Status != "failed" {
+		t.Fatalf("应以守护写的失败为准: %+v", job)
 	}
 }

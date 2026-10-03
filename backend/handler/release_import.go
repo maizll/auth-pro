@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -145,12 +146,17 @@ func ReleaseImportFetch(c *gin.Context) {
 }
 
 func requireImportAppKey(ctx context.Context, row appRepoRow, tag, appKey string) error {
-	body, err := fetchGitHubReleaseAsset(ctx, row.Owner, row.Repo, "tags/"+urlPathTag(tag), "latest.json")
+	body, err := fetchGitHubReleaseAsset(ctx, row.Owner, row.Repo, releaseTagRef(tag), "latest.json")
 	if err != nil {
-		if strings.HasPrefix(tag, appRepoPrefixClient) {
-			return errors.New(appRepoAppKeyMissingText)
+		if !strings.HasPrefix(tag, appRepoPrefixClient) {
+			return nil
 		}
-		return nil
+		// 发布在、但里面没有 latest.json，才说缺应用标识；整个发布不存在、令牌、断网这类问题照实说。
+		var fetchErr *productUpdateFetchError
+		if errors.As(err, &fetchErr) {
+			return releaseImportRepoError(err)
+		}
+		return errors.New(appRepoAppKeyMissingText)
 	}
 	var doc struct {
 		AppKey string `json:"appKey"`
@@ -330,14 +336,11 @@ func parseReleaseImportList(ctx context.Context, owner, repo string, body []byte
 }
 
 func fetchReleaseImportAsset(ctx context.Context, owner, repo, tag, assetName string) (releaseImportView, error) {
-	ref := tag
-	if !strings.Contains(ref, "/") {
-		ref = "tags/" + tag
-	}
+	ref := releaseTagRef(tag)
 	if assetName == "" {
 		listed, err := listReleaseImportReleases(ctx, owner, repo)
 		if err != nil {
-			return releaseImportView{}, errors.New("无法读取仓库发布列表，请检查已保存的令牌")
+			return releaseImportView{}, releaseImportRepoError(err)
 		}
 		for _, item := range listed {
 			if item.Tag == tag {
@@ -351,7 +354,7 @@ func fetchReleaseImportAsset(ctx context.Context, owner, repo, tag, assetName st
 	}
 	payload, err := fetchGitHubReleaseAsset(ctx, owner, repo, ref, assetName)
 	if err != nil {
-		return releaseImportView{}, errors.New("无法下载所选安装包，请检查已保存的令牌")
+		return releaseImportView{}, releaseImportRepoError(err)
 	}
 	version := releaseImportVersion(tag)
 	title := "v" + version
@@ -408,8 +411,12 @@ func chooseReleaseAsset(assets []struct {
 	return best
 }
 
+// releaseImportVersion 从标签取版本号。位置前缀（client/、plugins/paid/）不是版本的一部分，先去掉。
 func releaseImportVersion(tag string) string {
 	version := strings.TrimSpace(tag)
+	if index := strings.LastIndex(version, "/"); index >= 0 {
+		version = version[index+1:]
+	}
 	version = strings.TrimPrefix(version, "v")
 	version = strings.TrimPrefix(version, "V")
 	if validVersion(version) {
@@ -439,14 +446,10 @@ func releaseImportTitleIsTag(title, tag string) bool {
 }
 
 func releaseImportLatestNotes(ctx context.Context, owner, repo, tag string) (string, string, bool) {
-	ref := strings.TrimSpace(tag)
-	if ref == "" {
+	if strings.TrimSpace(tag) == "" {
 		return "", "", false
 	}
-	if !strings.Contains(ref, "/") {
-		ref = "tags/" + ref
-	}
-	payload, err := fetchGitHubReleaseAsset(ctx, owner, repo, ref, "latest.json")
+	payload, err := fetchGitHubReleaseAsset(ctx, owner, repo, releaseTagRef(tag), "latest.json")
 	if err != nil || len(payload) == 0 {
 		return "", "", false
 	}
@@ -643,4 +646,25 @@ func releaseImportFetchError(err error) string {
 		return err.Error()
 	}
 	return "无法下载该地址，请确认它是可公开访问的 https 链接"
+}
+
+// releaseImportRepoError 按仓库接口的结果说清楚为什么导入不了：
+// 401/403 才是令牌问题，404 是仓库里没有这个版本，断网和超时是连不上，其它是仓库那边暂时出错。
+func releaseImportRepoError(err error) error {
+	var fetchErr *productUpdateFetchError
+	if !errors.As(err, &fetchErr) {
+		return errors.New("仓库里找不到这个版本的安装包")
+	}
+	switch status := fetchErr.status; {
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		return errors.New("已保存的令牌没有权限读这个仓库，或者已经过期。请到存储管理更新令牌")
+	case status == http.StatusNotFound:
+		return errors.New("仓库里找不到这个版本的安装包")
+	case status == http.StatusTooManyRequests:
+		return errors.New("仓库接口暂时限流了，请过几分钟再试")
+	case status == 0:
+		return errors.New("连不上仓库，可能是服务器网络不通或超时，请稍后再试")
+	default:
+		return fmt.Errorf("仓库那边暂时出错（状态码 %d），请稍后再试", status)
+	}
 }

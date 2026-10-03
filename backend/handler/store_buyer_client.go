@@ -307,6 +307,9 @@ func buyerRefreshIsNetwork(err error) bool {
 	if errors.As(err, &src) {
 		return false
 	}
+	if errors.Is(err, errSourceProofInvalid) {
+		return true
+	}
 	switch err.Error() {
 	case "无法连接源站", "源站响应无法解析":
 		return true
@@ -343,9 +346,19 @@ func signedSourceJSON(method, path string, body any, out any) error {
 }
 
 func signedSourceJSONPath(method, signPath, requestPath string, body any, out any) error {
+	_, err := signedSourceCall(method, signPath, requestPath, body, out)
+	return err
+}
+
+// signedSourceRequest 是一次签名请求用的绑定号和随机数。官网把它们签进快照响应的 snapshotProof，调用方拿来验签。
+type signedSourceRequest struct {
+	BindingID, Nonce string
+}
+
+func signedSourceCall(method, signPath, requestPath string, body any, out any) (signedSourceRequest, error) {
 	secret, bindingID, err := openBuyerBindingSecret()
 	if err != nil {
-		return err
+		return signedSourceRequest{}, err
 	}
 	var payload []byte
 	if body != nil {
@@ -370,7 +383,7 @@ func signedSourceJSONPath(method, signPath, requestPath string, body any, out an
 	if err != nil {
 		clearBuyerBindingIfTerminal(err)
 	}
-	return err
+	return signedSourceRequest{BindingID: bindingID, Nonce: nonce}, err
 }
 
 // clearBuyerLocalBinding 去掉本机绑定凭据和快照，效果同退出绑定。
@@ -428,14 +441,23 @@ func buyerAccountLine(raw any) string {
 	return name + "\n" + role
 }
 
-// persistBuyerBind 把源站确认结果写成绑定凭据和快照。
+// persistBuyerBind 把源站确认结果写成绑定凭据和快照。nonce 是确认请求里带给官网的随机数，用来核对 snapshotProof。
+// 快照或 proof 验签不过时什么都不写，返回错误，绑定失败。
 // 源站没带回账号名或身份时，用这次登录提交的账号和身份补上，避免老的确认响应把快照里的名字写空。
-func persistBuyerBind(envelope map[string]any, fallbackName, fallbackRole string) error {
+func persistBuyerBind(envelope map[string]any, nonce, fallbackName, fallbackRole string) error {
 	data, _ := envelope["data"].(map[string]any)
 	bindingID, _ := data["bindingId"].(string)
 	secretHex, _ := data["bindingSecret"].(string)
 	if bindingID == "" || secretHex == "" {
 		return errors.New("源站没有返回绑定")
+	}
+	snap, hasSnap := data["snapshot"].(map[string]any)
+	check := sourceProofCheck{Kind: responseProofStoreBind, Binding: bindingID, Product: storeProductKey(), Nonce: nonce, Data: data}
+	if hasSnap {
+		prev, _ := loadBuyerSnapshot()
+		if _, _, err := checkSourceSnapshot(snap, check, prev); err != nil {
+			return err
+		}
 	}
 	key, err := loadOrCreateStoreFileKey("master.key")
 	if err != nil {
@@ -452,7 +474,7 @@ func persistBuyerBind(envelope map[string]any, fallbackName, fallbackRole string
 	if err := os.WriteFile(path, sealed, 0600); err != nil {
 		return err
 	}
-	if snap, ok := data["snapshot"].(map[string]any); ok {
+	if hasSnap {
 		account, _ := data["account"].(map[string]any)
 		name, _ := account["name"].(string)
 		role, _ := account["role"].(string)
@@ -469,28 +491,85 @@ func persistBuyerBind(envelope map[string]any, fallbackName, fallbackRole string
 			accountLine = name + "\n" + role
 		}
 		source, _ := data["editionSource"].(string)
-		return saveSnapshotMap(snap, true, false, accountLine, source)
+		return saveSnapshotMap(snap, check, accountLine, source)
 	}
 	return nil
 }
 
-func saveSnapshotMap(raw map[string]any, refreshOK, revoked bool, accountLine, editionSource string) error {
+// errSourceProofInvalid 表示快照响应的 snapshotProof 验不过（假服务器、重放的旧响应），或快照比本机已有的旧。
+// 按「连不上源站」处理：不收这份数据，沿用原有离线宽限。
+var errSourceProofInvalid = errors.New("源站响应签名无效")
+
+// storeSnapshotRollbackSlack 容忍官网时钟小幅回拨。同一绑定的新快照比本机已有的早超过这个时间，就当成重放的旧快照。
+const storeSnapshotRollbackSlack = 5 * time.Minute
+
+// sourceProofCheck 是核对 snapshotProof 用到的、本机自己知道的值：用途、绑定号、应用标识和这次请求的随机数。
+// Data 是响应的 data，从里面取 snapshotProof。
+type sourceProofCheck struct {
+	Kind, Binding, Product, Nonce string
+	Data                          map[string]any
+}
+
+// storeSnapshotProofFields 是快照 proof 的签名字段。官网签名和客户站验签共用，顺序不能改。
+// snapshot 字段放快照自己的签名，快照内容已由它覆盖，proof 再把它和这次请求绑在一起。
+func storeSnapshotProofFields(binding, product, nonce string, snapshot storeSnapshot) []proofField {
+	return []proofField{
+		{"binding", binding},
+		{"product", product},
+		{"domain", snapshot.Domain},
+		{"nonce", nonce},
+		{"serverTime", unixText(snapshot.ServerTime)},
+		{"snapshot", snapshot.Signature},
+	}
+}
+
+// checkSourceSnapshot 解出并核对源站快照：快照签名、snapshotProof、不比本机旧。返回快照和 proof 是否验过。
+// 老官网（1.8.6 及以前）不发 proof：本机从没收到过 proof 时照旧接受；收到过一次之后就必须有，防止假服务器去掉 proof 降级。
+func checkSourceSnapshot(raw map[string]any, check sourceProofCheck, prev buyerSnapshotState) (storeSnapshot, bool, error) {
 	payload, err := json.Marshal(raw)
 	if err != nil {
-		return err
+		return storeSnapshot{}, false, err
 	}
 	var snapshot storeSnapshot
 	if err := json.Unmarshal(payload, &snapshot); err != nil {
-		return err
+		return storeSnapshot{}, false, err
 	}
 	if !verifyStoreSnapshot(snapshot) {
-		return errors.New("快照签名无效")
+		return storeSnapshot{}, false, errors.New("快照签名无效")
 	}
+	proof, _ := check.Data["snapshotProof"].(string)
+	proved := false
+	if proof != "" {
+		storeSnapshotKeyMu.RLock()
+		pub := storeSnapshotPublic
+		storeSnapshotKeyMu.RUnlock()
+		if check.Binding != snapshot.BindingID ||
+			!verifyResponseProof(pub, check.Kind, storeSnapshotProofFields(check.Binding, check.Product, check.Nonce, snapshot), proof) {
+			return storeSnapshot{}, false, errSourceProofInvalid
+		}
+		proved = true
+	} else if prev.SourceProof {
+		return storeSnapshot{}, false, errSourceProofInvalid
+	}
+	if prev.Snapshot.BindingID == snapshot.BindingID &&
+		snapshot.ServerTime+int64(storeSnapshotRollbackSlack.Seconds()) < prev.Snapshot.ServerTime {
+		return storeSnapshot{}, false, errSourceProofInvalid
+	}
+	return snapshot, proved, nil
+}
+
+// saveSnapshotMap 核对源站快照后写到本机，记为刷新成功。核对不过返回错误，本机快照不动。
+func saveSnapshotMap(raw map[string]any, check sourceProofCheck, accountLine, editionSource string) error {
 	state, _ := loadBuyerSnapshot()
+	snapshot, proved, err := checkSourceSnapshot(raw, check, state)
+	if err != nil {
+		return err
+	}
 	state.Snapshot = snapshot
+	state.SourceProof = state.SourceProof || proved
 	state.VerifiedAt = time.Now().Unix()
-	state.LastRefreshOK = refreshOK
-	state.ExplicitRevoked = revoked
+	state.LastRefreshOK = true
+	state.ExplicitRevoked = false
 	if snapshot.GraceDays <= 0 {
 		snapshot.GraceDays = storeGraceDefaultDays
 	}
@@ -504,13 +583,8 @@ func saveSnapshotMap(raw map[string]any, refreshOK, revoked bool, accountLine, e
 			state.AccountRole = parts[1]
 		}
 	}
-	if refreshOK {
-		// 免费版刷新成功时来源是空，胶囊不再显示上一次的商业版来源。
-		state.EditionSource = strings.TrimSpace(editionSource)
-	}
-	if revoked {
-		state.RevokeReason = "revoked"
-	}
+	// 免费版刷新成功时来源是空，胶囊不再显示上一次的商业版来源。
+	state.EditionSource = strings.TrimSpace(editionSource)
 	return saveBuyerSnapshot(state)
 }
 
@@ -598,33 +672,32 @@ func refreshBuyerSnapshotMode(ctx context.Context, domain string, force bool) er
 func refreshBuyerSnapshotOnce(ctx context.Context, domain string) error {
 	_ = ctx
 	var payload map[string]any
-	path := "/api/v1/store/status"
-	if domain != "" {
-		path += "?domain=" + domain
-	}
 	signPath := "/api/v1/store/status"
 	requestPath := signPath
 	if domain != "" {
 		requestPath += "?domain=" + domain
 	}
-	err := signedSourceJSONPath(http.MethodGet, signPath, requestPath, nil, &payload)
-	if err != nil {
-		// 授权或绑定已终止时，签名请求已经清掉快照，不要再写回一份吊销快照。
-		if buyerRefreshFailureRevoked(err) {
-			return err
+	call, err := signedSourceCall(http.MethodGet, signPath, requestPath, nil, &payload)
+	if err == nil {
+		data, _ := payload["data"].(map[string]any)
+		snap, _ := data["snapshot"].(map[string]any)
+		source, _ := data["editionSource"].(string)
+		check := sourceProofCheck{Kind: responseProofStoreStat, Binding: call.BindingID, Product: storeProductKey(), Nonce: call.Nonce, Data: data}
+		if err = saveSnapshotMap(snap, check, buyerAccountLine(data["account"]), source); err == nil {
+			return nil
 		}
-		state, ok := loadBuyerSnapshot()
-		if ok {
-			if next, save := applyBuyerRefreshFailure(state, err); save {
-				_ = saveBuyerSnapshot(next)
-			}
-		}
+	}
+	// 授权或绑定已终止时，签名请求已经清掉快照，不要再写回一份吊销快照。
+	if buyerRefreshFailureRevoked(err) {
 		return err
 	}
-	data, _ := payload["data"].(map[string]any)
-	snap, _ := data["snapshot"].(map[string]any)
-	source, _ := data["editionSource"].(string)
-	return saveSnapshotMap(snap, true, false, buyerAccountLine(data["account"]), source)
+	state, ok := loadBuyerSnapshot()
+	if ok {
+		if next, save := applyBuyerRefreshFailure(state, err); save {
+			_ = saveBuyerSnapshot(next)
+		}
+	}
+	return err
 }
 
 // StartStoreSnapshotRefresher 在后台定期向源站核对快照。

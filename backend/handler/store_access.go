@@ -30,6 +30,8 @@ type buyerSnapshotState struct {
 	BindingID       string        `json:"bindingId"`
 	// EditionSource 只给顶栏展示，不参与快照签名。
 	EditionSource string `json:"editionSource"`
+	// SourceProof 表示收到过官网带 snapshotProof 的快照。之后的快照响应都必须带，假服务器去掉 proof 降级会被拒。
+	SourceProof bool `json:"sourceProof,omitempty"`
 }
 
 func buyerSnapshotPath() string {

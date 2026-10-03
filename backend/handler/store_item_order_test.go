@@ -70,7 +70,8 @@ func TestCatalogEntryPurchaseOnly(t *testing.T) {
 
 func TestStoreItemPurchaseMariaDB(t *testing.T) {
 	control := openAppUpdateControlDB(t)
-	defer control.Close()
+	// 关连接要排在删库之后（Cleanup 后进先出），否则删库时连接已关、测试库会留下
+	t.Cleanup(func() { control.Close() })
 	databaseName := "authpro_item_" + strconv.Itoa(os.Getpid())
 	if _, err := control.Exec("CREATE DATABASE `" + databaseName + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
 		t.Fatal(err)
@@ -195,7 +196,12 @@ func TestStoreItemPurchaseMariaDB(t *testing.T) {
 		t.Fatalf("查单未支付: %#v", refreshData)
 	}
 	snapRaw, _ := refreshData["snapshot"].(map[string]any)
-	if err := saveSnapshotMap(snapRaw, true, false, "买家\nuser", ""); err != nil {
+	if refreshData["snapshotProof"] == nil {
+		t.Fatalf("已支付查单应带 snapshotProof: %#v", refreshData)
+	}
+	// proof 绑定的是 callSignedStore 里的随机数，验签另有专门测试，这里只看快照能落地。
+	delete(refreshData, "snapshotProof")
+	if err := saveSnapshotMap(snapRaw, sourceProofCheck{Data: refreshData}, "买家\nuser", ""); err != nil {
 		t.Fatal(err)
 	}
 	enabled := callPluginToggle(t, "epay", true)

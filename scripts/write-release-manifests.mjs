@@ -3,6 +3,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// 两种用法：
+//   --release-info <包内 release.json> <official|client> <latest.json> <releases.json> <版本> <发布时间>
+//     打包前调用，只算更新说明，写进包内 backend/release.json，随包一起签名（上传更新包时据此展示版本、说明和适用端）。
+//   <latest.json> <releases.json> <版本> <发布时间> <文件名> <下载地址> <SHA256> <大小> <releases 地址>
+//     打包后调用，写在线更新用的 latest.json 和 releases.json。
+const infoMode = process.argv[2] === '--release-info'
+const [infoPath, edition] = infoMode ? process.argv.slice(3, 5) : []
 const [
   latestPath,
   releasesPath,
@@ -13,33 +20,42 @@ const [
   packageSha256,
   packageSizeText,
   releasesUrl
-] = process.argv.slice(2)
+] = process.argv.slice(infoMode ? 5 : 2)
 
-if (!latestPath || !releasesPath || !version || !releasedAt || !packageFileName || !packageUrl || !packageSha256 || !packageSizeText || !releasesUrl) {
+if (infoMode) {
+  if (!infoPath || !latestPath || !releasesPath || !version || !releasedAt) {
+    throw new Error('Missing release info arguments')
+  }
+  if (edition !== 'official' && edition !== 'client') {
+    throw new Error(`Package edition must be official or client: ${edition}`)
+  }
+} else if (!latestPath || !releasesPath || !version || !releasedAt || !packageFileName || !packageUrl || !packageSha256 || !packageSizeText || !releasesUrl) {
   throw new Error('Missing release manifest arguments')
 }
 
 if (!/^\d+\.\d+\.\d+$/.test(version)) {
   throw new Error(`Version must match X.Y.Z: ${version}`)
 }
-if (packageFileName !== `auth_pro-full-v${version}.tar.gz`) {
-  throw new Error(`Unexpected package file name: ${packageFileName}`)
-}
-if (!/^[a-f0-9]{64}$/i.test(packageSha256)) {
-  throw new Error('Package SHA256 must contain 64 hexadecimal characters')
-}
 if (Number.isNaN(Date.parse(releasedAt))) {
   throw new Error(`Invalid release time: ${releasedAt}`)
 }
-for (const [label, value] of [['package', packageUrl], ['releases', releasesUrl]]) {
-  const parsed = new URL(value)
-  if (parsed.protocol !== 'https:') {
-    throw new Error(`${label} URL must use HTTPS`)
+if (!infoMode) {
+  if (packageFileName !== `auth_pro-full-v${version}.tar.gz`) {
+    throw new Error(`Unexpected package file name: ${packageFileName}`)
+  }
+  if (!/^[a-f0-9]{64}$/i.test(packageSha256)) {
+    throw new Error('Package SHA256 must contain 64 hexadecimal characters')
+  }
+  for (const [label, value] of [['package', packageUrl], ['releases', releasesUrl]]) {
+    const parsed = new URL(value)
+    if (parsed.protocol !== 'https:') {
+      throw new Error(`${label} URL must use HTTPS`)
+    }
   }
 }
 
-const packageSize = Number(packageSizeText)
-if (!Number.isSafeInteger(packageSize) || packageSize <= 0) {
+const packageSize = infoMode ? 0 : Number(packageSizeText)
+if (!infoMode && (!Number.isSafeInteger(packageSize) || packageSize <= 0)) {
   throw new Error(`Invalid package size: ${packageSizeText}`)
 }
 
@@ -147,6 +163,18 @@ const channel = (process.env.AUTO_PRO_RELEASE_CHANNEL || 'stable').trim() || 'st
 const minVersion = (process.env.AUTO_PRO_MIN_VERSION || '0.0.0').trim() || '0.0.0'
 const release = { version, channel, releasedAt, notes }
 
+const writeJsonAtomic = (filePath, value) => {
+  const temporaryPath = `${filePath}.tmp`
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+  fs.renameSync(temporaryPath, filePath)
+}
+
+if (infoMode) {
+  writeJsonAtomic(infoPath, { version, edition, channel, minVersion, releasedAt, notes })
+  process.exit(0)
+}
+
 const versionParts = (value) => {
   const matches = String(value).replace(/^v/, '').match(/\d+/g)
   return matches ? matches.map(Number) : []
@@ -199,13 +227,6 @@ const latest = {
     backupDatabase: true
   },
   notes
-}
-
-const writeJsonAtomic = (filePath, value) => {
-  const temporaryPath = `${filePath}.tmp`
-  fs.mkdirSync(path.dirname(filePath), { recursive: true })
-  fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
-  fs.renameSync(temporaryPath, filePath)
 }
 
 writeJsonAtomic(latestPath, latest)

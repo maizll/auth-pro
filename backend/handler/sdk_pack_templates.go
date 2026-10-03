@@ -82,8 +82,16 @@ const sdkPackReadmeTemplate = `# AuthPro [[.LanguageLabel]] 接入包（[[.AppNa
 [[if .PluginSource]]
 - 插件源清单（应用隔离）：` + "`" + `[[.PluginIndexURL]]` + "`" + `
 [[end]]
-[[if .Browser]]
+[[if or .License .Piracy]]
+## 授权校验的安全设置
+
+` + "`" + `config.json` + "`" + ` 里的 ` + "`" + `publicKey` + "`" + ` 是授权站的授权响应公钥。SDK 每次校验都带一个随机数，只认授权站用对应私钥签过名、且回显了这个随机数的响应：改 hosts 指向假服务器或重放旧响应都通不过。不要删掉或改动它。
+
+- ` + "`" + `cacheTtl` + "`" + `（可选，秒，默认 300）：校验通过后这么久内不重复请求授权站。
+- ` + "`" + `offlineGrace` + "`" + `（可选，秒，默认 259200，即 72 小时）：授权站暂时连不上时，沿用上次通过的结果最多这么久，且不会超过授权到期时间。授权站明确拒绝时立即生效。
+[[end]][[if .Browser]]
 本包 **不含 appSecret**。` + "`" + `ads` + "`" + ` / ` + "`" + `pluginSourceUrl` + "`" + ` 可直连；` + "`" + `verify` + "`" + ` / ` + "`" + `checkUpdate` + "`" + ` 请走服务端 SDK，或配置 ` + "`" + `proxyVerifyUrl` + "`" + ` / ` + "`" + `proxyCheckUpdateUrl` + "`" + ` 同源代理。
+代理收到的请求体里有浏览器生成的 ` + "`" + `nonce` + "`" + `，请原样交给服务端 SDK，例如 PHP：` + "`" + `echo json_encode(AuthPro::verify(['nonce' => $input['nonce']]));` + "`" + `，再把结果原样返回给浏览器。
 [[end]]
 公共 API：` + "`" + `boot` + "`" + ` / ` + "`" + `verify` + "`" + ` / ` + "`" + `checkUpdate` + "`" + ` / ` + "`" + `ads` + "`" + ` / ` + "`" + `pluginSourceUrl` + "`" + `。
 

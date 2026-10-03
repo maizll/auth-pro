@@ -490,16 +490,22 @@ func migrateSourceCatalogListing(db *sql.DB) error {
 	return nil
 }
 
+// sourceEmailMatch 比较两张表的邮箱列。老库从别的服务器导入时 agents 常带原来的排序规则（如 utf8mb4_general_ci），
+// 而 MariaDB 11.8 给新建表默认 utf8mb4_uca1400_ai_ci，直接用 = 会报 Illegal mix of collations；统一转成同一种再比较。
+func sourceEmailMatch(left, right string) string {
+	return "CONVERT(" + left + " USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(" + right + " USING utf8mb4) COLLATE utf8mb4_general_ci"
+}
+
 func migrateSourceDeveloperAgentBackfill(db *sql.DB) error {
 	if _, err := db.Exec(`UPDATE source_developers d
-		INNER JOIN agents a ON a.email = d.email AND d.email <> ''
+		INNER JOIN agents a ON ` + sourceEmailMatch("a.email", "d.email") + ` AND d.email <> ''
 		LEFT JOIN source_developers taken ON taken.agent_id = a.id AND taken.id <> d.id
 		SET d.agent_id = a.id
 		WHERE d.agent_id IS NULL AND taken.id IS NULL`); err != nil {
 		return fmt.Errorf("backfill developer agent_id: %w", err)
 	}
 	if _, err := db.Exec(`UPDATE source_developer_applications app
-		INNER JOIN agents a ON a.email = app.email AND app.email <> ''
+		INNER JOIN agents a ON ` + sourceEmailMatch("a.email", "app.email") + ` AND app.email <> ''
 		LEFT JOIN source_developer_applications taken ON taken.agent_id = a.id AND taken.id <> app.id
 		SET app.agent_id = a.id
 		WHERE app.agent_id IS NULL AND taken.id IS NULL`); err != nil {

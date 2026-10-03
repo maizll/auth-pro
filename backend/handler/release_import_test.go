@@ -190,3 +190,84 @@ func TestDeveloperPageDoesNotCallReleaseImport(t *testing.T) {
 		t.Fatal("developer page still calls the release import API")
 	}
 }
+
+// TestReleaseImportSlashTag 覆盖带位置前缀的标签（client/v1.8.7）：必须请求 /releases/tags/client%2Fv1.8.7，
+// 版本号去掉 client/ 前缀，更新说明照样从 latest.json 读到。旧代码拼成 /releases/client/v1.8.7 会 404。
+func TestReleaseImportSlashTag(t *testing.T) {
+	const notes = `{"version":"1.8.7","appKey":"app_demo","notes":["auth-pro 1.8.7","- 授权响应带签名。"]}`
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.EscapedPath() {
+		case "/repos/maizll/auth-pro-paid/releases":
+			_, _ = w.Write([]byte(`[{"tag_name":"client/v1.8.7","name":"auth_pro-full-v1.8.7.tar.gz 0","body":"auth_pro-full-v1.8.7.tar.gz 0",
+				"draft":false,"assets":[{"name":"auth_pro-full-v1.8.7.tar.gz","size":14},{"name":"latest.json","size":90}]}]`))
+		case "/repos/maizll/auth-pro-paid/releases/tags/client%2Fv1.8.7":
+			writeReleaseAssets(w, server.URL+"/asset/latest.json", server.URL+"/asset/pkg", "auth_pro-full-v1.8.7.tar.gz")
+		case "/asset/latest.json":
+			_, _ = w.Write([]byte(notes))
+		case "/asset/pkg":
+			_, _ = w.Write([]byte("client-package"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	previous := productUpdateGitHubAPI
+	productUpdateGitHubAPI = server.URL
+	t.Cleanup(func() { productUpdateGitHubAPI = previous })
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+
+	if got := releaseImportVersion("client/v1.8.7"); got != "1.8.7" {
+		t.Fatalf("version=%s", got)
+	}
+	if err := requireImportAppKey(context.Background(), appRepoRow{Owner: "maizll", Repo: "auth-pro-paid"}, "client/v1.8.7", "app_demo"); err != nil {
+		t.Fatalf("appKey check: %v", err)
+	}
+	view, err := fetchReleaseImportAsset(context.Background(), "maizll", "auth-pro-paid", "client/v1.8.7", "")
+	if err != nil {
+		t.Fatalf("slash tag import failed: %v", err)
+	}
+	if view.Version != "1.8.7" || view.Title != "auth-pro 1.8.7" || view.Changelog != "- 授权响应带签名。" || view.AssetName != "auth_pro-full-v1.8.7.tar.gz" {
+		t.Fatalf("view=%+v", view)
+	}
+}
+
+// TestReleaseImportErrorsByStatus 核对报错按状态码区分：只有 401/403 说令牌，404 说找不到版本，断网说连不上；核对应用标识那一步同样如此。
+func TestReleaseImportErrorsByStatus(t *testing.T) {
+	status := http.StatusOK
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(status)
+	}))
+	previous := productUpdateGitHubAPI
+	productUpdateGitHubAPI = server.URL
+	t.Cleanup(func() { productUpdateGitHubAPI = previous })
+	cases := []struct {
+		status int
+		want   string
+	}{
+		{http.StatusUnauthorized, "令牌"},
+		{http.StatusForbidden, "令牌"},
+		{http.StatusNotFound, "仓库里找不到这个版本的安装包"},
+		{http.StatusBadGateway, "状态码 502"},
+	}
+	for _, tc := range cases {
+		status = tc.status
+		_, err := fetchReleaseImportAsset(context.Background(), "maizll", "auth-pro-paid", "client/v1.8.7", "auth_pro-full-v1.8.7.tar.gz")
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("status %d: want %q, got %v", tc.status, tc.want, err)
+		}
+		if tc.status != http.StatusUnauthorized && tc.status != http.StatusForbidden && strings.Contains(err.Error(), "令牌") {
+			t.Fatalf("status %d should not blame the token: %v", tc.status, err)
+		}
+		// 先查 latest.json 的应用标识时也一样：整个发布不存在不能说成缺应用标识
+		err = requireImportAppKey(context.Background(), appRepoRow{Owner: "maizll", Repo: "auth-pro-paid"}, "client/v1.8.9", "app_demo")
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("appKey check status %d: want %q, got %v", tc.status, tc.want, err)
+		}
+	}
+	server.Close()
+	_, err := fetchReleaseImportAsset(context.Background(), "maizll", "auth-pro-paid", "client/v1.8.7", "auth_pro-full-v1.8.7.tar.gz")
+	if err == nil || !strings.Contains(err.Error(), "连不上仓库") {
+		t.Fatalf("offline: %v", err)
+	}
+}

@@ -496,30 +496,7 @@ func TestExecuteOnlineUpdateVerifiesReleaseSignatureBeforeExtract(t *testing.T) 
 	t.Cleanup(func() { onlineUpdatePublicKeyForTest = nil })
 
 	build := func(t *testing.T, key ed25519.PrivateKey, tamper bool) string {
-		dir := t.TempDir()
-		writeFrontendTree(t, dir, "<html>v1.0.1</html>", "console.log(1)")
-		if err := os.WriteFile(filepath.Join(dir, "version.json"), []byte(`{"version":"1.0.1"}`), 0644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.MkdirAll(filepath.Join(dir, "backend"), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "backend", "auth_pro"), []byte("binary"), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := updatesign.WriteManifest(dir, "1.0.1", key); err != nil {
-			t.Fatal(err)
-		}
-		if tamper {
-			if err := os.WriteFile(filepath.Join(dir, "backend", "auth_pro"), []byte("evil"), 0755); err != nil {
-				t.Fatal(err)
-			}
-		}
-		packagePath := filepath.Join(t.TempDir(), "auth_pro-full-v1.0.1.tar.gz")
-		if out, err := exec.Command("tar", "-czf", packagePath, "-C", dir, ".").CombinedOutput(); err != nil {
-			t.Fatalf("tar: %v %s", err, out)
-		}
-		return packagePath
+		return buildSignedOnlineUpdatePackage(t, key, "1.0.1", "client", tamper)
 	}
 	apply := func(t *testing.T, packagePath string) error {
 		t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
@@ -545,18 +522,21 @@ func TestExecuteOnlineUpdateVerifiesReleaseSignatureBeforeExtract(t *testing.T) 
 		}
 	})
 	cases := []struct {
-		name   string
-		key    ed25519.PrivateKey
-		tamper bool
-		want   string
+		name    string
+		key     ed25519.PrivateKey
+		edition string
+		tamper  bool
+		want    string
 	}{
-		{"没签名", nil, false, "没有官方签名"},
-		{"别的私钥签名", otherPriv, false, "没有通过官方签名校验"},
-		{"签完又改过", priv, true, "没有通过官方签名校验"},
+		{"没签名", nil, "client", false, "没有官方签名"},
+		{"别的私钥签名", otherPriv, "client", false, "没有通过官方签名校验"},
+		{"签完又改过", priv, "client", true, "没有通过官方签名校验"},
+		{"没有包内发布信息", priv, "", false, "旧格式的包"},
+		{"官网的包", priv, "official", false, "这是官网的更新包，客户站不能用"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			packagePath := build(t, tc.key, tc.tamper)
+			packagePath := buildSignedOnlineUpdatePackage(t, tc.key, "1.0.1", tc.edition, tc.tamper)
 			err := apply(t, packagePath)
 			if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "网站没有任何改动") {
 				t.Fatalf("want %q, got %v", tc.want, err)
@@ -780,6 +760,42 @@ func TestOnlineUpdateSymlinkReleaseSwitch(t *testing.T) {
 	if err != nil || !strings.Contains(target, "1.2.3") {
 		t.Fatalf("current target = %q, %v", target, err)
 	}
+}
+
+// buildSignedOnlineUpdatePackage 造一个和正式发布同结构的整包。edition 为空时不写包内发布信息（模拟旧包），
+// key 为 nil 时不签名，tamper 为真时签完再改后端文件。
+func buildSignedOnlineUpdatePackage(t *testing.T, key ed25519.PrivateKey, version, edition string, tamper bool) string {
+	t.Helper()
+	dir := t.TempDir()
+	writeFrontendTree(t, dir, "<html>v"+version+"</html>", "console.log(1)")
+	if err := os.WriteFile(filepath.Join(dir, "version.json"), []byte(`{"version":"`+version+`"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "backend"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "backend", "auth_pro"), []byte("binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if edition != "" {
+		info := `{"version":"` + version + `","edition":"` + edition + `","channel":"stable","minVersion":"1.0.0","releasedAt":"2026-10-03T00:00:00Z","notes":["修复问题"]}`
+		if err := os.WriteFile(filepath.Join(dir, "backend", "release.json"), []byte(info), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := updatesign.WriteManifest(dir, version, key); err != nil {
+		t.Fatal(err)
+	}
+	if tamper {
+		if err := os.WriteFile(filepath.Join(dir, "backend", "auth_pro"), []byte("evil"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	packagePath := filepath.Join(t.TempDir(), "auth_pro-full-v"+version+".tar.gz")
+	if out, err := exec.Command("tar", "-czf", packagePath, "-C", dir, ".").CombinedOutput(); err != nil {
+		t.Fatalf("tar: %v %s", err, out)
+	}
+	return packagePath
 }
 
 func signedOnlineUpdateManifest(hexSum string, size int64) *onlineUpdateManifest {

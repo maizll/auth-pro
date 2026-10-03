@@ -145,3 +145,40 @@ export function testOfficialUpdateSource() {
     showErrorMessage: false
   })
 }
+
+/** 上传更新包后服务器从包里认出的信息，只读展示给用户确认。 */
+export interface OnlineUpdateUpload {
+  uploadId: string
+  currentVersion: string
+  version: string
+  edition: 'official' | 'client'
+  editionLabel: string
+  releasedAt: string
+  notes: string[]
+  size: number
+  sha256: string
+}
+
+/** 上传 Release 里的整包原文件，服务器验签并识别版本，不安装。 */
+export function uploadOnlineUpdatePackage(file: File, onProgress?: (percent: number) => void) {
+  const data = new FormData()
+  data.append('file', file)
+  return request.post<OnlineUpdateUpload>({
+    url: '/api/system/update/upload',
+    data,
+    timeout: 30 * 60 * 1000,
+    showErrorMessage: false,
+    onUploadProgress: (event) => {
+      if (onProgress && event.total) onProgress(Math.round((event.loaded * 100) / event.total))
+    }
+  })
+}
+
+/** 确认安装刚才上传的包，返回和在线更新同样的任务。 */
+export function applyUploadedOnlineUpdate(uploadId: string) {
+  return request.post<OnlineUpdateJob>({
+    url: '/api/system/update/upload/apply',
+    data: { uploadId },
+    showErrorMessage: false
+  })
+}

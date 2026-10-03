@@ -15,6 +15,11 @@
             @click="loadPage(true)"
           />
           <ElButton :icon="Search" :loading="checking" @click="handleCheck">检查更新</ElButton>
+          <UploadUpdatePackage
+            :official="!!officialSource"
+            :disabled="isJobActive"
+            @started="handleUploadStarted"
+          />
           <ElButton
             type="primary"
             :icon="Download"
@@ -39,18 +44,6 @@
         v-if="versionError"
         :title="versionError"
         type="error"
-        show-icon
-        :closable="false"
-        class="update-alert"
-      />
-      <ElAlert
-        v-if="
-          (job?.status === 'restarting' || awaitingRestart) &&
-          !restartTimedOut &&
-          job?.status !== 'failed'
-        "
-        title="服务正在重启，页面稍后可能短暂无法访问"
-        type="success"
         show-icon
         :closable="false"
         class="update-alert"
@@ -180,14 +173,13 @@
 
 <script setup lang="ts">
   import { appConfirm } from '@/utils/app-confirm'
-  import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+  import { computed, nextTick, onMounted, ref, toRef } from 'vue'
   import { ElMessage } from 'element-plus'
   import { Download, Refresh, Search } from '@element-plus/icons-vue'
   import {
     fetchOnlineUpdateApply,
     fetchOnlineUpdateCheck,
     fetchOnlineUpdateHistory,
-    fetchOnlineUpdateJob,
     fetchOnlineUpdateStatus,
     OfficialUpdateSource as OfficialUpdateSourceView,
     OnlineUpdateCheckResult,
@@ -198,20 +190,10 @@
   import { HttpError } from '@/utils/http/error'
   import OfficialUpdateSource from './OfficialUpdateSource.vue'
   import ReleaseHistory from './ReleaseHistory.vue'
-  import { setBackendUnreachableRedirectPaused } from '@/utils/http/backend-unavailable'
-  import { UPDATE_RESTART_RECOVERY, clearRestartStart } from './restart-timeout'
+  import UploadUpdatePackage from './UploadUpdatePackage.vue'
+  import { UPDATE_RESTART_RECOVERY } from './restart-timeout'
   import { latestVersionStatus, updateChannelLabel } from './status-label'
-  import {
-    clearUpdateWait,
-    interpretUpdatePoll,
-    markUpdateReloaded,
-    rememberRestartingSince,
-    rememberUpdateWaitStart,
-    sampleFromVersionHTTP,
-    updateAlreadyReloaded,
-    versionPollURL,
-    type UpdatePollClock
-  } from './restart-watch'
+  import { stoppedBeforeInstall, updateSession, watchUpdateJob } from './update-session'
 
   defineOptions({ name: 'OnlineUpdate' })
 
@@ -225,19 +207,13 @@
   const history = ref<OnlineUpdateHistory | null>(null)
   const historyError = ref('')
   const checkResult = ref<OnlineUpdateCheckResult | null>(null)
-  const job = ref<OnlineUpdateJob | null>(null)
+  // 任务状态和轮询放在全局会话里，离开本页也继续等，重启期间只显示「正在更新」卡片。
+  const job = toRef(updateSession, 'job')
   const jobSectionRef = ref<HTMLElement | null>(null)
-  const restartTimedOut = ref(false)
-  const awaitingRestart = ref(false)
-  const restartFailureReason = ref(
-    '在限定时间内没有确认新版本已经启动。若服务已经恢复，请刷新页面查看版本号。'
-  )
+  const restartTimedOut = toRef(updateSession, 'restartTimedOut')
+  const restartFailureReason = toRef(updateSession, 'restartFailureReason')
   const restartRecovery = UPDATE_RESTART_RECOVERY
-  let jobTimer: ReturnType<typeof setInterval> | undefined
   let redirectScheduled = false
-  let reloadScheduled = false
-  let updateWatching = false
-  let pollClock: UpdatePollClock = { startedAt: 0, restartingSince: 0 }
 
   // 只有官网返回更新来源；检查更新后用最新的读取结果。
   const sourceOverride = ref<OfficialUpdateSourceView | null>(null)
@@ -295,8 +271,7 @@
     if (job.value.status === 'restarting') return Math.max(95, normalizedProgress)
     return normalizedProgress
   })
-  // 下载和验签（进度不超过 50%）阶段失败时还没动网站文件，不提回滚和进程守护。
-  const stoppedBeforeInstall = (progress: number | undefined) => Number(progress) <= 50
+  // 下载和验签阶段失败时还没动网站文件，不提回滚和进程守护。
   const failedBeforeInstall = computed(
     () => job.value?.status === 'failed' && stoppedBeforeInstall(job.value.progress)
   )
@@ -311,9 +286,11 @@
     try {
       status.value = await fetchOnlineUpdateStatus()
       statusFailed.value = false
-      job.value = status.value.runningJob || job.value
-      if (job.value && ['running', 'restarting'].includes(job.value.status)) {
-        startJobPolling(job.value.id)
+      const running = status.value.runningJob
+      if (running && ['running', 'restarting'].includes(running.status)) {
+        if (!updateSession.watching || job.value?.id !== running.id) watchUpdateJob(running)
+      } else if (running && !updateSession.watching) {
+        job.value = running
       }
     } catch (error) {
       statusFailed.value = true
@@ -380,11 +357,9 @@
 
     applying.value = true
     try {
-      job.value = await fetchOnlineUpdateApply()
+      watchUpdateJob(await fetchOnlineUpdateApply())
       await nextTick()
       jobSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      ElMessage.success('更新任务已启动')
-      startJobPolling(job.value.id)
     } catch (error: any) {
       if (handleUpdateError(error)) return
       ElMessage.error(error?.message || '更新启动失败')
@@ -393,143 +368,11 @@
     }
   }
 
-  const startJobPolling = (id: string) => {
-    stopJobPolling()
-    updateWatching = true
-    pollClock = {
-      startedAt: rememberUpdateWaitStart(id, Date.now(), window.sessionStorage),
-      restartingSince: 0
-    }
-    const savedRestart = Number(window.sessionStorage.getItem(`auth-pro-update-restarting:${id}`))
-    if (Number.isFinite(savedRestart) && savedRestart > 0) pollClock.restartingSince = savedRestart
-    setBackendUnreachableRedirectPaused(true)
-    void pollUpdate(id)
-    jobTimer = setInterval(() => {
-      void pollUpdate(id)
-    }, 2000)
-  }
-
-  const pollUpdate = async (id: string) => {
-    if (!updateWatching) return
-    const now = Date.now()
-    let sample = sampleFromVersionHTTP(undefined, undefined, '', true)
-    try {
-      const response = await fetch(versionPollURL(now), {
-        cache: 'no-store',
-        headers: { Accept: 'application/json', 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
-      })
-      sample = sampleFromVersionHTTP(
-        response.status,
-        response.headers.get('content-type') || '',
-        await response.text()
-      )
-    } catch {
-      sample = sampleFromVersionHTTP(undefined, undefined, '', true)
-    }
-    const decision = interpretUpdatePoll(sample, job.value?.version || '', pollClock, now)
-    pollClock.restartingSince = decision.restartingSince
-    if (decision.restartingSince > 0) {
-      rememberRestartingSince(id, decision.restartingSince, window.sessionStorage)
-      awaitingRestart.value = true
-    }
-    if (decision.action === 'reload') {
-      finishUpdate('更新完成，正在刷新')
-      return
-    }
-    if (decision.action === 'rollback') {
-      failUpdate(decision.reason)
-      return
-    }
-    if (decision.action === 'timeout') {
-      timeoutUpdate(decision.reason)
-      return
-    }
-    if (decision.action === 'auth') {
-      stopJobPolling()
-      ElMessage.error('登录已失效，请重新登录')
-      redirectToAdminLogin()
-      return
-    }
-    if (decision.action === 'wait') awaitingRestart.value = decision.restarting
-
-    try {
-      const nextJob = await fetchOnlineUpdateJob(id)
-      job.value = nextJob
-      if (nextJob.status === 'restarting') awaitingRestart.value = true
-      if (nextJob.status === 'success') {
-        finishUpdate('更新完成，正在刷新')
-        return
-      }
-      if (nextJob.status === 'failed') {
-        failUpdate(nextJob.error || nextJob.message || '更新失败，已回滚到更新前的版本。')
-      }
-    } catch (error) {
-      if (handleUpdateError(error)) return
-      // 502/504、断网或 nginx 的 HTML 错误页都当作重启中，继续等版本接口。
-      awaitingRestart.value = true
-    }
-  }
-
-  const finishUpdate = (message: string) => {
-    const id = job.value?.id
-    if (id && updateAlreadyReloaded(id, window.sessionStorage)) {
-      stopJobPolling()
-      clearUpdateWait(id, window.sessionStorage)
-      setBackendUnreachableRedirectPaused(false)
-      awaitingRestart.value = false
-      if (job.value) job.value = { ...job.value, status: 'success', progress: 100, message }
-      return
-    }
-    if (reloadScheduled) return
-    reloadScheduled = true
-    if (id) markUpdateReloaded(id, window.sessionStorage)
-    if (job.value) job.value = { ...job.value, status: 'success', progress: 100, message }
-    stopJobPolling()
-    setBackendUnreachableRedirectPaused(false)
-    ElMessage.success(message)
-    window.setTimeout(() => window.location.reload(), 600)
-  }
-
-  const failUpdate = (reason: string) => {
-    awaitingRestart.value = false
-    restartTimedOut.value = false
-    if (job.value) {
-      job.value = {
-        ...job.value,
-        status: 'failed',
-        error: reason,
-        message: stoppedBeforeInstall(job.value.progress)
-          ? '更新没有执行，网站没有改动'
-          : '更新失败，已回滚到更新前的版本'
-      }
-    }
-    finishRestartWait()
-    stopJobPolling()
-    ElMessage.error(reason)
-  }
-
-  const timeoutUpdate = (reason: string) => {
-    restartTimedOut.value = true
-    restartFailureReason.value = reason
-    awaitingRestart.value = false
-    finishRestartWait()
-    stopJobPolling()
-    ElMessage.error(reason)
-  }
-
-  const finishRestartWait = () => {
-    if (job.value?.id) {
-      clearRestartStart(job.value.id, window.sessionStorage)
-      clearUpdateWait(job.value.id, window.sessionStorage)
-    }
-    pollClock = { startedAt: 0, restartingSince: 0 }
-    setBackendUnreachableRedirectPaused(false)
-  }
-
-  const stopJobPolling = () => {
-    updateWatching = false
-    if (jobTimer) clearInterval(jobTimer)
-    jobTimer = undefined
+  // 上传的包确认安装后，和在线更新一样进入「正在更新」。
+  const handleUploadStarted = async (started: OnlineUpdateJob) => {
+    watchUpdateJob(started)
+    await nextTick()
+    jobSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   // 登录态失效（401）或无权限（403）时，在线更新接口已不可用，跳转 /admin 重新登录。
@@ -545,7 +388,6 @@
   // 返回 true 表示已处理（跳转登录），调用方直接返回；否则按普通错误继续处理。
   const handleUpdateError = (error: unknown): boolean => {
     if (!isSessionExpired(error)) return false
-    stopJobPolling()
     // 401 已由 axios 拦截器提示并触发登出；403 需自行提示后跳转。
     if (error instanceof HttpError && error.code === 403) {
       ElMessage.error('登录已失效，请重新登录')
@@ -593,11 +435,6 @@
 
   onMounted(() => {
     void loadPage()
-  })
-
-  onBeforeUnmount(() => {
-    stopJobPolling()
-    setBackendUnreachableRedirectPaused(false)
   })
 </script>
 
@@ -822,7 +659,12 @@
         flex-direction: column;
 
         .update-actions {
+          flex-wrap: wrap;
           width: 100%;
+
+          :deep(.el-button + .el-button) {
+            margin-left: 0;
+          }
         }
       }
     }

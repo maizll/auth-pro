@@ -17,6 +17,13 @@ class AuthPro
     /** @var bool */
     private static $booted = false;
 
+    /** 授权响应签名的用途标记，签名原文第一行。 */
+    const LICENSE_PROOF_KIND = 'auth-pro-license-v3';
+    /** 校验通过的结果默认缓存 5 分钟。 */
+    const DEFAULT_CACHE_TTL = 300;
+    /** 连不上授权站时，最近一次验签通过的结果最多再用 72 小时（从授权站签名时间算起）。 */
+    const DEFAULT_OFFLINE_GRACE = 259200;
+
     /**
      * 加载配置并按模块执行启动逻辑。
      * license / piracy 开启时，校验失败会中断（盗版模块展示拦截页）。
@@ -40,33 +47,216 @@ class AuthPro
     /**
      * 仅做授权校验，不强制退出进程。
      * 返回结构：{ ok, code, message, data }
+     * 响应必须带授权站的 Ed25519 签名（config.json 的 publicKey）才算数；校验通过的结果缓存 cacheTtl 秒，
+     * 连不上授权站时在 offlineGrace 秒内沿用上次通过的结果。
      *
-     * @param array $overrides 可覆盖 licenseKey / domain / serverIp
+     * @param array $overrides 可覆盖 licenseKey / domain / serverIp；浏览器代理转发时再传浏览器给的 nonce，
+     *                         这时不读写本机缓存，结果原样交给浏览器验签
      * @return array
      */
     public static function verify($overrides = array())
     {
         self::ensureConfig();
+        $publicKey = self::publicKey();
+        if (!is_array($overrides)) {
+            $overrides = array();
+        }
+        $nonce = isset($overrides['nonce']) ? trim((string)$overrides['nonce']) : '';
+        $relay = $nonce !== '';
+        if (!$relay) {
+            $nonce = bin2hex(random_bytes(16));
+        }
         $ctx = self::requestContext($overrides);
-        $timestamp = time();
+        $cacheFile = self::cachePath($ctx);
+        $now = time();
+        if (!$relay) {
+            $entry = self::readCache($cacheFile, $ctx, $publicKey);
+            if ($entry !== null && $now - $entry['savedAt'] < self::positiveOr(self::cfg('cacheTtl', 0), self::DEFAULT_CACHE_TTL)) {
+                return self::entryResult($entry, 'cached');
+            }
+        }
         $payload = array(
             'appKey' => self::cfg('appKey', ''),
             'domain' => $ctx['domain'],
             'serverIp' => $ctx['serverIp'],
             'licenseKey' => $ctx['licenseKey'],
-            'timestamp' => $timestamp,
-            'signVersion' => 'v2',
+            'timestamp' => $now,
+            'signVersion' => 'v3',
+            'nonce' => $nonce,
             'sign' => self::v2Sign(array(
-                'v2',
+                'v3',
                 self::cfg('appKey', ''),
                 $ctx['licenseKey'],
                 $ctx['domain'],
                 $ctx['serverIp'],
-                (string)$timestamp,
+                (string)$now,
+                $nonce,
             )),
         );
         $response = self::httpJson('POST', '/api/license/verify', $payload);
-        return self::normalizeResult($response);
+        if ($response === null || self::verifyLicenseProof($publicKey, $ctx['licenseKey'], $nonce, $response) === null) {
+            return self::offlineResult($cacheFile, $ctx, $publicKey, $relay, $response);
+        }
+        $result = self::normalizeResult($response);
+        if (!$relay) {
+            if ($result['ok']) {
+                self::writeCache($cacheFile, array('savedAt' => $now, 'nonce' => $nonce, 'body' => $response));
+            } elseif (is_file($cacheFile)) {
+                // 授权站明确拒绝（签名有效）：立刻失效，不再用旧缓存放行。
+                @unlink($cacheFile);
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * 连不上授权站或响应验签不过：宽限期内沿用上次验签通过的结果，否则拒绝（data.unverified = true）。
+     */
+    private static function offlineResult($cacheFile, $ctx, $publicKey, $relay, $response)
+    {
+        if (!$relay) {
+            $entry = self::readCache($cacheFile, $ctx, $publicKey);
+            $now = time();
+            $grace = self::positiveOr(self::cfg('offlineGrace', 0), self::DEFAULT_OFFLINE_GRACE);
+            if ($entry !== null && $now <= $entry['serverTime'] + $grace && ($entry['expireTs'] === 0 || $now < $entry['expireTs'])) {
+                return self::entryResult($entry, 'offline');
+            }
+        }
+        $result = self::normalizeResult($response);
+        $result['ok'] = false;
+        $data = is_array($result['data']) ? $result['data'] : array();
+        $data['unverified'] = true;
+        $result['data'] = $data;
+        if ($result['message'] === '') {
+            $result['message'] = $response === null ? '无法连接授权站' : '授权响应无法验证';
+        }
+        return $result;
+    }
+
+    private static function publicKey()
+    {
+        if (!function_exists('sodium_crypto_sign_verify_detached')) {
+            throw new RuntimeException('授权校验需要 PHP sodium 扩展（PHP 7.2 起自带）。主机没有时可 composer require paragonie/sodium_compat。');
+        }
+        $raw = base64_decode(trim((string)self::cfg('publicKey', '')), true);
+        if ($raw === false || strlen($raw) !== 32) {
+            throw new RuntimeException('缺少或无效的 publicKey，请在授权站后台重新下载接入包，或从「接入开发」页复制授权响应公钥填入 config.json');
+        }
+        return $raw;
+    }
+
+    /**
+     * 核对 data.proof：appKey、nonce、授权码哈希必须是自己这次发出的，再按接入文档的规则拼原文验签。
+     * 域名和 IP 取 proof 里授权站规范化后的值，它们已在 v3 请求签名里和 nonce 绑在一起。
+     * 通过返回签名里的服务器时间，不通过返回 null。
+     */
+    private static function verifyLicenseProof($publicKey, $licenseKey, $nonce, $body)
+    {
+        if (!is_array($body) || !isset($body['data']['proof']) || !is_array($body['data']['proof'])) {
+            return null;
+        }
+        $data = $body['data'];
+        $proof = $data['proof'];
+        $appKey = (string)self::cfg('appKey', '');
+        $keyHash = $licenseKey === '' ? '' : hash('sha256', $licenseKey);
+        if (self::text($proof, 'appKey') !== $appKey || self::text($proof, 'nonce') !== $nonce
+            || self::text($proof, 'licenseKeyHash') !== $keyHash) {
+            return null;
+        }
+        if (!isset($proof['serverTime']) || !is_int($proof['serverTime'])) {
+            return null;
+        }
+        $signature = self::text($proof, 'signature');
+        if (strpos($signature, 'ed25519:') !== 0) {
+            return null;
+        }
+        $sig = base64_decode(substr($signature, 8), true);
+        if ($sig === false || strlen($sig) !== 64) {
+            return null;
+        }
+        $fields = array(
+            'appKey' => $appKey,
+            'domain' => self::text($proof, 'domain'),
+            'serverIp' => self::text($proof, 'serverIp'),
+            'licenseKeyHash' => $keyHash,
+            'nonce' => $nonce,
+            'serverTime' => (string)$proof['serverTime'],
+            'result' => self::text($data, 'result'),
+            'reason' => self::text($data, 'reason'),
+            'expireTs' => isset($data['expireTs']) && is_int($data['expireTs']) ? (string)$data['expireTs'] : '',
+        );
+        $message = self::LICENSE_PROOF_KIND . "\n";
+        foreach ($fields as $key => $value) {
+            $message .= $key . '=' . str_replace(array("\r", "\n"), ' ', $value) . "\n";
+        }
+        if (!sodium_crypto_sign_verify_detached($sig, $message, $publicKey)) {
+            return null;
+        }
+        return $proof['serverTime'];
+    }
+
+    /** 校验缓存写在临时目录，读出时重新验签，手改文件没有用。 */
+    private static function cachePath($ctx)
+    {
+        $key = implode("\n", array((string)self::cfg('baseUrl', ''), (string)self::cfg('appKey', ''), $ctx['licenseKey'], $ctx['domain'], $ctx['serverIp']));
+        return rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'authpro-' . substr(hash('sha256', $key), 0, 24) . '.json';
+    }
+
+    private static function readCache($cacheFile, $ctx, $publicKey)
+    {
+        if (!is_file($cacheFile)) {
+            return null;
+        }
+        $entry = json_decode((string)@file_get_contents($cacheFile), true);
+        if (!is_array($entry) || !isset($entry['body'], $entry['nonce'])) {
+            return null;
+        }
+        $normalized = self::normalizeResult($entry['body']);
+        if (!$normalized['ok']) {
+            return null;
+        }
+        $serverTime = self::verifyLicenseProof($publicKey, $ctx['licenseKey'], (string)$entry['nonce'], $entry['body']);
+        if ($serverTime === null) {
+            return null;
+        }
+        $expireTs = isset($entry['body']['data']['expireTs']) && is_int($entry['body']['data']['expireTs']) ? $entry['body']['data']['expireTs'] : 0;
+        return array(
+            'savedAt' => isset($entry['savedAt']) ? (int)$entry['savedAt'] : 0,
+            'body' => $entry['body'],
+            'serverTime' => $serverTime,
+            'expireTs' => $expireTs,
+        );
+    }
+
+    private static function writeCache($cacheFile, $entry)
+    {
+        $tmp = $cacheFile . '.tmp';
+        $old = umask(0077);
+        $written = @file_put_contents($tmp, json_encode($entry));
+        umask($old);
+        if ($written !== false) {
+            @rename($tmp, $cacheFile);
+        }
+    }
+
+    private static function entryResult($entry, $flag)
+    {
+        $result = self::normalizeResult($entry['body']);
+        $data = is_array($result['data']) ? $result['data'] : array();
+        $data[$flag] = true;
+        $result['data'] = $data;
+        return $result;
+    }
+
+    private static function positiveOr($value, $fallback)
+    {
+        $number = (int)$value;
+        return $number > 0 ? $number : $fallback;
+    }
+
+    private static function text($source, $key)
+    {
+        return isset($source[$key]) && is_string($source[$key]) ? $source[$key] : '';
     }
 
     /**
@@ -346,7 +536,11 @@ class AuthPro
             $opts[CURLOPT_HTTPHEADER] = $headers;
             curl_setopt_array($ch, $opts);
             $raw = curl_exec($ch);
+            $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
             curl_close($ch);
+            if ($raw === false || $status === 0) {
+                $raw = false;
+            }
         } else {
             $header = "Accept: application/json\r\n";
             $http = array('method' => $method, 'timeout' => 8, 'ignore_errors' => true);
@@ -357,7 +551,11 @@ class AuthPro
             $http['header'] = $header;
             $raw = @file_get_contents($url, false, stream_context_create(array('http' => $http)));
         }
-        $decoded = json_decode($raw ? $raw : '{}', true);
-        return is_array($decoded) ? $decoded : array();
+        // 连不上或响应不是 JSON 时返回 null，授权校验据此进入离线宽限；其它接口当成空结果。
+        if ($raw === false || $raw === null) {
+            return null;
+        }
+        $decoded = json_decode($raw === '' ? '{}' : $raw, true);
+        return is_array($decoded) ? $decoded : null;
     }
 }

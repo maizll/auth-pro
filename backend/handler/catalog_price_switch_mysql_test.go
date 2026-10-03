@@ -17,7 +17,8 @@ import (
 
 func TestCatalogPriceSwitchMariaDB(t *testing.T) {
 	control := openAppUpdateControlDB(t)
-	defer control.Close()
+	// 关连接要排在删库之后（Cleanup 后进先出），否则删库时连接已关、测试库会留下
+	t.Cleanup(func() { control.Close() })
 	databaseName := "authpro_pricesw_" + strconv.Itoa(os.Getpid())
 	if _, err := control.Exec("CREATE DATABASE `" + databaseName + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"); err != nil {
 		t.Fatal(err)
@@ -52,7 +53,8 @@ func TestCatalogPriceSwitchMariaDB(t *testing.T) {
 			status VARCHAR(20) NOT NULL,
 			owner_type VARCHAR(20) NOT NULL,
 			owner_id BIGINT NOT NULL,
-			source ENUM('admin','agent','user_purchase','card') NOT NULL DEFAULT 'admin'
+			source ENUM('admin','agent','user_purchase','card') NOT NULL DEFAULT 'admin',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 		INSERT INTO apps (id, app_name, app_key) VALUES (1, '演示应用', 'app-a');
 		INSERT INTO licenses (id, license_no, app_id, status, owner_type, owner_id) VALUES
@@ -60,8 +62,18 @@ func TestCatalogPriceSwitchMariaDB(t *testing.T) {
 			(12, 'LIC-12', 1, 'active', 'agent', 3),
 			(13, 'LIC-13', 1, 'active', 'user', 8),
 			(21, 'LIC-21', 1, 'active', 'user', 9);
+		CREATE TABLE schema_migrations (
+			name VARCHAR(100) NOT NULL PRIMARY KEY,
+			applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
 	`); err != nil {
 		t.Fatal(err)
+	}
+	// 按应用出售商业版的两步迁移要用到完整的套餐表，与目录改价无关，这里记成已执行。
+	for _, name := range []string{perAppCommercialMigration, storeEditionPlansMigration} {
+		if _, err := db.Exec(`INSERT INTO schema_migrations (name) VALUES (?)`, name); err != nil {
+			t.Fatal(err)
+		}
 	}
 	config.SetDBOverrideForTest(db)
 	t.Cleanup(func() { config.SetDBOverrideForTest(nil) })

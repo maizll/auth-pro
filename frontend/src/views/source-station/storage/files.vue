@@ -84,6 +84,7 @@
 
 <script setup lang="ts">
   import { appPrompt } from '@/utils/app-confirm'
+  import { formatLocalDateTime } from '@/utils/local-time'
   import AppDialog from '@/components/core/dialog/AppDialog.vue'
 
   import { useRoute, useRouter } from 'vue-router'
@@ -137,8 +138,7 @@
   }
 
   function formatTime(value?: string) {
-    if (!value || value.startsWith('0001')) return '-'
-    return value.replace('T', ' ').replace('Z', '').slice(0, 19)
+    return formatLocalDateTime(value) || '-'
   }
 
   async function loadLocations() {

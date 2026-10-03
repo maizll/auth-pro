@@ -100,6 +100,9 @@ type onlineUpdateManifest struct {
 	URL    string `json:"url"`
 	SHA256 string `json:"sha256"`
 	Size   int64  `json:"size"`
+
+	// uploadedPath 是本地上传的包。非空时安装流程跳过下载，直接用这个文件，其余步骤和在线下载完全一样。
+	uploadedPath string
 }
 
 type onlineUpdateRelease struct {
@@ -336,6 +339,11 @@ func AdminOnlineUpdateApply(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "当前已经是最新版本"})
 		return
 	}
+	startOnlineUpdateJob(c, manifest, "online_update_apply")
+}
+
+// startOnlineUpdateJob 建任务、写审计日志并在后台安装。在线更新和上传更新包都从这里开始。
+func startOnlineUpdateJob(c *gin.Context, manifest *onlineUpdateManifest, auditAction string) {
 	if !reserveOnlineUpdateJob() {
 		c.JSON(http.StatusOK, gin.H{"code": 409, "msg": "已有更新任务正在执行"})
 		return
@@ -343,6 +351,11 @@ func AdminOnlineUpdateApply(c *gin.Context) {
 
 	job := createOnlineUpdateJob(manifest.Version)
 	appendOnlineUpdateLog(job.ID, "更新任务已创建")
+	writeOnlineUpdateAuditLog(c, auditAction, map[string]any{
+		"jobId":     job.ID,
+		"toVersion": manifest.Version,
+		"sha256":    manifest.Package.SHA256,
+	})
 	go runOnlineUpdateJob(job.ID, *manifest)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1010,33 +1023,86 @@ func reconcileOnlineUpdateJobResult(job *onlineUpdateJob) *onlineUpdateJob {
 
 // SettleOnlineUpdateJobsAfterRestart 在新进程完成启动迁移、即将开始监听时调用。
 // 有的守护方式会在旧进程退出时连同更新脚本一起结束，结果文件没写，任务就一直停在 restarting，
-// 版本接口也一直报「重启中」。这里看到目标版本就是当前运行的版本，说明已经换上新程序，把任务记成完成。
-// 版本不一致的任务不动：可能是回滚后旧版本先起来了，结果由更新脚本写。
+// 版本接口也一直报「重启中」。这里看到目标版本就是当前运行的版本，等一会儿仍没有结果时把任务记成完成。
+// 不能一启动就记：更新脚本或守护的健康检查还在进行，新版本随后可能起不来被回滚，后台会先显示成功再改成失败。
+// 所以放到后台等：结果文件出现就以它为准；守护的交接文件还在就等守护写结果；都没有时等 settleScriptWindow 后仍在运行才记成功。
+// 进程中途退出时这个等待也随之结束，不会留下「成功」。版本不一致的任务不动：可能是回滚后旧版本先起来了，结果由更新脚本写。
 func SettleOnlineUpdateJobsAfterRestart() {
-	entries, err := os.ReadDir(config.GetUpdateDir())
-	if err != nil {
+	ids := unsettledOnlineUpdateJobs()
+	if len(ids) == 0 {
 		return
 	}
+	go waitAndSettleOnlineUpdateJobs(ids, time.Now(), time.Second)
+}
+
+var (
+	// settleScriptWindow：没有守护交接时，更新脚本的健康检查在新版本开始监听后几秒内就会写结果，超过这个时间仍没有，说明脚本已被守护一并结束。
+	settleScriptWindow = 20 * time.Second
+	// settleGuardianWindow：守护交接最多重试 2 次，每次健康检查约 HEALTH_TRIES×3 秒，再留 1 分钟余量。
+	settleGuardianWindow = func() time.Duration {
+		return time.Duration(onlineUpdateHealthTries())*6*time.Second + time.Minute
+	}
+)
+
+func onlineUpdateHandoffPending() bool {
+	_, err := os.Stat(filepath.Join(config.GetUpdateDir(), "pending-restart", "handoff.sh"))
+	return err == nil
+}
+
+// unsettledOnlineUpdateJobs 列出目标版本就是当前版本、却还停在进行中或重启中的任务。
+func unsettledOnlineUpdateJobs() []string {
+	entries, err := os.ReadDir(config.GetUpdateDir())
+	if err != nil {
+		return nil
+	}
+	var ids []string
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".json") {
 			continue
 		}
 		job := loadOnlineUpdateJob(strings.TrimSuffix(name, ".json"))
-		if job == nil || (job.Status != "running" && job.Status != "restarting") {
+		if job == nil || (job.Status != "running" && job.Status != "restarting") || !sameProductVersion(job.Version, config.AppVersion) {
 			continue
 		}
-		if !sameProductVersion(job.Version, config.AppVersion) {
-			continue
+		ids = append(ids, job.ID)
+	}
+	return ids
+}
+
+// waitAndSettleOnlineUpdateJobs 每隔 poll 看一次，直到任务都有了结果，或等待时间到了把仍未结束的任务记成完成。
+func waitAndSettleOnlineUpdateJobs(ids []string, started time.Time, poll time.Duration) {
+	for {
+		pending := onlineUpdateHandoffPending()
+		window := settleScriptWindow
+		if pending {
+			window = settleGuardianWindow()
 		}
-		now := time.Now()
-		job.Status = "success"
-		job.Message = "更新完成"
-		job.Progress = 100
-		job.Error = ""
-		job.Logs = append(job.Logs, fmt.Sprintf("%s 新进程已启动，当前版本 v%s，更新完成", now.Format("15:04:05"), strings.TrimPrefix(config.AppVersion, "v")))
-		job.UpdatedAt = now
-		persistOnlineUpdateJob(job)
+		timeUp := time.Since(started) >= window
+		open := 0
+		for _, id := range ids {
+			// loadOnlineUpdateJob 会读结果文件并写回任务状态。
+			job := loadOnlineUpdateJob(id)
+			if job == nil || (job.Status != "running" && job.Status != "restarting") {
+				continue
+			}
+			if !timeUp {
+				open++
+				continue
+			}
+			now := time.Now()
+			job.Status = "success"
+			job.Message = "更新完成"
+			job.Progress = 100
+			job.Error = ""
+			job.Logs = append(job.Logs, fmt.Sprintf("%s 新进程已启动，当前版本 v%s，更新完成", now.Format("15:04:05"), strings.TrimPrefix(config.AppVersion, "v")))
+			job.UpdatedAt = now
+			persistOnlineUpdateJob(job)
+		}
+		if open == 0 {
+			return
+		}
+		time.Sleep(poll)
 	}
 }
 
@@ -1092,18 +1158,23 @@ func executeOnlineUpdate(jobID string, manifest *onlineUpdateManifest) error {
 	}
 
 	updateOnlineUpdateProgress(jobID, 5, "正在准备更新")
-	appendOnlineUpdateLog(jobID, "开始下载更新包")
-	updateOnlineUpdateProgress(jobID, 10, "开始下载更新包")
-	packagePath, err := downloadOnlineUpdatePackageForApply(jobID, manifest)
-	if err != nil {
-		return err
+	packagePath := manifest.uploadedPath
+	if packagePath == "" {
+		appendOnlineUpdateLog(jobID, "开始下载更新包")
+		updateOnlineUpdateProgress(jobID, 10, "开始下载更新包")
+		downloaded, err := downloadOnlineUpdatePackageForApply(jobID, manifest)
+		if err != nil {
+			return err
+		}
+		packagePath = downloaded
+	} else {
+		appendOnlineUpdateLog(jobID, "使用上传的更新包，不需要下载")
 	}
 	if err := verifyDownloadedOnlineUpdatePackage(manifest, packagePath); err != nil {
 		return err
 	}
-	appendOnlineUpdateLog(jobID, "已核对更新包的大小、哈希和官方签名")
-	appendOnlineUpdateLog(jobID, "更新包下载完成")
-	updateOnlineUpdateProgress(jobID, 50, "更新包下载完成")
+	appendOnlineUpdateLog(jobID, "已核对更新包的大小、哈希、官方签名和适用端")
+	updateOnlineUpdateProgress(jobID, 50, "更新包已就绪")
 
 	appendOnlineUpdateLog(jobID, "开始解压更新包")
 	updateOnlineUpdateProgress(jobID, 55, "开始解压更新包")
@@ -1280,10 +1351,19 @@ func verifyDownloadedOnlineUpdatePackage(manifest *onlineUpdateManifest, package
 	if !strings.EqualFold(strings.TrimSpace(manifest.Package.Signature), onlineUpdateSignatureForSHA256(sum)) {
 		return errors.New("更新包签名与 SHA256 不一致")
 	}
-	// 1.8.6 起必须有发布签名。验不过就删掉下载的包，网站什么都没动。
-	if err := updatesign.VerifyPackage(packagePath, manifest.Version, onlineUpdatePublicKey()); err != nil {
+	// 1.8.6 起必须有发布签名，1.8.7 起还要有包内发布信息且适用端是本站这一端。
+	// 验不过就删掉这个包，网站什么都没动。
+	signed, info, err := updatesign.InspectPackage(packagePath, onlineUpdatePublicKey())
+	if err == nil && !sameProductVersion(signed.Version, manifest.Version) {
+		err = fmt.Errorf("%w：签名的版本是 %s，不是 %s", updatesign.ErrTampered, signed.Version, manifest.Version)
+	}
+	if err != nil {
 		_ = os.Remove(packagePath)
 		return onlineUpdateSignatureFailure(err)
+	}
+	if err := checkOnlineUpdatePackageInfo(info, signed.Version); err != nil {
+		_ = os.Remove(packagePath)
+		return err
 	}
 	return nil
 }

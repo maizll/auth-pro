@@ -189,7 +189,6 @@
     "src/utils/geetest/index.ts:loadGeetest4",
     "src/utils/geetest/index.ts:type:GeetestValidateResult",
     "src/utils/http/backend-unavailable.ts:BACKEND_UNAVAILABLE_THRESHOLD",
-    "src/utils/http/backend-unavailable.ts:isBackendUnreachableRedirectPaused",
     "src/utils/http/error.ts:type:ErrorLogData",
     "src/utils/http/error.ts:type:ErrorResponse",
     "src/utils/http/status.ts:ApiStatus.httpVersionNotSupported",
