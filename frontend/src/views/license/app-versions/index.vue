@@ -243,6 +243,9 @@
                   clearable
                   placeholder="低于此版本时强制更新"
                 />
+                <div class="upload-tip"
+                  >低于此版本的老版本会被标成强制更新，但仍可直接升级到本版本；留空表示不限。</div
+                >
               </ElFormItem>
             </ElCol>
           </ElRow>
@@ -267,7 +270,7 @@
               {{ detailVersion.forceUpdate ? '强制更新' : '可选更新' }}
             </ElTag>
             <span v-if="detailVersion.minVersion" class="description-inline">
-              低于 {{ detailVersion.minVersion }} 时强制更新
+              低于 {{ detailVersion.minVersion }} 时强制更新（仍可直接升级）
             </span>
           </ElDescriptionsItem>
           <ElDescriptionsItem label="文件大小">

@@ -296,6 +296,8 @@ func main() {
 			superSecured.POST("/system/update/upload", handler.AdminOnlineUpdateUpload)
 			superSecured.POST("/system/update/upload/apply", handler.AdminOnlineUpdateUploadApply)
 			superSecured.GET("/system/update/jobs/:id", handler.AdminOnlineUpdateJob)
+			superSecured.GET("/system/update/notice", handler.AdminOnlineUpdateNotice)
+			superSecured.PUT("/system/update/auto", handler.AdminOnlineUpdateAutoSave)
 			// 官网专用只读更新令牌。客户站调用返回 403。
 			secured.GET("/license/dashboard", handler.LicenseDashboard)
 			secured.GET("/dashboard/overview", handler.AdminDashboardOverview)
@@ -490,6 +492,8 @@ func main() {
 
 	// 启动迁移都跑完了，当前就是要监听的版本。把目标版本等于本版本、却还停在重启中的更新任务记成完成。
 	handler.SettleOnlineUpdateJobsAfterRestart()
+	// 后台每小时检查一次更新：给强制更新横幅提供数据，开了自动更新时在凌晨安装强制更新。
+	handler.StartOnlineUpdateWatcher()
 
 	// 启动。SIGTERM/SIGINT 先在时限内关闭监听，避免在线更新或进程守护停进程时端口一直不释放。
 	host := config.GetHost()

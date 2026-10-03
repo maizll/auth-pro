@@ -251,8 +251,18 @@ func AdminOnlineUpdateStatus(c *gin.Context) {
 			"latest":         cachedOnlineUpdateManifest(),
 			"runningJob":     runningOnlineUpdateJob(),
 			"officialSource": currentOfficialUpdateSource(),
+			"autoUpdate":     onlineUpdateAutoEnabledNow(),
+			"autoWindow":     onlineUpdateAutoWindowText,
 		},
 	})
+}
+
+func onlineUpdateAutoEnabledNow() bool {
+	db, err := openSystemConfigDB()
+	if err != nil || ensureSystemConfigStorage(db) != nil {
+		return false
+	}
+	return onlineUpdateAutoEnabled(db)
 }
 
 // AdminOnlineUpdateCheck 拉取 latest.json 并检查版本和更新包元数据。
@@ -344,25 +354,35 @@ func AdminOnlineUpdateApply(c *gin.Context) {
 
 // startOnlineUpdateJob 建任务、写审计日志并在后台安装。在线更新和上传更新包都从这里开始。
 func startOnlineUpdateJob(c *gin.Context, manifest *onlineUpdateManifest, auditAction string) {
-	if !reserveOnlineUpdateJob() {
+	job := launchOnlineUpdateJob(manifest, func(jobID string) {
+		writeOnlineUpdateAuditLog(c, auditAction, map[string]any{
+			"jobId":     jobID,
+			"toVersion": manifest.Version,
+			"sha256":    manifest.Package.SHA256,
+		})
+	})
+	if job == nil {
 		c.JSON(http.StatusOK, gin.H{"code": 409, "msg": "已有更新任务正在执行"})
 		return
 	}
-
-	job := createOnlineUpdateJob(manifest.Version)
-	appendOnlineUpdateLog(job.ID, "更新任务已创建")
-	writeOnlineUpdateAuditLog(c, auditAction, map[string]any{
-		"jobId":     job.ID,
-		"toVersion": manifest.Version,
-		"sha256":    manifest.Package.SHA256,
-	})
-	go runOnlineUpdateJob(job.ID, *manifest)
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"msg":  "更新任务已启动，服务即将重启，请稍后刷新页面",
 		"data": snapshotOnlineUpdateJob(job.ID),
 	})
+}
+
+// launchOnlineUpdateJob 建任务、记日志并在后台安装，手动更新、上传更新包和自动更新共用。已有任务在跑时返回 nil。
+func launchOnlineUpdateJob(manifest *onlineUpdateManifest, audit func(jobID string)) *onlineUpdateJob {
+	if !reserveOnlineUpdateJob() {
+		return nil
+	}
+	job := createOnlineUpdateJob(manifest.Version)
+	appendOnlineUpdateLog(job.ID, "更新任务已创建")
+	audit(job.ID)
+	go runOnlineUpdateJob(job.ID, *manifest)
+	return job
 }
 
 // AdminOnlineUpdateJob 查询更新任务状态。
@@ -1156,6 +1176,12 @@ func executeOnlineUpdate(jobID string, manifest *onlineUpdateManifest) error {
 	if err := validateOnlineUpdateSignature(manifest); err != nil {
 		return err
 	}
+	// 先确认运行用户能写所有要动的目录。不通过就结束，下载、解压、备份都不做。
+	if err := onlineUpdatePreflight(); err != nil {
+		appendOnlineUpdateLog(jobID, err.Error())
+		return err
+	}
+	appendOnlineUpdateLog(jobID, "目录权限检查通过")
 
 	updateOnlineUpdateProgress(jobID, 5, "正在准备更新")
 	packagePath := manifest.uploadedPath

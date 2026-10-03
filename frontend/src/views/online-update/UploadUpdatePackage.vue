@@ -1,6 +1,13 @@
 <!-- 上传更新包：更新源连不上时的备用办法。只上传发布页里的整包原文件，版本和说明从包里认出，用户只点确认。 -->
 <template>
-  <ElButton v-roles="'R_SUPER'" :icon="Upload" :disabled="disabled" @click="open">
+  <ElButton
+    v-if="!hideTrigger"
+    v-roles="'R_SUPER'"
+    size="small"
+    :icon="Upload"
+    :disabled="disabled"
+    @click="open"
+  >
     上传更新包
   </ElButton>
   <AppDialog
@@ -94,7 +101,8 @@
 
   defineOptions({ name: 'UploadUpdatePackage' })
 
-  defineProps<{ official: boolean; disabled?: boolean }>()
+  // hideTrigger：窄屏时按钮收进页面的「更多」，由页面调用 open()
+  defineProps<{ official: boolean; disabled?: boolean; hideTrigger?: boolean }>()
   const emit = defineEmits<{ started: [job: OnlineUpdateJob] }>()
 
   const maxSize = 512 * 1024 * 1024
@@ -111,6 +119,7 @@
   const open = () => {
     visible.value = true
   }
+  defineExpose({ open })
 
   const reset = () => {
     file.value = null

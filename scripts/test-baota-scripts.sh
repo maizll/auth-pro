@@ -90,6 +90,8 @@ printf '%s\n' "$help_out" | grep -q 'install.lock' || fail "安装脚本 --help 
 printf '%s\n' "$help_out" | grep -q -- '--repair-guardian' || fail "安装脚本 --help 缺少 --repair-guardian"
 "$ROOT/backend/handler/install.sh" --help | grep -q -- '--repair-guardian' || fail "一条命令安装 --help 缺少 --repair-guardian"
 "$ROOT/backend/handler/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- --repair-guardian' || fail "一条命令安装 --help 没有写死修复命令"
+"$ROOT/backend/handler/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- --repair-update-perms' || fail "一条命令安装 --help 缺少 --repair-update-perms"
+grep -q '"12") 修复在线更新权限' "$ROOT/backend/handler/install.sh" || fail "菜单缺少「修复在线更新权限」"
 "$ROOT/backend/handler/install.sh" --help | grep -F -q 'auth.maizll.com/install.sh | bash -s -- upgrade' || fail "一条命令安装 --help 没有写死升级命令"
 printf '%s\n' "$help_out" | grep -q -- '--reset-admin-password' || fail "安装脚本 --help 缺少 --reset-admin-password"
 "$ROOT/backend/handler/install.sh" --help | grep -q -- '--reset-admin-password' || fail "一条命令安装 --help 缺少 --reset-admin-password"

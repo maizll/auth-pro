@@ -14,6 +14,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,8 +78,10 @@ var (
 	productUpdatePackageLimiter = newRateLimiter(productUpdatePackageLimit, productUpdateRateWindow)
 	productUpdateCacheMu        sync.Mutex
 	productUpdateLatestCache    struct {
-		body      []byte
-		expiresAt time.Time
+		body []byte
+		// forceBelow 是最新版本记录里的「最低版本」（强制更新阈值），按请求方版本单独套用，不写进缓存的清单
+		forceBelow string
+		expiresAt  time.Time
 	}
 	productUpdateReleasesCache struct {
 		body      []byte
@@ -115,12 +118,88 @@ func ProductUpdateLatest(c *gin.Context) {
 	if !productUpdateAllow(c, productUpdateJSONLimiter) {
 		return
 	}
-	body, err := productUpdateLatestBody(c.Request.Context(), false)
+	body, forceBelow, err := productUpdateLatestBody(c.Request.Context(), false)
 	if err != nil {
 		productUpdateFail(c, err)
 		return
 	}
-	productUpdateJSON(c, body)
+	productUpdateJSON(c, productUpdateManifestForRequester(body, forceBelow, c.GetHeader("User-Agent")))
+}
+
+// productUpdateWritableFixVersion 起，客户站的更新脚本在 /www/backup 进不去时改用本站数据目录存备份。
+// 更低版本跑的是它自己程序里的旧脚本，官网改不了，只能提示站长先在服务器上修一次权限。
+const productUpdateWritableFixVersion = "1.8.9"
+
+// productUpdateRequesterVersion 从请求头「auth_pro-updater/版本号」取出客户站版本。认不出时返回 false。
+func productUpdateRequesterVersion(userAgent string) (string, bool) {
+	current, ok := strings.CutPrefix(strings.TrimSpace(userAgent), "auth_pro-updater/")
+	if !ok {
+		return "", false
+	}
+	if fields := strings.Fields(current); len(fields) > 0 {
+		current = strings.TrimPrefix(fields[0], "v")
+	}
+	if _, valid := parseOnlineUpdateVersion(current); !valid {
+		return "", false
+	}
+	return current, true
+}
+
+// productUpdateWritableHint 是给旧客户站的一句说明，放在更新内容第一行。命令里的地址取官网自己的地址。
+func productUpdateWritableHint() string {
+	base := "https://auth.maizll.com"
+	if parsed, err := url.Parse(productUpdatePackagePrefix); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+		base = parsed.Scheme + "://" + parsed.Host
+	}
+	return "更新前请先看：如果点「立即更新」后提示「无法创建前端备份目录」，请用 root 登录服务器运行 curl -fsSL " +
+		base + "/install.sh | bash -s -- --repair-update-perms 你的域名 ，再回来点「立即更新」。只需运行一次。"
+}
+
+// productUpdateManifestForRequester 按请求方版本改写共用清单，缓存里的那一份不动。
+//   - 版本管理里的「最低版本」是强制更新阈值：请求方低于它时只把 force 标成 true。
+//     不能写进 minVersion：客户站把 minVersion 当成「低于则不能直接升级」，会把该升级的老站拦住。
+//   - 请求方低于 productUpdateWritableFixVersion 时，在更新内容最前面加一句修复在线更新权限的提示。
+//
+// 认不出请求方版本时清单原样返回。
+func productUpdateManifestForRequester(body []byte, forceBelow, userAgent string) []byte {
+	current, ok := productUpdateRequesterVersion(userAgent)
+	if !ok {
+		return body
+	}
+	needForce := false
+	if forceBelow != "" {
+		if comparison, valid := compareOnlineUpdateVersions(current, forceBelow); valid && comparison < 0 {
+			needForce = true
+		}
+	}
+	needHint := false
+	if comparison, valid := compareOnlineUpdateVersions(current, productUpdateWritableFixVersion); valid && comparison < 0 {
+		needHint = true
+	}
+	if !needForce && !needHint {
+		return body
+	}
+	var manifest onlineUpdateManifest
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		return body
+	}
+	changed := false
+	if needForce && !manifest.Force {
+		manifest.Force = true
+		changed = true
+	}
+	if needHint && manifest.Version != "" {
+		manifest.Notes = append([]string{productUpdateWritableHint()}, manifest.Notes...)
+		changed = true
+	}
+	if !changed {
+		return body
+	}
+	rewritten, err := json.Marshal(manifest)
+	if err != nil {
+		return body
+	}
+	return rewritten
 }
 
 func ProductUpdateReleases(c *gin.Context) {
@@ -186,29 +265,36 @@ func productUpdateJSON(c *gin.Context, body []byte) {
 	c.Data(http.StatusOK, "application/json; charset=utf-8", body)
 }
 
-func productUpdateLatestBody(_ context.Context, force bool) ([]byte, error) {
+// productUpdateLatestBody 返回所有人相同的 latest.json 和最新记录的强制更新阈值。
+func productUpdateLatestBody(_ context.Context, force bool) ([]byte, string, error) {
 	productUpdateCacheMu.Lock()
 	if !force && len(productUpdateLatestCache.body) > 0 && time.Now().Before(productUpdateLatestCache.expiresAt) {
 		body := append([]byte(nil), productUpdateLatestCache.body...)
+		forceBelow := productUpdateLatestCache.forceBelow
 		productUpdateCacheMu.Unlock()
-		return body, nil
+		return body, forceBelow, nil
 	}
 	productUpdateCacheMu.Unlock()
 
 	records, err := loadProductUpdateRecords()
 	if err != nil || len(records) == 0 {
-		return nil, errProductUpdateUnavailable
+		return nil, "", errProductUpdateUnavailable
 	}
 	latest := productUpdateHighest(records)
 	body, err := buildProductUpdateManifest(latest)
 	if err != nil {
-		return nil, errProductUpdateUnavailable
+		return nil, "", errProductUpdateUnavailable
+	}
+	forceBelow := strings.TrimPrefix(strings.TrimSpace(latest.MinVersion), "v")
+	if _, ok := parseOnlineUpdateVersion(forceBelow); !ok {
+		forceBelow = ""
 	}
 	productUpdateCacheMu.Lock()
 	productUpdateLatestCache.body = append([]byte(nil), body...)
+	productUpdateLatestCache.forceBelow = forceBelow
 	productUpdateLatestCache.expiresAt = time.Now().Add(productUpdateManifestTTL)
 	productUpdateCacheMu.Unlock()
-	return body, nil
+	return body, forceBelow, nil
 }
 
 func productUpdateReleasesBody(_ context.Context, force bool) ([]byte, error) {
@@ -236,7 +322,7 @@ func productUpdateReleasesBody(_ context.Context, force bool) ([]byte, error) {
 }
 
 func productUpdateCachedManifest(ctx context.Context) (*onlineUpdateManifest, error) {
-	body, err := productUpdateLatestBody(ctx, false)
+	body, _, err := productUpdateLatestBody(ctx, false)
 	if err != nil {
 		return nil, err
 	}
@@ -270,6 +356,7 @@ func productUpdatePackageFile(_ context.Context, version string) (string, string
 
 // buildProductUpdateManifest 用发布记录生成 1.7.1 客户站认识的 latest.json。
 // 下载地址固定写成官网，签名是 sha256: 加上安装包哈希，文件名带版本号。
+// minVersion 不下发：记录里的「最低版本」是强制更新阈值，由 productUpdateManifestForRequester 按请求方版本换成 force。
 func buildProductUpdateManifest(record productUpdateRecord) ([]byte, error) {
 	version := strings.TrimPrefix(strings.TrimSpace(record.Version), "v")
 	fileName, err := onlineUpdatePackageFileName(version)
@@ -285,7 +372,7 @@ func buildProductUpdateManifest(record productUpdateRecord) ([]byte, error) {
 		released = time.Now()
 	}
 	manifest := onlineUpdateManifest{
-		Version: version, Channel: "stable", MinVersion: strings.TrimSpace(record.MinVersion),
+		Version: version, Channel: "stable",
 		Force: record.Force, ReleasedAt: released.UTC().Format(time.RFC3339),
 		ReleasesURL: productUpdateReleasesURL,
 		Package: onlineUpdatePackage{
