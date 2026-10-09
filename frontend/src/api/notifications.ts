@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { AGENT_TOKEN_KEY, DEVELOPER_TOKEN_KEY } from '@/api/source-developer'
 import { useUserStore } from '@/store/modules/user'
+import { notificationCenterRoute } from '@/components/core/layouts/art-notification/notice-meta'
 
 const BASE = '/api/v1/notifications'
 
@@ -66,18 +67,24 @@ export function notificationBadgeCount(count = 0, todo = 0): number {
   return Math.max(0, Number(count) || 0) + Math.max(0, Number(todo) || 0)
 }
 
-export function fetchNotifications(tab?: NotificationTab | '', unread?: boolean) {
+/** page 从 1 开始；带 page 时后端按页返回并给出 hasMore（通知中心用），不带时是最近 50 条（顶栏用）。 */
+export function fetchNotifications(
+  tab?: NotificationTab | '',
+  unread?: boolean,
+  paging?: { page: number; size: number }
+) {
   const config = authConfig()
   if (!config) return rejectMissingToken()
   return axios.get<{
     code: number
     msg: string
-    data: { list: InAppNotification[]; total: number }
+    data: { list: InAppNotification[]; total: number; hasMore?: boolean }
   }>(BASE, {
     ...config,
     params: {
       ...(tab ? { tab } : {}),
-      ...(unread ? { unread: 1 } : {})
+      ...(unread ? { unread: 1 } : {}),
+      ...(paging ? { page: paging.page, size: paging.size } : {})
     }
   })
 }
@@ -103,18 +110,9 @@ export function markAllNotificationsRead() {
   return axios.post<{ code: number; msg: string }>(`${BASE}/read-all`, {}, config)
 }
 
+/** 「查看全部」的去处：当前所在端的通知中心，带上标签。 */
 export function notificationDefaultLink(tab: NotificationTab): string {
   const path = typeof window === 'undefined' ? '' : window.location.pathname
-  if (isPanelPath(path, '/developer-panel')) {
-    return '/developer-panel/dashboard'
-  }
-  if (isPanelPath(path, '/agent-panel')) {
-    return tab === 'todo' ? '/agent-panel/tickets' : '/agent-panel/dashboard'
-  }
-  if (isPanelPath(path, '/user')) {
-    return tab === 'todo' ? '/user/tickets' : '/user/licenses'
-  }
-  if (tab === 'todo' || tab === 'notice') return '/source-station/applications'
-  if (tab === 'message') return '/source-station/catalog'
-  return '/tickets'
+  const route = notificationCenterRoute(path, tab)
+  return `${route.path}?tab=${route.query.tab}`
 }

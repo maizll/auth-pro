@@ -112,6 +112,15 @@ func JWTAuth() gin.HandlerFunc {
 			return
 		}
 
+		if claims.Act == TokenActImpersonation {
+			// 代登录令牌每次请求都复查签发它的超级管理员：停用或降权后，已发出的代登录立刻失效（B4）。
+			if status, message := impersonationOperatorRejection(claims.OperatorID); status != 0 {
+				c.JSON(status, gin.H{"code": status, "message": message})
+				c.Abort()
+				return
+			}
+		}
+
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)
 		c.Set("role", claims.Role)
@@ -127,6 +136,30 @@ func JWTAuth() gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// impersonationOperatorRejection 返回代登录令牌应被拒绝时的状态码与提示；0 表示放行。
+func impersonationOperatorRejection(operatorID uint) (int, string) {
+	if operatorID == 0 {
+		return http.StatusUnauthorized, "代登录凭证无效，请重新代登录"
+	}
+	db, err := config.DB()
+	if err != nil {
+		return http.StatusInternalServerError, "代登录状态校验失败"
+	}
+	var enabled sql.NullBool
+	var roleCode string
+	err = db.QueryRow(adminSessionQuery, operatorID).Scan(&enabled, &roleCode)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return http.StatusUnauthorized, "代登录的管理员已不存在，请重新代登录"
+	case err != nil:
+		return http.StatusInternalServerError, "代登录状态校验失败"
+	}
+	if !enabled.Valid || !enabled.Bool || roleCode != "R_SUPER" {
+		return http.StatusUnauthorized, "代登录的管理员已停用或不再是超级管理员，代登录已失效"
+	}
+	return 0, ""
 }
 
 // ImpersonationOperatorID 返回代登录令牌里的真实管理员 ID，供后续审计读取。

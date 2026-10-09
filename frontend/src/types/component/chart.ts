@@ -181,12 +181,6 @@ export interface RadarDataItem {
 }
 
 // 雷达图 Props 接口 - 统一雷达图配置
-export interface RadarChartProps extends BaseChartProps, InteractionProps {
-  /** 雷达图指标配置 */
-  indicator?: Array<{ name: string; max: number }>
-  /** 图表数据 */
-  data?: RadarDataItem[]
-}
 
 // 饼图/环形图数据项接口
 export interface PieDataItem {
@@ -197,18 +191,6 @@ export interface PieDataItem {
 }
 
 // 环形图 Props 接口 - 统一环形图配置
-export interface RingChartProps extends BaseChartProps, InteractionProps {
-  /** 图表数据 */
-  data: PieDataItem[]
-  /** 内外半径 */
-  radius?: string[]
-  /** 边框圆角 */
-  borderRadius?: number
-  /** 中心文本 */
-  centerText?: string
-  /** 是否显示标签 */
-  showLabel?: boolean
-}
 
 // K线图数据项接口
 export interface KLineDataItem {
@@ -225,16 +207,6 @@ export interface KLineDataItem {
 }
 
 // K线图 Props 接口 - 统一K线图配置
-export interface KLineChartProps extends BaseChartProps {
-  /** 图表数据 */
-  data?: KLineDataItem[]
-  /** 是否显示数据缩放控件 */
-  showDataZoom?: boolean
-  /** 数据缩放初始开始位置 */
-  dataZoomStart?: number
-  /** 数据缩放初始结束位置 */
-  dataZoomEnd?: number
-}
 
 // 散点图数据项接口
 export interface ScatterDataItem {
@@ -243,12 +215,6 @@ export interface ScatterDataItem {
 }
 
 // 散点图 Props 接口 - 统一散点图配置
-export interface ScatterChartProps extends BaseChartProps, AxisDisplayProps, InteractionProps {
-  /** 图表数据 */
-  data?: ScatterDataItem[]
-  /** 散点大小 */
-  symbolSize?: number
-}
 
 // 双柱对比图 Props 接口 - 统一双柱对比图配置
 export interface DualBarCompareChartProps extends BaseChartProps {
@@ -279,33 +245,6 @@ export interface MapChartProps extends BaseChartProps {
 }
 
 // 双向堆叠柱状图 Props 接口（人口金字塔样式）
-export interface BidirectionalBarChartProps
-  extends BaseChartProps,
-    AxisDisplayProps,
-    InteractionProps {
-  /** 正向数据（向上显示） */
-  positiveData: number[]
-  /** 负向数据（向下显示） */
-  negativeData: number[]
-  /** X轴标签数据 */
-  xAxisData?: string[]
-  /** 正向数据名称 */
-  positiveName?: string
-  /** 负向数据名称 */
-  negativeName?: string
-  /** 柱状图宽度 */
-  barWidth?: string | number
-  /** Y轴最小值 */
-  yAxisMin?: number
-  /** Y轴最大值 */
-  yAxisMax?: number
-  /** 是否显示数据标签 */
-  showDataLabel?: boolean
-  /** 正向数据圆角配置 */
-  positiveBorderRadius?: number | number[]
-  /** 负向数据圆角配置 */
-  negativeBorderRadius?: number | number[]
-}
 
 // 图表配置生成器函数类型
 export type ChartOptionGenerator = () => EChartsOption

@@ -32,6 +32,8 @@ type installProbeState struct {
 	queries []string
 	execs   []string
 	fail    error
+	// adminsTaken：模拟另一个连接在检查之后抢先插入了管理员，这次插入影响 0 行。
+	adminsTaken bool
 }
 
 type installProbeDriver struct{}
@@ -96,8 +98,16 @@ func (c *installProbeConn) ExecContext(_ context.Context, query string, _ []driv
 	c.state.mu.Lock()
 	defer c.state.mu.Unlock()
 	c.state.execs = append(c.state.execs, query)
+	if c.state.adminsTaken && strings.Contains(query, "INSERT INTO admins") {
+		return installProbeNoRows{}, nil
+	}
 	return installProbeResult{}, nil
 }
+
+type installProbeNoRows struct{}
+
+func (installProbeNoRows) LastInsertId() (int64, error) { return 0, nil }
+func (installProbeNoRows) RowsAffected() (int64, error) { return 0, nil }
 
 func (installProbeRows) Columns() []string { return []string{"count"} }
 func (installProbeRows) Close() error      { return nil }
@@ -420,4 +430,76 @@ func TestInstallExistingConfigUnreachableOrEmpty(t *testing.T) {
 	if recorder.Code != http.StatusOK || decodeInstallCode(t, recorder) != http.StatusOK {
 		t.Fatalf("现有库为空时应允许换库 status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
+}
+
+// B5：首次安装时两个请求同时「创建管理员」，只能建出一个超级管理员；后到的请求被拒绝。
+func TestInstallCreateAdminConcurrentRequestsCreateOneAdmin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	t.Setenv("AUTO_PRO_DB_HOST", "127.0.0.1")
+	t.Setenv("AUTO_PRO_DB_NAME", "authpro")
+	t.Setenv("AUTO_PRO_DB_USER", "root")
+	t.Setenv("AUTO_PRO_DB_PASSWORD", "secret")
+	state := &installProbeState{counts: map[string]int{"admins": 0}}
+	useInstallProbeDB(t, state)
+
+	const n = 4
+	codes := make([]int, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = installJSONRequest(http.MethodPost, "/api/install/create-admin", `{"adminUsername":"root","adminPassword":"secret-pass"}`)
+			InstallCreateAdmin(ctx)
+			codes[i] = decodeInstallCode(t, recorder)
+		}(i)
+	}
+	wg.Wait()
+	ok, refused := 0, 0
+	for _, code := range codes {
+		switch code {
+		case http.StatusOK:
+			ok++
+		case http.StatusForbidden:
+			refused++
+		}
+	}
+	state.mu.Lock()
+	inserts := 0
+	for _, query := range state.execs {
+		if strings.Contains(query, "INSERT INTO admins") {
+			inserts++
+		}
+	}
+	state.mu.Unlock()
+	if ok != 1 || refused != n-1 || inserts != 1 {
+		t.Fatalf("want exactly one admin created, codes=%v inserts=%d", codes, inserts)
+	}
+}
+
+// 检查之后、插入之前别的连接抢先建了管理员：插入影响 0 行，拒绝且不写锁文件。
+func TestInstallCreateAdminRefusesWhenInsertFindsAdmin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("AUTO_PRO_DATA_DIR", t.TempDir())
+	t.Setenv("AUTO_PRO_DB_HOST", "127.0.0.1")
+	t.Setenv("AUTO_PRO_DB_NAME", "authpro")
+	t.Setenv("AUTO_PRO_DB_USER", "root")
+	t.Setenv("AUTO_PRO_DB_PASSWORD", "secret")
+	state := &installProbeState{counts: map[string]int{"admins": 0}, adminsTaken: true}
+	useInstallProbeDB(t, state)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = installJSONRequest(http.MethodPost, "/api/install/create-admin", `{"adminUsername":"root","adminPassword":"secret-pass"}`)
+	InstallCreateAdmin(ctx)
+	if decodeInstallCode(t, recorder) != http.StatusForbidden {
+		t.Fatalf("insert that found an admin must be refused: %s", recorder.Body.String())
+	}
+	if config.IsInstalled() {
+		t.Fatal("refused install must not write install.lock")
+	}
+	assertNoInstallExec(t, state, "INSERT IGNORE INTO role_menus")
 }

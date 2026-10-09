@@ -36,11 +36,11 @@
             >
               <div
                 class="size-9 leading-9 text-center rounded-lg flex-cc"
-                :class="[getNoticeStyle(noticeTypeOf(item)).iconClass]"
+                :class="[noticeStyle(item.eventType, 'notice').iconClass]"
               >
                 <ArtSvgIcon
                   class="text-lg !bg-transparent"
-                  :icon="getNoticeStyle(noticeTypeOf(item)).icon"
+                  :icon="noticeStyle(item.eventType, 'notice').icon"
                 />
               </div>
               <div class="w-[calc(100%-45px)] ml-3.5">
@@ -60,9 +60,13 @@
               @click="handleItemClick(item)"
             >
               <div
-                class="size-9 leading-9 text-center rounded-lg flex-cc bg-success/12 text-success"
+                class="size-9 leading-9 text-center rounded-lg flex-cc"
+                :class="[noticeStyle(item.eventType, 'message').iconClass]"
               >
-                <ArtSvgIcon class="text-lg !bg-transparent" icon="ri:message-3-line" />
+                <ArtSvgIcon
+                  class="text-lg !bg-transparent"
+                  :icon="noticeStyle(item.eventType, 'message').icon"
+                />
               </div>
               <div class="w-[calc(100%-45px)] ml-3.5">
                 <h4 class="text-sm font-normal leading-5.5 text-g-900">{{ item.title }}</h4>
@@ -100,6 +104,7 @@
       </div>
     </div>
   </Teleport>
+  <NoticeDetailDialog v-model="detailOpen" :item="detailItem" @go="goToLink" />
 </template>
 
 <script setup lang="ts">
@@ -115,10 +120,10 @@
     type NotificationTab
   } from '@/api/notifications'
   import { placeNotificationPanel, type Box } from './placement'
+  import { formatNoticeTime, noticeStyle } from './notice-meta'
+  import NoticeDetailDialog from './NoticeDetailDialog.vue'
 
   defineOptions({ name: 'ArtNotification' })
-
-  type NoticeType = 'email' | 'message' | 'collection' | 'user' | 'notice'
 
   const { t } = useI18n()
   const router = useRouter()
@@ -141,6 +146,8 @@
   const noticeList = ref<InAppNotification[]>([])
   const msgList = ref<InAppNotification[]>([])
   const pendingList = ref<InAppNotification[]>([])
+  const detailOpen = ref(false)
+  const detailItem = ref<InAppNotification | null>(null)
 
   const barList = computed(() => [
     { name: t('notice.bar[0]'), num: noticeList.value.length, tab: 'notice' as NotificationTab },
@@ -151,33 +158,6 @@
   const currentTabIsEmpty = computed(() => {
     return [noticeList.value, msgList.value, pendingList.value][barActiveIndex.value]?.length === 0
   })
-
-  const noticeStyleMap: Record<NoticeType, { icon: string; iconClass: string }> = {
-    email: { icon: 'ri:mail-line', iconClass: 'bg-warning/12 text-warning' },
-    message: { icon: 'ri:volume-down-line', iconClass: 'bg-success/12 text-success' },
-    collection: { icon: 'ri:heart-3-line', iconClass: 'bg-danger/12 text-danger' },
-    user: { icon: 'ri:user-add-line', iconClass: 'bg-info/12 text-info' },
-    notice: { icon: 'ri:notification-3-line', iconClass: 'bg-theme/12 text-theme' }
-  }
-
-  const getNoticeStyle = (type: NoticeType) => noticeStyleMap[type] || noticeStyleMap.notice
-
-  function noticeTypeOf(item: InAppNotification): NoticeType {
-    if (item.eventType.includes('password') || item.eventType.includes('expir')) return 'email'
-    if (item.eventType.includes('apply') || item.eventType.includes('ticket')) return 'user'
-    if (item.eventType.includes('reject') || item.eventType.includes('deprecat'))
-      return 'collection'
-    if (item.eventType.includes('approved') || item.eventType.includes('paid')) return 'message'
-    return 'notice'
-  }
-
-  function formatNoticeTime(raw?: string) {
-    if (!raw) return ''
-    const date = new Date(raw)
-    if (Number.isNaN(date.getTime())) return raw
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-  }
 
   async function loadTab(tab: NotificationTab) {
     try {
@@ -269,10 +249,14 @@
       }
     }
     emit('unread', unreadNow())
-    if (item.link) {
-      emit('update:value', false)
-      router.push(item.link)
-    }
+    // 先看详情，再决定是否前往；没有可前往的地址时只看不跳。
+    emit('update:value', false)
+    detailItem.value = item
+    detailOpen.value = true
+  }
+
+  function goToLink(link: string) {
+    router.push(link)
   }
 
   function unreadNow() {
@@ -284,9 +268,8 @@
 
   function handleViewAll() {
     const tab = barList.value[barActiveIndex.value]?.tab || 'notice'
-    const first = [noticeList.value, msgList.value, pendingList.value][barActiveIndex.value]?.[0]
     emit('update:value', false)
-    router.push(first?.link || notificationDefaultLink(tab))
+    router.push(notificationDefaultLink(tab))
   }
 
   function showNotice(open: boolean) {

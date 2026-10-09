@@ -75,7 +75,8 @@ auth_pro_central_backup_root() {
     ""|.|..) return 1 ;;
   esac
   root="/www/backup/auth-pro/$site_name"
-  if ! mkdir -p "$root" 2>/dev/null || [ ! -w "$root" ]; then
+  # 目录归本用户但权限是 600 之类时可写却进不去，建不出备份子目录，同样改用数据目录。
+  if ! mkdir -p "$root" 2>/dev/null || [ ! -w "$root" ] || [ ! -x "$root" ]; then
     return 1
   fi
   printf '%s\n' "$root"

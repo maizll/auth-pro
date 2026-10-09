@@ -198,6 +198,12 @@ export const staticRoutes: AppRouteRecordRaw[] = [
         meta: { title: '我的工单' }
       },
       {
+        path: 'notifications',
+        name: 'AgentPanelNotifications',
+        component: () => import('@views/notifications/index.vue'),
+        meta: { title: '通知中心' }
+      },
+      {
         path: 'store',
         redirect: (to) => ({ path: '/agent-panel/licenses', query: to.query })
       },
@@ -245,6 +251,12 @@ export const staticRoutes: AppRouteRecordRaw[] = [
         name: 'DeveloperPanelGuide',
         component: () => import('@views/developer-panel/guide/index.vue'),
         meta: { title: '开发文档' }
+      },
+      {
+        path: 'notifications',
+        name: 'DeveloperPanelNotifications',
+        component: () => import('@views/notifications/index.vue'),
+        meta: { title: '通知中心' }
       }
     ]
   },
@@ -301,6 +313,12 @@ export const staticRoutes: AppRouteRecordRaw[] = [
         name: 'UserPanelTickets',
         component: () => import('@views/user-panel/tickets/index.vue'),
         meta: { title: '我的工单' }
+      },
+      {
+        path: 'notifications',
+        name: 'UserPanelNotifications',
+        component: () => import('@views/notifications/index.vue'),
+        meta: { title: '通知中心' }
       }
     ]
   },

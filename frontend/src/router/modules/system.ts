@@ -102,6 +102,16 @@ export const systemRoutes: AppRouteRecord = {
         keepAlive: true,
         isHideTab: true
       }
+    },
+    {
+      path: 'notifications',
+      name: 'Notifications',
+      component: '/notifications/index',
+      meta: {
+        title: 'menus.system.notifications',
+        icon: 'ri:notification-3-line',
+        isHide: true
+      }
     }
   ]
 }

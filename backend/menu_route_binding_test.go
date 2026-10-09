@@ -27,6 +27,7 @@ func TestSensitiveAdminWritesStayOnMenuGroups(t *testing.T) {
 		`piracyBlacklist.DELETE("/piracy/blacklist/:id", handler.PiracyBlacklistDelete)`,
 		`superSecured.POST("/user/:id/impersonate", handler.AdminImpersonateUser)`,
 		`superSecured.PUT("/role/:id/menus", handler.RoleUpdateMenus)`,
+		`licenseLogs.DELETE("/verify-log/clear", middleware.RequireSuperAdmin(), handler.VerifyLogClear)`,
 	}
 	for _, snippet := range required {
 		if !strings.Contains(mainSource, snippet) {

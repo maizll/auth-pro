@@ -113,7 +113,7 @@
   "notice": {
     "title": "通知",
     "btnRead": "标为已读",
-    "bar": ["通知", "消息", "代办"],
+    "bar": ["通知", "消息", "待办"],
     "text": ["暂无"],
     "viewAll": "查看全部"
   },
@@ -277,7 +277,8 @@
       "sitePages": "官网页面",
       "paymentOrders": "订单列表",
       "mailConfig": "邮件配置",
-      "mailLogs": "邮件日志"
+      "mailLogs": "邮件日志",
+      "notifications": "通知中心"
     },
     "pluginStore": "应用商店",
     "homeTemplate": "首页模板",

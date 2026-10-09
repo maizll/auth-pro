@@ -97,6 +97,8 @@ func productMenuSpecs() []productMenuSpec {
 		{ID: 206, ParentName: "System", Name: "MailConfig", Path: "mail-config", Component: "/system/mail-config", Title: "menus.system.mailConfig", Icon: "ri:mail-settings-line", Sort: 6, KeepAlive: true, Roles: super},
 		{ID: 207, ParentName: "System", Name: "MailLogs", Path: "mail-logs", Component: "/system/mail-logs", Title: "menus.system.mailLogs", Icon: "ri:mail-check-line", Sort: 7, KeepAlive: true, Roles: super},
 		{ID: 203, ParentName: "System", Name: "UserCenter", Path: "user-center", Component: "/system/user-center", Title: "menus.system.userCenter", Icon: "ri:user-settings-line", Sort: 8, KeepAlive: true, IsHideTab: true, Roles: ops},
+		// 通知中心：顶栏铃铛「查看全部」进入，不在侧栏显示。
+		{ID: 214, ParentName: "System", Name: "Notifications", Path: "notifications", Component: "/notifications/index", Title: "menus.system.notifications", Icon: "ri:notification-3-line", Sort: 9, IsHide: true, Roles: ops},
 
 		{ID: 6, Name: "Result", Path: "/result", Component: "/index/index", Title: "menus.result.title", Icon: "ri:checkbox-circle-line", Sort: 90, IsHide: true, Roles: super},
 		{ID: 601, ParentName: "Result", Name: "ResultSuccess", Path: "success", Component: "/result/success", Title: "menus.result.success", Icon: "ri:checkbox-circle-line", Sort: 1, KeepAlive: true, IsHide: true, Roles: super},

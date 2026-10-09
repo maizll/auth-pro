@@ -212,7 +212,7 @@ func AdminOnlineUpdateUpload(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 409, "msg": "已经有更新正在进行，请等它结束后再上传"})
 		return
 	}
-	if err := os.MkdirAll(config.GetUpdateDir(), 0755); err != nil {
+	if err := os.MkdirAll(config.GetUpdateDir(), 0750); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "服务器上没法保存更新包，请检查数据目录权限"})
 		return
 	}

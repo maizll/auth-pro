@@ -75,10 +75,6 @@ func ServerError(message string, err error) error {
 	return &Error{Code: 500, Message: message, Err: err}
 }
 
-func UnavailableError(message string, err error) error {
-	return &Error{Code: 503, Message: message, Err: err}
-}
-
 func ErrorResponse(err error) (int, string) {
 	var appStoreError *Error
 	if errors.As(err, &appStoreError) {

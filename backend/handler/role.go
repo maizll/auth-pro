@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -50,7 +51,7 @@ func RoleList(c *gin.Context) {
 			where = append(where, "enabled = 0")
 		}
 	}
-// PLACEHOLDER_ROLE_LIST
+	// PLACEHOLDER_ROLE_LIST
 
 	whereSQL := strings.Join(where, " AND ")
 
@@ -154,6 +155,9 @@ func RoleCreate(c *gin.Context) {
 	}
 
 	roleID, _ := result.LastInsertId()
+	_ = recordAdminOperation(db, c, "role_create", "role", roleID, map[string]any{
+		"roleName": req.RoleName, "roleCode": req.RoleCode, "discount": req.Discount, "enabled": req.Enabled,
+	})
 
 	// 分配所有菜单权限给新角色（默认全部）
 	rows, _ := db.Query("SELECT id FROM menus")
@@ -198,12 +202,17 @@ func RoleUpdate(c *gin.Context) {
 		enabledInt = 1
 	}
 
+	before := roleSnapshot(db, id)
 	_, err = db.Exec("UPDATE roles SET role_name=?, description=?, discount=?, enabled=? WHERE id=?",
 		req.RoleName, req.Description, req.Discount, enabledInt, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "更新失败: " + err.Error()})
 		return
 	}
+	_ = recordAdminOperation(db, c, "role_update", "role", roleIDParam(id), map[string]any{
+		"before": before,
+		"after":  map[string]any{"roleName": req.RoleName, "description": req.Description, "discount": req.Discount, "enabled": req.Enabled},
+	})
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "更新成功"})
 }
@@ -234,8 +243,10 @@ func RoleDelete(c *gin.Context) {
 		return
 	}
 
+	before := roleSnapshot(db, id)
 	db.Exec("DELETE FROM role_menus WHERE role_id=?", id)
 	db.Exec("DELETE FROM roles WHERE id=?", id)
+	_ = recordAdminOperation(db, c, "role_delete", "role", roleIDParam(id), map[string]any{"before": before})
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "删除成功"})
 }
@@ -284,6 +295,8 @@ func RoleUpdateMenus(c *gin.Context) {
 		return
 	}
 
+	before := roleMenuIDs(db, id)
+
 	// 清除旧权限
 	db.Exec("DELETE FROM role_menus WHERE role_id=?", id)
 
@@ -291,6 +304,69 @@ func RoleUpdateMenus(c *gin.Context) {
 	for _, menuID := range req.MenuIDs {
 		db.Exec("INSERT INTO role_menus (role_id, menu_id) VALUES (?, ?)", id, menuID)
 	}
+	added, removed := diffMenuIDs(before, req.MenuIDs)
+	_ = recordAdminOperation(db, c, "role_menus_update", "role", roleIDParam(id), map[string]any{
+		"before": before, "after": req.MenuIDs, "added": added, "removed": removed,
+	})
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "权限保存成功"})
+}
+
+func roleIDParam(id string) int64 {
+	value, _ := strconv.ParseInt(strings.TrimSpace(id), 10, 64)
+	return value
+}
+
+// roleSnapshot 读出角色改动前的样子，写进操作日志。
+func roleSnapshot(db *sql.DB, id string) map[string]any {
+	var name, code, description string
+	var discount float64
+	var enabled int
+	if err := db.QueryRow("SELECT role_name, role_code, COALESCE(description, ''), discount, enabled FROM roles WHERE id=?", id).
+		Scan(&name, &code, &description, &discount, &enabled); err != nil {
+		return nil
+	}
+	return map[string]any{"roleName": name, "roleCode": code, "description": description, "discount": discount, "enabled": enabled == 1}
+}
+
+func roleMenuIDs(db *sql.DB, id string) []int {
+	ids := []int{}
+	rows, err := db.Query("SELECT menu_id FROM role_menus WHERE role_id=? ORDER BY menu_id", id)
+	if err != nil {
+		return ids
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var menuID int
+		if rows.Scan(&menuID) == nil {
+			ids = append(ids, menuID)
+		}
+	}
+	return ids
+}
+
+// diffMenuIDs 返回新增和去掉的菜单编号，按从小到大排列。
+func diffMenuIDs(before, after []int) (added, removed []int) {
+	old := map[int]bool{}
+	for _, id := range before {
+		old[id] = true
+	}
+	next := map[int]bool{}
+	for _, id := range after {
+		next[id] = true
+	}
+	added, removed = []int{}, []int{}
+	for id := range next {
+		if !old[id] {
+			added = append(added, id)
+		}
+	}
+	for id := range old {
+		if !next[id] {
+			removed = append(removed, id)
+		}
+	}
+	sort.Ints(added)
+	sort.Ints(removed)
+	return added, removed
 }

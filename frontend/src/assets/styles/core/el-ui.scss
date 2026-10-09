@@ -253,6 +253,28 @@ html.dark .el-card {
   }
 }
 
+// 标签、徽标、按钮和分段按钮等短文字一律单行。容器太窄时标签不被压扁，超出部分省略。
+.el-tag,
+.el-button,
+.el-badge__content,
+.el-check-tag,
+.el-radio-button__inner,
+.el-segmented__item-label,
+.el-tabs__item {
+  white-space: nowrap;
+}
+
+.el-tag {
+  flex-shrink: 0;
+  max-width: 100%;
+
+  .el-tag__content {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 .el-checkbox-group {
   &.el-table-filter__checkbox-group label.el-checkbox {
     height: 17px !important;

@@ -436,7 +436,7 @@ upgrade 从官网取最新包，替换页面和 backend/auth_pro，保留 db.jso
   --repair-update-perms
                     修复在线更新权限。进程守护以 www 运行、在线更新报「无法创建前端备份目录」时使用。
                     建好 /www/backup/auth-pro/域名 并交给 www（只给 /www/backup 加进入权限，不开放列目录），
-                    把网站目录交给 www，再以 www 身份逐个试写。不停站点，不改数据库和 Nginx
+                    把网站目录交给 www，给其中缺所有者 rwx 的目录补上（如 600 的备份目录），再以 www 身份逐个试写。不停站点，不改数据库和 Nginx
   --reset-admin-password
                     本机 root 重设已装站点的管理员密码。有重设命令的程序直接运行，并带上网站根作为前端目录；1.7.5 这类旧程序改为直接更新数据库。不下载安装包，也不替换站点程序
   --reset-binary FILE
@@ -513,6 +513,8 @@ BAOTA_BACKUP_DIR=""
 BAOTA_DATA_DIR_RESOLVED=""
 BAOTA_TMP_DIRS=()
 BAOTA_STAGING_ASSETS=""
+# 宝塔的备份根目录。只在中央备份目录里用到；自检脚本把它换成临时目录。
+BAOTA_BACKUP_BASE="/www/backup"
 
 if [[ "${AUTH_PRO_DRY_RUN:-}" == "1" ]]; then
   BAOTA_DRY_RUN=1
@@ -1435,23 +1437,35 @@ PY
 # 宝塔的 /www/backup 通常是 700。在线更新由网站用户 www 执行，必须能进入本站这一份备份并删掉旧的。
 # 只给 /www/backup 加执行位，不开放列目录，其它备份子目录仍按原权限。
 baota_central_backup_root() {
-  local name root
-  [[ -d /www ]] || return 1
+  local name root base="$BAOTA_BACKUP_BASE"
+  [[ -d "$(dirname "$base")" ]] || return 1
   name="$(basename "$BAOTA_SITE_ROOT")"
   [[ -n "$name" && "$name" != "." && "$name" != ".." ]] || return 1
-  if [[ -d /www/backup ]]; then
-    chmod a+x /www/backup 2>/dev/null || true
+  if [[ -d "$base" ]]; then
+    chmod a+x "$base" 2>/dev/null || true
   fi
-  root="/www/backup/auth-pro/${name}"
+  root="${base}/auth-pro/${name}"
   if ! mkdir -p "$root" 2>/dev/null; then
     baota_warn "无法创建 ${root}，备份仍放在原来的位置，更新继续"
     return 1
   fi
-  chmod a+x /www/backup/auth-pro 2>/dev/null || true
+  chmod a+x "${base}/auth-pro" 2>/dev/null || true
   if id www >/dev/null 2>&1; then
     chown -R www:www "$root" 2>/dev/null || baota_warn "无法把 ${root} 交给 www。在线更新可能删不掉这里的旧备份。"
   fi
+  baota_ensure_owner_dir_access "$root"
   printf '%s\n' "$root"
+}
+
+# 目录要有所有者的 rwx，所有者才能进入、在里面建删文件。
+# 线上见过 /www/backup/auth-pro/<域名> 归 www 但权限是 drw-------：www 进不去，在线更新建不出备份子目录。
+# 只给缺这几位的目录补上所有者位，不动组和其他人的权限，也不动文件。
+baota_ensure_owner_dir_access() {
+  local dir
+  for dir in "$@"; do
+    [[ -d "$dir" ]] || continue
+    find -H "$dir" -type d ! -perm -u=rwx -exec chmod u+rwx {} \; 2>/dev/null || true
+  done
 }
 
 # 把一个旧备份移到目标目录。失败只打印说明，不删除源目录。
@@ -3575,7 +3589,8 @@ baota_www_can_write() {
 # 1.7.x 一条命令安装的老站：宝塔的 /www/backup 是 700 root，网站目录里也可能有 root 的文件。
 # 进程守护以 www 运行时，在线更新建不出备份目录就会失败回滚。
 # 老站更新时跑的是它自己程序里的旧更新脚本，官网改不了，只能在服务器上用 root 修一次。
-# 只动本站：给 /www/backup 加进入权限（不开放列目录）、建好本站备份目录、把网站目录和数据目录交给 www。
+# 只动本站：给 /www/backup 加进入权限（不开放列目录）、建好本站备份目录、把网站目录和数据目录交给 www，
+# 并给其中缺所有者 rwx 的目录补上（只补所有者位）。
 menu_repair_update_perms() {
   local data dir central="" failed=0
   local -a dirs=()
@@ -3604,6 +3619,8 @@ menu_repair_update_perms() {
     "$BAOTA_SITE_ROOT"|"$BAOTA_SITE_ROOT"/*) ;;
     *) chown -R www:www "$data" || baota_warn "无法把 ${data} 交给 www" ;;
   esac
+  # 交给 www 还不够：目录权限是 600 之类时 www 仍进不去。
+  baota_ensure_owner_dir_access "$BAOTA_SITE_ROOT" "$data"
   baota_tighten_secrets
   dirs=("$BAOTA_SITE_ROOT" "$BAOTA_SITE_ROOT/backend" "$data" "$data/updates")
   while IFS= read -r dir; do
@@ -3902,7 +3919,7 @@ menu_uninstall_site() {
 
 menu_render() {
   menu_tty_print "$(menu_blue "========================================")"
-  menu_tty_print "$(menu_blue "  auth-pro 1.8.9")"
+  menu_tty_print "$(menu_blue "  auth-pro 1.9.0")"
   menu_tty_print "$(menu_blue "========================================")"
   menu_tty_print "  $(menu_green "1")  安装新站点"
   menu_tty_print "  $(menu_green "2")  升级站点"

@@ -43,6 +43,7 @@ func main() {
 
 	// CORS
 	r.Use(middleware.Cors())
+	r.Use(middleware.SecurityHeaders())
 
 	// API 路由
 	api := r.Group("/api")
@@ -366,7 +367,8 @@ func main() {
 			promotionWrites.PUT("/promotion/campaigns/:id/toggle", handler.AdminPromotionCampaignToggle)
 			promotionWrites.DELETE("/promotion/campaigns/:id", handler.AdminPromotionCampaignDelete)
 			secured.GET("/verify-log/list", handler.VerifyLogList)
-			licenseLogs.DELETE("/verify-log/clear", handler.VerifyLogClear)
+			// 清空校验日志不可撤销：只给超级管理员，并先记一条操作日志（B6）。
+			licenseLogs.DELETE("/verify-log/clear", middleware.RequireSuperAdmin(), handler.VerifyLogClear)
 			secured.GET("/agent/list", handler.AgentList)
 			agentList.POST("/agent/create", handler.AgentCreate)
 			agentList.PUT("/agent/:id", handler.AgentUpdate)

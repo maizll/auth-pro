@@ -736,6 +736,7 @@
 
     .creator-badge {
       font-style: normal;
+      white-space: nowrap;
       font-size: 10px;
       font-weight: 500;
       border-radius: 4px;
@@ -776,6 +777,7 @@
 
     .sender-badge {
       font-style: normal;
+      white-space: nowrap;
       font-size: 10px;
       color: var(--el-color-primary);
       background: var(--el-color-primary-light-9);

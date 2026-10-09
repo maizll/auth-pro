@@ -245,7 +245,8 @@
     '/user/tickets': '我的工单',
     '/user/purchase': '购买授权',
     '/user/profile': '个人设置',
-    '/user/become-agent': '开通代理商'
+    '/user/become-agent': '开通代理商',
+    '/user/notifications': '通知中心'
   }
 
   const currentTitle = computed(() => titleMap[route.path] || '概览')

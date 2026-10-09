@@ -226,12 +226,6 @@ func (client *Client) refresh(ctx context.Context) (Catalog, error) {
 	return fresh, nil
 }
 
-func (client *Client) Invalidate() {
-	client.mutex.Lock()
-	client.cached = Catalog{}
-	client.mutex.Unlock()
-}
-
 func (client *Client) fetchCatalog(ctx context.Context) (Catalog, error) {
 	var sourceData struct {
 		List     []Source `json:"list"`

@@ -87,7 +87,8 @@ INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `title`, `i
 (213, 2, 'SitePages',        'site-pages',         '/system/site-pages',         'menus.system.sitePages',        'ri:pages-line',          5, 1, 0, 0),
 (206, 2, 'MailConfig',       'mail-config',        '/system/mail-config',        'menus.system.mailConfig',       'ri:mail-settings-line',  6, 1, 0, 0),
 (207, 2, 'MailLogs',         'mail-logs',          '/system/mail-logs',          'menus.system.mailLogs',         'ri:mail-check-line',     7, 1, 0, 0),
-(203, 2, 'UserCenter',       'user-center',        '/system/user-center',        'menus.system.userCenter',       'ri:user-settings-line',  8, 1, 0, 1);
+(203, 2, 'UserCenter',       'user-center',        '/system/user-center',        'menus.system.userCenter',       'ri:user-settings-line',  8, 1, 0, 1),
+(214, 2, 'Notifications',    'notifications',      '/notifications/index',       'menus.system.notifications',    'ri:notification-3-line', 9, 0, 1, 0);
 
 -- Demo children (hidden)
 INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `title`, `icon`, `sort`, `keep_alive`, `is_hide`) VALUES
