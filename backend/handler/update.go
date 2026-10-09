@@ -1010,6 +1010,10 @@ func onlineUpdateJobStatePath(id string) string {
 	return filepath.Join(config.GetUpdateDir(), id+".json")
 }
 
+// onlineUpdateJobPersistMu 保护任务状态文件的「写临时文件再改名」：重启收尾会在后台 goroutine
+// wait 里轮询，同时页面查询也会读写同一份文件，两路并发写同一个 .tmp 会把 JSON 写坏，读出来变成 nil。
+var onlineUpdateJobPersistMu sync.Mutex
+
 func persistOnlineUpdateJob(job *onlineUpdateJob) {
 	if job == nil {
 		return
@@ -1020,6 +1024,8 @@ func persistOnlineUpdateJob(job *onlineUpdateJob) {
 	}
 	path := onlineUpdateJobStatePath(job.ID)
 	tempPath := path + ".tmp"
+	onlineUpdateJobPersistMu.Lock()
+	defer onlineUpdateJobPersistMu.Unlock()
 	if err := os.WriteFile(tempPath, data, 0600); err != nil {
 		return
 	}
