@@ -24,6 +24,7 @@ auth-pro 是一套授权与许可证管理系统，卖给需要自建授权中�
 | 文档 | 读者 |
 | --- | --- |
 | [文档索引](docs/README.md) | 全部 |
+| [交付与 Docker](docs/delivery/README.md) | **买家**：交付说明、宝塔安装、Docker、上市前检查清单 |
 | [部署手册](docs/deployment.md) | 安装、升级、Nginx、在线更新 |
 | [管理手册](docs/admin.md) | 后台菜单 |
 | [开发者章程](docs/developer/README.md) | 插件与首页模板登记 |

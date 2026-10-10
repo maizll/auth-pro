@@ -1,0 +1,73 @@
+# 在仓库根目录执行：
+#   cp deploy/docker/.env.example deploy/docker/.env   # 再改口令
+#   docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env up -d --build
+#
+# 与宝塔安装并列：不要挂载到 /www/wwwroot/...，不要共用同一宿主机端口。
+
+name: auth-pro
+
+services:
+  db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-auth_pro}
+      MYSQL_USER: ${MYSQL_USER:-auth_pro}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - auth_pro_db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - auth_pro_net
+    # 不向宿主机暴露 3306，仅容器网络内访问
+
+  app:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: runtime
+      args:
+        AUTH_PRO_VERSION: ${AUTH_PRO_VERSION:-}
+    image: auth-pro:${AUTH_PRO_IMAGE_TAG:-1.9.1}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "19127"
+      AUTO_PRO_DATA_DIR: /data
+      AUTO_PRO_FRONTEND_DIR: /app
+      AUTO_PRO_DB_HOST: ${AUTO_PRO_DB_HOST:-db}
+      AUTO_PRO_DB_PORT: ${AUTO_PRO_DB_PORT:-3306}
+      AUTO_PRO_DB_NAME: ${AUTO_PRO_DB_NAME:-auth_pro}
+      AUTO_PRO_DB_USER: ${AUTO_PRO_DB_USER:-auth_pro}
+      AUTO_PRO_DB_PASSWORD: ${AUTO_PRO_DB_PASSWORD}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${AUTH_PRO_PORT:-19127}:19127"
+    volumes:
+      - auth_pro_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:19127/api/install/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - auth_pro_net
+
+volumes:
+  auth_pro_data:
+  auth_pro_db:
+
+networks:
+  auth_pro_net:
+    driver: bridge
