@@ -72,7 +72,7 @@
           <template #default="{ row }">
             <el-tag
               :type="
-                row.status === 'active' ? 'success' : row.status === 'expiring' ? 'info' : 'info'
+                row.status === 'active' ? 'success' : row.status === 'expiring' ? 'warning' : 'info'
               "
               size="small"
             >

@@ -93,6 +93,28 @@
       <el-empty description="暂无可购买应用，请联系管理员先启用应用和套餐" :image-size="80" />
     </el-card>
 
+    <el-card
+      v-else-if="commercialOnly"
+      shadow="never"
+      class="step-card art-card state-card"
+    >
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        title="当前仅有商业版应用"
+        description="普通授权套餐暂无。商业版请到管理后台顶栏打开「升级商业版」购买。"
+        class="commercial-only-alert"
+      />
+      <div class="commercial-only-grid">
+        <div v-for="app in appList" :key="app.id" class="commercial-only-card">
+          <strong>{{ app.name }}</strong>
+          <el-tag size="small" type="primary" effect="plain">商业版</el-tag>
+          <p>{{ app.desc }}</p>
+        </div>
+      </div>
+    </el-card>
+
     <template v-else>
       <el-card shadow="never" class="step-card art-card" :class="{ 'is-done': !!formData.appId }">
         <template #header>
@@ -121,6 +143,12 @@
           <div class="app-summary-body">
             <div class="app-summary-title">
               <strong>{{ selectedApp.name }}</strong>
+              <el-tag
+                v-if="selectedApp.commercial"
+                size="small"
+                type="primary"
+                effect="plain"
+              >商业版</el-tag>
               <BizStatusTag
                 v-if="hasPromotion(selectedApp)"
                 domain="campaign"
@@ -129,6 +157,14 @@
                 size="small"
               />
             </div>
+            <el-alert
+              v-if="selectedApp.commercial"
+              class="commercial-guide"
+              type="info"
+              :closable="false"
+              show-icon
+              title="此应用为商业版，请到管理后台顶栏打开「升级商业版」购买；本页不能用普通授权下单。"
+            />
             <p>{{ selectedApp.desc }}</p>
           </div>
           <div class="app-summary-price">
@@ -138,69 +174,13 @@
         </div>
       </el-card>
 
-      <el-card shadow="never" class="step-card art-card" :class="{ 'is-done': !!formData.planId }">
+      <el-card shadow="never" class="step-card art-card" :class="{ 'is-done': !!formData.type }">
         <template #header>
           <div class="step-card-head">
             <span class="step-index">2</span>
             <div>
-              <h3>选择套餐</h3>
-              <p>确认时长和价格，活动价以下单时为准</p>
-            </div>
-          </div>
-        </template>
-
-        <el-empty v-if="!formData.appId" description="请先选择应用" :image-size="72" />
-        <el-empty
-          v-else-if="!filteredAppPlans.length"
-          description="当前授权类型暂无套餐，可在下一步更换类型"
-          :image-size="72"
-        />
-        <div v-else class="plan-grid">
-          <button
-            v-for="plan in filteredAppPlans"
-            :key="plan.id"
-            type="button"
-            class="plan-card"
-            :class="{ active: formData.planId === plan.id, 'has-promo': plan.promotion }"
-            @click="selectPlan(plan.id)"
-          >
-            <div class="plan-head">
-              <span class="plan-name">{{ plan.name }}</span>
-              <BizStatusTag
-                v-if="plan.promotion"
-                domain="campaign"
-                status="active"
-                :label="plan.promotion.name"
-                size="small"
-              />
-            </div>
-            <div class="plan-pricing">
-              <span class="plan-currency">¥</span>
-              <span class="plan-amount">{{ Number(plan.price).toFixed(2) }}</span>
-              <span v-if="plan.promotion" class="plan-original">
-                ¥{{ Number(plan.originalPrice).toFixed(2) }}
-              </span>
-            </div>
-            <div class="plan-meta">
-              <span class="plan-duration">{{ plan.durationText }}</span>
-              <span v-if="plan.promotion" class="plan-time">
-                {{ promoRuleText(plan.promotion) }} · 截止 {{ plan.promotion.endsAt }}
-              </span>
-              <span v-if="plan.purchaseLimit" class="plan-limit">
-                {{ purchaseLimitText(plan.purchaseLimit) }}
-              </span>
-            </div>
-          </button>
-        </div>
-      </el-card>
-
-      <el-card shadow="never" class="step-card art-card" :class="{ 'is-done': infoReady }">
-        <template #header>
-          <div class="step-card-head">
-            <span class="step-index">3</span>
-            <div>
-              <h3>填写授权信息</h3>
-              <p>授权类型决定可用套餐，目标在支付前校验</p>
+              <h3>选择授权类型</h3>
+              <p>先选类型再选套餐；域名等目标在支付前校验</p>
             </div>
           </div>
         </template>
@@ -241,6 +221,63 @@
             <p v-else-if="formData.type === 'key'" class="field-hint">密钥由系统在开通后自动生成</p>
           </div>
         </template>
+      </el-card>
+
+      <el-card shadow="never" class="step-card art-card" :class="{ 'is-done': !!formData.planId }">
+        <template #header>
+          <div class="step-card-head">
+            <span class="step-index">3</span>
+            <div>
+              <h3>选择套餐</h3>
+              <p>确认时长和价格，活动价以下单时为准</p>
+            </div>
+          </div>
+        </template>
+
+        <el-empty v-if="!formData.appId" description="请先选择应用" :image-size="72" />
+        <el-empty v-else-if="!formData.type" description="请先选择授权类型" :image-size="72" />
+        <el-empty
+          v-else-if="!filteredAppPlans.length"
+          description="当前类型无套餐，请先改授权类型"
+          :image-size="72"
+        />
+        <div v-else class="plan-grid">
+          <button
+            v-for="plan in filteredAppPlans"
+            :key="plan.id"
+            type="button"
+            class="plan-card"
+            :class="{ active: formData.planId === plan.id, 'has-promo': plan.promotion }"
+            @click="selectPlan(plan.id)"
+          >
+            <div class="plan-head">
+              <span class="plan-name">{{ plan.name }}</span>
+              <BizStatusTag
+                v-if="plan.promotion"
+                domain="campaign"
+                status="active"
+                :label="plan.promotion.name"
+                size="small"
+              />
+            </div>
+            <div class="plan-pricing">
+              <span class="plan-currency">¥</span>
+              <span class="plan-amount">{{ Number(plan.price).toFixed(2) }}</span>
+              <span v-if="plan.promotion" class="plan-original">
+                ¥{{ Number(plan.originalPrice).toFixed(2) }}
+              </span>
+            </div>
+            <div class="plan-meta">
+              <span class="plan-duration">{{ plan.durationText }}</span>
+              <span v-if="plan.promotion" class="plan-time">
+                {{ promoRuleText(plan.promotion) }} · 截止 {{ plan.promotion.endsAt }}
+              </span>
+              <span v-if="plan.purchaseLimit" class="plan-limit">
+                {{ purchaseLimitText(plan.purchaseLimit) }}
+              </span>
+            </div>
+          </button>
+        </div>
       </el-card>
 
       <el-card shadow="never" class="step-card art-card">
@@ -727,6 +764,9 @@
   }
 
   const selectedApp = computed(() => appList.value.find((a) => a.id == formData.appId))
+  const commercialOnly = computed(
+    () => appList.value.length > 0 && appList.value.every((app) => !!app.commercial)
+  )
   const availableTypeOptions = computed(() => {
     const allowedTypes = Array.isArray(selectedApp.value?.purchaseLicenseTypes)
       ? selectedApp.value.purchaseLicenseTypes
@@ -773,7 +813,11 @@
 
   const submitBlockReason = computed(() => {
     if (!formData.appId) return '请先选择应用'
+    if (selectedApp.value?.commercial) {
+      return '商业版请到管理后台顶栏打开「升级商业版」'
+    }
     if (!availableTypeOptions.value.length) return '当前应用暂不支持自助开通'
+    if (!formData.type) return '请先选择授权类型'
     if (!formData.planId) return '请选择套餐'
     return getTargetError()
   })

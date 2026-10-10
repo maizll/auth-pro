@@ -32,6 +32,10 @@
       </div>
     </header>
 
+    <div class="home-banner-wrap page-shell">
+      <ArtAdSlot position="home-banner" height="160px" />
+    </div>
+
     <main>
       <section id="home" class="hero-section">
         <div class="hero-orb hero-orb-one" />
@@ -2922,5 +2926,15 @@
       flex-basis: 42px;
       width: 100%;
     }
+  }
+
+  .home-banner-wrap {
+    width: min(1120px, calc(100% - 24px));
+    margin: 16px auto 0;
+  }
+
+  .home-banner-wrap:empty,
+  .home-banner-wrap:not(:has(.ad-slot)) {
+    display: none;
   }
 </style>

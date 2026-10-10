@@ -21,18 +21,56 @@
 
     <transition name="fade" mode="out-in">
       <div v-if="step === 1" key="step1" class="step-content">
-        <div v-if="appList.length === 0" class="empty-card">
-          暂无可开通应用，请联系管理员先启用应用和套餐
+        <div v-if="appsLoading && !appList.length" class="empty-card">正在加载可开通应用</div>
+        <el-empty
+          v-else-if="appsError && !appList.length"
+          description="应用列表加载失败，请稍后重试"
+          :image-size="80"
+        >
+          <el-button type="primary" @click="retryApps">重新加载</el-button>
+        </el-empty>
+        <el-empty
+          v-else-if="!appList.length"
+          description="暂无可开通应用，请联系管理员先启用应用和套餐"
+          :image-size="80"
+        />
+        <div v-else-if="commercialOnly" class="commercial-only-box">
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            title="当前仅有商业版应用"
+            description="普通授权套餐暂无。商业版请到管理后台顶栏打开「升级商业版」购买。"
+          />
+          <div class="app-grid" style="margin-top: 16px">
+            <div v-for="app in appList" :key="app.id" class="app-card is-commercial">
+              <div class="app-icon-wrap">
+                <iconify-icon :icon="app.icon" width="26" />
+              </div>
+              <h4 class="app-name">
+                {{ app.name }}
+                <el-tag size="small" type="primary" effect="plain">商业版</el-tag>
+              </h4>
+              <p class="app-desc">{{ app.desc }}</p>
+            </div>
+          </div>
         </div>
         <div v-else class="app-grid">
           <div
             v-for="app in appList"
             :key="app.id"
             class="app-card"
-            :class="{ active: formData.appId === app.id, 'has-promo': hasPromotion(app) }"
-            @click="selectApp(app.id)"
+            :class="{
+              active: formData.appId === app.id,
+              'has-promo': hasPromotion(app),
+              'is-commercial': app.commercial
+            }"
+            @click="onAppCardClick(app)"
           >
-            <div v-if="hasPromotion(app)" class="app-promo-badge">
+            <div v-if="app.commercial" class="app-promo-badge commercial-badge">
+              <span>商业版</span>
+            </div>
+            <div v-else-if="hasPromotion(app)" class="app-promo-badge">
               <iconify-icon icon="ri:flashlight-fill" width="14" />
               <span>限时活动</span>
             </div>
@@ -41,6 +79,7 @@
             </div>
             <h4 class="app-name">{{ app.name }}</h4>
             <p class="app-desc">{{ app.desc }}</p>
+            <p v-if="app.commercial" class="app-desc commercial-hint">请到管理后台顶栏升级商业版</p>
             <div class="app-footer">
               <div class="app-pricing">
                 <span class="price-currency">¥</span>
@@ -114,7 +153,12 @@
 
             <div class="config-section">
               <label class="config-label">选择套餐</label>
-              <div class="plan-grid">
+              <el-empty
+                v-if="!filteredAppPlans.length"
+                description="当前类型无套餐，请先改授权类型"
+                :image-size="72"
+              />
+              <div v-else class="plan-grid">
                 <div
                   v-for="plan in filteredAppPlans"
                   :key="plan.id"
@@ -473,6 +517,11 @@
 
   const authHeaders = computed(() => ({ Authorization: `Bearer ${getToken()}` }))
   const appList = ref<any[]>([])
+  const appsLoading = ref(true)
+  const appsError = ref(false)
+  const commercialOnly = computed(
+    () => appList.value.length > 0 && appList.value.every((app) => !!app.commercial)
+  )
   type UserOption = { id: number; name: string; email: string }
   const userOptions = ref<UserOption[]>([])
   const userLoading = ref(false)
@@ -508,7 +557,13 @@
     if (visible && userOptions.value.length === 0) fetchUserOptions()
   }
 
+  function retryApps() {
+    fetchApps()
+  }
+
   async function fetchApps() {
+    appsLoading.value = true
+    appsError.value = false
     try {
       const { data } = await axios.get('/api/agent-panel/apps/purchase', {
         headers: authHeaders.value
@@ -541,10 +596,17 @@
           }
         }
       } else if (data.code === 403) {
+        appsError.value = true
         ElMessage.error('请先登录代理端')
+      } else {
+        appsError.value = true
+        ElMessage.error(data.msg || '加载可开通应用失败')
       }
     } catch {
+      appsError.value = true
       ElMessage.error('加载可开通应用失败')
+    } finally {
+      appsLoading.value = false
     }
   }
 
@@ -893,6 +955,14 @@
     userOptions.value = []
     payMethod.value = 'balance'
     quotaInfo.value = { total: 0, used: 0, remain: 0 }
+  }
+
+    function onAppCardClick(app: any) {
+    if (app?.commercial) {
+      ElMessage.info('商业版请到管理后台顶栏打开「升级商业版」')
+      return
+    }
+    selectApp(app.id)
   }
 
   function selectApp(id: string | number) {
@@ -2072,5 +2142,25 @@
     .plan-grid {
       grid-template-columns: 1fr;
     }
+  }
+
+  .commercial-hint {
+    margin-top: 6px;
+    color: var(--el-color-primary);
+    font-size: 12px;
+  }
+
+  .commercial-badge {
+    background: var(--el-color-primary-light-9) !important;
+    color: var(--el-color-primary) !important;
+  }
+
+  .app-card.is-commercial {
+    cursor: default;
+    opacity: 0.92;
+  }
+
+  .commercial-only-box {
+    max-width: 960px;
   }
 </style>

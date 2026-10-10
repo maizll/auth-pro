@@ -1,6 +1,6 @@
-<!-- 广告位容器：按位置拉取投放内容，多条轮播，无投放时显示占位 -->
+<!-- 广告位容器：按位置拉取投放内容，多条轮播；仅占位时不渲染（与弹窗一致） -->
 <template>
-  <div class="ad-slot" :style="{ height }">
+  <div v-if="visible" class="ad-slot" :style="{ height }">
     <ElCarousel
       v-if="items.length > 1"
       height="100%"
@@ -43,7 +43,8 @@
   // 侧边栏空间窄、只放一张图会丢失投放信息，标题和描述直接叠加在图上
   const showInfo = computed(() => props.position === 'sidebar')
 
-  const { items } = useAdvertisement(props.position)
+  const { items, loading, isPlaceholderOnly } = useAdvertisement(props.position)
+  const visible = computed(() => !loading.value && !isPlaceholderOnly.value)
 </script>
 
 <style lang="scss" scoped>
