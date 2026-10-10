@@ -149,7 +149,7 @@ func bindSourceAdApplicationDraft(c *gin.Context, developerID int64) (sourceAdAp
 	}
 	slots := normalizeAdvertisementSlotList(req.Positions)
 	if len(slots) == 0 {
-		return sourceAdApplication{}, errors.New("请选择合法广告位（首页横幅 / 侧栏 / 弹窗）")
+		return sourceAdApplication{}, errors.New("请选择合法广告位")
 	}
 	imageURL := strings.TrimSpace(req.ImageURL)
 	if imageURL != "" {

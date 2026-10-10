@@ -35,7 +35,7 @@ services:
       target: runtime
       args:
         AUTH_PRO_VERSION: ${AUTH_PRO_VERSION:-}
-    image: auth-pro:${AUTH_PRO_IMAGE_TAG:-1.9.1}
+    image: auth-pro:${AUTH_PRO_IMAGE_TAG:-1.9.2}
     restart: unless-stopped
     depends_on:
       db:

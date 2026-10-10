@@ -141,8 +141,6 @@
         </a>
       </footer>
     </div>
-
-    <ArtAdPopup />
   </div>
 </template>
 

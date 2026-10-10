@@ -147,20 +147,20 @@ func TestPublicAdvertisementsFallsBackToStaleCache(t *testing.T) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		fmt.Fprint(w, upstreamPayload(activeRecord("popup", "1", 0)))
+		fmt.Fprint(w, upstreamPayload(activeRecord("console-home", "1", 0)))
 	})
 
-	callAdvertisements(t, "popup")
+	callAdvertisements(t, "console-home")
 
 	// 把缓存推到 TTL 之外、staleTTL 之内，逼出降级路径。
 	advertisementCacheL.Lock()
-	entry := advertisementCache["popup"]
+	entry := advertisementCache["console-home"]
 	entry.fetchedAt = time.Now().Add(-10 * time.Minute)
-	advertisementCache["popup"] = entry
+	advertisementCache["console-home"] = entry
 	advertisementCacheL.Unlock()
 
 	fail.Store(true)
-	code, records := callAdvertisements(t, "popup")
+	code, records := callAdvertisements(t, "console-home")
 	if code != 200 || len(records) != 1 || records[0].ID != "1" {
 		t.Fatalf("上游失败时应返回旧缓存，code=%d records=%v", code, records)
 	}
@@ -217,11 +217,11 @@ func TestParseAdvertisementPositionsAcceptsLegacyAndList(t *testing.T) {
 		match   string
 		noMatch string
 	}{
-		{name: "legacy-string", record: advertisementRecord{Position: "sidebar"}, want: []string{"sidebar"}, match: "sidebar", noMatch: "popup"},
-		{name: "json-array", record: advertisementRecord{Position: `["home-banner","popup"]`}, want: []string{"home-banner", "popup"}, match: "popup", noMatch: "sidebar"},
-		{name: "positions-field", record: advertisementRecord{Positions: []string{"sidebar", "popup"}}, want: []string{"sidebar", "popup"}, match: "sidebar", noMatch: "home-banner"},
-		{name: "comma-separated", record: advertisementRecord{Position: "home-banner,sidebar"}, want: []string{"home-banner", "sidebar"}, match: "home-banner", noMatch: "popup"},
-		{name: "empty-matches-all", record: advertisementRecord{}, want: nil, match: "popup"},
+		{name: "legacy-string", record: advertisementRecord{Position: "sidebar"}, want: []string{"console-sidebar"}, match: "sidebar", noMatch: "console-home"},
+		{name: "json-array", record: advertisementRecord{Position: `["home-banner","console-home"]`}, want: []string{"home-banner", "console-home"}, match: "console-home", noMatch: "sidebar"},
+		{name: "positions-field", record: advertisementRecord{Positions: []string{"sidebar", "console-home"}}, want: []string{"console-sidebar", "console-home"}, match: "sidebar", noMatch: "home-banner"},
+		{name: "comma-separated", record: advertisementRecord{Position: "home-banner,sidebar"}, want: []string{"home-banner", "console-sidebar"}, match: "home-banner", noMatch: "console-home"},
+		{name: "empty-matches-all", record: advertisementRecord{}, want: nil, match: "console-home"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -252,10 +252,10 @@ func TestParseAdvertisementPositionsAcceptsLegacyAndList(t *testing.T) {
 func TestNormalizeAdvertisementsMatchesMultiPosition(t *testing.T) {
 	now := time.Now()
 	records := normalizeAdvertisements([]advertisementRecord{
-		{ID: "multi-json", Position: `["home-banner","sidebar","popup"]`, Weight: 3},
-		{ID: "multi-field", Positions: []string{"sidebar", "popup"}, Weight: 2},
+		{ID: "multi-json", Position: `["home-banner","sidebar","console-home"]`, Weight: 3},
+		{ID: "multi-field", Positions: []string{"sidebar", "console-home"}, Weight: 2},
 		{ID: "legacy", Position: "home-banner", Weight: 1},
-		{ID: "other", Position: "popup", Weight: 9},
+		{ID: "other", Position: "console-topbar", Weight: 9},
 	}, "sidebar", now)
 
 	if len(records) != 2 || records[0].ID != "multi-json" || records[1].ID != "multi-field" {
@@ -263,11 +263,11 @@ func TestNormalizeAdvertisementsMatchesMultiPosition(t *testing.T) {
 	}
 
 	popup := normalizeAdvertisements([]advertisementRecord{
-		{ID: "multi-json", Position: `["home-banner","sidebar","popup"]`, Weight: 3},
+		{ID: "multi-json", Position: `["home-banner","sidebar","console-home"]`, Weight: 3},
 		{ID: "legacy", Position: "home-banner", Weight: 1},
-	}, "popup", now)
+	}, "console-home", now)
 	if len(popup) != 1 || popup[0].ID != "multi-json" {
-		t.Fatalf("同一条多位置广告也应出现在弹窗，实际 %v", popup)
+		t.Fatalf("同一条多位置广告也应出现在工作台卡，实际 %v", popup)
 	}
 }
 

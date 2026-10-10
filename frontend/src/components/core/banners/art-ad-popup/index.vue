@@ -31,21 +31,21 @@
       width?: string
       height?: string
     }>(),
-    { position: 'popup', width: '420px', height: '315px' }
+    { position: 'console-home', width: '420px', height: '315px' }
   )
 
   /** 三端共用同一个键：一个会话里在后台和代理端之间切换也不会重复弹 */
   const SHOWN_KEY = 'auth-pro:ad-popup-shown'
 
   const visible = ref(false)
+  // 1.9.2：弹窗广告位已停用，组件保留以免旧引用报错，但永不打开。
   const { items, loading, isPlaceholderOnly } = useAdvertisement(props.position)
-
-  watch(loading, (isLoading) => {
-    // 只有占位内容时不弹——给用户看一个「广告位出租」毫无意义
-    if (isLoading || isPlaceholderOnly.value) return
-    if (sessionStorage.getItem(SHOWN_KEY)) return
-    sessionStorage.setItem(SHOWN_KEY, '1')
-    visible.value = true
+  void items
+  void loading
+  void isPlaceholderOnly
+  void SHOWN_KEY
+  watch(loading, () => {
+    visible.value = false
   })
 </script>
 

@@ -10,6 +10,7 @@ INSERT INTO `menus` (`id`, `parent_id`, `name`, `path`, `component`, `redirect`,
 (10, 0, 'CustomerService',  '/customer-service',  '/index/index', '/user-manage',                'menus.customerService.title',  'ri:customer-service-2-line', 6, 0),
 (8,   0, 'Sdk',              '/sdk',               '/index/index', '',                            'menus.integration.title',      'ri:code-box-line',           7, 0),
 (210, 0, 'PluginStore',      '/plugin-store',      '/plugin-store/index', '',                     'menus.integration.store',      'ri:store-2-line',            8, 1),
+(215, 0, 'AdsPromote',      '/ads-promote',      '/ads-promote/index', '',                     'menus.integration.adsPromote','ri:megaphone-line',         8, 1),
 (211, 0, 'OnlineUpdate',     '/online-update',     '/online-update/index', '',                    'menus.integration.update',     'ri:download-cloud-2-line',   9, 1),
 (2,   0, 'System',           '/system',            '/index/index', '',                            'menus.system.title',           'ri:settings-3-line',         10, 0);
 

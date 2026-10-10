@@ -1348,7 +1348,9 @@ func loadRechargeReturnURL(orderNo string) string {
 			var upgradeStatus string
 			if err3 := db.QueryRow("SELECT return_url, status FROM agent_upgrade_orders WHERE order_no = ?", orderNo).Scan(&returnURL, &upgradeStatus); err3 != nil {
 				if err4 := db.QueryRow("SELECT return_url FROM store_purchase_orders WHERE order_no = ?", orderNo).Scan(&returnURL); err4 != nil {
-					return ""
+					if err5 := db.QueryRow("SELECT return_url FROM source_ad_orders WHERE order_no = ?", orderNo).Scan(&returnURL); err5 != nil {
+						return ""
+					}
 				}
 			}
 			if upgradeStatus == "completed" {

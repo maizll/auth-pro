@@ -1,5 +1,5 @@
 # auth-pro 应用镜像。构建上下文必须是仓库根目录：
-#   docker build -f deploy/docker/Dockerfile -t auth-pro:1.9.1 .
+#   docker build -f deploy/docker/Dockerfile -t auth-pro:1.9.2 .
 # 或使用 compose（见 docker-compose.yml）。
 #
 # 两个目标：
@@ -80,7 +80,7 @@ CMD ["/app/backend/auth_pro"]
 
 # ---------- 运行镜像（官网发布包）----------
 FROM debian:bookworm-slim AS from-package
-ARG PACKAGE_PATH=release/packages/auth_pro-full-v1.9.1.tar.gz
+ARG PACKAGE_PATH=release/packages/auth_pro-full-v1.9.2.tar.gz
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl tzdata tar gzip \
   && rm -rf /var/lib/apt/lists/* \

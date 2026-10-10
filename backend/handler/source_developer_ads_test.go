@@ -70,7 +70,7 @@ func TestSourceDeveloperAdApplicationRejectDoesNotPublish(t *testing.T) {
 	admin, dev, _ := sourceApproveDeveloper(t, router, "dev-ads-rej", "secret1")
 
 	create := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/ad-applications", dev,
-		`{"title":"拒绝投放","positions":["popup"],"imageUrl":"https://cdn.example.com/reject.png"}`)
+		`{"title":"拒绝投放","positions":["console-home"],"imageUrl":"https://cdn.example.com/reject.png"}`)
 	if sourceBodyCode(t, create) != 200 {
 		t.Fatalf("create=%s", create.Body.String())
 	}
@@ -144,7 +144,7 @@ func TestSourceDeveloperAdApplicationValidationAndIsolation(t *testing.T) {
 		t.Fatalf("alice create=%s", rec.Body.String())
 	}
 	if rec := sourceJSON(t, router, http.MethodPost, "/api/v1/source/developer/ad-applications", bob,
-		`{"title":"Bob 广告","positions":["popup"]}`); sourceBodyCode(t, rec) != 200 {
+		`{"title":"Bob 广告","positions":["console-home"]}`); sourceBodyCode(t, rec) != 200 {
 		t.Fatalf("bob create=%s", rec.Body.String())
 	}
 

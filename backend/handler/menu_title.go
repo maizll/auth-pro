@@ -45,6 +45,7 @@ var menuTitleZH = map[string]string{
 	"menus.integration.docs":             "开发文档",
 	"menus.integration.templateDoc":      "模板文档",
 	"menus.integration.store":            "应用商店",
+	"menus.integration.adsPromote":       "推广投放",
 	"menus.integration.update":           "在线更新",
 	"menus.result.title":                 "结果页面",
 	"menus.result.success":               "成功页",

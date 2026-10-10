@@ -1,50 +1,44 @@
 import { onMounted, ref } from 'vue'
-import { fetchAdvertisements, normalizeAdPlaceholder } from '@/api/advertisement'
-import type { AdPosition, AdvertisementItem, AdvertisementPlaceholder } from '@/api/advertisement'
-
-/** 接口返回前与失败时用安全默认：默认文案、无跳转 */
-let currentPlaceholder: AdvertisementPlaceholder = normalizeAdPlaceholder()
-
-const applyPlaceholder = (input?: Partial<AdvertisementPlaceholder> | null) => {
-  currentPlaceholder = normalizeAdPlaceholder(input)
-}
-
-/** 无投放数据时的占位项，让广告位显示招租文案而不是留一块空白 */
-const placeholderItem = (position: AdPosition): AdvertisementItem => ({
-  id: `placeholder-${position}`,
-  title: currentPlaceholder.title,
-  imageUrl: '',
-  destinationUrl: currentPlaceholder.linkUrl,
-  position,
-  weight: 0,
-  startAt: '',
-  endAt: '',
-  description: currentPlaceholder.description,
-  isPlaceholder: true
-})
+import { fetchAdvertisements } from '@/api/advertisement'
+import type { AdPosition, AdvertisementItem } from '@/api/advertisement'
 
 /**
- * 拉取某个广告位的投放内容。
- * 接口失败一律当作无投放处理：广告不是业务功能，不该把错误抛到后台界面上。
+ * 拉取某个广告位。失败 / 空 / 仅占位 → 空列表（由槽位塌掉，不打扰）。
+ * 多条时按权重挑一条，会话内固定（禁止轮播）。
  */
 export function useAdvertisement(position: AdPosition) {
   const items = ref<AdvertisementItem[]>([])
   const loading = ref(true)
-  /** 是否只剩占位内容，弹窗一类的场景据此决定不打扰用户 */
+  const unreachable = ref(false)
   const isPlaceholderOnly = ref(true)
+
+  const sessionKey = `auth-pro:ad-pick:${position}`
+
+  const pickOne = (records: AdvertisementItem[]) => {
+    if (records.length <= 1) return records
+    const sorted = [...records].sort((a, b) => (b.weight || 0) - (a.weight || 0))
+    const cached = sessionStorage.getItem(sessionKey)
+    if (cached) {
+      const hit = sorted.find((r) => r.id === cached)
+      if (hit) return [hit]
+    }
+    const chosen = sorted[0]
+    sessionStorage.setItem(sessionKey, chosen.id)
+    return [chosen]
+  }
 
   const load = async () => {
     loading.value = true
+    unreachable.value = false
     try {
       const result = await fetchAdvertisements(position)
-      applyPlaceholder(result?.placeholder)
-      const records = result?.records ?? []
+      const records = (result?.records ?? []).filter((r) => r && !r.isPlaceholder)
       isPlaceholderOnly.value = records.length === 0
-      items.value = records.length > 0 ? records : [placeholderItem(position)]
+      items.value = pickOne(records)
     } catch {
-      applyPlaceholder()
+      unreachable.value = true
       isPlaceholderOnly.value = true
-      items.value = [placeholderItem(position)]
+      items.value = []
     } finally {
       loading.value = false
     }
@@ -52,5 +46,5 @@ export function useAdvertisement(position: AdPosition) {
 
   onMounted(load)
 
-  return { items, loading, isPlaceholderOnly, load }
+  return { items, loading, isPlaceholderOnly, unreachable, load }
 }

@@ -26,6 +26,7 @@ const (
 	MenuAgentLevel                = "AgentLevel"
 	MenuAgentQuota                = "AgentQuota"
 	MenuPromotionCampaigns        = "PromotionCampaigns"
+	MenuAdsPromote                 = "AdsPromote"
 	MenuTicketManage              = "TicketManage"
 	MenuPiracyTracking            = "PiracyTracking"
 	MenuPiracyBlacklist           = "PiracyBlacklist"

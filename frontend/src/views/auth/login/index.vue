@@ -1,7 +1,10 @@
 <!-- 登录页面 -->
 <template>
   <div class="auth-login-page">
-    <div class="flex w-full h-screen items-center justify-center">
+    <div class="flex w-full h-screen items-center justify-center gap-8">
+      <div class="hidden min-[1200px]:block" style="width: 312px">
+        <ArtAdSlot position="console-login" height="195px" :close-days="30" />
+      </div>
       <div class="relative">
         <div class="auth-right-wrap">
           <div class="form">
