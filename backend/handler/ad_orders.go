@@ -132,7 +132,6 @@ func ClientAdOrderCreate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库不可用"})
 		return
 	}
-	defer db.Close()
 	if err := ensureAdOrderSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化订单表失败"})
 		return
@@ -321,7 +320,6 @@ func ClientAdOrderPay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库不可用"})
 		return
 	}
-	defer db.Close()
 	if err := ensureAdOrderSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化失败"})
 		return
@@ -524,7 +522,6 @@ func runAdOrderAutoCheck(orderNo string) {
 	if err != nil {
 		return
 	}
-	defer db.Close()
 	order, err := loadAdOrder(db, orderNo)
 	if err != nil || order.Status != adOrderChecking {
 		return
@@ -612,7 +609,6 @@ func ClientAdOrderList(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库不可用"})
 		return
 	}
-	defer db.Close()
 	if err := ensureAdOrderSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化失败"})
 		return
@@ -689,7 +685,6 @@ func ClientAdOrderResubmit(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库不可用"})
 		return
 	}
-	defer db.Close()
 	var req adOrderEditRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
@@ -733,7 +728,6 @@ func AdminAdAuditQueue(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库不可用"})
 		return
 	}
-	defer db.Close()
 	if err := ensureAdOrderSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化失败"})
 		return
@@ -806,7 +800,6 @@ func AdminAdAuditApprove(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库不可用"})
 		return
 	}
-	defer db.Close()
 	var req adAuditDecisionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
@@ -843,7 +836,6 @@ func AdminAdAuditReturn(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库不可用"})
 		return
 	}
-	defer db.Close()
 	var req adAuditDecisionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
@@ -889,7 +881,6 @@ func AdminAdOrderVoid(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库不可用"})
 		return
 	}
-	defer db.Close()
 	var req adAuditDecisionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
@@ -932,7 +923,6 @@ func ClientAdCalendar(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库不可用"})
 		return
 	}
-	defer db.Close()
 	loadAdSlotSwitchesFromStore()
 	slotID := canonicalizeAdSlot(c.Query("slotId"))
 	def, ok := adSlotDefOf(slotID)
@@ -970,7 +960,6 @@ func ClientAdPayOptions(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库不可用"})
 		return
 	}
-	defer db.Close()
 	options := configuredOnlinePayOptions(db)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{"list": options, "noRefundNotice": adNoRefundNotice}})
 }

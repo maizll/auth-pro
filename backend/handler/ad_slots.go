@@ -310,7 +310,6 @@ func AdminAdsHideGet(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库不可用"})
 		return
 	}
-	defer db.Close()
 	hidden := consoleAdsHiddenEnabled(db)
 	commercial := siteLooksCommercial(db)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
@@ -331,7 +330,6 @@ func AdminAdsHideSet(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "数据库不可用"})
 		return
 	}
-	defer db.Close()
 	if !siteLooksCommercial(db) {
 		c.JSON(http.StatusOK, gin.H{"code": 403, "msg": "免费版不可隐藏广告，请升级商业版"})
 		return
@@ -349,25 +347,20 @@ func AdminAdsHideSet(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已保存", "data": gin.H{"hidden": *req.Hidden, "effective": *req.Hidden}})
 }
 
-// siteLooksCommercial：至少有一项有效商业版授权/站点快照视为商业版（含待校验）。
+// siteLooksCommercial：客户站看商店快照是否商业版；官网/本机看 main_license_editions。
 func siteLooksCommercial(db *sql.DB) bool {
+	if state, ok := loadBuyerSnapshot(); ok && !state.ExplicitRevoked && state.Snapshot.Edition == storeEditionCommercial {
+		return true
+	}
 	if db == nil {
 		return false
 	}
-	var n int
-	// 商业版窗口：apps 或 license 带 commercial 标记；找不到表/列则保守 false。
-	_ = db.QueryRow(`SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'commercial_editions'`).Scan(&n)
-	if n > 0 {
-		var active int
-		err := db.QueryRow(`SELECT COUNT(*) FROM commercial_editions WHERE status IN ('active','pending') AND (expires_at IS NULL OR expires_at > NOW())`).Scan(&active)
-		if err == nil && active > 0 {
-			return true
-		}
-	}
-	// 回退：system_configs 里 commercial_edition=1
-	var v string
-	if err := db.QueryRow(`SELECT value FROM system_configs WHERE `+"`group`"+` = 'site' AND `+"`key`"+` = 'commercial_edition'`).Scan(&v); err == nil {
-		return v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "commercial")
+	var active int
+	err := db.QueryRow(`SELECT COUNT(*) FROM main_license_editions
+		WHERE edition = 'commercial' AND status = 'active'
+		  AND (expires_at IS NULL OR expires_at > NOW())`).Scan(&active)
+	if err == nil && active > 0 {
+		return true
 	}
 	return false
 }
