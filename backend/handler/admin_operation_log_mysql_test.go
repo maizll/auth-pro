@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"os"
 	"strconv"
@@ -95,18 +97,27 @@ func TestRoleChangesAndVerifyLogClearAreAuditedMySQL(t *testing.T) {
 		logged[action] = detail
 	}
 	rows.Close()
+	compactJSON := func(s string) string {
+		var buf bytes.Buffer
+		if err := json.Compact(&buf, []byte(s)); err != nil {
+			return s
+		}
+		return buf.String()
+	}
 	for _, want := range []struct{ action, fragment string }{
 		{"role_create", `"roleCode":"R_CS"`},
 		{"role_update", `"roleName":"高级客服"`},
 		{"role_menus_update", `"removed":[2]`},
 		{"role_delete", `"roleName":"高级客服"`},
 	} {
-		if !strings.Contains(logged[want.action], want.fragment) {
-			t.Fatalf("%s detail %q should contain %q (all: %v)", want.action, logged[want.action], want.fragment, logged)
+		detail := compactJSON(logged[want.action])
+		if !strings.Contains(detail, want.fragment) {
+			t.Fatalf("%s detail %q should contain %q (all: %v)", want.action, detail, want.fragment, logged)
 		}
 	}
-	if !strings.Contains(logged["role_update"], `"before":{`) || !strings.Contains(logged["role_update"], `"roleName":"客服"`) {
-		t.Fatalf("role_update should keep the before value: %s", logged["role_update"])
+	roleUpdate := compactJSON(logged["role_update"])
+	if !strings.Contains(roleUpdate, `"before":{`) || !strings.Contains(roleUpdate, `"roleName":"客服"`) {
+		t.Fatalf("role_update should keep the before value: %s", roleUpdate)
 	}
 
 	// 普通管理员清空校验日志：403，日志还在，不记清空。
@@ -123,7 +134,7 @@ func TestRoleChangesAndVerifyLogClearAreAuditedMySQL(t *testing.T) {
 		t.Fatalf("super admin clear: %v", resp)
 	}
 	var detail string
-	if err := db.QueryRow("SELECT CAST(detail AS CHAR) FROM operation_logs WHERE action='verify_logs_clear'").Scan(&detail); err != nil || !strings.Contains(detail, `"rows":3`) {
+	if err := db.QueryRow("SELECT CAST(detail AS CHAR) FROM operation_logs WHERE action='verify_logs_clear'").Scan(&detail); err != nil || !strings.Contains(compactJSON(detail), `"rows":3`) {
 		t.Fatalf("clearing verify logs should log the row count: %q %v", detail, err)
 	}
 	_ = db.QueryRow("SELECT COUNT(*) FROM verify_logs").Scan(&left)

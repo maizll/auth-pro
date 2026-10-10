@@ -3200,7 +3200,12 @@ baota_guardian_owns_pid() {
     fi
     comm="$(tr -d ' \n' < "/proc/$parent/comm" 2>/dev/null || true)"
     case "$comm" in
-      supervisord|supervisor|systemd) return 0 ;;
+      supervisord|supervisor) return 0 ;;
+      systemd)
+        # 仅直接父进程是 systemd 时算托管（user systemd / Type=simple）。
+        # GitHub Actions 等机器上祖先链几乎总会碰到系统 systemd，不能当成宝塔守护。
+        [[ "$i" == "1" ]] && return 0
+        ;;
     esac
     if tr '\0' ' ' < "/proc/$parent/cmdline" 2>/dev/null | grep -Fq 'supervisord'; then
       return 0
