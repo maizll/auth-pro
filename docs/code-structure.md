@@ -2,7 +2,7 @@
 
 这份文档给接手源码的人用。产品版本以仓库根目录 `VERSION` 为准。当前是 **1.8.6**。
 
-从这一版起，合并和发版前必须通过 `scripts/quality-check.sh`。检查失败时，GitHub 的 CI 和打标签发版都会停住，不会打出安装包。
+从这一版起，合并和发版前必须通过 `scripts/quality-check.sh`。检查失败时，GitHub 的 CI 和打标签发版都会停住，不会打出安装包。三道关卡进 CI、box 演练证明与 Required Checks 的完整策略见 [ci-gates.md](ci-gates.md)。
 
 ## 目录
 
@@ -21,6 +21,9 @@
 | `frontend/src/components/business/commercial/` | 顶栏商业版按钮和购买窗口。 |
 | `scripts/build-release.sh` | 打 Linux amd64 安装包。 |
 | `scripts/quality-check.sh` | 合并和发版前的检查。 |
+| `scripts/test-baota-scripts.sh` | 无面板时的安装/升级脚本自检。CI 不设 PPID 放行。 |
+| `scripts/ci/build-smoke.sh` | PR 打包冒烟（未签名）。 |
+| `scripts/ci/record-box-gate.sh` / `verify-box-gate.sh` | box 关卡证明写入 / 发版前核对。 |
 | `scripts/check-migration-cycles.sh` | 用调用图确认结构迁移不会绕回存储初始化。不进发布包。 |
 | `scripts/startup-smoke.sh` | 用真实二进制做官网和客户站的启动冒烟。不进发布包。 |
 | `scripts/commercial_mysql_e2e.py` | 商业版双站 MySQL 端到端。没有 MySQL 时退出码 77。 |

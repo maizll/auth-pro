@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   quality:
-    name: vet, staticcheck, vue-tsc, eslint, unused exports
+    name: vet, staticcheck, vue-tsc, eslint, unused exports, go test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -68,6 +68,108 @@ jobs:
       - name: Check migration call cycles
         run: ./scripts/check-migration-cycles.sh
 
+  frontend-build:
+    name: frontend unit tests and vite build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.15.1
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm -C frontend install --frozen-lockfile
+
+      # package.json 的 build 会先跑 tsx 单测再 vue-tsc + vite build（与演练 build.sh 同路径）。
+      - name: Frontend build
+        run: pnpm -C frontend build
+
+  baota-scripts:
+    name: baota install/upgrade script suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y iproute2 curl
+
+      # 不设置 AUTH_PRO_BAOTA_ALLOW_ORPHAN_PPIDS：GitHub runner 上孤儿必须 PPID=1。
+      - name: Baota script self-check
+        run: ./scripts/test-baota-scripts.sh
+
+  mysql-handler:
+    name: MySQL handler tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache-dependency-path: backend/go.sum
+
+      - name: Install MySQL client
+        run: sudo apt-get update && sudo apt-get install -y default-mysql-client
+
+      - name: Wait for MySQL and create test user
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 30); do
+            if mysql --protocol=TCP -h127.0.0.1 -P3306 -uroot -proot -e "SELECT 1" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          mysql --protocol=TCP -h127.0.0.1 -P3306 -uroot -proot -e "
+            CREATE USER IF NOT EXISTS 'authpro_e2e'@'%' IDENTIFIED BY 'authpro_e2e_pass';
+            ALTER USER 'authpro_e2e'@'%' IDENTIFIED BY 'authpro_e2e_pass';
+            GRANT ALL PRIVILEGES ON *.* TO 'authpro_e2e'@'%' WITH GRANT OPTION;
+            FLUSH PRIVILEGES;
+          "
+
+      # CommercialMysqlE2E 需要 Playwright + 本机 nginx/hosts，留在 box 关卡 3；这里跑其余 MySQL/MariaDB 用例且不得跳过。
+      - name: MySQL/MariaDB handler tests
+        working-directory: backend
+        env:
+          AUTO_PRO_APP_UPDATE_TEST_DSN: 'authpro_e2e:authpro_e2e_pass@tcp(127.0.0.1:3306)/?parseTime=true&charset=utf8mb4&multiStatements=true'
+        run: |
+          set -euo pipefail
+          go test ./handler/ -count=1 -run 'MySQL|Mysql|MariaDB' -skip 'CommercialMysqlE2E' | tee /tmp/mysql-handler.log
+          if grep -E '--- SKIP:' /tmp/mysql-handler.log; then
+            echo "MySQL 已就绪时不应再跳过 handler 用例" >&2
+            exit 1
+          fi
+          grep -Eq '^ok[[:space:]]+auto_pro/handler' /tmp/mysql-handler.log
+
   startup-smoke:
     name: startup smoke
     runs-on: ubuntu-latest
@@ -104,3 +206,36 @@ jobs:
           AUTO_PRO_DB_USER: root
           AUTO_PRO_DB_PASSWORD: root
         run: ./scripts/startup-smoke.sh
+
+  build-smoke:
+    name: build-release smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.15.1
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache-dependency-path: backend/go.sum
+
+      - name: Install frontend dependencies
+        run: pnpm -C frontend install --frozen-lockfile
+
+      - name: Build smoke
+        run: ./scripts/ci/build-smoke.sh
