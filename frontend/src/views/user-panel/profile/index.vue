@@ -33,7 +33,6 @@
               <span class="meta-text">ID: {{ profileForm.userId }}</span>
             </div>
           </div>
-          <el-button size="small" plain class="side-avatar-btn">更换头像</el-button>
         </div>
       </el-col>
 

@@ -42,7 +42,7 @@ func ensureCommercialProductColumn(db *sql.DB) error {
 		_, err := db.Exec(`
 			ALTER TABLE apps
 			ADD COLUMN commercial_product TINYINT(1) NOT NULL DEFAULT 0
-			COMMENT '是否作为本站商业版出售，全站最多一个' AFTER enabled
+			COMMENT '是否作为本站商业版出售，每个应用可单独开启' AFTER enabled
 		`)
 		if err != nil {
 			var mysqlErr *mysql.MySQLError
@@ -56,6 +56,8 @@ func ensureCommercialProductColumn(db *sql.DB) error {
 			return err
 		}
 	}
+	// 旧版 COMMENT 写过「全站最多一个」，与 1.8.4 起每应用独立出售不符，启动时纠正文案。
+	_, _ = db.Exec(`ALTER TABLE apps MODIFY COLUMN commercial_product TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否作为本站商业版出售，每个应用可单独开启'`)
 	commercialProductColumnOK = true
 	return nil
 }

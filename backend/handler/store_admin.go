@@ -186,7 +186,8 @@ func storeAdminAppID(c *gin.Context) int64 {
 	return id
 }
 
-// AdminStoreOrderRefund 按订单号退款。原因可空。订单不存在或状态不允许时返回 400。
+// AdminStoreOrderRefund 按订单号吊销商业版权益（路径名历史遗留仍叫 refund，不会向支付渠道原路退款）。
+// 虚拟授权不支持退款；管理 UI 不应提供「原路退款」按钮。原因可空。订单不存在或状态不允许时返回 400。
 func AdminStoreOrderRefund(c *gin.Context) {
 	var req struct {
 		Reason string `json:"reason"`

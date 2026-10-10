@@ -412,11 +412,6 @@ func userPurchaseOnline(c *gin.Context, appID int64, planID int64, licenseType s
 		return
 	}
 
-	if err := ensurePurchasePromotionSchema(db); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化促销活动失败"})
-		return
-	}
-
 	plan, err := loadPurchasePlanPricing(db, appID, planID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "套餐不存在、已禁用或应用已下架"})

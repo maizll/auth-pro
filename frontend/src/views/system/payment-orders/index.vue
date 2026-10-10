@@ -8,6 +8,13 @@
 
     <ElCard class="art-table-card" shadow="never">
       <ElAlert
+        class="refund-policy"
+        :closable="false"
+        type="info"
+        show-icon
+        title="虚拟产品，付款后不退款。如需作废权益，请在授权列表吊销或作废商业版。"
+      />
+      <ElAlert
         class="commercial-paid"
         :closable="false"
         type="info"

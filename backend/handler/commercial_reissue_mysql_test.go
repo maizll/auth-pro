@@ -73,11 +73,15 @@ func TestCommercialPurchaseMariaDB(t *testing.T) {
 		t.Fatalf("购买页失败: %s", listBody)
 	}
 	rawApps, _ := json.Marshal(listBody["data"])
-	if bytes.Contains(rawApps, []byte("商业版")) || bytes.Contains(rawApps, []byte("永久商业版")) {
-		t.Fatalf("用户端购买页列出了商业版套餐: %s", rawApps)
-	}
 	if !bytes.Contains(rawApps, []byte("普通应用")) {
 		t.Fatalf("用户端购买页缺少普通应用: %s", rawApps)
+	}
+	// 1.9.1：商业版应用会出现在列表里并标 commercial，但仍拒绝普通购买页下单。
+	if !bytes.Contains(rawApps, []byte("商业版")) {
+		t.Fatalf("用户端购买页应列出商业版应用: %s", rawApps)
+	}
+	if !bytes.Contains(rawApps, []byte(`"commercial":true`)) && !bytes.Contains(rawApps, []byte(`"commercial": true`)) {
+		t.Fatalf("商业版应用应带 commercial=true: %s", rawApps)
 	}
 
 	rejectBody := callCommercialJSON(t, http.MethodPost, "/purchase", map[string]any{

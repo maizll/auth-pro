@@ -16,6 +16,9 @@
         </div>
       </div>
     </header>
+    <div class="site-shell__banner">
+      <ArtAdSlot position="home-banner" height="140px" />
+    </div>
     <main class="site-shell__main">
       <slot />
     </main>
@@ -213,5 +216,14 @@
 
   .site-shell__footer p + p {
     margin-top: 4px;
+  }
+
+  .site-shell__banner {
+    width: min(1120px, calc(100% - 24px));
+    margin: 16px auto 0;
+  }
+
+  .site-shell__banner:not(:has(.ad-slot)) {
+    display: none;
   }
 </style>

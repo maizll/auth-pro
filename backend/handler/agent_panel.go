@@ -138,13 +138,16 @@ func AgentPanelPurchaseApps(c *gin.Context) {
 	}
 
 	rows, err := db.Query(`
-		SELECT id, app_name, description, icon, purchase_license_type_mask
+		SELECT apps.id, apps.app_name, apps.description, apps.icon, apps.purchase_license_type_mask,
+		       CASE WHEN EXISTS (
+		         SELECT 1 FROM app_commercial_settings s
+		         WHERE s.app_id = apps.id AND s.mode <> 'off'
+		       ) THEN 1 ELSE 0 END AS is_commercial
 		FROM apps
-		WHERE enabled = 1
-		  AND NOT EXISTS (SELECT 1 FROM app_commercial_settings s WHERE s.app_id = apps.id AND s.mode <> 'off')
-		  AND purchase_license_type_mask <> 0
+		WHERE apps.enabled = 1
+		  AND apps.purchase_license_type_mask <> 0
 		  AND EXISTS (SELECT 1 FROM license_plans p WHERE p.app_id = apps.id AND p.enabled = 1)
-		ORDER BY id ASC
+		ORDER BY apps.id ASC
 	`)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "查询失败"})
@@ -183,6 +186,7 @@ func AgentPanelPurchaseApps(c *gin.Context) {
 		Name                 string         `json:"name"`
 		Description          string         `json:"desc"`
 		Icon                 string         `json:"icon"`
+		Commercial           bool           `json:"commercial"`
 		PurchaseLicenseTypes []string       `json:"purchaseLicenseTypes"`
 		Plans                []purchasePlan `json:"plans"`
 	}
@@ -191,9 +195,11 @@ func AgentPanelPurchaseApps(c *gin.Context) {
 	for rows.Next() {
 		var item purchaseApp
 		var purchaseLicenseTypeMask uint8
-		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Icon, &purchaseLicenseTypeMask); err != nil {
+		var commercialFlag int
+		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Icon, &purchaseLicenseTypeMask, &commercialFlag); err != nil {
 			continue
 		}
+		item.Commercial = commercialFlag == 1
 		item.PurchaseLicenseTypes = purchaseLicenseTypesFromMask(purchaseLicenseTypeMask)
 
 		planRows, err := db.Query(`
@@ -1042,11 +1048,6 @@ func AgentPanelPurchase(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": err.Error()})
 		return
 	}
-	if err := ensurePurchasePromotionSchema(db); err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化促销活动失败"})
-		return
-	}
-
 	if err := ensurePurchasePromotionSchema(db); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "初始化促销活动失败"})
 		return

@@ -1,6 +1,13 @@
 <!-- 商业版：按应用查看商业版订单、授权和已绑定站点 -->
 <template>
   <div class="license-commercial-page art-full-height">
+    <ElAlert
+      class="refund-policy"
+      :closable="false"
+      type="info"
+      show-icon
+      title="虚拟产品，付款后不退款。如需作废权益，请在授权列表吊销或作废商业版。"
+    />
     <!-- 每个应用单独提示待补发的订单 -->
     <ElAlert
       v-for="gap in gapGroups"
@@ -517,5 +524,9 @@
         width: auto;
       }
     }
+  }
+
+  .refund-policy {
+    margin-bottom: 12px;
   }
 </style>
