@@ -1,6 +1,9 @@
 <!-- 锁屏 -->
 <template>
   <div class="layout-lock-screen">
+    <div v-if="isLock" class="fixed left-4 bottom-4 z-[1000] w-[230px]">
+      <ArtAdSlot position="lock-screen" height="72px" :close-days="30" />
+    </div>
     <!-- 开发者工具警告覆盖层 -->
     <div
       v-if="showDevToolsWarning"

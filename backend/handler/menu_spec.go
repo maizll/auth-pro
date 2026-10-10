@@ -86,6 +86,7 @@ func productMenuSpecs() []productMenuSpec {
 		{ID: 802, ParentName: "Sdk", Name: "DeveloperDoc", Path: "developer-doc", Component: "/sdk/developer-doc", Title: "menus.integration.docs", Icon: "ri:file-code-line", Sort: 2, KeepAlive: true, Roles: ops},
 		{ID: 803, ParentName: "Sdk", Name: "DefaultHomeTemplateDoc", Path: "default-home-template", Component: "/sdk/default-home-template-doc", Title: "menus.integration.templateDoc", Icon: "ri:layout-4-line", Sort: 3, KeepAlive: true, Roles: ops},
 		{ID: 210, Name: "PluginStore", Path: "/plugin-store", Component: "/plugin-store/index", Title: "menus.integration.store", Icon: "ri:store-2-line", Sort: 8, KeepAlive: true, Roles: super},
+		{ID: 215, Name: "AdsPromote", Path: "/ads-promote", Component: "/ads-promote/index", Title: "menus.integration.adsPromote", Icon: "ri:megaphone-line", Sort: 8, KeepAlive: true, Roles: ops},
 		{ID: 211, Name: "OnlineUpdate", Path: "/online-update", Component: "/online-update/index", Title: "menus.integration.update", Icon: "ri:download-cloud-2-line", Sort: 9, KeepAlive: true, Roles: super},
 
 		{ID: 2, Name: "System", Path: "/system", Component: "/index/index", Title: "menus.system.title", Icon: "ri:settings-3-line", Sort: 10, Roles: ops},

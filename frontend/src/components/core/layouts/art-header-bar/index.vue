@@ -73,6 +73,9 @@
         />
 
         <!-- 通知中心 -->
+        <div class="header-ad-topbar hidden xl:block" style="max-width: 340px; margin-right: 12px">
+          <ArtAdSlot position="console-topbar" height="28px" :close-days="7" />
+        </div>
         <ArtNotificationBell v-if="shouldShowNotification" />
 
         <!-- 国际化按钮 -->

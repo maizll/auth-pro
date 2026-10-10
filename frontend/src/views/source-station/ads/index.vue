@@ -1,6 +1,101 @@
 <!-- 源站广告位和占位图。 -->
 <template>
   <div class="source-station-page">
+    <el-card shadow="never" class="art-card mb-4">
+      <template #header>
+        <div class="table-header">
+          <div>
+            <span class="card-title">广告位远程开关</span>
+            <p class="card-hint">官网远程开/关；客户站约 10 分钟内生效。关位后前台隐藏该槽。</p>
+          </div>
+          <el-button size="small" :loading="slotLoading" @click="loadSlots">刷新</el-button>
+        </div>
+      </template>
+      <div
+        class="slot-ov"
+        style="
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+          gap: 10px;
+        "
+      >
+        <div
+          v-for="s in slotList"
+          :key="s.id"
+          class="slot-card"
+          style="
+            border: 1px solid var(--el-border-color-lighter);
+            border-radius: 10px;
+            padding: 10px 12px;
+          "
+        >
+          <div style="display: flex; align-items: center; gap: 8px">
+            <div style="font-weight: 600; font-size: 13px">{{ s.name }}</div>
+            <span style="flex: 1" />
+            <el-switch :model-value="s.enabled" size="small" @change="(v) => toggleSlot(s.id, v)" />
+          </div>
+          <div style="font-size: 11px; color: #8a919f; margin-top: 4px"
+            >¥{{ (s.priceCents / 100).toFixed(0) }}/天 · 名额 {{ s.capacity }}</div
+          >
+        </div>
+      </div>
+    </el-card>
+
+    <el-card shadow="never" class="art-card mb-4">
+      <template #header>
+        <div class="table-header">
+          <div>
+            <span class="card-title">投放审核（自助购买）</span>
+            <p class="card-hint">自动检查不过进入人工复核。操作仅「通过 / 退回修改」。无退款。</p>
+          </div>
+        </div>
+      </template>
+      <el-tabs v-model="auditTab" @tab-change="loadAudit">
+        <el-tab-pane label="自动检查中" name="checking" />
+        <el-tab-pane label="待人工复核" name="manual" />
+        <el-tab-pane label="已处理" name="done" />
+      </el-tabs>
+      <el-table :data="auditList" size="small" v-loading="auditLoading">
+        <el-table-column prop="orderNo" label="订单号" min-width="150" />
+        <el-table-column prop="buyerName" label="站长" width="100" />
+        <el-table-column prop="slotName" label="广告位" width="110" />
+        <el-table-column prop="title" label="标题" min-width="120" />
+        <el-table-column prop="amount" label="金额" width="80" />
+        <el-table-column prop="statusLabel" label="状态" width="110" />
+        <el-table-column label="操作" width="200" fixed="right">
+          <template #default="{ row }">
+            <template v-if="row.status === 'manual_review' || row.status === 'checking'">
+              <el-button size="small" type="primary" link @click="auditApprove(row)"
+                >通过</el-button
+              >
+              <el-button size="small" link @click="auditReturn(row)">退回修改</el-button>
+            </template>
+            <el-button
+              v-if="row.status === 'scheduled' || row.status === 'running'"
+              size="small"
+              type="danger"
+              link
+              @click="auditVoid(row)"
+              >违规作废</el-button
+            >
+          </template>
+        </el-table-column>
+      </el-table>
+      <div
+        class="nr-box"
+        style="
+          margin-top: 10px;
+          background: #f4f6fa;
+          border: 1px solid #e3e6ed;
+          border-radius: 8px;
+          padding: 8px 10px;
+          font-size: 12px;
+        "
+      >
+        <b>无退款操作</b>：退回后站长改完再交；天数保留。违规下线剩余天数作废。
+      </div>
+    </el-card>
+
     <el-card
       shadow="never"
       class="art-card placeholder-card"
@@ -138,7 +233,7 @@
           <div>
             <span class="card-title">广告投放（共 {{ tableData.length }} 条）</span>
             <p class="card-hint"
-              >可上传本站图片或粘贴外部网址。广告位可多选：首页横幅、侧栏、弹窗。这些广告面向访客页面，不会出现在管理后台。</p
+              >可上传本站图片或粘贴外部网址。广告位可多选（工作台/侧栏/登录等固定槽；弹窗已停用）。这些广告面向访客页面，不会出现在管理后台。</p
             >
           </div>
           <el-button type="primary" @click="openEdit()">新增广告</el-button>
@@ -454,9 +549,79 @@
     await loadAds()
   }
 
+  import request from '@/utils/http'
+  import { ElMessageBox } from 'element-plus'
+
+  const slotList = ref<any[]>([])
+  const slotLoading = ref(false)
+  const auditTab = ref('manual')
+  const auditList = ref<any[]>([])
+  const auditLoading = ref(false)
+
+  async function loadSlots() {
+    slotLoading.value = true
+    try {
+      const data: any = await request.get({ url: '/api/v1/source/admin/ad-slots' })
+      slotList.value = data?.list || []
+    } finally {
+      slotLoading.value = false
+    }
+  }
+  async function toggleSlot(id: string, enabled: boolean | string | number) {
+    await request.put({ url: `/api/v1/source/admin/ad-slots/${id}`, data: { enabled: !!enabled } })
+    ElMessage.success('已更新')
+    await loadSlots()
+  }
+  async function loadAudit() {
+    auditLoading.value = true
+    try {
+      const data: any = await request.get({
+        url: '/api/v1/source/admin/ad-orders/audit',
+        params: { tab: auditTab.value }
+      })
+      auditList.value = data?.list || []
+    } finally {
+      auditLoading.value = false
+    }
+  }
+  async function auditApprove(row: any) {
+    await request.post({
+      url: '/api/v1/source/admin/ad-orders/approve',
+      data: { orderNo: row.orderNo }
+    })
+    ElMessage.success('已通过并排期')
+    await loadAudit()
+  }
+  async function auditReturn(row: any) {
+    const { value } = await ElMessageBox.prompt('退回原因（不退款）', '退回修改', {
+      confirmButtonText: '退回修改',
+      cancelButtonText: '取消',
+      inputPlaceholder: '配图比例不符 / 文案需改…'
+    })
+    await request.post({
+      url: '/api/v1/source/admin/ad-orders/return',
+      data: { orderNo: row.orderNo, reason: value || '请修改后重新提交' }
+    })
+    ElMessage.success('已退回修改（不退款）')
+    await loadAudit()
+  }
+  async function auditVoid(row: any) {
+    await ElMessageBox.confirm('违规下线将作废剩余天数且不退款，确认？', '违规作废', {
+      type: 'warning'
+    })
+    await request.post({
+      url: '/api/v1/source/admin/ad-orders/void',
+      data: { orderNo: row.orderNo, reason: '违规下线' }
+    })
+    ElMessage.success('已作废（不退款）')
+    await loadAudit()
+  }
+
   onMounted(() => {
     loadAds()
     loadApplications()
+    void loadSlots()
+    void loadAudit()
   })
 </script>
 

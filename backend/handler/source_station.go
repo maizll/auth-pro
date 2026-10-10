@@ -172,6 +172,12 @@ func RegisterSourceStationRoutes(engine *gin.Engine, api *gin.RouterGroup) {
 		admin.GET("/ad-applications", AdminSourceAdApplications)
 		ads.POST("/ad-applications/:id/approve", AdminSourceAdApplicationApprove)
 		ads.POST("/ad-applications/:id/reject", AdminSourceAdApplicationReject)
+		admin.GET("/ad-slots", AdminAdSlotOverview)
+		ads.PUT("/ad-slots/:id", AdminAdSlotSwitch)
+		admin.GET("/ad-orders/audit", AdminAdAuditQueue)
+		ads.POST("/ad-orders/approve", AdminAdAuditApprove)
+		ads.POST("/ad-orders/return", AdminAdAuditReturn)
+		ads.POST("/ad-orders/void", AdminAdOrderVoid)
 	}
 
 	api.GET("/v1/public/advertisement-files/:name", PublicAdvertisementFile)

@@ -17,8 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 广告位白名单。代理只转发这几个固定位置，避免变成可被任意调用的开放代理。
-var advertisementPositions = []string{"home-banner", "sidebar", "popup"}
+// 广告位白名单在 ad_slots.go（advertisementPositions）；popup 已停用。
 
 const advertisementMaxBytes = int64(256 << 10)
 
@@ -110,28 +109,37 @@ type advertisementCacheEntry struct {
 }
 
 var (
-	// 每个广告位一把锁：冷缓存且上游卡死时，三个位置各自等待，不会串成 3 倍超时。
-	advertisementLocks  = map[string]*sync.Mutex{}
-	advertisementCache  = map[string]advertisementCacheEntry{}
-	advertisementCacheL sync.RWMutex
+	// advertisementPositions / advertisementLocks 在 ad_slots.go init 中填充。
+	advertisementPositions []string
+	advertisementLocks     = map[string]*sync.Mutex{}
+	advertisementCache     = map[string]advertisementCacheEntry{}
+	advertisementCacheL    sync.RWMutex
 )
-
-func init() {
-	for _, position := range advertisementPositions {
-		advertisementLocks[position] = &sync.Mutex{}
-	}
-}
 
 // PublicAdvertisements 默认返回本站广告；仅当 AUTO_PRO_ADVERTISEMENT_URL 指向 http(s) 时才代理外部投放。
 // 前端直连上游会被 CORS 拦截，且共用的 axios 实例会附带后台 JWT，所以统一从这里转发。
 func PublicAdvertisements(c *gin.Context) {
 	position := strings.TrimSpace(c.Query("position"))
-	if advertisementLocks[position] == nil {
+	position = canonicalizeAdSlot(position)
+	if position == "" || advertisementLocks[position] == nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告位标识不合法"})
+		return
+	}
+	if shouldSuppressAllAds() || !isAdSlotEnabled(position) {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(advertisementPayload{records: []advertisementRecord{}, placeholder: resolveAdvertisementPlaceholder(nil)})})
 		return
 	}
 	payload := advertisementsPayloadForPosition(c.Request.Context(), position)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(payload)})
+}
+
+func shouldSuppressAllAds() bool {
+	db, err := openSystemConfigDB()
+	if err != nil {
+		return false
+	}
+	// 勿 Close：与 config.DB()/测试覆盖共用同一连接。
+	return consoleAdsHiddenEnabled(db) && siteLooksCommercial(db)
 }
 
 func advertisementPublicData(payload advertisementPayload) gin.H {
@@ -328,8 +336,19 @@ func normalizeAdvertisementSlotList(slots []string) []string {
 	seen := make(map[string]bool, len(slots))
 	result := make([]string, 0, len(slots))
 	for _, slot := range slots {
-		slot = strings.TrimSpace(slot)
-		if slot == "" || advertisementLocks[slot] == nil || seen[slot] {
+		slot = canonicalizeAdSlot(strings.TrimSpace(slot))
+		if slot == "" {
+			continue
+		}
+		// 兼容旧数据里的 sidebar：同时保留规范位与别名键的锁查询
+		lockKey := slot
+		if advertisementLocks[lockKey] == nil && slot == adSlotConsoleSidebar {
+			lockKey = adSlotSidebarLegacy
+		}
+		if advertisementLocks[slot] == nil && advertisementLocks[lockKey] == nil {
+			continue
+		}
+		if seen[slot] {
 			continue
 		}
 		seen[slot] = true
@@ -345,12 +364,13 @@ func advertisementSlots(record advertisementRecord) []string {
 }
 
 func advertisementMatchesPosition(record advertisementRecord, position string) bool {
+	position = canonicalizeAdSlot(position)
 	slots := advertisementSlots(record)
 	if len(slots) == 0 {
 		return true
 	}
 	for _, slot := range slots {
-		if slot == position {
+		if canonicalizeAdSlot(slot) == position {
 			return true
 		}
 	}
@@ -400,9 +420,13 @@ func localAdvertisementPayload(position string) advertisementPayload {
 
 // PublicLocalAdvertisements 是与上游协议兼容的本站广告接口。
 func PublicLocalAdvertisements(c *gin.Context) {
-	position := strings.TrimSpace(c.Query("position"))
-	if advertisementLocks[position] == nil {
+	position := canonicalizeAdSlot(strings.TrimSpace(c.Query("position")))
+	if position == "" || advertisementLocks[position] == nil {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告位标识不合法"})
+		return
+	}
+	if shouldSuppressAllAds() || !isAdSlotEnabled(position) {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(advertisementPayload{records: []advertisementRecord{}, placeholder: resolveAdvertisementPlaceholder(nil)})})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(localAdvertisementPayload(position))})

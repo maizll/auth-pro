@@ -26,6 +26,10 @@
       </ElCol>
     </ElRow>
 
+    <div style="margin: 0 0 14px">
+      <ArtAdSlot position="console-home" height="104px" />
+    </div>
+
     <ElRow :gutter="16" class="trend-status-row">
       <ElCol :xs="24" class="trend-status-col">
         <div class="art-card panel-card trend-panel">

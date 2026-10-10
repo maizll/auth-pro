@@ -360,6 +360,67 @@
             </section>
           </ElTabPane>
 
+          <ElTabPane label="广告" name="ads">
+            <section class="section-card">
+              <div class="section-title">
+                <div>
+                  <strong>隐藏广告</strong>
+                  <span
+                    >商业版可一键隐藏全部客户站广告位；免费版请升级。「推广投放」仍可购买。</span
+                  >
+                </div>
+              </div>
+              <div
+                class="settings-row"
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: flex-start;
+                  gap: 16px;
+                  padding: 14px 0;
+                "
+              >
+                <div>
+                  <div style="font-weight: 600; font-size: 13px">隐藏广告</div>
+                  <div
+                    class="muted"
+                    style="font-size: 12px; margin-top: 4px; color: #8a919f; line-height: 1.55"
+                  >
+                    {{ adsHideHint }}
+                  </div>
+                </div>
+                <div style="text-align: right">
+                  <ElSwitch
+                    v-model="adsHidden"
+                    size="small"
+                    :disabled="!adsCommercial || adsHideSaving"
+                    @change="saveAdsHide"
+                  />
+                  <div v-if="!adsCommercial" style="margin-top: 6px">
+                    <ElButton size="small" type="primary" plain @click="goCommercial"
+                      >升级商业版</ElButton
+                    >
+                  </div>
+                </div>
+              </div>
+              <div
+                class="nr-box"
+                style="
+                  background: #f4f6fa;
+                  border: 1px solid #e3e6ed;
+                  border-radius: 8px;
+                  padding: 10px 12px;
+                  font-size: 12px;
+                  color: #5c6370;
+                  line-height: 1.6;
+                "
+              >
+                <b style="color: #1f2329">生效条件</b
+                >：开关打开且官网签名快照为商业版（含待校验）。免费版改库无效。
+              </div>
+            </section>
+          </ElTabPane>
+
           <ElTabPane label="实名认证" name="realname">
             <section class="section-card">
               <div class="section-title">
@@ -983,6 +1044,7 @@
 <script setup lang="ts">
   import type { FormInstance, FormRules } from 'element-plus'
   import { ElMessage } from 'element-plus'
+  import { fetchAdsHide, setAdsHide } from '@/api/advertisement'
   import { showCaughtError } from '@/utils/http/error-toast'
   import {
     fetchSystemConfig,
@@ -1017,6 +1079,44 @@
   const route = useRoute()
   const router = useRouter()
   const activeTab = ref(typeof route.query.tab === 'string' ? route.query.tab : 'site')
+  const adsHidden = ref(false)
+  const adsCommercial = ref(false)
+  const adsHideSaving = ref(false)
+  const adsHideHint = computed(() => {
+    if (!adsCommercial.value) return '免费版不可隐藏。升级商业版后可在此开关。'
+    if (adsHidden.value) return '已开启。广告位已全部隐藏；不拉 feed、不回传统计。'
+    return '关闭时广告照常显示。打开后全部槽位隐藏。'
+  })
+  async function loadAdsHide() {
+    try {
+      const data = await fetchAdsHide()
+      adsHidden.value = !!data?.switchOn
+      adsCommercial.value = !!data?.commercial
+    } catch {
+      /* ignore */
+    }
+  }
+  async function saveAdsHide(val: string | number | boolean) {
+    const on = !!val
+    if (!adsCommercial.value) {
+      adsHidden.value = false
+      return
+    }
+    adsHideSaving.value = true
+    try {
+      await setAdsHide(on)
+      ElMessage.success('已保存')
+    } catch (e: any) {
+      adsHidden.value = !on
+      ElMessage.error(e?.message || '保存失败')
+    } finally {
+      adsHideSaving.value = false
+    }
+  }
+  function goCommercial() {
+    router.push('/license/commercial')
+  }
+
   const realnameConfig = reactive<RealnameConfigData>({
     enabled: false,
     pluginEnabled: true,
@@ -1133,6 +1233,7 @@
   }
 
   onMounted(() => {
+    void loadAdsHide()
     loadConfig()
     loadRealnameConfig()
     loadRealnameRecords()

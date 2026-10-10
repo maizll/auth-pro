@@ -428,7 +428,7 @@ func TestSourceAdvertisementMultiPositionFeedsAllPublicSlots(t *testing.T) {
 	admin := sourceAdminToken(t)
 
 	save := sourceJSON(t, router, http.MethodPut, "/api/v1/source/admin/advertisements", admin,
-		`{"id":"everywhere","title":"全站投放","imageUrl":"https://example.com/a.png","destinationUrl":"https://example.com","positions":["home-banner","sidebar","popup"],"weight":8}`)
+		`{"id":"everywhere","title":"全站投放","imageUrl":"https://example.com/a.png","destinationUrl":"https://example.com","positions":["home-banner","sidebar","console-home"],"weight":8}`)
 	if sourceBodyCode(t, save) != 200 {
 		t.Fatalf("save multi ad=%s", save.Body.String())
 	}
@@ -452,7 +452,7 @@ func TestSourceAdvertisementMultiPositionFeedsAllPublicSlots(t *testing.T) {
 		t.Fatalf("列表应带 positions：%+v", listedBody.Data.Records[0])
 	}
 
-	for _, slot := range []string{"home-banner", "sidebar", "popup"} {
+	for _, slot := range []string{"home-banner", "sidebar", "console-home"} {
 		public := sourceJSON(t, router, http.MethodGet, "/api/v1/public/advertisements?position="+slot, "", "")
 		if sourceBodyCode(t, public) != 200 || !strings.Contains(public.Body.String(), `"id":"everywhere"`) {
 			t.Fatalf("公开接口 %s 应返回同一条广告：%s", slot, public.Body.String())

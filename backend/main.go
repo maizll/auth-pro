@@ -228,6 +228,8 @@ func main() {
 		secured := api.Group("/")
 		secured.Use(middleware.JWTAuth(), middleware.RequireAdmin(), middleware.RequireFreshPassword("admins"))
 
+		handler.RegisterConsoleAdRoutes(secured)
+
 		// 超级管理员专属接口：后端强制对齐前端 R_SUPER 权限，防止 R_ADMIN 越权直接调用。
 		superSecured := secured.Group("")
 		superSecured.Use(middleware.RequireSuperAdmin())

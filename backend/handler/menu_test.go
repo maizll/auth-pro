@@ -15,7 +15,7 @@ func TestMenuSeedSQLFollowsWorkflowNav(t *testing.T) {
 		"LicensePlans", "LicenseVersions", "LicenseCards",
 		"SourceStationPackages", "SourceStationApplications",
 		"SourceStationCatalog", "SourceStationAds", "SourceStationSettings",
-		"TicketManage", "PluginStore", "OnlineUpdate",
+		"TicketManage", "PluginStore", "AdsPromote", "OnlineUpdate",
 		"User", "OrderList", "PromotionCampaigns",
 	}
 	for _, name := range required {
@@ -59,7 +59,7 @@ func TestProductMenuSpecFollowsWorkflowOrder(t *testing.T) {
 	got := topLevelProductMenuNames()
 	want := []string{
 		"Dashboard", "License", "Agent", "SourceStation", "Piracy",
-		"CustomerService", "Sdk", "PluginStore", "OnlineUpdate", "System",
+		"CustomerService", "Sdk", "PluginStore", "AdsPromote", "OnlineUpdate", "System",
 	}
 	if len(got) < len(want) {
 		t.Fatalf("top-level product menus = %v, want at least %v", got, want)
@@ -98,6 +98,7 @@ func TestProductMenuSpecIncludesWorkflowPages(t *testing.T) {
 		"OrderList":              "CustomerService",
 		"PromotionCampaigns":     "CustomerService",
 		"PluginStore":            "",
+		"AdsPromote":              "",
 		"OnlineUpdate":           "",
 		"DeveloperDoc":           "Sdk",
 		"DefaultHomeTemplateDoc": "Sdk",

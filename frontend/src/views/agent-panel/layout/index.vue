@@ -148,8 +148,6 @@
         <router-view />
       </main>
     </div>
-
-    <ArtAdPopup />
   </div>
 </template>
 

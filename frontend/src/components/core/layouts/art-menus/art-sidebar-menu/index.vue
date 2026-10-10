@@ -126,6 +126,9 @@
         }"
       />
     </div>
+    <div class="sidebar-ad-wrap">
+      <ArtAdSlot position="console-sidebar" height="120px" :close-days="7" />
+    </div>
   </div>
 </template>
 

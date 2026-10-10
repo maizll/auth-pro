@@ -335,9 +335,18 @@ export const SOURCE_VERSION_STATUS: Record<
 }
 
 export const AD_POSITIONS = [
-  { value: 'home-banner', label: '首页横幅' },
-  { value: 'sidebar', label: '侧栏' },
-  { value: 'popup', label: '弹窗' }
+  { value: 'console-home', label: '工作台卡片' },
+  { value: 'console-sidebar', label: '侧栏底部' },
+  { value: 'console-login', label: '登录页侧边' },
+  { value: 'console-topbar', label: '顶栏文字链' },
+  { value: 'console-rail', label: '工作台右栏' },
+  { value: 'store-native', label: '商店推荐卡' },
+  { value: 'update-done', label: '更新成功页' },
+  { value: 'list-footer', label: '列表底部横条' },
+  { value: 'profile-side', label: '个人中心侧栏' },
+  { value: 'docs-side', label: '文档侧边' },
+  { value: 'lock-screen', label: '锁屏' },
+  { value: 'home-banner', label: '公开页横幅' }
 ] as const
 
 export function advertisementPositionList(item: { position?: string; positions?: string[] }) {
