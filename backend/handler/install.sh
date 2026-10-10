@@ -3186,7 +3186,7 @@ baota_cmd_install() {
 # 父进程链上有 supervisord，或带 INVOCATION_ID 且最终回到 PID 1（systemd 服务）。
 # 直接父进程为 1 且没有 INVOCATION_ID 的是孤儿，守护不会把它拉起来。
 baota_guardian_owns_pid() {
-  local pid="$1" current parent comm i
+  local pid="$1" current parent comm i cmd
   [[ "$pid" =~ ^[0-9]+$ && "$pid" -gt 1 ]] || return 1
   current="$pid"
   for i in 1 2 3 4 5 6 7 8; do
@@ -3194,20 +3194,28 @@ baota_guardian_owns_pid() {
     [[ "$parent" =~ ^[0-9]+$ ]] || return 1
     if [[ "$parent" == "1" ]]; then
       if tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^INVOCATION_ID='; then
+        baota_warn "guardian-debug: pid=${pid} parent=1 INVOCATION_ID"
         return 0
       fi
       return 1
     fi
     comm="$(tr -d ' \n' < "/proc/$parent/comm" 2>/dev/null || true)"
+    cmd="$(tr '\0' ' ' < "/proc/$parent/cmdline" 2>/dev/null || true)"
     case "$comm" in
-      supervisord|supervisor) return 0 ;;
+      supervisord|supervisor)
+        baota_warn "guardian-debug: pid=${pid} i=${i} parent=${parent} comm=${comm} cmd=${cmd}"
+        return 0 ;;
       systemd)
         # 仅直接父进程是 systemd 时算托管（user systemd / Type=simple）。
         # GitHub Actions 等机器上祖先链几乎总会碰到系统 systemd，不能当成宝塔守护。
-        [[ "$i" == "1" ]] && return 0
+        if [[ "$i" == "1" ]]; then
+          baota_warn "guardian-debug: pid=${pid} direct systemd parent=${parent} cmd=${cmd}"
+          return 0
+        fi
         ;;
     esac
-    if tr '\0' ' ' < "/proc/$parent/cmdline" 2>/dev/null | grep -Fq 'supervisord'; then
+    if printf '%s' "$cmd" | grep -Fq 'supervisord'; then
+      baota_warn "guardian-debug: pid=${pid} i=${i} parent=${parent} cmdline-has-supervisord cmd=${cmd}"
       return 0
     fi
     current="$parent"
