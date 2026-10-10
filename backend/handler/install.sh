@@ -3186,43 +3186,44 @@ baota_cmd_install() {
 # 父进程链上有 supervisord，或带 INVOCATION_ID 且最终回到 PID 1（systemd 服务）。
 # 直接父进程为 1 且没有 INVOCATION_ID 的是孤儿，守护不会把它拉起来。
 baota_guardian_owns_pid() {
-  local pid="$1" current parent comm i cmd
+  local pid="$1" current parent comm i cgroup
   [[ "$pid" =~ ^[0-9]+$ && "$pid" -gt 1 ]] || return 1
   current="$pid"
   for i in 1 2 3 4 5 6 7 8; do
     parent="$(awk '/^PPid:/ {print $2}' "/proc/$current/status" 2>/dev/null || true)"
     [[ "$parent" =~ ^[0-9]+$ ]] || return 1
     if [[ "$parent" == "1" ]]; then
-      if tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^INVOCATION_ID='; then
-        baota_warn "guardian-debug: pid=${pid} parent=1 INVOCATION_ID"
+      # 脱管到 PID 1 且带 INVOCATION_ID：真 systemd 服务常见。
+      # GitHub Actions 会把 runner 单元的 INVOCATION_ID 遗传给所有子进程，脱管后仍带这个变量，
+      # 必须排除 actions.runner / 容器运行时 cgroup，否则 CI 里普通后台进程会被当成守护托管。
+      if ! tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^INVOCATION_ID='; then
+        return 1
+      fi
+      cgroup="$(cat "/proc/$pid/cgroup" 2>/dev/null || true)"
+      if printf '%s\n' "$cgroup" | grep -Eq 'actions\.runner|docker\.service|containerd|podman'; then
+        return 1
+      fi
+      if printf '%s\n' "$cgroup" | grep -Eq '\.service($|/)'; then
         return 0
       fi
       return 1
     fi
     comm="$(tr -d ' \n' < "/proc/$parent/comm" 2>/dev/null || true)"
-    cmd="$(tr '\0' ' ' < "/proc/$parent/cmdline" 2>/dev/null || true)"
     case "$comm" in
-      supervisord|supervisor)
-        baota_warn "guardian-debug: pid=${pid} i=${i} parent=${parent} comm=${comm} cmd=${cmd}"
-        return 0 ;;
+      supervisord|supervisor) return 0 ;;
       systemd)
         # 仅直接父进程是 systemd 时算托管（user systemd / Type=simple）。
-        # GitHub Actions 等机器上祖先链几乎总会碰到系统 systemd，不能当成宝塔守护。
-        if [[ "$i" == "1" ]]; then
-          baota_warn "guardian-debug: pid=${pid} direct systemd parent=${parent} cmd=${cmd}"
-          return 0
-        fi
+        # 祖先链上的系统 systemd 几乎总会碰到，不能当成宝塔守护。
+        [[ "$i" == "1" ]] && return 0
         ;;
     esac
-    if printf '%s' "$cmd" | grep -Fq 'supervisord'; then
-      baota_warn "guardian-debug: pid=${pid} i=${i} parent=${parent} cmdline-has-supervisord cmd=${cmd}"
+    if tr '\0' ' ' < "/proc/$parent/cmdline" 2>/dev/null | grep -Fq 'supervisord'; then
       return 0
     fi
     current="$parent"
   done
   return 1
 }
-
 baota_find_guardian_owned_pid() {
   local port="$1" site="$2" pid root
   while IFS= read -r pid; do
