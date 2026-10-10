@@ -26,7 +26,9 @@
 | `startup smoke` | 真实二进制官网/客户站启动冒烟 |
 | `build-release smoke` | `scripts/ci/build-smoke.sh`：未签名打包 + 目录结构核对（不消耗正式私钥） |
 
-请在仓库 **Settings → Rules → Rulesets**（或 Branch protection）把上述 job 设为 **Required**：
+仓库已建 Ruleset **`ci-gates-required`**（只约束 `master`），上述 7 个 job 均为 Required status checks；管理员可通过 PR bypass（应急），平时不要用。
+
+若 Ruleset 被删，可在 **Settings → Rules → Rulesets** 重建，勾选：
 
 - `vet, staticcheck, vue-tsc, eslint, unused exports, go test`
 - `migration call cycles`
@@ -35,8 +37,6 @@
 - `MySQL handler tests`
 - `startup smoke`
 - `build-release smoke`
-
-设好后，Checks 红就无法合进 `master`（管理员若开了 bypass 仍可强行合，但不推荐）。
 
 ## 打 tag / 发 Release：什么会拦住
 
