@@ -519,7 +519,20 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 [[ -n "$hung_pid" ]] || fail "不响应的孤儿进程没有占上端口"
 hung_ppid="$(ps -o ppid= -p "$hung_pid" | tr -d ' ')"
-[[ "$hung_ppid" == "1" ]] || fail "孤儿进程 PPID 不是 1（当前 ${hung_ppid}）"
+# 正式环境 / GitHub Actions：孤儿必须被 init 收养（PPID=1）。
+# box 沙箱会收养到 sand-exit-watch（常见 52/53），只允许通过环境变量临时放行，禁止把 box 特例写死进脚本。
+# 例：AUTH_PRO_BAOTA_ALLOW_ORPHAN_PPIDS=52,53
+allowed_ppids="1"
+if [[ -n "${AUTH_PRO_BAOTA_ALLOW_ORPHAN_PPIDS:-}" ]]; then
+  allowed_ppids="${allowed_ppids},${AUTH_PRO_BAOTA_ALLOW_ORPHAN_PPIDS}"
+fi
+ppid_ok=0
+IFS=',' read -r -a _allowed_ppid_list <<< "${allowed_ppids}"
+for _allowed in "${_allowed_ppid_list[@]}"; do
+  _allowed="$(printf '%s' "${_allowed}" | tr -d '[:space:]')"
+  [[ -n "${_allowed}" && "${hung_ppid}" == "${_allowed}" ]] && ppid_ok=1 && break
+done
+[[ "${ppid_ok}" == "1" ]] || fail "孤儿进程 PPID 不在允许列表（当前 ${hung_ppid}，允许 ${allowed_ppids}）"
 curl -fsS --max-time 1 "http://127.0.0.1:${HUNG_PORT}/" >/dev/null 2>&1 && fail "孤儿进程不应该响应 HTTP"
 OTHER_PORT="$(free_port)"
 cat > "$OTHER_SITE/backend/auth_pro" <<'EOF'

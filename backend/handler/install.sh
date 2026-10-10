@@ -3193,14 +3193,20 @@ baota_guardian_owns_pid() {
     parent="$(awk '/^PPid:/ {print $2}' "/proc/$current/status" 2>/dev/null || true)"
     [[ "$parent" =~ ^[0-9]+$ ]] || return 1
     if [[ "$parent" == "1" ]]; then
-      if tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^INVOCATION_ID='; then
-        return 0
-      fi
+      # 父进程为 1：脱管孤儿，不是守护托管。
+      # 旧逻辑用 INVOCATION_ID 推断 systemd，但 GitHub Actions 会把 runner 单元的
+      # INVOCATION_ID 遗传给所有子进程，脱管后会误判，导致 --no-start 升级被拒。
+      # 真·systemd 托管看直接父进程 comm=systemd；宝塔看 supervisord。
       return 1
     fi
     comm="$(tr -d ' \n' < "/proc/$parent/comm" 2>/dev/null || true)"
     case "$comm" in
-      supervisord|supervisor|systemd) return 0 ;;
+      supervisord|supervisor) return 0 ;;
+      systemd)
+        # 仅直接父进程是 systemd 时算托管（user systemd / Type=simple）。
+        # 祖先链上的系统 systemd 几乎总会碰到，不能当成宝塔守护。
+        [[ "$i" == "1" ]] && return 0
+        ;;
     esac
     if tr '\0' ' ' < "/proc/$parent/cmdline" 2>/dev/null | grep -Fq 'supervisord'; then
       return 0
@@ -3209,7 +3215,6 @@ baota_guardian_owns_pid() {
   done
   return 1
 }
-
 baota_find_guardian_owned_pid() {
   local port="$1" site="$2" pid root
   while IFS= read -r pid; do
