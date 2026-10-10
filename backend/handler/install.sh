@@ -3186,26 +3186,17 @@ baota_cmd_install() {
 # 父进程链上有 supervisord，或带 INVOCATION_ID 且最终回到 PID 1（systemd 服务）。
 # 直接父进程为 1 且没有 INVOCATION_ID 的是孤儿，守护不会把它拉起来。
 baota_guardian_owns_pid() {
-  local pid="$1" current parent comm i cgroup
+  local pid="$1" current parent comm i
   [[ "$pid" =~ ^[0-9]+$ && "$pid" -gt 1 ]] || return 1
   current="$pid"
   for i in 1 2 3 4 5 6 7 8; do
     parent="$(awk '/^PPid:/ {print $2}' "/proc/$current/status" 2>/dev/null || true)"
     [[ "$parent" =~ ^[0-9]+$ ]] || return 1
     if [[ "$parent" == "1" ]]; then
-      # 脱管到 PID 1 且带 INVOCATION_ID：真 systemd 服务常见。
-      # GitHub Actions 会把 runner 单元的 INVOCATION_ID 遗传给所有子进程，脱管后仍带这个变量，
-      # 必须排除 actions.runner / 容器运行时 cgroup，否则 CI 里普通后台进程会被当成守护托管。
-      if ! tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^INVOCATION_ID='; then
-        return 1
-      fi
-      cgroup="$(cat "/proc/$pid/cgroup" 2>/dev/null || true)"
-      if printf '%s\n' "$cgroup" | grep -Eq 'actions\.runner|docker\.service|containerd|podman'; then
-        return 1
-      fi
-      if printf '%s\n' "$cgroup" | grep -Eq '\.service($|/)'; then
-        return 0
-      fi
+      # 父进程为 1：脱管孤儿，不是守护托管。
+      # 旧逻辑用 INVOCATION_ID 推断 systemd，但 GitHub Actions 会把 runner 单元的
+      # INVOCATION_ID 遗传给所有子进程，脱管后会误判，导致 --no-start 升级被拒。
+      # 真·systemd 托管看直接父进程 comm=systemd；宝塔看 supervisord。
       return 1
     fi
     comm="$(tr -d ' \n' < "/proc/$parent/comm" 2>/dev/null || true)"
