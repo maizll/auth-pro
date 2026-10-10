@@ -957,7 +957,7 @@
     quotaInfo.value = { total: 0, used: 0, remain: 0 }
   }
 
-    function onAppCardClick(app: any) {
+  function onAppCardClick(app: any) {
     if (app?.commercial) {
       ElMessage.info('商业版请到管理后台顶栏打开「升级商业版」')
       return

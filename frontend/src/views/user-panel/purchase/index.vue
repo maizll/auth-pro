@@ -93,11 +93,7 @@
       <el-empty description="暂无可购买应用，请联系管理员先启用应用和套餐" :image-size="80" />
     </el-card>
 
-    <el-card
-      v-else-if="commercialOnly"
-      shadow="never"
-      class="step-card art-card state-card"
-    >
+    <el-card v-else-if="commercialOnly" shadow="never" class="step-card art-card state-card">
       <el-alert
         type="info"
         :closable="false"
@@ -143,12 +139,9 @@
           <div class="app-summary-body">
             <div class="app-summary-title">
               <strong>{{ selectedApp.name }}</strong>
-              <el-tag
-                v-if="selectedApp.commercial"
-                size="small"
-                type="primary"
-                effect="plain"
-              >商业版</el-tag>
+              <el-tag v-if="selectedApp.commercial" size="small" type="primary" effect="plain"
+                >商业版</el-tag
+              >
               <BizStatusTag
                 v-if="hasPromotion(selectedApp)"
                 domain="campaign"
@@ -808,8 +801,6 @@
     if (!target || formData.type === 'key') return ''
     return validateLicenseTarget(formData.type, target)
   })
-
-  const infoReady = computed(() => !!formData.appId && !!formData.planId && !getTargetError())
 
   const submitBlockReason = computed(() => {
     if (!formData.appId) return '请先选择应用'
