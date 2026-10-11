@@ -40,6 +40,7 @@ type advertisementPublicBody struct {
 	Data struct {
 		Records     []advertisementRecord    `json:"records"`
 		Placeholder advertisementPlaceholder `json:"placeholder"`
+		Enabled     bool                     `json:"enabled"`
 	} `json:"data"`
 }
 
@@ -353,4 +354,34 @@ func TestPublicAdvertisementsRejectsUnknownPosition(t *testing.T) {
 	if got := atomic.LoadInt32(calls); got != 0 {
 		t.Fatalf("非法位置不应请求上游，实际 %d 次", got)
 	}
+}
+
+func TestPublicAdvertisementsDisabledSlotReportsEnabledFalse(t *testing.T) {
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", "")
+	resetAdvertisementCache(t)
+	setAdSlotEnabled(adSlotHomeBanner, false)
+	t.Cleanup(func() { setAdSlotEnabled(adSlotHomeBanner, true) })
+
+	code, body := callAdvertisementData(t, "home-banner")
+	if code != 200 {
+		t.Fatalf("code=%d", code)
+	}
+	if body.Data.Enabled {
+		t.Fatal("关闭的广告位 enabled 应为 false")
+	}
+	if len(body.Data.Records) != 0 {
+		t.Fatalf("关闭位不应返回投放：%v", body.Data.Records)
+	}
+}
+
+func TestPublicAdvertisementsEnabledEmptySlotReportsEnabledTrue(t *testing.T) {
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", "")
+	resetAdvertisementCache(t)
+	setAdSlotEnabled(adSlotHomeBanner, true)
+
+	code, body := callAdvertisementData(t, "home-banner")
+	if code != 200 || !body.Data.Enabled {
+		t.Fatalf("开启空位 enabled 应为 true，code=%d enabled=%v", code, body.Data.Enabled)
+	}
+	assertSafeDefaultPlaceholder(t, body.Data.Placeholder)
 }
