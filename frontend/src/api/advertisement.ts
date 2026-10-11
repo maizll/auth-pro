@@ -46,7 +46,7 @@ export const AD_NO_REFUND_NOTICE =
   '虚拟产品，付款后不退款。审核不过请修改后重新提交；未展示天数顺延；违规下线剩余天数作废。'
 
 /** 卡片类位置：空位可显示招租（设计 ①②③⑤⑨⑩）；文字类等空位直接塌掉 */
-export const AD_RECRUIT_POSITIONS: ReadonlySet<AdPosition> = new Set([
+const AD_RECRUIT_POSITIONS: ReadonlySet<AdPosition> = new Set([
   'console-home',
   'console-sidebar',
   'sidebar',
