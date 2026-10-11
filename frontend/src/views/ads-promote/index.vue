@@ -365,7 +365,9 @@
       pendingAmount.value = data.amount
       await prepareCheckoutPay()
       if (!payOptions.value.length) {
-        ElMessage.warning('订单已创建，但支付通道未开启。请到「我的投放」稍后付款，或联系管理员开启支付。')
+        ElMessage.warning(
+          '订单已创建，但支付通道未开启。请到「我的投放」稍后付款，或联系管理员开启支付。'
+        )
         tab.value = 'mine'
         await loadOrders()
         return
@@ -500,8 +502,7 @@
   }
 
   async function handlePayReturn() {
-    const orderNo =
-      typeof route.query.rechargeOrder === 'string' ? route.query.rechargeOrder : ''
+    const orderNo = typeof route.query.rechargeOrder === 'string' ? route.query.rechargeOrder : ''
     if (!orderNo && route.query.rechargeReturn !== '1') return
     const nextQuery = { ...route.query }
     delete nextQuery.rechargeOrder
