@@ -124,17 +124,26 @@
       </div>
     </template>
 
-    <el-card v-else shadow="never" class="art-card">
-      <el-table :data="orders" size="small">
-        <el-table-column prop="orderNo" label="订单号" min-width="160" />
-        <el-table-column prop="slotName" label="广告位" width="120" />
-        <el-table-column prop="title" label="标题" min-width="140" />
-        <el-table-column prop="statusLabel" label="状态" width="120" />
-        <el-table-column prop="amount" label="金额" width="90" />
-        <el-table-column label="操作" width="120">
+    <el-card v-else shadow="never" class="art-card mine-orders">
+      <el-table :data="orders" size="small" class="mine-table">
+        <el-table-column prop="orderNo" label="订单号" min-width="140" />
+        <el-table-column prop="slotName" label="广告位" min-width="100" />
+        <el-table-column prop="title" label="标题" min-width="120" />
+        <el-table-column prop="statusLabel" label="状态" width="110" />
+        <el-table-column prop="amount" label="金额" width="80" />
+        <el-table-column label="操作" width="100" fixed="right" class-name="mine-actions">
           <template #default="{ row }">
             <el-button
-              v-if="row.status === 'need_edit'"
+              v-if="row.status === 'pending_pay'"
+              size="small"
+              type="primary"
+              link
+              @click="openResumePay(row)"
+            >
+              去付款
+            </el-button>
+            <el-button
+              v-else-if="row.status === 'need_edit'"
               size="small"
               type="primary"
               link
@@ -142,6 +151,7 @@
             >
               修改重交
             </el-button>
+            <span v-else class="muted">—</span>
           </template>
         </el-table-column>
       </el-table>
@@ -156,9 +166,10 @@
         ><span>应付</span><b>¥{{ pendingAmount }}</b></div
       >
       <div class="sec">支付方式</div>
-      <el-radio-group v-model="payCode" size="small">
+      <el-radio-group v-if="payOptions.length" v-model="payCode" size="small">
         <el-radio v-for="p in payOptions" :key="p.code" :label="p.code">{{ p.label }}</el-radio>
       </el-radio-group>
+      <p v-else class="muted">支付通道未开启，请联系管理员</p>
       <el-checkbox v-model="agreePay" size="small" class="mt-3 block">
         我已阅读并同意以上规则（虚拟产品不退款）
       </el-checkbox>
@@ -205,13 +216,24 @@
         >
       </template>
     </AppDialog>
+
+    <PayQrDialog
+      :visible="qrCheckout.visible"
+      :qr-code="qrCheckout.qrCode"
+      :amount="qrCheckout.amount"
+      :order-no="qrCheckout.orderNo"
+      @close="closeQrCheckout"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, reactive, ref } from 'vue'
+  import { computed, onMounted, onBeforeUnmount, reactive, ref } from 'vue'
+  import { useRoute, useRouter } from 'vue-router'
   import { ElMessage } from 'element-plus'
   import AppDialog from '@/components/core/dialog/AppDialog.vue'
+  import PayQrDialog from '@/components/core/pay/PayQrDialog.vue'
+  import { isQrCheckout } from '@/utils/checkout'
   import {
     AD_NO_REFUND_NOTICE,
     createAdOrder,
@@ -251,6 +273,15 @@
   const editOpen = ref(false)
   const editForm = reactive({ orderNo: '', title: '', description: '', linkUrl: '', imageUrl: '' })
   const resubmitting = ref(false)
+  const route = useRoute()
+  const router = useRouter()
+  const qrCheckout = reactive({
+    visible: false,
+    qrCode: '',
+    orderNo: '',
+    amount: '' as string | number
+  })
+  let payPollTimer: ReturnType<typeof setInterval> | null = null
 
   const monthLabel = computed(() => month.value.replace('-', ' 年 ') + ' 月')
   const slotName = computed(() => slots.value.find((s) => s.id === form.slotId)?.name || '未选')
@@ -332,10 +363,15 @@
       })
       pendingOrderNo.value = data.orderNo
       pendingAmount.value = data.amount
-      const opts = await fetchAdPayOptions()
-      payOptions.value = opts?.list || []
-      payCode.value = payOptions.value[0]?.code || ''
-      agreePay.value = false
+      await prepareCheckoutPay()
+      if (!payOptions.value.length) {
+        ElMessage.warning(
+          '订单已创建，但支付通道未开启。请到「我的投放」稍后付款，或联系管理员开启支付。'
+        )
+        tab.value = 'mine'
+        await loadOrders()
+        return
+      }
       checkoutOpen.value = true
     } catch (e: any) {
       ElMessage.error(e?.message || '创建订单失败')
@@ -344,7 +380,59 @@
     }
   }
 
+  async function prepareCheckoutPay() {
+    const opts = await fetchAdPayOptions()
+    payOptions.value = opts?.list || []
+    payCode.value = payOptions.value[0]?.code || ''
+    agreePay.value = false
+  }
+
+  function showQrCheckout(data: { qrCode?: string; orderNo?: string; amount?: string | number }) {
+    qrCheckout.visible = true
+    qrCheckout.qrCode = data.qrCode || ''
+    qrCheckout.orderNo = data.orderNo || pendingOrderNo.value
+    qrCheckout.amount = data.amount || pendingAmount.value
+  }
+
+  function stopPayPoll() {
+    if (payPollTimer) {
+      clearInterval(payPollTimer)
+      payPollTimer = null
+    }
+  }
+
+  function closeQrCheckout() {
+    qrCheckout.visible = false
+    stopPayPoll()
+  }
+
+  async function pollAdPay(orderNo: string) {
+    stopPayPoll()
+    let attempts = 0
+    payPollTimer = setInterval(async () => {
+      attempts++
+      try {
+        await loadOrders()
+        const row = orders.value.find((o) => o.orderNo === orderNo)
+        if (row && row.status && row.status !== 'pending_pay' && row.status !== 'expired_lock') {
+          stopPayPoll()
+          qrCheckout.visible = false
+          checkoutOpen.value = false
+          tab.value = 'mine'
+          ElMessage.success('付款成功')
+        }
+      } catch {
+        /* keep polling */
+      }
+      if (attempts >= 60) stopPayPoll()
+    }, 2500)
+  }
+
   async function doPay() {
+    if (!payCode.value) {
+      ElMessage.warning('请选择支付方式')
+      return
+    }
     paying.value = true
     try {
       const data: any = await payAdOrder({
@@ -352,11 +440,19 @@
         payCode: payCode.value,
         agree: true
       })
+      if (isQrCheckout(data)) {
+        checkoutOpen.value = false
+        showQrCheckout(data)
+        tab.value = 'mine'
+        await loadOrders()
+        await pollAdPay(data.orderNo || pendingOrderNo.value)
+        return
+      }
       if (data?.payUrl) {
         window.location.href = data.payUrl
         return
       }
-      ElMessage.success(data?.msg || '请完成支付')
+      ElMessage.error('未返回支付链接或付款码，请稍后在「我的投放」点「去付款」重试')
       checkoutOpen.value = false
       tab.value = 'mine'
       await loadOrders()
@@ -364,6 +460,21 @@
       ElMessage.error(e?.message || '付款失败')
     } finally {
       paying.value = false
+    }
+  }
+
+  async function openResumePay(row: any) {
+    pendingOrderNo.value = row.orderNo
+    pendingAmount.value = row.amount || '0.00'
+    try {
+      await prepareCheckoutPay()
+      if (!payOptions.value.length) {
+        ElMessage.warning('支付通道未开启，请联系管理员')
+        return
+      }
+      checkoutOpen.value = true
+    } catch (e: any) {
+      ElMessage.error(e?.message || '加载支付方式失败')
     }
   }
 
@@ -390,10 +501,28 @@
     }
   }
 
+  async function handlePayReturn() {
+    const orderNo = typeof route.query.rechargeOrder === 'string' ? route.query.rechargeOrder : ''
+    if (!orderNo && route.query.rechargeReturn !== '1') return
+    const nextQuery = { ...route.query }
+    delete nextQuery.rechargeOrder
+    delete nextQuery.rechargeReturn
+    router.replace({ query: nextQuery })
+    tab.value = 'mine'
+    await loadOrders()
+    if (orderNo) {
+      ElMessage.info('正在确认支付结果…')
+      await pollAdPay(orderNo)
+    }
+  }
+
   onMounted(async () => {
     await loadSlots()
     await loadOrders()
+    await handlePayReturn()
   })
+
+  onBeforeUnmount(stopPayPoll)
 </script>
 
 <style scoped lang="scss">
@@ -527,9 +656,18 @@
     margin: 6px 0 0;
     padding-left: 18px;
   }
+  .mine-orders {
+    overflow-x: auto;
+  }
+  .mine-table :deep(.mine-actions) {
+    background: var(--el-bg-color);
+  }
   @media (max-width: 900px) {
     .buy-grid {
       grid-template-columns: 1fr;
+    }
+    .mine-orders :deep(.el-table__body-wrapper) {
+      overflow-x: auto;
     }
   }
 </style>
