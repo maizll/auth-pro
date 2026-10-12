@@ -221,12 +221,25 @@
       position: fixed;
       top: 0;
       left: 0;
-      z-index: -1;
+      z-index: 0;
       display: block;
       width: 100%;
       height: 100vh;
       background: rgba($color: #000, $alpha: 50%);
       transition: opacity 0.2s ease-in-out;
+      // 点空白关侧栏；不要盖住侧栏里的菜单项（否则 Playwright/真机偶发点不到）
+      pointer-events: none;
+    }
+
+    .menu-left-open .menu-model {
+      pointer-events: auto;
+      // 仅侧栏以外可点：侧栏内容在上层
+    }
+
+    .menu-left .el-scrollbar,
+    .menu-left .header {
+      position: relative;
+      z-index: 1;
     }
   }
 }

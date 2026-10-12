@@ -27,14 +27,21 @@ async function login(base) {
 
 async function openMenu() {
   // 手机宽度侧栏默认收起。顶栏汉堡是 ArtIconButton（div.header-icon），不是 <button>。
-  const title = page.getByText('源站运营', { exact: true }).first()
+  // menu-model 遮罩在侧栏内 z-index:-1，仍可能挡住子菜单标题，展开用 force。
+  const title = page.locator('.menu-left').getByText('源站运营', { exact: true }).first()
   if (!(await title.isVisible().catch(() => false))) {
     const menuBtn = page.locator('.header-icon').first()
     await menuBtn.waitFor({ state: 'attached', timeout: 5000 })
     await menuBtn.click({ force: true })
     await title.waitFor({ state: 'visible', timeout: 10000 })
   }
-  await title.click()
+  await page.locator('.menu-left .el-scrollbar__wrap').evaluate((wrap) => {
+    const item = [...wrap.querySelectorAll('.el-sub-menu__title, .el-menu-item')].find((el) =>
+      el.textContent?.includes('源站运营')
+    )
+    if (item) wrap.scrollTop = Math.max(0, item.offsetTop - 40)
+  })
+  await title.click({ force: true })
   await page.waitForTimeout(400)
 }
 
