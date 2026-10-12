@@ -26,20 +26,11 @@ async function login(base) {
 }
 
 async function openMenu() {
+  // 手机宽度侧栏默认收起。顶栏汉堡是 ArtIconButton（div.header-icon），不是 <button>。
   const title = page.getByText('源站运营', { exact: true }).first()
   if (!(await title.isVisible().catch(() => false))) {
-    const menuButton = page
-      .locator('button')
-      .filter({ has: page.locator('svg, i') })
-      .first()
-    await page
-      .locator('.ml-3, .max-sm\\:ml-\\[7px\\]')
-      .first()
-      .click({ timeout: 5000 })
-      .catch(async () => {
-        await menuButton.click()
-      })
-    await page.waitForTimeout(400)
+    await page.locator('.header-icon').first().click()
+    await title.waitFor({ state: 'visible', timeout: 10000 })
   }
   await title.click()
   await page.waitForTimeout(400)

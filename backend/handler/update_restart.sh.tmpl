@@ -191,6 +191,8 @@ auth_pro_frontend_backup() {
 }
 # AUTH_PRO_BACKUP_FUNCS_END
 
+# 尽早打日志：无 swap 的机器上脚本可能被推迟调度，后台一直停在 restarting 时靠这条判断脚本是否真的起来了。
+log "update script running pid=$$"
 if [ "$FRONTEND_ONLY" != "1" ]; then
   sleep 2
 fi
