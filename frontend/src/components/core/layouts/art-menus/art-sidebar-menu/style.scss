@@ -189,6 +189,7 @@
 @media only screen and (width <= 800px) {
   .layout-sidebar {
     width: 0;
+    overflow: hidden; // 收起时裁掉侧栏广告，避免招租卡盖住顶栏
 
     .header {
       height: 50px;

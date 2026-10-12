@@ -29,7 +29,9 @@ async function openMenu() {
   // 手机宽度侧栏默认收起。顶栏汉堡是 ArtIconButton（div.header-icon），不是 <button>。
   const title = page.getByText('源站运营', { exact: true }).first()
   if (!(await title.isVisible().catch(() => false))) {
-    await page.locator('.header-icon').first().click()
+    const menuBtn = page.locator('.header-icon').first()
+    await menuBtn.waitFor({ state: 'attached', timeout: 5000 })
+    await menuBtn.click({ force: true })
     await title.waitFor({ state: 'visible', timeout: 10000 })
   }
   await title.click()
