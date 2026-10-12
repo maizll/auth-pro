@@ -27,21 +27,21 @@ async function login(base) {
 
 async function openMenu() {
   // 手机宽度侧栏默认收起。顶栏汉堡是 ArtIconButton（div.header-icon），不是 <button>。
-  // menu-model 遮罩在侧栏内 z-index:-1，仍可能挡住子菜单标题，展开用 force。
-  const title = page.locator('.menu-left').getByText('源站运营', { exact: true }).first()
+  // 不要 Playwright force 点「源站运营」：会点穿到 menu-model 把侧栏关掉。
+  const title = page.locator('.menu-left .el-sub-menu__title').filter({ hasText: '源站运营' }).first()
   if (!(await title.isVisible().catch(() => false))) {
-    const menuBtn = page.locator('.header-icon').first()
-    await menuBtn.waitFor({ state: 'attached', timeout: 5000 })
-    await menuBtn.click({ force: true })
+    await page.locator('.header-icon').first().click({ force: true })
     await title.waitFor({ state: 'visible', timeout: 10000 })
   }
   await page.locator('.menu-left .el-scrollbar__wrap').evaluate((wrap) => {
-    const item = [...wrap.querySelectorAll('.el-sub-menu__title, .el-menu-item')].find((el) =>
+    const item = [...wrap.querySelectorAll('.el-sub-menu__title')].find((el) =>
       el.textContent?.includes('源站运营')
     )
-    if (item) wrap.scrollTop = Math.max(0, item.offsetTop - 40)
+    if (!item) throw new Error('侧栏里没有源站运营')
+    wrap.scrollTop = Math.max(0, item.offsetTop - 40)
+    item.click()
   })
-  await title.click({ force: true })
+  await page.locator('.menu-left').getByText('软件目录', { exact: true }).waitFor({ state: 'visible', timeout: 10000 })
   await page.waitForTimeout(400)
 }
 
@@ -173,17 +173,12 @@ try {
   await login(state.upgrade)
   await page.goto(`${state.upgrade}/license/apps`, { waitUntil: 'domcontentloaded' })
   await openMenu()
-  await page.locator('.menu-left .el-scrollbar__wrap').evaluate((wrap) => {
-    const item = [...wrap.querySelectorAll('.el-sub-menu__title, .el-menu-item')].find((el) =>
-      el.textContent?.includes('源站运营')
-    )
-    if (item) wrap.scrollTop = item.offsetTop
-  })
-  await page.getByText('软件目录', { exact: true }).waitFor()
-  await page.getByText('入驻审核', { exact: true }).waitFor()
-  await page.getByText('公开目录', { exact: true }).waitFor()
-  await page.getByText('广告投放', { exact: true }).waitFor()
-  await page.getByText('源站设置', { exact: true }).first().waitFor()
+  const side = page.locator('.menu-left')
+  await side.getByText('软件目录', { exact: true }).waitFor()
+  await side.getByText('入驻审核', { exact: true }).waitFor()
+  await side.getByText('公开目录', { exact: true }).waitFor()
+  await side.getByText('广告投放', { exact: true }).waitFor()
+  await side.getByText('源站设置', { exact: true }).first().waitFor()
   for (const retired of ['商业版设置', '商店订单', '主授权与权益', '商业版收入']) {
     if (
       await page

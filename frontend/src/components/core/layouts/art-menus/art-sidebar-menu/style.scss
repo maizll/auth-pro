@@ -227,15 +227,9 @@
       height: 100vh;
       background: rgba($color: #000, $alpha: 50%);
       transition: opacity 0.2s ease-in-out;
-      // 点空白关侧栏；不要盖住侧栏里的菜单项（否则 Playwright/真机偶发点不到）
-      pointer-events: none;
     }
 
-    .menu-left-open .menu-model {
-      pointer-events: auto;
-      // 仅侧栏以外可点：侧栏内容在上层
-    }
-
+    // 遮罩在侧栏内部时必须让菜单在上层，否则点子菜单会点到遮罩把自己关掉
     .menu-left .el-scrollbar,
     .menu-left .header {
       position: relative;
