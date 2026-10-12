@@ -189,6 +189,7 @@
 @media only screen and (width <= 800px) {
   .layout-sidebar {
     width: 0;
+    overflow: hidden; // 收起时裁掉侧栏广告，避免招租卡盖住顶栏
 
     .header {
       height: 50px;
@@ -220,12 +221,19 @@
       position: fixed;
       top: 0;
       left: 0;
-      z-index: -1;
+      z-index: 0;
       display: block;
       width: 100%;
       height: 100vh;
       background: rgba($color: #000, $alpha: 50%);
       transition: opacity 0.2s ease-in-out;
+    }
+
+    // 遮罩在侧栏内部时必须让菜单在上层，否则点子菜单会点到遮罩把自己关掉
+    .menu-left .el-scrollbar,
+    .menu-left .header {
+      position: relative;
+      z-index: 1;
     }
   }
 }

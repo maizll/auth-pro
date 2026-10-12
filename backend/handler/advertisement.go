@@ -118,6 +118,7 @@ var (
 
 // PublicAdvertisements 默认返回本站广告；仅当 AUTO_PRO_ADVERTISEMENT_URL 指向 http(s) 时才代理外部投放。
 // 前端直连上游会被 CORS 拦截，且共用的 axios 实例会附带后台 JWT，所以统一从这里转发。
+// enabled=false（远程开关关 / 商业版隐藏）时客户站应塌掉，不展示招租占位。
 func PublicAdvertisements(c *gin.Context) {
 	position := strings.TrimSpace(c.Query("position"))
 	position = canonicalizeAdSlot(position)
@@ -125,12 +126,13 @@ func PublicAdvertisements(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告位标识不合法"})
 		return
 	}
+	loadAdSlotSwitchesFromStore()
 	if shouldSuppressAllAds() || !isAdSlotEnabled(position) {
-		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(advertisementPayload{records: []advertisementRecord{}, placeholder: resolveAdvertisementPlaceholder(nil)})})
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(advertisementPayload{records: []advertisementRecord{}, placeholder: resolveAdvertisementPlaceholder(nil)}, false)})
 		return
 	}
 	payload := advertisementsPayloadForPosition(c.Request.Context(), position)
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(payload)})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(payload, true)})
 }
 
 func shouldSuppressAllAds() bool {
@@ -142,8 +144,8 @@ func shouldSuppressAllAds() bool {
 	return consoleAdsHiddenEnabled(db) && siteLooksCommercial(db)
 }
 
-func advertisementPublicData(payload advertisementPayload) gin.H {
-	return gin.H{"records": payload.records, "placeholder": payload.placeholder}
+func advertisementPublicData(payload advertisementPayload, enabled bool) gin.H {
+	return gin.H{"records": payload.records, "placeholder": payload.placeholder, "enabled": enabled}
 }
 
 func advertisementsPayloadForPosition(ctx context.Context, position string) advertisementPayload {
@@ -425,9 +427,10 @@ func PublicLocalAdvertisements(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告位标识不合法"})
 		return
 	}
+	loadAdSlotSwitchesFromStore()
 	if shouldSuppressAllAds() || !isAdSlotEnabled(position) {
-		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(advertisementPayload{records: []advertisementRecord{}, placeholder: resolveAdvertisementPlaceholder(nil)})})
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(advertisementPayload{records: []advertisementRecord{}, placeholder: resolveAdvertisementPlaceholder(nil)}, false)})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(localAdvertisementPayload(position))})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(localAdvertisementPayload(position), true)})
 }

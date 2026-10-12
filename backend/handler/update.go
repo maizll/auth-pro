@@ -1303,6 +1303,9 @@ func executeOnlineUpdate(jobID string, manifest *onlineUpdateManifest) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("启动更新脚本失败：%w", err)
 	}
+	if cmd.Process != nil {
+		appendOnlineUpdateLog(jobID, fmt.Sprintf("更新脚本已启动（pid %d）", cmd.Process.Pid))
+	}
 	go func() { _ = cmd.Wait() }()
 
 	finishOnlineUpdateJob(jobID, "restarting", "服务正在切换并重启", nil)

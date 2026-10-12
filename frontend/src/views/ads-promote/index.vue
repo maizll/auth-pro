@@ -518,6 +518,14 @@
 
   onMounted(async () => {
     await loadSlots()
+    const slotQ = typeof route.query.slot === 'string' ? route.query.slot.trim() : ''
+    if (slotQ) {
+      const hit = slots.value.find((s) => s.id === slotQ && s.enabled)
+      if (hit) {
+        form.slotId = hit.id
+        await loadCalendar()
+      }
+    }
     await loadOrders()
     await handlePayReturn()
   })

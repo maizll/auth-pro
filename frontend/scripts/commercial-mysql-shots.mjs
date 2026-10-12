@@ -25,24 +25,41 @@ async function login(base) {
   await page.waitForTimeout(800)
 }
 
-async function openMenu() {
-  const title = page.getByText('源站运营', { exact: true }).first()
-  if (!(await title.isVisible().catch(() => false))) {
-    const menuButton = page
-      .locator('button')
-      .filter({ has: page.locator('svg, i') })
-      .first()
-    await page
-      .locator('.ml-3, .max-sm\\:ml-\\[7px\\]')
-      .first()
-      .click({ timeout: 5000 })
-      .catch(async () => {
-        await menuButton.click()
-      })
-    await page.waitForTimeout(400)
+async function sourceMenuZhShot() {
+  // 电脑宽度侧栏常开，断言中文菜单；避免手机抽屉+menu-model 点击不稳定。
+  const desktop = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    ignoreHTTPSErrors: true,
+    deviceScaleFactor: 1
+  })
+  const view = await desktop.newPage()
+  view.setDefaultTimeout(20000)
+  try {
+    await view.goto(`${state.upgrade}/admin`, { waitUntil: 'domcontentloaded' })
+    await view.locator('input').nth(0).fill(state.adminUser)
+    await view.locator('input[type="password"]').fill(state.adminPass)
+    await view.getByRole('button', { name: '登录' }).click()
+    await view.waitForURL((url) => !url.pathname.startsWith('/admin'), { timeout: 20000 })
+    await view.goto(`${state.upgrade}/source-station/settings`, { waitUntil: 'domcontentloaded' })
+    const side = view.locator('.layout-sidebar')
+    await side.getByText('源站运营', { exact: true }).waitFor()
+    for (const label of ['软件目录', '入驻审核', '公开目录', '广告投放', '源站设置']) {
+      await side.getByText(label, { exact: true }).waitFor()
+    }
+    for (const retired of ['商业版设置', '商店订单', '主授权与权益', '商业版收入']) {
+      if (
+        await side
+          .getByText(retired, { exact: true })
+          .isVisible()
+          .catch(() => false)
+      ) {
+        throw new Error(`旧菜单仍在侧栏: ${retired}`)
+      }
+    }
+    await side.screenshot({ path: shot('phone-source-menu-zh.png') })
+  } finally {
+    await desktop.close()
   }
-  await title.click()
-  await page.waitForTimeout(400)
 }
 
 // 开通商业版弹框：电脑宽度下打开「升级商业版」，登录绑定后截图套餐页，付款在下面的手机宽度里走。
@@ -170,31 +187,8 @@ try {
   await page.getByText(/商业版已支付合计/).waitFor()
   await page.screenshot({ path: shot('phone-payment-orders.png') })
 
-  await login(state.upgrade)
-  await page.goto(`${state.upgrade}/license/apps`, { waitUntil: 'domcontentloaded' })
-  await openMenu()
-  await page.locator('.menu-left .el-scrollbar__wrap').evaluate((wrap) => {
-    const item = [...wrap.querySelectorAll('.el-sub-menu__title, .el-menu-item')].find((el) =>
-      el.textContent?.includes('源站运营')
-    )
-    if (item) wrap.scrollTop = item.offsetTop
-  })
-  await page.getByText('软件目录', { exact: true }).waitFor()
-  await page.getByText('入驻审核', { exact: true }).waitFor()
-  await page.getByText('公开目录', { exact: true }).waitFor()
-  await page.getByText('广告投放', { exact: true }).waitFor()
-  await page.getByText('源站设置', { exact: true }).first().waitFor()
-  for (const retired of ['商业版设置', '商店订单', '主授权与权益', '商业版收入']) {
-    if (
-      await page
-        .getByText(retired, { exact: true })
-        .isVisible()
-        .catch(() => false)
-    ) {
-      throw new Error(`旧菜单仍在侧栏: ${retired}`)
-    }
-  }
-  await page.screenshot({ path: shot('phone-source-menu-zh.png') })
+  console.log('upgrade source menu')
+  await sourceMenuZhShot()
   console.log('screenshots ok')
 } catch (error) {
   await page.screenshot({ path: shot('phone-failure.png') }).catch(() => {})

@@ -126,7 +126,8 @@
         }"
       />
     </div>
-    <div class="sidebar-ad-wrap">
+    <!-- 侧栏收起（含手机宽度 width:0）时一并隐藏，避免招租卡溢出盖住顶栏汉堡 -->
+    <div v-show="menuOpen" class="sidebar-ad-wrap">
       <ArtAdSlot position="console-sidebar" height="120px" :close-days="7" />
     </div>
   </div>
