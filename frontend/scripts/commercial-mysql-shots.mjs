@@ -47,7 +47,12 @@ async function sourceMenuZhShot() {
       await side.getByText(label, { exact: true }).waitFor()
     }
     for (const retired of ['商业版设置', '商店订单', '主授权与权益', '商业版收入']) {
-      if (await side.getByText(retired, { exact: true }).isVisible().catch(() => false)) {
+      if (
+        await side
+          .getByText(retired, { exact: true })
+          .isVisible()
+          .catch(() => false)
+      ) {
         throw new Error(`旧菜单仍在侧栏: ${retired}`)
       }
     }
