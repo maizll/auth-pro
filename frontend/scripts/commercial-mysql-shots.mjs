@@ -26,11 +26,12 @@ async function login(base) {
 }
 
 async function openMenu() {
-  // 手机宽度侧栏默认收起。顶栏汉堡是 ArtIconButton（div.header-icon），不是 <button>。
-  // 不要 Playwright force 点「源站运营」：会点穿到 menu-model 把侧栏关掉。
+  // 手机宽度侧栏默认收起。顶栏汉堡是 ArtIconButton（div.header-icon）。
   const title = page.locator('.menu-left .el-sub-menu__title').filter({ hasText: '源站运营' }).first()
+  const child = page.locator('.menu-left').getByText('软件目录', { exact: true })
   if (!(await title.isVisible().catch(() => false))) {
     await page.locator('.header-icon').first().click({ force: true })
+    await page.waitForTimeout(600)
     await title.waitFor({ state: 'visible', timeout: 10000 })
   }
   await page.locator('.menu-left .el-scrollbar__wrap').evaluate((wrap) => {
@@ -39,9 +40,17 @@ async function openMenu() {
     )
     if (!item) throw new Error('侧栏里没有源站运营')
     wrap.scrollTop = Math.max(0, item.offsetTop - 40)
-    item.click()
   })
-  await page.locator('.menu-left').getByText('软件目录', { exact: true }).waitFor({ state: 'visible', timeout: 10000 })
+  // 先正常点；若子项仍隐藏再原生 click（避免 force 点穿 menu-model）
+  if (!(await child.isVisible().catch(() => false))) {
+    await title.click({ timeout: 5000 }).catch(() => {})
+  }
+  if (!(await child.isVisible().catch(() => false))) {
+    await title.evaluate((el) => {
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }))
+    })
+  }
+  await child.waitFor({ state: 'visible', timeout: 10000 })
   await page.waitForTimeout(400)
 }
 
