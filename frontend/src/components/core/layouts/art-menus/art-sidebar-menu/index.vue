@@ -3,7 +3,11 @@
   <div
     class="layout-sidebar"
     v-if="showLeftMenu || isDualMenu"
-    :class="{ 'no-border': menuList.length === 0 }"
+    :class="{
+      'no-border': menuList.length === 0,
+      // 窄屏打开时去掉 width:0/overflow:hidden，否则抽屉被裁掉只剩全屏遮罩
+      'is-mobile-open': isMobileScreen && menuOpen
+    }"
   >
     <!-- 双列菜单（左侧） -->
     <div

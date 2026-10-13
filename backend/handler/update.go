@@ -190,6 +190,47 @@ func sameProductVersion(left, right string) bool {
 	return trim(left) != "" && trim(left) == trim(right)
 }
 
+// healStaleMatchedRestartingJob 版本已是目标且无守护交接时，把过久仍停在 restarting/running 的任务记成完成。
+// SettleOnlineUpdateJobsAfterRestart 只在启动时扫一次；交接竞态下任务文件可能晚于扫盘才写成 restarting，
+// 之后版本接口会一直带 update.status=restarting。这里在读 hint 时自愈，避免挡更新、误导前端。
+func healStaleMatchedRestartingJob(job *onlineUpdateJob) *onlineUpdateJob {
+	if job == nil {
+		return nil
+	}
+	if job.Status != "running" && job.Status != "restarting" {
+		return job
+	}
+	if !sameProductVersion(job.Version, config.AppVersion) {
+		return job
+	}
+	if onlineUpdateHandoffPending() {
+		return job
+	}
+	// 比启动收尾窗口更宽一点，避免健康检查窗口内抢先成功。
+	staleAfter := settleScriptWindow + 30*time.Second
+	if staleAfter < time.Minute {
+		staleAfter = time.Minute
+	}
+	if time.Since(job.UpdatedAt) < staleAfter {
+		return job
+	}
+	now := time.Now()
+	job.Status = "success"
+	job.Message = "更新完成"
+	job.Progress = 100
+	job.Error = ""
+	job.Logs = append(job.Logs, fmt.Sprintf("%s 当前版本已是 v%s，收尾停在重启中的任务", now.Format("15:04:05"), strings.TrimPrefix(config.AppVersion, "v")))
+	job.UpdatedAt = now
+	persistOnlineUpdateJob(job)
+	updateStore.mu.Lock()
+	if updateStore.runningID == job.ID {
+		updateStore.runningID = ""
+	}
+	updateStore.jobs[job.ID] = cloneOnlineUpdateJob(job)
+	updateStore.mu.Unlock()
+	return job
+}
+
 func latestOnlineUpdateHint() *onlineUpdateVersionHint {
 	dir := config.GetUpdateDir()
 	entries, err := os.ReadDir(dir)
@@ -218,6 +259,7 @@ func latestOnlineUpdateHint() *onlineUpdateVersionHint {
 		if job == nil {
 			continue
 		}
+		job = healStaleMatchedRestartingJob(job)
 		hint := &onlineUpdateVersionHint{
 			JobID:         job.ID,
 			TargetVersion: job.Version,

@@ -147,3 +147,39 @@ func TestSettleWaitsForGuardianResult(t *testing.T) {
 		t.Fatalf("应以守护写的失败为准: %+v", job)
 	}
 }
+
+// 启动收尾竞态留下「版本已对齐却仍 restarting」时，版本接口应自愈记成 success。
+func TestHealStaleMatchedRestartingViaHint(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AUTO_PRO_DATA_DIR", dataDir)
+	updates := filepath.Join(dataDir, "updates")
+	if err := os.MkdirAll(updates, 0755); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(onlineUpdateJob{
+		ID:        "Ustuck",
+		Status:    "restarting",
+		Version:   config.AppVersion,
+		Progress:  95,
+		Logs:      []string{},
+		UpdatedAt: time.Now().Add(-2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(updates, "Ustuck.json"), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	previous := settleScriptWindow
+	settleScriptWindow = 20 * time.Millisecond
+	t.Cleanup(func() { settleScriptWindow = previous })
+
+	hint := latestOnlineUpdateHint()
+	if hint == nil || hint.JobID != "Ustuck" || hint.Status != "success" {
+		t.Fatalf("过久的对齐 restarting 应自愈为 success: %+v", hint)
+	}
+	job := loadOnlineUpdateJob("Ustuck")
+	if job == nil || job.Status != "success" || job.Progress != 100 {
+		t.Fatalf("任务文件应已写成 success: %+v", job)
+	}
+}
