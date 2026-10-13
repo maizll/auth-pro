@@ -211,6 +211,13 @@
     width: 0;
     overflow: hidden; // 收起时裁掉侧栏广告，避免招租卡盖住顶栏
 
+    // 打开时必须放出抽屉宽度；否则只有 position:fixed 的 menu-model 逃出裁剪，
+    // 用户只看到全屏变暗、点不到汉堡，侧栏菜单本身仍宽为 0。
+    &.is-mobile-open {
+      width: auto;
+      overflow: visible;
+    }
+
     .header {
       height: 50px;
       line-height: 50px;
@@ -247,9 +254,20 @@
       height: 100vh;
       background: rgba($color: #000, $alpha: 50%);
       transition: opacity 0.2s ease-in-out;
+      // 收起时 scale(0) 在部分 WebKit 仍可能吃点击；默认关掉命中
+      pointer-events: none;
+    }
+
+    .menu-left-open .menu-model {
+      pointer-events: auto;
     }
 
     // 遮罩在侧栏内部时必须让菜单在上层，否则点子菜单会点到遮罩把自己关掉
+    .menu-left-open {
+      position: relative;
+      z-index: 1;
+    }
+
     .menu-left .el-scrollbar,
     .menu-left .header {
       position: relative;

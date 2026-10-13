@@ -3693,11 +3693,49 @@ baota_site_process_start() {
   printf '%s\n' "$(( $(date +%s) - age ))"
 }
 
+# 目标版本已是当前运行版本、却仍停在 running/restarting 的任务（无 .result 时 Settle 竞态会留下）。
+# 打印任务编号；没有则返回非 0。
+baota_matched_unsettled_update_job() {
+  local updates="$1/updates" current="$2"
+  [[ -d "$updates" && -n "$current" ]] || return 1
+  python3 - "$updates" "$current" <<'PY'
+import glob, json, os, sys
+updates, current = sys.argv[1], sys.argv[2].lstrip("vV")
+best = None
+for path in glob.glob(os.path.join(updates, "*.json")):
+    if path.endswith(".tmp"):
+        continue
+    try:
+        with open(path, encoding="utf-8") as handle:
+            job = json.load(handle)
+    except Exception:
+        continue
+    status = (job.get("status") or "").strip()
+    version = str(job.get("version") or "").lstrip("vV")
+    if status not in ("running", "restarting") or version != current:
+        continue
+    mtime = os.path.getmtime(path)
+    if best is None or mtime > best[0]:
+        best = (mtime, job.get("id") or os.path.basename(path)[:-5])
+if not best:
+    sys.exit(1)
+print(best[1])
+PY
+}
+
 menu_clear_stuck_update_job() {
   local data="$1" job started version
-  # 1.8.9 起程序会按结果文件自己结束这种任务，不需要重启
   version="$(menu_site_version)"
+  # 1.8.9+：版本已对齐却仍 restarting 时，重启一次让 SettleOnlineUpdateJobsAfterRestart 收尾
+  # （守护交接竞态下新进程启动时任务文件可能还没写成 restarting，Settle 扫空就退出了）。
   if [[ "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]] && [[ "$(printf '%s\n1.8.9\n' "$version" | sort -V | head -n 1)" == "1.8.9" ]]; then
+    job="$(baota_matched_unsettled_update_job "$data" "$version")" || return 0
+    baota_warn "在线更新任务 ${job} 目标已是当前版本 v${version}，却仍停在重启中，版本接口会一直报 restarting。现在重启一次本站程序让收尾逻辑记成完成，网站文件不受影响。"
+    if baota_find_supervisor && ( menu_service restart ); then
+      baota_info "本站程序已重启；约 20 秒后 /api/system/version 不应再带 update.status=restarting"
+      return 0
+    fi
+    baota_warn "没能自动重启。请在宝塔「软件商店 → 进程守护管理器」里重启本站，或手动把 ${data}/updates/${job}.json 的 status 改成 success。"
     return 0
   fi
   started="$(baota_site_process_start)" || return 0
@@ -3709,6 +3747,7 @@ menu_clear_stuck_update_job() {
   fi
   baota_warn "没能自动重启。请在宝塔「软件商店 → 进程守护管理器」里重启本站，然后再点「立即更新」。"
 }
+
 
 menu_show_admin() {
   local dest
