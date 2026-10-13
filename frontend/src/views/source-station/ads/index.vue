@@ -568,9 +568,23 @@
     }
   }
   async function toggleSlot(id: string, enabled: boolean | string | number) {
-    await request.put({ url: `/api/v1/source/admin/ad-slots/${id}`, data: { enabled: !!enabled } })
-    ElMessage.success('已更新')
-    await loadSlots()
+    // Element Plus switch 的 change 值应是布尔；显式归一，避免异常真值把「关」写成「开」
+    const next = enabled === true || enabled === 1 || enabled === '1' || enabled === 'true'
+    const row = slotList.value.find((s) => s.id === id)
+    const prev = row?.enabled
+    if (row) row.enabled = next
+    try {
+      const data: any = await request.put({
+        url: `/api/v1/source/admin/ad-slots/${id}`,
+        data: { enabled: next }
+      })
+      if (row && typeof data?.enabled === 'boolean') row.enabled = data.enabled
+      ElMessage.success('已更新')
+      await loadSlots()
+    } catch (error) {
+      if (row && prev !== undefined) row.enabled = prev
+      throw error
+    }
   }
   async function loadAudit() {
     auditLoading.value = true

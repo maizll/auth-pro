@@ -125,10 +125,10 @@
           transform: showMobileModal ? 'scale(1)' : 'scale(0)'
         }"
       />
-    </div>
-    <!-- 侧栏收起（含手机宽度 width:0）时一并隐藏，避免招租卡溢出盖住顶栏汉堡 -->
-    <div v-show="menuOpen" class="sidebar-ad-wrap">
-      <ArtAdSlot position="console-sidebar" height="120px" :close-days="7" />
+      <!-- 菜单底小卡：放在 menu-left 内，避免 flex 横排溢出盖住汉堡/工作台 -->
+      <div v-show="menuOpen" class="sidebar-ad-wrap">
+        <ArtAdSlot position="console-sidebar" height="120px" :close-days="7" />
+      </div>
     </div>
   </div>
 </template>
@@ -236,9 +236,12 @@
       }
     }
 
+    // flex 列布局下由样式 flex:1 占满，给底栏广告留位，避免再写死 height 把招租卡挤出侧栏
     return {
       transform: 'translateY(0)',
-      height: 'calc(100% - 60px)',
+      flex: '1 1 auto',
+      minHeight: 0,
+      height: 'auto',
       transition: 'transform 0.3s ease'
     }
   })
