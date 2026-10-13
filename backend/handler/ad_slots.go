@@ -190,19 +190,6 @@ func ensureAdSlotSettingsTable(db *sql.DB) error {
 	return err
 }
 
-func persistAdSlotSwitches() error {
-	db, err := config.DB()
-	if err != nil {
-		return err
-	}
-	if err := ensureAdSlotSettingsTable(db); err != nil {
-		return err
-	}
-	adSlotEnabledL.RLock()
-	defer adSlotEnabledL.RUnlock()
-	return persistAdSlotSwitchesLocked(db)
-}
-
 // persistAdSlotSwitchesLocked 写出当前内存开关；调用方必须已持有 adSlotEnabledL（读或写锁均可）。
 func persistAdSlotSwitchesLocked(db *sql.DB) error {
 	payload := make(map[string]bool, len(adSlotEnabled))
