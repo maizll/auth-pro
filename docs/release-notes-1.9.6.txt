@@ -1,0 +1,8 @@
+auth-pro 1.9.6
+
+窄屏侧栏裁剪与卡住 restarting 收尾。
+
+- 窄屏打开侧栏时取消 width:0/overflow:hidden，避免抽屉被裁掉只剩全屏遮罩
+- 收起时 menu-model 默认 pointer-events:none，降低 WebKit 误吃点击
+- 版本已对齐且无守护交接的过久 restarting 任务在 version hint 自愈为 success
+- install.sh 清卡：≥1.8.9 对齐 restarting 时重启收尾

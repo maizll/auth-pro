@@ -1,5 +1,12 @@
 # 更新日志
 
+## [v1.9.6] 2026-10-13 — 窄屏侧栏裁剪与卡住 restarting 收尾
+
+- 修复 ≤800px 打开侧栏菜单仍被 `width:0; overflow:hidden` 裁掉：打开时改为 `width:auto; overflow:visible`，避免只剩全屏遮罩、点不到导航。
+- 收起时侧栏遮罩默认 `pointer-events:none`，降低部分 WebKit 误吃点击。
+- 版本已对齐且无守护交接的过久 restarting/running 任务，在读 `/api/system/version` hint 时自愈为 success。
+- install.sh「修复在线更新权限」：≥1.8.9 若目标版本已是当前版却仍 restarting，重启一次本站程序让收尾逻辑记成完成。
+
 ## [v1.9.5] 2026-10-13 — 广告位开关落库与侧栏招租卡布局
 
 - 修复官网「广告位远程开关」关闭后刷新又打开：开关改为同一把锁内读库→改内存→写库，避免与公开广告接口的并发 load 把未落库的关闭盖回开启。
