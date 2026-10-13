@@ -20,6 +20,8 @@ export const useSystemConfigStore = defineStore(
     const selfPurchaseEnabled = ref(true)
     const captchaEnabled = ref(false)
     const captchaId = ref('')
+    /** 官网不展示广告位；客户站为 false */
+    const official = ref(false)
     const loaded = ref(false)
 
     const resolvedLogo = computed(() => siteLogo.value || defaultLogo)
@@ -36,6 +38,7 @@ export const useSystemConfigStore = defineStore(
       selfPurchaseEnabled.value = config?.selfPurchaseEnabled ?? true
       captchaEnabled.value = config?.geetestEnabled ?? false
       captchaId.value = config?.geetestEnabled ? config?.geetestCaptchaId?.trim() || '' : ''
+      official.value = config?.official === true
       loaded.value = true
     }
 
@@ -68,6 +71,7 @@ export const useSystemConfigStore = defineStore(
       selfPurchaseEnabled,
       captchaEnabled,
       captchaId,
+      official,
       loaded,
       resolvedLogo,
       applyConfig,

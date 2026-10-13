@@ -38,6 +38,7 @@
   import type { AdPosition } from '@/api/advertisement'
   import { AD_SLOT_PRICE_YUAN } from '@/api/advertisement'
   import { useAdvertisement } from '@/hooks'
+  import { useSystemConfigStore } from '@/store/modules/system-config'
   import { claimAdSlot, releaseAdSlot } from '@/utils/ads/screen-limit'
 
   defineOptions({ name: 'ArtAdSlot' })
@@ -54,6 +55,7 @@
   )
 
   const router = useRouter()
+  const isOfficialSite = computed(() => useSystemConfigStore().official === true)
   const closedKey = `auth-pro:ad-closed:${props.position}`
   const closed = ref(false)
 
@@ -80,11 +82,13 @@
 
   const allowed = ref(false)
   onMounted(() => {
+    if (isOfficialSite.value) return
     allowed.value = claimAdSlot(props.position)
   })
 
   const visible = computed(
     () =>
+      !isOfficialSite.value &&
       !closed.value &&
       allowed.value &&
       !loading.value &&

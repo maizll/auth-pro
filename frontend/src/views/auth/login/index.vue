@@ -2,7 +2,7 @@
 <template>
   <div class="auth-login-page">
     <div class="flex w-full h-screen items-center justify-center gap-8">
-      <div class="hidden min-[1200px]:block" style="width: 312px">
+      <div class="auth-login-ad-wrap hidden min-[1200px]:block">
         <ArtAdSlot position="console-login" height="195px" :close-days="30" />
       </div>
       <div class="relative">
@@ -241,6 +241,17 @@
     }, 1000)
   }
 </script>
+
+<style lang="scss" scoped>
+  .auth-login-ad-wrap {
+    width: 312px;
+  }
+
+  .auth-login-ad-wrap:not(:has(.ad-slot)) {
+    display: none !important;
+    width: 0;
+  }
+</style>
 
 <style scoped>
   @import './style.css';

@@ -73,7 +73,7 @@
         />
 
         <!-- 通知中心 -->
-        <div class="header-ad-topbar hidden xl:block" style="max-width: 340px; margin-right: 12px">
+        <div class="header-ad-topbar hidden xl:block">
           <ArtAdSlot position="console-topbar" height="28px" :close-days="7" />
         </div>
         <ArtNotificationBell v-if="shouldShowNotification" />
@@ -266,6 +266,16 @@
 </script>
 
 <style lang="scss" scoped>
+  .header-ad-topbar {
+    max-width: 340px;
+    margin-right: 12px;
+  }
+
+  .header-ad-topbar:not(:has(.ad-slot)) {
+    display: none !important;
+    margin: 0;
+  }
+
   /* Custom animations */
   @keyframes rotate180 {
     0% {

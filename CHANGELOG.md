@@ -1,5 +1,12 @@
 # 更新日志
 
+## [v1.9.7] 2026-10-13 — 官网不挂广告展示 + 侧栏招租卡入屉
+
+- **产品边界**：广告展示/招租仅客户站。官网（server，`officialSite`）`/api/advertisements` 固定 `enabled=false` 且无创意；源站远程开关/审核/收款保留。公开协议 `/api/v1/public/advertisements` 仍可供 SDK。
+- 公开系统配置增加 `official`；前端 ArtAdSlot / useAdvertisement 在官网直接塌掉，不拉 feed。
+- 侧栏底栏：空位/` :has(.ad-slot)` 塌掉；窄屏去掉 `el-menu` 写死 `calc(100vh-60px)`；白底层抬到抽屉内遮罩之上，招租卡不再浮在 dim mask 外。
+- 工作台/顶栏/登录/用户·代理侧栏等包装位同步空塌。
+
 ## [v1.9.6] 2026-10-13 — 窄屏侧栏裁剪与卡住 restarting 收尾
 
 - 修复 ≤800px 打开侧栏菜单仍被 `width:0; overflow:hidden` 裁掉：打开时改为 `width:auto; overflow:visible`，避免只剩全屏遮罩、点不到导航。

@@ -26,7 +26,7 @@
       </ElCol>
     </ElRow>
 
-    <div style="margin: 0 0 14px">
+    <div class="console-home-ad-wrap">
       <ArtAdSlot position="console-home" height="104px" />
     </div>
 
@@ -310,6 +310,15 @@
 </script>
 
 <style lang="scss" scoped>
+  .console-home-ad-wrap {
+    margin: 0 0 14px;
+  }
+
+  .console-home-ad-wrap:not(:has(.ad-slot)) {
+    display: none;
+    margin: 0;
+  }
+
   .admin-dashboard {
     .card-row {
       margin-bottom: 16px;

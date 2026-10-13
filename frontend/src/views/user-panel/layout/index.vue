@@ -351,6 +351,11 @@
       flex-shrink: 0;
       padding: 10px;
     }
+
+    .sidebar-ad:not(:has(.ad-slot)) {
+      display: none;
+      padding: 0;
+    }
   }
 
   .panel-main {

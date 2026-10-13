@@ -385,3 +385,45 @@ func TestPublicAdvertisementsEnabledEmptySlotReportsEnabledTrue(t *testing.T) {
 	}
 	assertSafeDefaultPlaceholder(t, body.Data.Placeholder)
 }
+
+func TestPublicAdvertisementsOfficialSiteNeverEnablesDisplay(t *testing.T) {
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", "")
+	resetAdvertisementCache(t)
+	useOfficialSiteForTest(t)
+	setAdSlotEnabled(adSlotConsoleSidebar, true)
+
+	code, body := callAdvertisementData(t, "console-sidebar")
+	if code != 200 {
+		t.Fatalf("code=%d", code)
+	}
+	if body.Data.Enabled {
+		t.Fatal("官网公开广告接口不得开启展示/招租（enabled 应为 false）")
+	}
+	if len(body.Data.Records) != 0 {
+		t.Fatalf("官网不得返回控制台广告创意：%v", body.Data.Records)
+	}
+}
+
+func TestPublicLocalAdvertisementsStillServesOnOfficial(t *testing.T) {
+	// SDK / 上游协议走 /api/v1/public/advertisements，官网仍可提供本地投放数据。
+	t.Setenv("AUTO_PRO_ADVERTISEMENT_URL", "")
+	resetAdvertisementCache(t)
+	useOfficialSiteForTest(t)
+	setAdSlotEnabled(adSlotHomeBanner, true)
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/public/advertisements?position=home-banner", nil)
+	PublicLocalAdvertisements(c)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("HTTP %d", recorder.Code)
+	}
+	var body advertisementPublicBody
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != 200 || !body.Data.Enabled {
+		t.Fatalf("官网本地公开协议位仍应 enabled，code=%d enabled=%v", body.Code, body.Data.Enabled)
+	}
+}
