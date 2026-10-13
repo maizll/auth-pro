@@ -126,6 +126,12 @@ func PublicAdvertisements(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "广告位标识不合法"})
 		return
 	}
+	// 官网（server edition）不展示广告位：远程开关/审核/收款仍走源站管理；
+	// 招租与创意只出现在客户站。/api/v1/public/advertisements 仍供 SDK/上游协议。
+	if officialSite() {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(advertisementPayload{records: []advertisementRecord{}, placeholder: resolveAdvertisementPlaceholder(nil)}, false)})
+		return
+	}
 	loadAdSlotSwitchesFromStore()
 	if shouldSuppressAllAds() || !isAdSlotEnabled(position) {
 		c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "ok", "data": advertisementPublicData(advertisementPayload{records: []advertisementRecord{}, placeholder: resolveAdvertisementPlaceholder(nil)}, false)})

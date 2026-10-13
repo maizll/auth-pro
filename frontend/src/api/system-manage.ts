@@ -21,6 +21,8 @@ export interface SystemConfigData {
   /** 验证 Key 只写不读：提交时留空表示保持已保存的 Key */
   geetestCaptchaKey?: string
   geetestCaptchaKeySet: boolean
+  /** 官网（server）：不挂载广告展示；仅客户站显示固定槽 */
+  official?: boolean
 }
 
 export interface PaymentConfigData {

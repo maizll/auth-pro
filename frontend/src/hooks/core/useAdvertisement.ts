@@ -5,9 +5,11 @@ import {
   isAdRecruitPosition
 } from '@/api/advertisement'
 import type { AdPosition, AdvertisementItem, AdvertisementPlaceholder } from '@/api/advertisement'
+import { useSystemConfigStore } from '@/store/modules/system-config'
 
 /**
- * 拉取某个广告位。
+ * 拉取某个广告位（仅客户站）。
+ * - 官网（official）：不拉 feed、不招租，直接塌掉
  * - 有投放：返回 records（会话内按权重固定一条，禁止轮播）
  * - 槽位开启且空、且为可招租卡片位：recruiting=true（由 ArtAdSlot 画虚线招租）
  * - 槽位关闭 / 不可达 / 非招租位空位：塌掉
@@ -44,6 +46,13 @@ export function useAdvertisement(position: AdPosition) {
     unreachable.value = false
     slotEnabled.value = false
     recruiting.value = false
+    // 官网 chrome 不展示广告；远程开关/审核仍在源站管理页。
+    if (useSystemConfigStore().official) {
+      items.value = []
+      isPlaceholderOnly.value = true
+      loading.value = false
+      return
+    }
     try {
       const result = await fetchAdvertisements(position)
       const records = (result?.records ?? []).filter((r) => r && !r.isPlaceholder)

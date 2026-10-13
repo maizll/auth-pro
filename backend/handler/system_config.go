@@ -49,6 +49,8 @@ type systemConfigResponse struct {
 	GeetestEnabled         bool   `json:"geetestEnabled"`
 	GeetestCaptchaID       string `json:"geetestCaptchaId"`
 	GeetestCaptchaKeySet   bool   `json:"geetestCaptchaKeySet"`
+	// Official：当前进程是官网（server）。广告展示只在客户站；官网仅保留远程开关/审核。
+	Official bool `json:"official"`
 }
 
 type updateSystemConfigRequest struct {
@@ -267,6 +269,7 @@ func PublicSystemConfig(c *gin.Context) {
 		RegistrationEnabled:    true,
 		SelfPurchaseEnabled:    true,
 		PiracyDetectionEnabled: false,
+		Official:               officialSite(),
 	}
 	db, err := openSystemConfigDB()
 	if err != nil {
@@ -283,6 +286,7 @@ func PublicSystemConfig(c *gin.Context) {
 	if err != nil {
 		result = fallback
 	}
+	result.Official = officialSite()
 	writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": result})
 }
 
@@ -302,6 +306,7 @@ func AdminSystemConfig(c *gin.Context) {
 		writeSystemConfig(c, http.StatusOK, gin.H{"code": 500, "msg": "读取系统配置失败"})
 		return
 	}
+	result.Official = officialSite()
 	writeSystemConfig(c, http.StatusOK, gin.H{"code": 200, "msg": "", "data": result})
 }
 

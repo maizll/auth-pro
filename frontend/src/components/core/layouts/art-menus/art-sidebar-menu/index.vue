@@ -129,8 +129,8 @@
           transform: showMobileModal ? 'scale(1)' : 'scale(0)'
         }"
       />
-      <!-- 菜单底小卡：放在 menu-left 内，避免 flex 横排溢出盖住汉堡/工作台 -->
-      <div v-show="menuOpen" class="sidebar-ad-wrap">
+      <!-- 客户站菜单底小卡；官网不挂载广告展示 -->
+      <div v-if="!isOfficialSite" v-show="menuOpen" class="sidebar-ad-wrap">
         <ArtAdSlot position="console-sidebar" height="120px" :close-days="7" />
       </div>
     </div>
@@ -161,7 +161,7 @@
 
   const { getMenuOpenWidth, menuType, uniqueOpened, dualMenuShowText, menuOpen, getMenuTheme } =
     storeToRefs(settingStore)
-  const { siteName } = storeToRefs(systemConfigStore)
+  const { siteName, official: isOfficialSite } = storeToRefs(systemConfigStore)
 
   // 组件内部状态
   const defaultOpenedMenus = ref<string[]>(['/license'])

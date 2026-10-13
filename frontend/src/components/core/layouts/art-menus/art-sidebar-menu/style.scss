@@ -99,7 +99,9 @@
     }
 
     .el-menu {
-      height: 100%;
+      // 高度交给外层 flex + scrollbar，勿写死 100%/100vh，否则底栏广告被挤出白底
+      height: auto;
+      min-height: 100%;
     }
 
     .sidebar-ad-wrap {
@@ -112,6 +114,14 @@
       padding: 8px 10px 12px;
       overflow: hidden;
       pointer-events: auto;
+      // 与侧栏同色，盖住内部 dim mask，避免招租卡「浮在遮罩上」
+      background: inherit;
+    }
+
+    // 空位/关闭/官网：塌掉底栏，菜单伸到抽屉底
+    .sidebar-ad-wrap:not(:has(.ad-slot)) {
+      display: none;
+      padding: 0;
     }
 
     :deep(.el-scrollbar) {
@@ -224,7 +234,9 @@
     }
 
     .el-menu {
-      height: calc(100vh - 60px);
+      // 窄屏同样走 flex，不再 calc(100vh-60px) 与底栏广告抢高度
+      height: auto;
+      min-height: 0;
     }
 
     .el-menu--collapse {
@@ -248,7 +260,8 @@
       position: fixed;
       top: 0;
       left: 0;
-      z-index: 0;
+      // 低于白底层，避免招租卡周围「露出遮罩」像浮在抽屉外
+      z-index: -1;
       display: block;
       width: 100%;
       height: 100vh;
@@ -262,16 +275,31 @@
       pointer-events: auto;
     }
 
-    // 遮罩在侧栏内部时必须让菜单在上层，否则点子菜单会点到遮罩把自己关掉
+    // 遮罩在侧栏内部时必须让菜单+底栏在上层，否则点子菜单会点到遮罩；
+    // 白底也要抬到 mask 之上，否则招租卡周围露出 dim 像「浮在遮罩外」。
     .menu-left-open {
       position: relative;
       z-index: 1;
     }
 
+    .menu-left-open::before {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      content: '';
+      background: inherit;
+    }
+
     .menu-left .el-scrollbar,
-    .menu-left .header {
+    .menu-left .header,
+    .menu-left .sidebar-ad-wrap {
       position: relative;
       z-index: 1;
+    }
+
+    .menu-left .menu-model {
+      z-index: -1;
     }
   }
 }
