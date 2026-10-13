@@ -89,7 +89,10 @@
   .menu-left {
     position: relative;
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
     height: 100vh;
+    overflow: hidden;
 
     @media only screen and (width <= 640px) {
       height: 100dvh;
@@ -97,6 +100,23 @@
 
     .el-menu {
       height: 100%;
+    }
+
+    .sidebar-ad-wrap {
+      position: relative;
+      z-index: 2;
+      flex-shrink: 0;
+      box-sizing: border-box;
+      width: 100%;
+      max-width: 100%;
+      padding: 8px 10px 12px;
+      overflow: hidden;
+      pointer-events: auto;
+    }
+
+    :deep(.el-scrollbar) {
+      flex: 1 1 auto;
+      min-height: 0;
     }
 
     &:hover {

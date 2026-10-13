@@ -135,22 +135,27 @@ func setAdSlotEnabled(id string, enabled bool) {
 
 const adSlotSettingKey = "ad_slot_switches"
 
-func loadAdSlotSwitchesFromStore() {
-	db, err := config.DB()
-	if err != nil {
-		return
-	}
+func readAdSlotSwitchesRaw(db *sql.DB) (string, error) {
 	var raw string
-	err = db.QueryRow(`SELECT setting_value FROM source_station_settings WHERE setting_key=?`, adSlotSettingKey).Scan(&raw)
-	if err != nil || strings.TrimSpace(raw) == "" {
+	err := db.QueryRow(`SELECT setting_value FROM source_station_settings WHERE setting_key=?`, adSlotSettingKey).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(raw), nil
+}
+
+// applyAdSlotSwitchesJSONLocked 把库里的开关 JSON 合并进内存；调用方必须已持有 adSlotEnabledL。
+func applyAdSlotSwitchesJSONLocked(raw string) {
+	if strings.TrimSpace(raw) == "" {
 		return
 	}
 	var switches map[string]bool
 	if err := json.Unmarshal([]byte(raw), &switches); err != nil {
 		return
 	}
-	adSlotEnabledL.Lock()
-	defer adSlotEnabledL.Unlock()
 	for id, enabled := range switches {
 		canon := canonicalizeAdSlot(id)
 		if canon == "" {
@@ -163,20 +168,47 @@ func loadAdSlotSwitchesFromStore() {
 	}
 }
 
+func loadAdSlotSwitchesFromStore() {
+	db, err := config.DB()
+	if err != nil {
+		return
+	}
+	raw, err := readAdSlotSwitchesRaw(db)
+	if err != nil || raw == "" {
+		return
+	}
+	adSlotEnabledL.Lock()
+	defer adSlotEnabledL.Unlock()
+	applyAdSlotSwitchesJSONLocked(raw)
+}
+
+func ensureAdSlotSettingsTable(db *sql.DB) error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS source_station_settings (
+		setting_key VARCHAR(50) NOT NULL PRIMARY KEY,
+		setting_value TEXT NOT NULL
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='软件源源站设置（含 Release 推送配置）'`)
+	return err
+}
+
 func persistAdSlotSwitches() error {
 	db, err := config.DB()
 	if err != nil {
 		return err
 	}
-	if err := ensureSourceStationStorage(db); err != nil {
+	if err := ensureAdSlotSettingsTable(db); err != nil {
 		return err
 	}
 	adSlotEnabledL.RLock()
+	defer adSlotEnabledL.RUnlock()
+	return persistAdSlotSwitchesLocked(db)
+}
+
+// persistAdSlotSwitchesLocked 写出当前内存开关；调用方必须已持有 adSlotEnabledL（读或写锁均可）。
+func persistAdSlotSwitchesLocked(db *sql.DB) error {
 	payload := make(map[string]bool, len(adSlotEnabled))
 	for id, enabled := range adSlotEnabled {
 		payload[id] = enabled
 	}
-	adSlotEnabledL.RUnlock()
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -184,6 +216,33 @@ func persistAdSlotSwitches() error {
 	_, err = db.Exec(`INSERT INTO source_station_settings (setting_key, setting_value) VALUES (?, ?)
 		ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)`, adSlotSettingKey, string(raw))
 	return err
+}
+
+// switchAdSlotEnabled 在同一把锁内：读库 → 改内存 → 写库，避免与 PublicAdvertisements 的 load 交错把未落库的 false 盖回 true。
+func switchAdSlotEnabled(id string, enabled bool) error {
+	id = canonicalizeAdSlot(id)
+	if id == "" {
+		return errors.New("广告位不存在")
+	}
+	db, err := config.DB()
+	if err != nil {
+		return err
+	}
+	if err := ensureAdSlotSettingsTable(db); err != nil {
+		return err
+	}
+	adSlotEnabledL.Lock()
+	defer adSlotEnabledL.Unlock()
+	raw, err := readAdSlotSwitchesRaw(db)
+	if err != nil {
+		return err
+	}
+	applyAdSlotSwitchesJSONLocked(raw)
+	adSlotEnabled[id] = enabled
+	if id == adSlotConsoleSidebar {
+		adSlotEnabled[adSlotSidebarLegacy] = enabled
+	}
+	return persistAdSlotSwitchesLocked(db)
 }
 
 // AdminAdSlotOverview 官网广告位总览：远程开/关。
@@ -224,17 +283,12 @@ func AdminAdSlotSwitch(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "msg": "参数错误"})
 		return
 	}
-	loadAdSlotSwitchesFromStore()
-	setAdSlotEnabled(id, *req.Enabled)
-	if id == adSlotConsoleSidebar {
-		setAdSlotEnabled(adSlotSidebarLegacy, *req.Enabled)
-	}
-	if err := persistAdSlotSwitches(); err != nil {
+	if err := switchAdSlotEnabled(id, *req.Enabled); err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "msg": "保存失败"})
 		return
 	}
 	invalidateAllAdvertisementCaches()
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已更新", "data": gin.H{"id": id, "enabled": *req.Enabled}})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已更新", "data": gin.H{"id": id, "enabled": isAdSlotEnabled(id)}})
 }
 
 // ClientAdSlotCatalog 客户站购买页：可售位 + 当日余量。
@@ -261,10 +315,10 @@ func ClientAdSlotCatalog(c *gin.Context) {
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "", "data": gin.H{
-		"list":            list,
-		"noRefundNotice":  adNoRefundNotice,
-		"maxOnScreen":     2,
-		"currency":        "CNY",
+		"list":           list,
+		"noRefundNotice": adNoRefundNotice,
+		"maxOnScreen":    2,
+		"currency":       "CNY",
 	}})
 }
 
@@ -286,7 +340,7 @@ func consoleAdsHiddenEnabled(db *sql.DB) bool {
 		}
 	}
 	var value string
-	err := db.QueryRow(`SELECT value FROM system_configs WHERE `+"`group`"+` = 'ads' AND `+"`key`"+` = 'console_ads_hidden'`).Scan(&value)
+	err := db.QueryRow(`SELECT value FROM system_configs WHERE ` + "`group`" + ` = 'ads' AND ` + "`key`" + ` = 'console_ads_hidden'`).Scan(&value)
 	if err != nil {
 		return false
 	}
